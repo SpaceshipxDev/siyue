@@ -31,9 +31,17 @@ const PRODUCTION_FORBIDDEN_PREFIXES = [
 ]
 
 // 工程 head shares outsource duties with commerce, so they're allowed into
-// the 外协 view and the printable 外协单. Everything else on the forbidden
-// list (月结/import/backend/non-outsource print) still blocks them.
-const OUTSOURCE_MANAGER_PREFIXES = ['/station/outsource', '/print/outsource']
+// the 外协 view and the printable 外协单. They also own imports — they upload
+// 报价单 PDFs and confirm them into the master grid the same way commerce
+// does — so /import/* and /api/ingest are explicitly allowed for them.
+// Everything else on the forbidden list (月结/backend/non-outsource print)
+// still blocks them.
+const ENGINEERING_ALLOWED_PREFIXES = [
+  '/station/outsource',
+  '/print/outsource',
+  '/import',
+  '/api/ingest',
+]
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -73,12 +81,12 @@ export async function proxy(request: NextRequest) {
     const forbidden = PRODUCTION_FORBIDDEN_PREFIXES.some(
       (p) => pathname === p || pathname.startsWith(`${p}/`),
     )
-    const outsourceAllowed =
+    const engineeringAllowed =
       session.ds === '工程' &&
-      OUTSOURCE_MANAGER_PREFIXES.some(
+      ENGINEERING_ALLOWED_PREFIXES.some(
         (p) => pathname === p || pathname.startsWith(`${p}/`),
       )
-    if (forbidden && !outsourceAllowed) {
+    if (forbidden && !engineeringAllowed) {
       // Heal stale JWT before bouncing. If the user has actually been
       // promoted to commerce since their cookie was minted, refresh it
       // in place and let the request proceed.

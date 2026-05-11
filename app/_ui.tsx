@@ -30,7 +30,14 @@ type Tab = { key: TabKey; label: string; href: string }
 function tabsForRole(role: Role, defaultStage?: string): Tab[] {
   if (role === 'production') {
     if (defaultStage === '工程') {
-      return [{ key: '外协', label: '外协', href: '/station/outsource' }]
+      // 工程 head's holistic master view IS the 工程 view, so the 工程 tab
+      // here points at bare / (their landing) rather than /station/工程 — same
+      // place but reads as "go home" in the nav. 外协 stays alongside since
+      // they share outsource duties with commerce.
+      return [
+        { key: '工程', label: '工程', href: '/' },
+        { key: '外协', label: '外协', href: '/station/outsource' },
+      ]
     }
     return []
   }

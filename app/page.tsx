@@ -47,12 +47,16 @@ export default async function MasterBoard(
     ? rawJobs.map((j) => scrubJob(j, user))
     : rawJobs
 
-  const inbox = isProduction
-    ? []
-    : jobs.filter(
-        (j) =>
-          j.status === 'parsing' || j.status === 'draft' || j.status === 'failed',
-      )
+  // 工程 head runs imports too, so they get the same draft/parsing inbox
+  // commerce sees. Pure-floor production users (焊接, 喷塑, etc.) still
+  // get an empty inbox — they don't own the import flow.
+  const inbox =
+    isProduction && !isEngineering
+      ? []
+      : jobs.filter(
+          (j) =>
+            j.status === 'parsing' || j.status === 'draft' || j.status === 'failed',
+        )
   const live = jobs.filter(
     (j) => j.status !== 'parsing' && j.status !== 'draft' && j.status !== 'failed',
   )
@@ -78,29 +82,41 @@ export default async function MasterBoard(
   // weight that subtitle used to. 工程 head's holistic landing borrows the
   // commerce chrome (title + subtitle) since they're looking at the whole
   // floor, not just their own queue.
+  // 工程 stage anywhere — bare /, /?stage=工程, by 工程 head or by commerce
+  // — gets the same "工程总览" framing, since the underlying view is the
+  // same flat master grid in every case. Other stages keep the per-station
+  // workbench framing.
   const title = isProduction
     ? isEngineering && !stageFilter
       ? '工程总览'
       : stageFilter ?? '全厂工单'
-    : stageFilter
-      ? `${stageFilter} 工段`
-      : '商务总览'
+    : stageFilter === '工程'
+      ? '工程总览'
+      : stageFilter
+        ? `${stageFilter} 工段`
+        : '商务总览'
   const subtitle = isProduction
     ? isEngineering && !stageFilter
       ? '全部在产工单'
       : undefined
-    : stageFilter
-      ? `查看 · ${stageFilter}`
-      : '全部在产工单'
+    : stageFilter === '工程'
+      ? '全部在产工单'
+      : stageFilter
+        ? `查看 · ${stageFilter}`
+        : '全部在产工单'
+  // 工程 head's nav has a 工程 tab pointing at their master view — light it
+  // up whenever they're on /, /?stage=工程, or any URL that renders the
+  // engineering view. Other production stations have no tabs to highlight.
   const currentTab: TabKey | undefined = isProduction
-    ? undefined
+    ? isEngineering && (!stageFilter || stageFilter === '工程')
+      ? '工程'
+      : undefined
     : (stageFilter as TabKey | undefined) ?? '商务'
-  // The stage we treat as "this station" for the StationSummary + MasterSheet
-  // highlight: URL stage if present, else the user's home station. Commerce
-  // gets the summary only when they've navigated to a station; the bare
-  // overview keeps its existing 6-pill TopBar.
-  const summaryStage: Stage | undefined =
-    stageFilter ?? (isProduction ? user.defaultStage : undefined)
+  // 工程 stage no longer has a per-stage StationWorkbench surface — the
+  // whole "工程 view" is the holistic 商务-style master sheet, just with
+  // the 工程 column highlighted + actionable. So /?stage=工程 (the URL the
+  // 工程 tab routes to) renders the same MasterSheet as bare /.
+  const useMasterSheet = !stageFilter || stageFilter === '工程'
   // "Overview" = commerce hovering over the whole factory (no station picked).
   // The 商务视图 header / MasterUploader / inbox / Legend chrome is for that
   // landing only — when commerce drills into a station they get the same
@@ -114,6 +130,15 @@ export default async function MasterBoard(
   // Anything that should render the commerce-style header/legend on the
   // master view — pure commerce overview OR 工程 holistic view.
   const showOverviewChrome = isOverview || isEngineeringOverview
+  // The stage we treat as "this station" for the StationSummary + MasterSheet
+  // highlight: URL stage if present, else the user's home station. Commerce
+  // gets the summary only when they've navigated to a station; the bare
+  // overview keeps its existing 6-pill TopBar. 工程 head's holistic landing
+  // mirrors commerce — no StationSummary card on the overview, since the
+  // master grid IS the overview.
+  const summaryStage: Stage | undefined =
+    stageFilter ??
+    (isProduction && !isEngineeringOverview ? user.defaultStage : undefined)
 
   return (
     <div className="flex-1 flex flex-col">
@@ -125,7 +150,15 @@ export default async function MasterBoard(
         defaultStage={user.defaultStage}
         userName={user.name}
         right={
-          isProduction ? null : (
+          isEngineeringOverview ? (
+            // 工程 head sees the same flow signals (overdue / today / 在产)
+            // as commerce, just without the money pills.
+            <div className="flex items-center gap-2">
+              <Pill tone="overdue" label="逾期" value={overdue} />
+              <Pill tone="warning" label="今日" value={dueToday} />
+              <Pill tone="neutral" label="在产" value={sorted.length} />
+            </div>
+          ) : isProduction ? null : (
             <div className="flex items-center gap-2">
               <Pill tone="overdue" label="逾期" value={overdue} />
               <Pill tone="warning" label="今日" value={dueToday} />
@@ -139,10 +172,12 @@ export default async function MasterBoard(
       />
 
       <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">
-        {isOverview && (
+        {showOverviewChrome && (
           <div className="mb-6 flex items-baseline justify-between">
             <div>
-              <p className="label mb-1">商务视图</p>
+              <p className="label mb-1">
+                {isEngineeringOverview ? '工程视图' : '商务视图'}
+              </p>
               <h2 className="text-[28px] font-semibold tracking-tight text-[var(--color-ink)]">
                 全部工单
               </h2>
@@ -154,9 +189,9 @@ export default async function MasterBoard(
           </div>
         )}
 
-        {isOverview && <MasterUploader />}
+        {showOverviewChrome && <MasterUploader />}
 
-        {isOverview && inbox.length > 0 ? (
+        {showOverviewChrome && inbox.length > 0 ? (
           <section className="mb-8 rounded-sm border border-[var(--color-warning)] bg-[var(--color-warning-soft)]">
             <div className="flex items-baseline justify-between px-5 py-3 border-b border-[var(--color-warning)]">
               <p className="label text-[var(--color-ink)]">
@@ -218,23 +253,35 @@ export default async function MasterBoard(
 
         {summaryStage && <StationSummary jobs={sorted} stage={summaryStage} />}
 
-        {stageFilter ? (
-          <StationWorkbench
-            jobs={sorted}
-            stage={stageFilter}
-            role={user.role}
-            defaultStage={user.defaultStage}
-          />
-        ) : (
+        {useMasterSheet ? (
           <MasterSheet
             jobs={sorted}
             role={user.role}
             defaultStage={user.defaultStage}
             stageFilter={stageFilter}
+            // The highlighted column gets per-cell start/pause buttons whenever
+            // the viewer can actually act on that stage:
+            //   • commerce drilling into any stage (commerce can act everywhere),
+            //   • 工程 head on the holistic / or /?stage=工程 view (their home stage),
+            //   • any production user whose home stage matches the highlight.
+            // Without this, the 工程 tab as commerce or admin renders static
+            // rollup counts and the start/pause control disappears.
+            actionableHighlight={
+              isProduction
+                ? Boolean(user.defaultStage)
+                : Boolean(stageFilter)
+            }
+          />
+        ) : (
+          <StationWorkbench
+            jobs={sorted}
+            stage={stageFilter!}
+            role={user.role}
+            defaultStage={user.defaultStage}
           />
         )}
 
-        {isOverview && <Legend />}
+        {showOverviewChrome && <Legend />}
       </main>
 
       <footer className="border-t border-[var(--color-border)] bg-[var(--color-surface)]">

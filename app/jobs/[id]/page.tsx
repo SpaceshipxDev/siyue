@@ -19,8 +19,10 @@ import {
 import { getJob, getProcessCard, getVendors } from '@/lib/db'
 import {
   canEditPartRoute,
+  canEditProductionFields,
   canManageOutsource,
   canSeeCustomerData,
+  canSeeMoney,
   requireUser,
 } from '@/lib/auth'
 import { scrubJob, scrubVendors } from '@/lib/dto'
@@ -71,11 +73,18 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // 出货 production users get customer-flavored visibility (customer name +
   // 出货单 print). They still don't edit, manage outsource, or see money.
   const showCustomer = canSeeCustomerData(user)
+  const showMoney = canSeeMoney(user)
+  // 工程 head edits the same non-commercial fields commerce does (product,
+  // jobNo, dueDate, component name/qty/material/notes, image). Pure-floor
+  // production users (焊接, 喷塑, etc.) keep the read-only view they had.
+  const canEditFields = canEditProductionFields(user)
   const job = isProduction ? scrubJob(rawJob, user) : rawJob
   const vendors = isProduction ? scrubVendors(rawVendors, user) : rawVendors
   const myStage = user.defaultStage
+  // 工程 head's "back" goes to the holistic master view at /, same as
+  // commerce — no auto-pinning to ?stage=工程.
   const backFallback = isProduction
-    ? myStage
+    ? myStage && myStage !== '工程'
       ? `/?stage=${encodeURIComponent(myStage)}`
       : '/'
     : '/'
@@ -191,9 +200,22 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           <div className="col-span-1 md:col-span-2">
             <p className="label mb-1">{showCustomer ? '客户' : '产品'}</p>
             {!showCustomer ? (
-              <p className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]">
-                {job.product}
-              </p>
+              canEditFields ? (
+                // 工程 head edits the product name (the only customer-side
+                // identifier they get) inline like commerce.
+                <JobText
+                  jobId={job.id}
+                  field="product"
+                  value={job.product}
+                  multiline
+                  className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]"
+                  placeholder="产品"
+                />
+              ) : (
+                <p className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]">
+                  {job.product}
+                </p>
+              )
             ) : isProduction ? (
               // 出货 station: read-only customer + product. They see the same
               // header as commerce, but can't edit (commerce owns the master
@@ -230,11 +252,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           </div>
           <div className="col-span-1 md:col-span-2">
             <p className="label mb-2">工号</p>
-            {isProduction ? (
-              <p className="mono text-[15px] text-[var(--color-ink)]">
-                {job.jobNo}
-              </p>
-            ) : (
+            {canEditFields ? (
               <JobText
                 jobId={job.id}
                 field="jobNo"
@@ -243,9 +261,13 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 className="text-[15px] text-[var(--color-ink)]"
                 placeholder="工号"
               />
+            ) : (
+              <p className="mono text-[15px] text-[var(--color-ink)]">
+                {job.jobNo}
+              </p>
             )}
           </div>
-          {!isProduction && (
+          {showMoney && (
             <div className="col-span-2 md:col-span-3">
               <p className="label mb-2">金额 / 外发 / 毛利</p>
               <div className="flex items-baseline gap-1">
@@ -278,21 +300,21 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           <div className="col-span-1 md:col-span-2">
             <p className="label mb-2">交期</p>
             <div className="flex flex-col gap-0.5">
-              {isProduction ? (
-                <p className="mono text-[15px] text-[var(--color-ink)]">
-                  {job.dueDate}
-                </p>
-              ) : (
+              {canEditFields ? (
                 <JobDueDate
                   jobId={job.id}
                   value={job.dueDate}
                   className="text-[15px] text-[var(--color-ink)]"
                 />
+              ) : (
+                <p className="mono text-[15px] text-[var(--color-ink)]">
+                  {job.dueDate}
+                </p>
               )}
               <DueDelta state={ds} days={days} />
             </div>
           </div>
-          <div className={isProduction ? 'col-span-2 md:col-span-6' : 'col-span-2 md:col-span-3'}>
+          <div className={showMoney ? 'col-span-2 md:col-span-3' : 'col-span-2 md:col-span-6'}>
             <p className="label mb-2">总进度</p>
             <div className="flex items-baseline gap-2">
               <span className="mono text-[15px] text-[var(--color-ink)]">{pct}%</span>
@@ -369,9 +391,9 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   }}
                 />
               ))}
-              {!isProduction && <col style={{ minWidth: 180 }} />}
-              {!isProduction && <col style={{ width: 110 }} />}
-              {!isProduction && <col style={{ width: 100 }} />}
+              {canEditFields && <col style={{ minWidth: 180 }} />}
+              {showMoney && <col style={{ width: 110 }} />}
+              {showMoney && <col style={{ width: 100 }} />}
             </colgroup>
             <thead>
               <tr className="text-[var(--color-ink-2)]">
@@ -411,15 +433,15 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     <StageHeader name={s} />
                   </th>
                 ))}
-                {!isProduction && (
+                {canEditFields && (
                   <th className="px-4 py-3 label whitespace-nowrap">备注</th>
                 )}
-                {!isProduction && (
+                {showMoney && (
                   <th className="px-4 py-3 text-right label whitespace-nowrap">
                     单价
                   </th>
                 )}
-                {!isProduction && (
+                {showMoney && (
                   <th className="px-4 py-3 text-right label whitespace-nowrap">
                     小计
                   </th>
@@ -441,18 +463,14 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         componentId={c.id}
                         imageUrl={c.imageUrl}
                         size={56}
-                        readOnly={isProduction}
+                        readOnly={!canEditFields}
                       />
                     </td>
                     <td
                       className="sticky-col sticky-col-edge px-3 py-3"
                       style={{ left: 134 }}
                     >
-                      {isProduction ? (
-                        <span className="text-[14px] font-medium text-[var(--color-ink)]">
-                          {c.name}
-                        </span>
-                      ) : (
+                      {canEditFields ? (
                         <ComponentText
                           jobId={job.id}
                           componentId={c.id}
@@ -461,6 +479,10 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           placeholder="零件名称"
                           className="text-[14px] font-medium text-[var(--color-ink)]"
                         />
+                      ) : (
+                        <span className="text-[14px] font-medium text-[var(--color-ink)]">
+                          {c.name}
+                        </span>
                       )}
                       {!isProduction && (
                         <ExternalBadge component={c} vendors={vendors} />
@@ -472,25 +494,21 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       )}
                     </td>
                     <td className="px-3 py-3">
-                      {isProduction ? (
-                        <span className="mono text-[13px] text-[var(--color-ink)]">
-                          {c.qty}
-                        </span>
-                      ) : (
+                      {canEditFields ? (
                         <ComponentQty
                           jobId={job.id}
                           componentId={c.id}
                           value={c.qty}
                           className="text-[13px] text-[var(--color-ink)]"
                         />
+                      ) : (
+                        <span className="mono text-[13px] text-[var(--color-ink)]">
+                          {c.qty}
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-3">
-                      {isProduction ? (
-                        <span className="text-[12px] text-[var(--color-ink-2)]">
-                          {c.material ?? ''}
-                        </span>
-                      ) : (
+                      {canEditFields ? (
                         <ComponentText
                           jobId={job.id}
                           componentId={c.id}
@@ -499,14 +517,14 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           placeholder="材料"
                           className="text-[12px] text-[var(--color-ink-2)]"
                         />
+                      ) : (
+                        <span className="text-[12px] text-[var(--color-ink-2)]">
+                          {c.material ?? ''}
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-3">
-                      {isProduction ? (
-                        <span className="text-[12px] text-[var(--color-ink-2)]">
-                          {c.surfaceTreatment ?? ''}
-                        </span>
-                      ) : (
+                      {canEditFields ? (
                         <ComponentText
                           jobId={job.id}
                           componentId={c.id}
@@ -515,6 +533,10 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           placeholder="表面处理"
                           className="text-[12px] text-[var(--color-ink-2)]"
                         />
+                      ) : (
+                        <span className="text-[12px] text-[var(--color-ink-2)]">
+                          {c.surfaceTreatment ?? ''}
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-3">
@@ -538,7 +560,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         </td>
                       )
                     })}
-                    {!isProduction && (
+                    {canEditFields && (
                       <td className="px-3 py-3">
                         <ComponentNotes
                           jobId={job.id}
@@ -549,7 +571,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         />
                       </td>
                     )}
-                    {!isProduction && (
+                    {showMoney && (
                       <td className="px-3 py-3">
                         <ComponentUnitPrice
                           jobId={job.id}
@@ -559,7 +581,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         />
                       </td>
                     )}
-                    {!isProduction && (
+                    {showMoney && (
                       <td className="px-3 py-3">
                         <ComponentLineTotal
                           jobId={job.id}

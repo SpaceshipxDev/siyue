@@ -4,7 +4,7 @@ import {
   markJobFailed,
   updateJob,
 } from '@/lib/db'
-import { currentUser } from '@/lib/auth'
+import { canEditProductionFields, currentUser } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { uploadSourceFile } from '@/lib/source-file'
 import { runExtraction } from '@/lib/extract'
@@ -16,7 +16,9 @@ export const maxDuration = 60
 export async function POST(request: NextRequest) {
   const t0 = Date.now()
   const user = await currentUser()
-  if (!user || user.role !== 'commerce') {
+  // Commerce + 工程 head both run imports (工程 head uploads PDFs from the
+  // shop floor and confirms them straight into the master grid).
+  if (!user || !canEditProductionFields(user)) {
     console.warn('[ingest] unauthorized', { role: user?.role ?? null })
     return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 })
   }

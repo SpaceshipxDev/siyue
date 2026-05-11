@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation'
 import { BOSS_USER_ID, verifyUserPin } from '@/lib/db'
 import { createSession, deleteSession } from '@/lib/session'
+import { landingPathFor } from '@/lib/auth'
 
 // In-process brute-force counter. Five wrong PINs in five minutes locks the
 // user id out for five minutes from this serverless instance. Cross-instance
@@ -64,12 +65,20 @@ export async function loginAction(
     ds: user.defaultStage,
   })
 
-  const redirectTo =
-    user.role === 'commerce'
+  // landingPathFor is the single source of truth — commerce → /,
+  // 工程 head → / (holistic view), other production stations → their
+  // /?stage=... master grid. Bypassing it here is what was sending 工程
+  // back to the old per-stage workbench right after sign-in.
+  const redirectTo = user.defaultStage
+    ? landingPathFor({
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        defaultStage: user.defaultStage,
+      })
+    : user.role === 'commerce'
       ? '/'
-      : user.defaultStage
-        ? `/station/${encodeURIComponent(user.defaultStage)}`
-        : '/login'
+      : '/login'
   return { ok: true, redirectTo }
 }
 

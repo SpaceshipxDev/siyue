@@ -1,6 +1,11 @@
 import { notFound, redirect } from 'next/navigation'
 import { getJob, parseJobNoConflictError } from '@/lib/db'
-import { requireCommerce, type AuthUser } from '@/lib/auth'
+import {
+  canEditProductionFields,
+  landingPathFor,
+  requireUser,
+  type AuthUser,
+} from '@/lib/auth'
 import { TopBar } from '@/app/_ui'
 import { BackButton } from '@/app/_back'
 import {
@@ -29,7 +34,9 @@ import type { Component } from '@/lib/data'
 export const dynamic = 'force-dynamic'
 
 export default async function ImportReview(props: PageProps<'/import/[id]'>) {
-  const user = await requireCommerce()
+  // Commerce + 工程 head both run imports.
+  const user = await requireUser()
+  if (!canEditProductionFields(user)) redirect(landingPathFor(user))
   const { id } = await props.params
   const job = await getJob(id)
   if (!job) notFound()
@@ -57,7 +64,7 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
       <TopBar
         title={`${job.jobNo} · ${job.product}`}
         subtitle="导入审核 · 草稿"
-        currentTab="商务"
+        currentTab={user.defaultStage === '工程' ? '工程' : '商务'}
         role={user.role}
         defaultStage={user.defaultStage}
         userName={user.name}
@@ -370,7 +377,7 @@ function ParsingScreen({
         subtitle={
           conflict ? '工号已存在' : failed ? '解析失败' : 'AI 解析中'
         }
-        currentTab="商务"
+        currentTab={user.defaultStage === '工程' ? '工程' : '商务'}
         role={user.role}
         defaultStage={user.defaultStage}
         userName={user.name}

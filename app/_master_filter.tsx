@@ -96,6 +96,7 @@ export function MasterSheet({
   role,
   defaultStage,
   stageFilter,
+  actionableHighlight = false,
 }: {
   jobs: Job[]
   role: Role
@@ -103,6 +104,11 @@ export function MasterSheet({
   defaultStage?: Stage
   /** URL ?stage filter — narrows the view to one station. */
   stageFilter?: Stage
+  /** When true, the highlighted column renders the start/pause action button
+   * for each job, even though the page itself isn't a station-filtered view.
+   * 工程 head's holistic master view sets this so they can drive their stage
+   * cells from the same flat grid commerce sees, without losing the actions. */
+  actionableHighlight?: boolean
 }) {
   const [q, setQ] = useState('')
   const [sortMode, setSortMode] = useState<SortMode>('due')
@@ -113,10 +119,16 @@ export function MasterSheet({
   const isProduction = role === 'production'
   const showMoney = role === 'commerce'
   const jobNoOnly = isJobNoOnlySearch(role, defaultStage)
-  // Tabs only make sense on the overview — at a station, the workbench takes
-  // over. (MasterSheet is currently only mounted on overview, but guard so a
-  // future re-mount at a station doesn't surface an irrelevant control.)
-  const showShipTabs = !stageFilter
+  // 工程 is the one stage that intentionally uses the flat master grid even
+  // when it's the URL filter — page.tsx already skips StationWorkbench for it,
+  // and we mirror that here so the mine/upstream/done partition + pagination
+  // cap match the 商务 overview. Highlight + per-cell action button still fire
+  // off `highlightStage` / `actionableHighlight`, which are decoupled.
+  const treatAsOverview = !stageFilter || stageFilter === '工程'
+  // Tabs + pagination + flat-list rendering all key off the overview shape.
+  // Renamed from the old `!stageFilter` so adding 工程 didn't require touching
+  // every downstream call site.
+  const showShipTabs = treatAsOverview
 
   // Counts on the segmented control: total jobs in each scope BEFORE search /
   // sort / date narrowing. Apple-style segmented controls show stable counts;
@@ -136,11 +148,16 @@ export function MasterSheet({
   // Highlight the user's home station for production; otherwise highlight the
   // URL stage (so commerce navigating to a station sees the same emphasis).
   const highlightStage: Stage | undefined = defaultStage ?? stageFilter
-  // Station view = anyone (commerce or production) viewing a specific stage.
-  // Commerce-at-a-station should look IDENTICAL to a worker-at-station so the
-  // boss can see exactly what their floor head sees: same top/upstream split,
-  // same click-to-advance affordance, same hidden-when-done semantics.
-  const isStationView = Boolean(stageFilter)
+  // Station view = anyone (commerce or production) viewing a specific stage
+  // OTHER THAN 工程 — the floor-style mine/upstream/done partition. 工程 routes
+  // through the flat master grid even when it's the URL filter (see
+  // `treatAsOverview` above).
+  const isStationView = !treatAsOverview
+  // Render start/pause buttons in the highlighted column even outside a
+  // formal station view — used by the 工程 head on the holistic master grid
+  // so they keep their stage controls without falling into the station-style
+  // mine/upstream/done partition.
+  const highlightIsActionable = isStationView || actionableHighlight
 
   // Pipeline: text → sort by mode → date filter → partition. The parent
   // pre-sorts by due date but we re-sort here so the toggle is purely local.
@@ -286,8 +303,12 @@ export function MasterSheet({
               // we still tint via the col background — no per-cell action
               // there, so the wash is what signals "this column matters."
               const width = isHighlighted ? 168 : 88
+              // Static yellow wash signals "this column matters" only when
+              // there's no per-cell action button — once cells become actionable
+              // (station view OR 工程 holistic), the buttons paint their own
+              // state and the wash would just mute them.
               const colBg =
-                isHighlighted && !isStationView
+                isHighlighted && !highlightIsActionable
                   ? 'var(--color-warning-soft)'
                   : undefined
               return (
@@ -355,7 +376,7 @@ export function MasterSheet({
                 isProduction={isProduction}
                 showMoney={showMoney}
                 highlightStage={highlightStage}
-                isStationView={isStationView}
+                highlightIsActionable={highlightIsActionable}
                 tier="mine"
               />
             ))}
@@ -410,7 +431,7 @@ export function MasterSheet({
                     isProduction={isProduction}
                     showMoney={showMoney}
                     highlightStage={highlightStage}
-                    isStationView={isStationView}
+                    highlightIsActionable={highlightIsActionable}
                     tier="upstream"
                   />
                 ))}
@@ -442,7 +463,7 @@ export function MasterSheet({
                     isProduction={isProduction}
                     showMoney={showMoney}
                     highlightStage={highlightStage}
-                    isStationView={isStationView}
+                    highlightIsActionable={highlightIsActionable}
                     tier="done"
                   />
                 ))}
@@ -549,7 +570,7 @@ function JobRow({
   isProduction,
   showMoney,
   highlightStage,
-  isStationView,
+  highlightIsActionable,
   tier,
 }: {
   job: Job
@@ -558,9 +579,10 @@ function JobRow({
   isProduction: boolean
   showMoney: boolean
   highlightStage?: Stage
-  /** True on a production user's station board: enables click-to-advance and
-   * the live timer in the highlighted-stage cell. */
-  isStationView: boolean
+  /** True when the highlighted column should render its action button — set
+   * for both the per-station workbench and the 工程 head's holistic master
+   * grid. Drives the start/pause cell vs static rollup decision. */
+  highlightIsActionable: boolean
   /** Visual tier on the station view:
    *   'mine'     — full color, actionable
    *   'upstream' — opacity-50, "incoming"
@@ -579,7 +601,7 @@ function JobRow({
   // Other stages on the row keep the existing Link → /jobs/[id] behavior so
   // the row stays drillable from any non-head column.
   const isMineHere =
-    isStationView && highlightStage
+    highlightIsActionable && highlightStage
       ? jobIsMineAtStage(job, highlightStage)
       : false
   const timer =
@@ -679,31 +701,31 @@ function JobRow({
       </td>
       {STAGES.map((stage) => {
         const isHighlighted = stage === highlightStage
-        // Highlighted column on station view: never changes color on hover
+        // Highlighted column when actionable: never changes color on hover
         // (the button paints its own state). Other columns keep the brown
         // hover so the row is clickable to job detail.
         const hoverCls =
-          isHighlighted && isStationView
+          isHighlighted && highlightIsActionable
             ? ''
             : isHighlighted
               ? 'hover:bg-black/5'
               : 'hover:bg-[#f1eee4]'
-        // Highlighted col tint on station view: full warning-soft for "mine"
+        // Highlighted col tint on actionable view: full warning-soft for "mine"
         // rows (the action button paints it), but a much fainter wash on the
         // non-mine tiers (upstream + done) so the column stays visible without
         // competing with the actionable tier. Row-level opacity does the rest
         // of the work to push those tiers back.
         const cellBgStyle: React.CSSProperties | undefined =
-          isHighlighted && isStationView && !isMineHere
+          isHighlighted && highlightIsActionable && !isMineHere
             ? { backgroundColor: '#fdf7e7' }
             : undefined
-        // Head's own column on the station view: render the action button
+        // Head's own column when actionable: render the action button
         // (or a plain RollupCell when there's nothing to act on). Crucially,
         // this branch NEVER wraps the cell in a <Link> — without that guard,
         // a click on a "done ✓" or "upstream-blocked" cell silently flashed
         // brown and navigated to /jobs/[id] instead of giving the head a way
         // to interact with the stage. The head's column owns stage actions.
-        if (isHighlighted && isStationView) {
+        if (isHighlighted && highlightIsActionable) {
           const rollup = rollupStage(job, stage)
           const cnts = jobStageCounts(job, stage)
           const totalCounted = cnts.inProgress + cnts.pending + cnts.done

@@ -47,14 +47,11 @@ import {
 } from '@/lib/db'
 import type { JobReturn } from '@/lib/data'
 import {
-  canEditProductionFields,
-  landingPathFor,
   requireCommerce,
   requireOutsourceManager,
   requirePartRouteEditor,
   requireUser,
 } from '@/lib/auth'
-import { redirect } from 'next/navigation'
 
 function revalidateStage(jobId: string, stage: Stage) {
   revalidatePath('/')
@@ -171,31 +168,17 @@ export async function assignJobToStageAction(
   revalidatePath(`/station/${encodeURIComponent(toStage)}`)
 }
 
-// Job-level edits. Commerce can patch any field. 工程 head shares the
-// non-commercial subset (jobNo / product / dueDate / notes) so they can
-// fix routing-side metadata from the master view without bouncing back
-// to commerce. Customer + money + source-file stay commerce-only — we
-// scrub them out of the patch on the server so a crafted client can't
-// sneak them through.
-const ENGINEERING_JOB_FIELDS = ['jobNo', 'product', 'dueDate', 'notes'] as const
+// Job-level edits. Commerce + 工程 head share full edit rights here —
+// 工程 needs every field on the import draft (they own imports too) and
+// the post-confirmation /jobs/[id] page already hides customer/money
+// inputs from them, so visibility (not field allowlisting) is what keeps
+// 工程 out of commercial fields in normal use.
 export async function updateJobAction(
   jobId: string,
   patch: JobPatch,
 ): Promise<void> {
-  const u = await requireUser()
-  let safe: JobPatch
-  if (u.role === 'commerce') {
-    safe = patch
-  } else if (canEditProductionFields(u)) {
-    safe = {}
-    for (const k of ENGINEERING_JOB_FIELDS) {
-      if (k in patch) (safe as Record<string, unknown>)[k] = (patch as Record<string, unknown>)[k]
-    }
-    if (Object.keys(safe).length === 0) return
-  } else {
-    redirect(landingPathFor(u))
-  }
-  await updateJob(jobId, safe)
+  await requirePartRouteEditor()
+  await updateJob(jobId, patch)
   revalidatePath('/', 'layout')
 }
 
@@ -211,36 +194,16 @@ export async function updateJobNotesAction(
   revalidatePath('/', 'layout')
 }
 
-// Component-level edits. Same split as updateJobAction — 工程 head can
-// touch the non-money component fields (name, qty, material, surface
-// treatment, notes) so they can correct routing-side data on the floor;
-// unitPriceCny / lineTotalCny stay commerce-only.
-const ENGINEERING_COMPONENT_FIELDS = [
-  'name',
-  'qty',
-  'material',
-  'surfaceTreatment',
-  'notes',
-] as const
+// Component-level edits. Same model as updateJobAction — 工程 + commerce
+// share full edit rights; UI visibility is the gate for who sees the
+// money inputs on /jobs/[id].
 export async function updateComponentAction(
   jobId: string,
   componentId: string,
   patch: ComponentPatch,
 ): Promise<void> {
-  const u = await requireUser()
-  let safe: ComponentPatch
-  if (u.role === 'commerce') {
-    safe = patch
-  } else if (canEditProductionFields(u)) {
-    safe = {}
-    for (const k of ENGINEERING_COMPONENT_FIELDS) {
-      if (k in patch) (safe as Record<string, unknown>)[k] = (patch as Record<string, unknown>)[k]
-    }
-    if (Object.keys(safe).length === 0) return
-  } else {
-    redirect(landingPathFor(u))
-  }
-  await updateComponent(jobId, componentId, safe)
+  await requirePartRouteEditor()
+  await updateComponent(jobId, componentId, patch)
   revalidatePath('/', 'layout')
 }
 
@@ -304,7 +267,8 @@ export async function confirmJobAction(
   jobId: string,
   startAt?: Stage,
 ): Promise<ConfirmJobResult> {
-  const user = await requireCommerce()
+  // 工程 head can confirm imports they ran, same as commerce.
+  const user = await requirePartRouteEditor()
   if (startAt) {
     await markJobStartedAt(jobId, startAt, user.name)
   }
@@ -327,10 +291,11 @@ export async function deleteJobAction(jobId: string): Promise<void> {
 }
 
 // Escape hatch for a stuck/failed parse: skip extraction entirely and drop
-// the job into the draft editor so commerce can hand-enter every field.
-// Called from the import page's "stuck" UI after the 45s poller timeout.
+// the job into the draft editor so commerce or 工程 can hand-enter every
+// field. Called from the import page's "stuck" UI after the 45s poller
+// timeout.
 export async function manualFillJobAction(jobId: string): Promise<void> {
-  await requireCommerce()
+  await requirePartRouteEditor()
   await markJobAsDraft(jobId)
   revalidatePath('/', 'layout')
   revalidatePath(`/import/${jobId}`)
@@ -476,13 +441,15 @@ export async function closeReturnAction(returnId: string): Promise<void> {
   revalidatePath('/', 'layout')
 }
 
-// Used by the 客户名称 combobox on the 出货单. Resolves the typed name to a
-// Customer row (creating one on first sight) and links it to the job.
+// Used by the 客户名称 combobox on the 出货单 and on the import draft.
+// Resolves the typed name to a Customer row (creating one on first sight)
+// and links it to the job. 工程 hits this on the import draft because they
+// own imports too.
 export async function pickCustomerForJobAction(
   jobId: string,
   name: string,
 ): Promise<Customer | undefined> {
-  await requireCommerce()
+  await requirePartRouteEditor()
   const trimmed = name.trim()
   if (!trimmed) {
     await updateJob(jobId, { customer: '', customerId: null })
