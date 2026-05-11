@@ -358,11 +358,11 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             零件进度
           </h2>
           <p className="label">
-            {isProduction
-              ? myStage
+            {!isProduction || canEditFields
+              ? '点 ▶ 起步 · 点 ● 收件 · 60 秒内可撤销 · 外协见下'
+              : myStage
                 ? `${myStage} 工段可点 ▶ 起步 / ● 收件 · 60 秒内可撤销`
-                : '查看进度'
-              : '点 ▶ 起步 · 点 ● 收件 · 60 秒内可撤销 · 外协见下'}
+                : '查看进度'}
           </p>
         </div>
 
@@ -547,8 +547,13 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       />
                     </td>
                     {STAGES.map((stage) => {
+                      // 工程 + commerce can flip any stage cell from anywhere
+                      // on the job detail page — 工程 routinely fixes routing
+                      // mistakes by stepping parts forward/back across stages.
+                      // Pure-floor production users (焊接, 喷塑, etc.) still
+                      // only get their own stage column.
                       const interactive =
-                        !isProduction || stage === myStage
+                        !isProduction || canEditFields || stage === myStage
                       return (
                         <td key={stage} className="p-0 h-[60px]">
                           <EffectiveStageCell

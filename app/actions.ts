@@ -60,11 +60,17 @@ function revalidateStage(jobId: string, stage: Stage) {
   revalidatePath(`/station/${encodeURIComponent(stage)}/${jobId}`)
 }
 
-// Production users can only operate on their own assigned stage. Commerce
-// users can operate on any stage.
+// Pure-floor production users (焊接, 喷塑, etc.) can only operate on their
+// own assigned stage. Commerce + 工程 head can operate on any stage — 工程
+// owns the routing and routinely advances or rolls back parts at other
+// stations when something has to be re-cut, re-shipped, or unblocked.
 async function requireStage(stage: Stage) {
   const u = await requireUser()
-  if (u.role === 'production' && u.defaultStage !== stage) {
+  if (
+    u.role === 'production' &&
+    u.defaultStage !== '工程' &&
+    u.defaultStage !== stage
+  ) {
     throw new Error('无权操作其他工段')
   }
   return u
