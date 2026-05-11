@@ -1,0 +1,1120 @@
+'use client'
+
+import { useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
+import {
+  STAGES,
+  daysFromToday,
+  dueState,
+  formatCny,
+  jobEffectiveDueDate,
+  jobExternalSpend,
+  jobHasOpenOutsource,
+  jobIntakeDate,
+  jobIsDoneAtStage,
+  jobIsMineAtStage,
+  jobIsShipped,
+  jobIsUpstreamOfStage,
+  jobMargin,
+  jobMostRecentFinishedAt,
+  jobNoSortKey,
+  jobStageCounts,
+  jobTimerAtStage,
+  rollupStage,
+  type Job,
+  type Stage,
+} from '@/lib/data'
+import { DueCell, RollupCell, StageHeader } from './_ui'
+import { JobStageActionButton } from './_cell'
+import { JobNotesInline } from './_editable'
+import { ReturnChip } from './_returns'
+
+// Role mirrored locally so this client component doesn't import lib/auth
+// (which is server-only).
+type Role = 'commerce' | 'production'
+
+// 出货 production users get the same search affordances as commerce — they
+// own the customer-facing print flow, so jobNo-only would block them from
+// looking work up by customer name.
+function isJobNoOnlySearch(role: Role, defaultStage?: Stage): boolean {
+  return role === 'production' && defaultStage !== '出货'
+}
+
+// Default page size on the commerce overview. The full list (1000+ at scale)
+// belongs in search/filter, not as a default scroll. The cap only applies on
+// the unfiltered overview — search, date filter, and station views all bypass
+// it because narrowing implies "show me everything that matches."
+const DEFAULT_PAGE_SIZE = 25
+
+// Two ordering axes the floor reasons in:
+//   'due'   — by 交期 ascending. Production's "what's burning" — the historic
+//             default. Calendar in this mode picks 交期 = X.
+//   'jobNo' — by 工号 (newest 收单 first). Mirrors the share-drive day-folder
+//             order commerce uses to reconcile against STEP files. Calendar
+//             in this mode picks 生产日 = X (the YY-M-D embedded in the 工号).
+type SortMode = 'due' | 'jobNo'
+
+// Range filter on the active sort axis. start === end is the single-day case
+// (the floor's "今天的活" question) and renders as a single chip; start < end
+// is a true range ("这周的活"). 'all' is the unfiltered default.
+type DateFilter =
+  | { kind: 'all' }
+  | { kind: 'range'; start: string; end: string }
+
+// Top-level scope filter on the master sheet. 在产 hides shipped jobs (the
+// daily-attention set); 已出货 surfaces them for finance / archive lookups.
+type ShipFilter = 'live' | 'shipped'
+
+function jobMatchesDate(j: Job, f: DateFilter, mode: SortMode): boolean {
+  if (f.kind === 'all') return true
+  const d = mode === 'jobNo' ? jobIntakeDate(j) : jobEffectiveDueDate(j)
+  // Jobs without an intake date (legacy / hand-entered 工号) drop out of a
+  // 生产日 range, same as they did under the old equality filter.
+  if (!d) return false
+  return d >= f.start && d <= f.end
+}
+
+function sortJobs(jobs: Job[], mode: SortMode): Job[] {
+  const arr = [...jobs]
+  if (mode === 'jobNo') {
+    arr.sort((a, b) => jobNoSortKey(a).localeCompare(jobNoSortKey(b)))
+  } else {
+    arr.sort((a, b) =>
+      jobEffectiveDueDate(a).localeCompare(jobEffectiveDueDate(b)),
+    )
+  }
+  return arr
+}
+
+function formatPickedDate(iso: string): string {
+  const [, m, d] = iso.split('-')
+  return `${parseInt(m, 10)}月${parseInt(d, 10)}日`
+}
+
+export function MasterSheet({
+  jobs,
+  role,
+  defaultStage,
+  stageFilter,
+}: {
+  jobs: Job[]
+  role: Role
+  /** The user's home station (undefined for commerce). */
+  defaultStage?: Stage
+  /** URL ?stage filter — narrows the view to one station. */
+  stageFilter?: Stage
+}) {
+  const [q, setQ] = useState('')
+  const [sortMode, setSortMode] = useState<SortMode>('due')
+  const [dateFilter, setDateFilter] = useState<DateFilter>({ kind: 'all' })
+  const [shipFilter, setShipFilter] = useState<ShipFilter>('live')
+  const [showAll, setShowAll] = useState(false)
+
+  const isProduction = role === 'production'
+  const showMoney = role === 'commerce'
+  const jobNoOnly = isJobNoOnlySearch(role, defaultStage)
+  // Tabs only make sense on the overview — at a station, the workbench takes
+  // over. (MasterSheet is currently only mounted on overview, but guard so a
+  // future re-mount at a station doesn't surface an irrelevant control.)
+  const showShipTabs = !stageFilter
+
+  // Counts on the segmented control: total jobs in each scope BEFORE search /
+  // sort / date narrowing. Apple-style segmented controls show stable counts;
+  // the down-stream count chip already reflects the live filter.
+  const liveCount = useMemo(
+    () => jobs.reduce((n, j) => (jobIsShipped(j) ? n : n + 1), 0),
+    [jobs],
+  )
+  const shippedCount = jobs.length - liveCount
+
+  const scopedJobs = useMemo(() => {
+    if (!showShipTabs) return jobs
+    return shipFilter === 'live'
+      ? jobs.filter((j) => !jobIsShipped(j))
+      : jobs.filter((j) => jobIsShipped(j))
+  }, [jobs, showShipTabs, shipFilter])
+  // Highlight the user's home station for production; otherwise highlight the
+  // URL stage (so commerce navigating to a station sees the same emphasis).
+  const highlightStage: Stage | undefined = defaultStage ?? stageFilter
+  // Station view = anyone (commerce or production) viewing a specific stage.
+  // Commerce-at-a-station should look IDENTICAL to a worker-at-station so the
+  // boss can see exactly what their floor head sees: same top/upstream split,
+  // same click-to-advance affordance, same hidden-when-done semantics.
+  const isStationView = Boolean(stageFilter)
+
+  // Pipeline: text → sort by mode → date filter → partition. The parent
+  // pre-sorts by due date but we re-sort here so the toggle is purely local.
+  // For non-出货 production users we restrict the search to jobNo only
+  // (they don't need — and shouldn't see — customer text in the search box).
+  const matchedByText = useMemo(() => {
+    const query = q.trim().toLowerCase()
+    if (!query) return scopedJobs
+    return scopedJobs.filter((j) => {
+      const haystack = jobNoOnly
+        ? j.jobNo
+        : `${j.jobNo} ${j.customer} ${j.product}`
+      return haystack.toLowerCase().includes(query)
+    })
+  }, [scopedJobs, q, jobNoOnly])
+
+  const sortedByMode = useMemo(
+    () => sortJobs(matchedByText, sortMode),
+    [matchedByText, sortMode],
+  )
+
+  // Three-section split for the production station view:
+  //   topRows      — jobs that are MINE: in_progress here, or pending here
+  //                  with all prior in-route stages already done. These are
+  //                  the only rows the click-to-advance affordance applies to.
+  //   upstreamRows — up to 20 jobs heading toward me but not yet here. Faded,
+  //                  pushed below, no timer, no action — they're a preview
+  //                  of incoming flow, not part of today's queue.
+  //   doneRows     — up to 20 most-recently-handled jobs at this stage,
+  //                  including vendor-owned work (外协) that no longer needs
+  //                  this station's in-house attention. Faded further, pushed
+  //                  to the bottom — the head can glance back at what just
+  //                  left the station without losing the scan-for-now
+  //                  affordance up top.
+  //   (excluded)   — jobs that don't visit this stage at all, plus completed
+  //                  jobs older than the recent-20 cutoff (reachable by search).
+  //
+  // Search bypasses the partition so the head can find any job by jobNo at
+  // any moment. Commerce / no-stage view collapses to a single list (legacy).
+  // Upstream/done tiers keep their dedicated sort axes (next-due / most-recent
+  // -finished) — those tiers are about flow signals, not the user's chosen
+  // ordering, so the toggle only affects the actionable top tier.
+  const { topRows, upstreamRows, doneRows } = useMemo(() => {
+    const dateFiltered = sortedByMode.filter((j) =>
+      jobMatchesDate(j, dateFilter, sortMode),
+    )
+    if (!isStationView || !stageFilter) {
+      return {
+        topRows: dateFiltered,
+        upstreamRows: [] as Job[],
+        doneRows: [] as Job[],
+      }
+    }
+    if (q.trim().length > 0) {
+      return {
+        topRows: dateFiltered,
+        upstreamRows: [] as Job[],
+        doneRows: [] as Job[],
+      }
+    }
+    const top = dateFiltered.filter((j) => jobIsMineAtStage(j, stageFilter))
+    const upstream = dateFiltered
+      .filter(
+        (j) =>
+          !jobIsMineAtStage(j, stageFilter) &&
+          !jobIsDoneAtStage(j, stageFilter) &&
+          jobIsUpstreamOfStage(j, stageFilter),
+      )
+      .sort((a, b) =>
+        jobEffectiveDueDate(a).localeCompare(jobEffectiveDueDate(b)),
+      )
+      .slice(0, 20)
+    const done = dateFiltered
+      .filter((j) => jobIsDoneAtStage(j, stageFilter))
+      .sort((a, b) =>
+        jobMostRecentFinishedAt(b, stageFilter).localeCompare(
+          jobMostRecentFinishedAt(a, stageFilter),
+        ),
+      )
+      .slice(0, 20)
+    return { topRows: top, upstreamRows: upstream, doneRows: done }
+  }, [sortedByMode, dateFilter, sortMode, isStationView, stageFilter, q])
+
+  const filteredCount = topRows.length + upstreamRows.length + doneRows.length
+  const isFiltered = q.length > 0 || dateFilter.kind !== 'all'
+
+  // Pagination applies only on the commerce overview. Station views already
+  // self-limit (mine + upstream≤20 + done≤20), and any active filter implies
+  // "show me everything that matches" — capping there would feel broken.
+  const shouldPaginate = !isStationView && !isFiltered
+  const visibleTopRows =
+    shouldPaginate && !showAll
+      ? topRows.slice(0, DEFAULT_PAGE_SIZE)
+      : topRows
+  const hiddenTopCount =
+    shouldPaginate && !showAll ? topRows.length - visibleTopRows.length : 0
+
+  return (
+    <>
+      {showShipTabs && (
+        <ShipFilterToggle
+          active={shipFilter}
+          onChange={setShipFilter}
+          liveCount={liveCount}
+          shippedCount={shippedCount}
+        />
+      )}
+
+      <div className="mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-3">
+        <SearchInput q={q} setQ={setQ} placeholder={searchPlaceholder(jobNoOnly)} />
+        <SortBar
+          sortMode={sortMode}
+          setSortMode={setSortMode}
+          dateFilter={dateFilter}
+          setDateFilter={setDateFilter}
+        />
+        <span className="ml-auto label text-[var(--color-ink-3)]">
+          <span
+            className={`mono mr-1 text-[12px] ${
+              isFiltered
+                ? 'text-[var(--color-ink)] font-medium'
+                : 'text-[var(--color-ink-2)]'
+            }`}
+          >
+            {filteredCount}
+          </span>
+          {isFiltered ? `/ ${scopedJobs.length}` : ''}
+        </span>
+      </div>
+
+      <div className="overflow-x-auto rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <table className="sheet w-full text-left text-[13px]">
+          <colgroup>
+            <col style={{ width: 56 }} />
+            <col style={{ width: 130 }} />
+            <col style={{ width: 220 }} />
+            {showMoney && <col style={{ width: 120 }} />}
+            <col style={{ width: 140 }} />
+            {STAGES.map((s) => {
+              const isHighlighted = s === highlightStage
+              // Highlighted column gets extra width for the action button +
+              // timer chip stack on the station view. On commerce / overview
+              // we still tint via the col background — no per-cell action
+              // there, so the wash is what signals "this column matters."
+              const width = isHighlighted ? 168 : 88
+              const colBg =
+                isHighlighted && !isStationView
+                  ? 'var(--color-warning-soft)'
+                  : undefined
+              return (
+                <col
+                  key={s}
+                  style={{ width, background: colBg }}
+                />
+              )
+            })}
+            <col style={{ minWidth: 200 }} />
+          </colgroup>
+          <thead>
+            <tr className="text-[var(--color-ink-2)]">
+              <th className="px-3 py-3 text-center label whitespace-nowrap">#</th>
+              <th className="px-4 py-3 label whitespace-nowrap">工号</th>
+              <th className="px-4 py-3 label whitespace-nowrap">
+                {isProduction ? '产品' : '客户 / 产品'}
+              </th>
+              {showMoney && (
+                <th className="px-4 py-3 text-right label whitespace-nowrap">
+                  金额
+                </th>
+              )}
+              <th className="px-4 py-3 label whitespace-nowrap">交期</th>
+              {STAGES.map((s) => {
+                const isHighlighted = s === highlightStage
+                const cell = (
+                  <span
+                    className={
+                      isHighlighted
+                        ? 'block font-semibold text-[var(--color-ink)]'
+                        : 'block hover:opacity-60'
+                    }
+                  >
+                    <StageHeader name={s} />
+                  </span>
+                )
+                return (
+                  <th key={s} className="px-2 py-3 text-center whitespace-nowrap">
+                    {isProduction ? (
+                      cell
+                    ) : (
+                      <Link href={`/station/${encodeURIComponent(s)}`}>
+                        {cell}
+                      </Link>
+                    )}
+                  </th>
+                )
+              })}
+              <th
+                className="px-4 py-3 label whitespace-nowrap"
+                style={{ borderRight: '6px solid transparent' }}
+              >
+                备注
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleTopRows.map((job, i) => (
+              <JobRow
+                key={job.id}
+                job={job}
+                index={i}
+                q={q}
+                isProduction={isProduction}
+                showMoney={showMoney}
+                highlightStage={highlightStage}
+                isStationView={isStationView}
+                tier="mine"
+              />
+            ))}
+            {shouldPaginate && (showAll || hiddenTopCount > 0) && topRows.length > DEFAULT_PAGE_SIZE && (
+              <tr>
+                <td
+                  colSpan={5 + STAGES.length + (showMoney ? 1 : 0)}
+                  className="px-4 py-3 text-center border-t border-[var(--color-border)]"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setShowAll((s) => !s)}
+                    className="label text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
+                    aria-expanded={showAll}
+                  >
+                    {showAll ? (
+                      <>收起 ↑</>
+                    ) : (
+                      <>
+                        显示其余{' '}
+                        <span className="mono tabular-nums">{hiddenTopCount}</span>{' '}
+                        个 ↓
+                      </>
+                    )}
+                  </button>
+                </td>
+              </tr>
+            )}
+            {upstreamRows.length > 0 && (
+              <>
+                <tr aria-hidden="true">
+                  <td
+                    colSpan={5 + STAGES.length + (showMoney ? 1 : 0)}
+                    className="px-4 pt-8 pb-2"
+                  >
+                    <div className="flex items-baseline gap-3 border-t border-[var(--color-border)] pt-4">
+                      <span className="label text-[var(--color-ink-3)]">
+                        即将到达
+                      </span>
+                      <span className="mono text-[11px] text-[var(--color-ink-4)]">
+                        上游 · {upstreamRows.length}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+                {upstreamRows.map((job, i) => (
+                  <JobRow
+                    key={job.id}
+                    job={job}
+                    index={topRows.length + i}
+                    q={q}
+                    isProduction={isProduction}
+                    showMoney={showMoney}
+                    highlightStage={highlightStage}
+                    isStationView={isStationView}
+                    tier="upstream"
+                  />
+                ))}
+              </>
+            )}
+            {doneRows.length > 0 && (
+              <>
+                <tr aria-hidden="true">
+                  <td
+                    colSpan={5 + STAGES.length + (showMoney ? 1 : 0)}
+                    className="px-4 pt-8 pb-2"
+                  >
+                    <div className="flex items-baseline gap-3 border-t border-[var(--color-border)] pt-4">
+                      <span className="label text-[var(--color-ink-3)]">
+                        已处理
+                      </span>
+                      <span className="mono text-[11px] text-[var(--color-ink-4)]">
+                        完成 / 外协 · {doneRows.length}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+                {doneRows.map((job, i) => (
+                  <JobRow
+                    key={job.id}
+                    job={job}
+                    index={topRows.length + upstreamRows.length + i}
+                    q={q}
+                    isProduction={isProduction}
+                    showMoney={showMoney}
+                    highlightStage={highlightStage}
+                    isStationView={isStationView}
+                    tier="done"
+                  />
+                ))}
+              </>
+            )}
+          </tbody>
+        </table>
+        {filteredCount === 0 && (
+          <div className="px-6 py-12 text-center">
+            <p className="text-[13px] text-[var(--color-ink-2)]">
+              {isStationView
+                ? '此刻没有任务 · 上游也没有正在进行的工单'
+                : stageFilter
+                  ? `${stageFilter} 工段当前无待处理工单`
+                  : '无匹配工单'}
+            </p>
+            <p className="label mt-2 text-[var(--color-ink-3)]">
+              {q ? `未找到 “${q}”` : '该范围暂无工单'}
+            </p>
+            {isFiltered && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQ('')
+                  setDateFilter({ kind: 'all' })
+                }}
+                className="label mt-4 text-[var(--color-ink)] hover:underline underline-offset-4 decoration-[var(--color-ink-3)]"
+              >
+                清除筛选 ↺
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+function searchPlaceholder(jobNoOnly: boolean): string {
+  return jobNoOnly ? '搜索 工号' : '搜索 · 工号 / 客户 / 产品'
+}
+
+// Two text buttons, no container, no fill — just typography. Active label
+// goes ink + semibold with a hairline rule beneath; inactive sits in ink-3.
+// The count rides to the right in tiny mono ink-4 so it never competes with
+// the label. This matches the 按交期/按工号 sort toggle's restraint, dialed
+// up half a notch (tighter underline) because the scope choice is the
+// view's top-level pivot, not just an ordering preference.
+function ShipFilterToggle({
+  active,
+  onChange,
+  liveCount,
+  shippedCount,
+}: {
+  active: ShipFilter
+  onChange: (s: ShipFilter) => void
+  liveCount: number
+  shippedCount: number
+}) {
+  const segments: { key: ShipFilter; label: string; count: number }[] = [
+    { key: 'live', label: '在产', count: liveCount },
+    { key: 'shipped', label: '已出货', count: shippedCount },
+  ]
+  return (
+    <div role="tablist" aria-label="工单范围" className="mb-6 flex items-baseline gap-x-7">
+      {segments.map((s) => {
+        const isActive = s.key === active
+        return (
+          <button
+            key={s.key}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            onClick={() => onChange(s.key)}
+            className={`group inline-flex items-baseline gap-1.5 pb-1 transition-colors border-b ${
+              isActive
+                ? 'border-[var(--color-ink)]'
+                : 'border-transparent hover:border-[var(--color-border-strong)]'
+            }`}
+          >
+            <span
+              className={`text-[15px] tracking-tight ${
+                isActive
+                  ? 'font-semibold text-[var(--color-ink)]'
+                  : 'font-medium text-[var(--color-ink-3)] group-hover:text-[var(--color-ink-2)]'
+              }`}
+            >
+              {s.label}
+            </span>
+            <span className="mono text-[11px] text-[var(--color-ink-4)] tabular-nums">
+              {s.count}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function JobRow({
+  job,
+  index,
+  q,
+  isProduction,
+  showMoney,
+  highlightStage,
+  isStationView,
+  tier,
+}: {
+  job: Job
+  index: number
+  q: string
+  isProduction: boolean
+  showMoney: boolean
+  highlightStage?: Stage
+  /** True on a production user's station board: enables click-to-advance and
+   * the live timer in the highlighted-stage cell. */
+  isStationView: boolean
+  /** Visual tier on the station view:
+   *   'mine'     — full color, actionable
+   *   'upstream' — opacity-50, "incoming"
+   *   'done'     — opacity-40, "recently finished, no longer demanding" */
+  tier: 'mine' | 'upstream' | 'done'
+}) {
+  // The head's own column is NEVER a navigation Link — clicks here are
+  // stage-action gestures. Three flavors:
+  //   • something to act on  → JobStageActionButton (advance / undo). Timer
+  //                            chip beneath only when this row is "mine"
+  //                            (in_progress here, or pending+canStart with
+  //                            all priors done).
+  //   • nothing to act on    → plain RollupCell (n/a or all-outsourced —
+  //                            no in-house counts at this stage).
+  //
+  // Other stages on the row keep the existing Link → /jobs/[id] behavior so
+  // the row stays drillable from any non-head column.
+  const isMineHere =
+    isStationView && highlightStage
+      ? jobIsMineAtStage(job, highlightStage)
+      : false
+  const timer =
+    isMineHere && highlightStage ? jobTimerAtStage(job, highlightStage) : null
+  // Returns override the master-grid color/sort while open — see
+  // jobEffectiveDueDate. Original ship date stays on the job-detail header.
+  const effDue = jobEffectiveDueDate(job)
+  const ds = dueState(effDue)
+  const days = daysFromToday(effDue)
+  const stripeColor =
+    ds === 'overdue'
+      ? 'var(--color-overdue)'
+      : ds === 'today'
+        ? 'var(--color-warning)'
+        : 'transparent'
+  const detailHref = `/jobs/${job.id}`
+  const rowOpacity =
+    tier === 'mine' ? '' : tier === 'upstream' ? 'opacity-50' : 'opacity-40'
+  return (
+    <tr
+      style={{
+        viewTransitionName: `row-${job.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+      }}
+      className={`align-middle ${rowOpacity}`}
+    >
+      <td className="px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]">
+        {String(index + 1).padStart(2, '0')}
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Link
+            href={detailHref}
+            className="mono text-[13px] font-medium text-[var(--color-ink)] hover:underline underline-offset-4 decoration-[var(--color-ink-3)]"
+          >
+            <Highlight text={job.jobNo} q={q} />
+          </Link>
+          {jobHasOpenOutsource(job) && (
+            <span
+              className="mono text-[10px] tracking-wider px-1.5 py-px rounded-sm border border-[var(--color-info)] text-[var(--color-info)] leading-tight"
+              title="此工单有零件正在外协"
+              aria-label="此工单有外协"
+            >
+              外协
+            </span>
+          )}
+          {job.activeReturn && <ReturnChip ret={job.activeReturn} />}
+        </div>
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex flex-col leading-tight">
+          {!isProduction && (
+            <span className="text-[13px] font-medium text-[var(--color-ink)]">
+              <Highlight text={job.customer} q={q} />
+            </span>
+          )}
+          <span
+            className={
+              isProduction
+                ? 'text-[13px] font-medium text-[var(--color-ink)]'
+                : 'label mt-0.5 normal-case tracking-normal text-[11px] text-[var(--color-ink-3)]'
+            }
+          >
+            <Highlight text={job.product} q={q} />
+          </span>
+        </div>
+      </td>
+      {showMoney && (
+        <td className="px-4 py-3 text-right">
+          <div className="flex flex-col items-end leading-tight">
+            <span
+              className={
+                typeof job.amountCny === 'number'
+                  ? 'mono text-[13px] font-medium text-[var(--color-ink)]'
+                  : 'mono text-[13px] text-[var(--color-ink-4)]'
+              }
+            >
+              {formatCny(job.amountCny)}
+            </span>
+            {(() => {
+              const ext = jobExternalSpend(job)
+              if (ext === 0) return null
+              const margin = jobMargin(job)
+              return (
+                <span className="mono text-[10px] text-[var(--color-ink-3)] mt-0.5">
+                  外 {formatCny(ext)}
+                  {typeof margin === 'number'
+                    ? ` · 利 ${formatCny(margin)}`
+                    : ''}
+                </span>
+              )
+            })()}
+          </div>
+        </td>
+      )}
+      <td className="px-4 py-3">
+        <DueCell date={effDue} state={ds} daysOff={days} />
+      </td>
+      {STAGES.map((stage) => {
+        const isHighlighted = stage === highlightStage
+        // Highlighted column on station view: never changes color on hover
+        // (the button paints its own state). Other columns keep the brown
+        // hover so the row is clickable to job detail.
+        const hoverCls =
+          isHighlighted && isStationView
+            ? ''
+            : isHighlighted
+              ? 'hover:bg-black/5'
+              : 'hover:bg-[#f1eee4]'
+        // Highlighted col tint on station view: full warning-soft for "mine"
+        // rows (the action button paints it), but a much fainter wash on the
+        // non-mine tiers (upstream + done) so the column stays visible without
+        // competing with the actionable tier. Row-level opacity does the rest
+        // of the work to push those tiers back.
+        const cellBgStyle: React.CSSProperties | undefined =
+          isHighlighted && isStationView && !isMineHere
+            ? { backgroundColor: '#fdf7e7' }
+            : undefined
+        // Head's own column on the station view: render the action button
+        // (or a plain RollupCell when there's nothing to act on). Crucially,
+        // this branch NEVER wraps the cell in a <Link> — without that guard,
+        // a click on a "done ✓" or "upstream-blocked" cell silently flashed
+        // brown and navigated to /jobs/[id] instead of giving the head a way
+        // to interact with the stage. The head's column owns stage actions.
+        if (isHighlighted && isStationView) {
+          const rollup = rollupStage(job, stage)
+          const cnts = jobStageCounts(job, stage)
+          const totalCounted = cnts.inProgress + cnts.pending + cnts.done
+          if (totalCounted === 0) {
+            // No in-house work for this head at this stage — n/a or every
+            // part is currently at a vendor. Static cell, no Link, no button.
+            return (
+              <td key={stage} className="p-0 h-[78px]" style={cellBgStyle}>
+                <RollupCell rollup={rollup} />
+              </td>
+            )
+          }
+          return (
+            <td key={stage} className="p-0 h-[78px]" style={cellBgStyle}>
+              <JobStageActionButton
+                jobId={job.id}
+                stage={stage}
+                inProgress={cnts.inProgress}
+                pending={cnts.pending}
+                done={cnts.done}
+                timer={timer}
+                subdued
+              />
+            </td>
+          )
+        }
+        return (
+          <td key={stage} className="p-0 h-[78px]" style={cellBgStyle}>
+            <Link
+              href={detailHref}
+              className={`block h-full w-full ${hoverCls} transition-colors`}
+              aria-label={`${job.jobNo} · ${stage}`}
+            >
+              <RollupCell rollup={rollupStage(job, stage)} />
+            </Link>
+          </td>
+        )
+      })}
+      <td
+        className="px-3 py-2 align-middle"
+        style={{ borderRight: `6px solid ${stripeColor}` }}
+        // Click bubbles up from the input — stop the row's hover/link feel.
+        onClick={(e) => e.stopPropagation()}
+      >
+        <JobNotesInline
+          jobId={job.id}
+          value={job.notes}
+          placeholder="备注…"
+          className={`text-[12px] ${
+            job.notes && job.notes.includes('催')
+              ? 'text-[var(--color-overdue)]'
+              : 'text-[var(--color-ink-2)]'
+          }`}
+        />
+      </td>
+    </tr>
+  )
+}
+
+function SearchInput({
+  q,
+  setQ,
+  placeholder,
+}: {
+  q: string
+  setQ: (s: string) => void
+  placeholder: string
+}) {
+  return (
+    <div className="relative inline-block">
+      <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[var(--color-ink-3)] pointer-events-none">
+        <SearchIcon />
+      </span>
+      <input
+        type="search"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder={placeholder}
+        spellCheck={false}
+        autoComplete="off"
+        className="w-[220px] md:w-[300px] h-8 pl-6 pr-6 bg-transparent border-0 border-b border-[var(--color-border-strong)] placeholder:text-[var(--color-ink-3)] focus:outline-none focus:border-[var(--color-ink)] transition-colors"
+        style={{ fontSize: '14px' }}
+      />
+      {q && (
+        <button
+          type="button"
+          onClick={() => setQ('')}
+          aria-label="清除搜索"
+          className="absolute right-0 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded-full text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
+        >
+          <ClearIcon />
+        </button>
+      )}
+    </div>
+  )
+}
+
+// Two-mode 排序 toggle + a two-tap date chip that takes its meaning from the
+// active mode. 按交期 filters on 交期; 按工号 filters on 生产日 (the YY-M-D
+// embedded in YNMX-...). The chip:
+//   1. inactive — click opens the start picker.
+//   2. start picked — chip becomes single-day; end picker auto-opens.
+//      Escape / dismiss the end picker leaves it as a single-day filter.
+//   3. end picked — chip becomes "M月D日 → M月D日". Either bound is a button
+//      that re-opens its own picker for an independent edit.
+// The chain (open end immediately after start) only fires on the idle→active
+// transition. Once a range is active, clicking the start label re-picks start
+// alone — chaining there would be intrusive.
+function SortBar({
+  sortMode,
+  setSortMode,
+  dateFilter,
+  setDateFilter,
+}: {
+  sortMode: SortMode
+  setSortMode: (m: SortMode) => void
+  dateFilter: DateFilter
+  setDateFilter: (f: DateFilter) => void
+}) {
+  const startRef = useRef<HTMLInputElement>(null)
+  const endRef = useRef<HTMLInputElement>(null)
+  // Set when the user enters the picker flow from idle or from the single-day
+  // state. Consumed by onStartChange to decide whether to auto-open the end
+  // picker after start is set.
+  const autoChain = useRef(false)
+  const isRange = dateFilter.kind === 'range'
+  const isSingleDay = isRange && dateFilter.start === dateFilter.end
+
+  const openPicker = (ref: React.RefObject<HTMLInputElement | null>) => {
+    const el = ref.current
+    if (!el) return
+    if (typeof el.showPicker === 'function') {
+      try {
+        el.showPicker()
+      } catch {
+        el.focus()
+        el.click()
+      }
+    } else {
+      el.focus()
+      el.click()
+    }
+  }
+
+  // Clicking the (only) chip from idle, OR clicking the date label when the
+  // filter is still a single day, restarts the two-tap flow (chain enabled).
+  // Clicking the start label of a true range re-picks start alone (no chain).
+  const onStartClick = () => {
+    if (!isRange || isSingleDay) {
+      autoChain.current = true
+    }
+    openPicker(startRef)
+  }
+
+  const onEndClick = () => {
+    openPicker(endRef)
+  }
+
+  const onStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value
+    if (!v) return
+    let newEnd: string
+    if (autoChain.current || !isRange) {
+      // Fresh pick — collapse to single-day; the chained end picker may extend.
+      newEnd = v
+    } else {
+      // Editing start of an active range: clamp so end never falls behind start.
+      newEnd = v > dateFilter.end ? v : dateFilter.end
+    }
+    setDateFilter({ kind: 'range', start: v, end: newEnd })
+    if (autoChain.current) {
+      autoChain.current = false
+      // Defer a tick so the end input's `min` reflects the freshly-set start.
+      setTimeout(() => openPicker(endRef), 0)
+    }
+  }
+
+  const onEndChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value
+    if (!v || !isRange) return
+    const start = dateFilter.start
+    // Picked an end before start — swap rather than reject. Matches the
+    // forgiving behavior of macOS range pickers.
+    if (v < start) {
+      setDateFilter({ kind: 'range', start: v, end: start })
+    } else {
+      setDateFilter({ kind: 'range', start, end: v })
+    }
+  }
+
+  const onClear = () => {
+    autoChain.current = false
+    setDateFilter({ kind: 'all' })
+  }
+
+  const inactiveLabel = sortMode === 'jobNo' ? '生产日' : '交期'
+
+  return (
+    <div className="flex items-baseline gap-x-5 gap-y-2 flex-wrap text-[13px]">
+      <SortToggle
+        label="按交期"
+        active={sortMode === 'due'}
+        onClick={() => setSortMode('due')}
+      />
+      <SortToggle
+        label="按工号"
+        active={sortMode === 'jobNo'}
+        onClick={() => setSortMode('jobNo')}
+      />
+
+      <span className="relative inline-flex items-baseline gap-1.5">
+        <button
+          type="button"
+          onClick={onStartClick}
+          aria-label={isRange ? '修改起始日期' : '选择日期范围'}
+          title={
+            sortMode === 'jobNo'
+              ? '按生产日筛选 (工号上的日期)'
+              : '按交期筛选'
+          }
+          className={`inline-flex items-baseline gap-1.5 transition-colors ${
+            isRange
+              ? 'text-[var(--color-ink)] hover:opacity-70'
+              : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+          }`}
+        >
+          <span className="translate-y-[1px]">
+            <CalendarIcon />
+          </span>
+          <span className={isRange ? 'mono font-semibold' : ''}>
+            {isRange ? formatPickedDate(dateFilter.start) : inactiveLabel}
+          </span>
+        </button>
+        {isRange && !isSingleDay && (
+          <>
+            <span className="text-[var(--color-ink-3)]" aria-hidden="true">
+              →
+            </span>
+            <button
+              type="button"
+              onClick={onEndClick}
+              aria-label="修改结束日期"
+              className="mono font-semibold text-[var(--color-ink)] hover:opacity-70 transition-opacity"
+            >
+              {formatPickedDate(dateFilter.end)}
+            </button>
+          </>
+        )}
+        {isRange && (
+          <button
+            type="button"
+            onClick={onClear}
+            aria-label="清除日期筛选"
+            className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
+          >
+            <ClearIcon />
+          </button>
+        )}
+        <input
+          ref={startRef}
+          type="date"
+          value={isRange ? dateFilter.start : ''}
+          onChange={onStartChange}
+          className="absolute inset-0 opacity-0 pointer-events-none"
+          tabIndex={-1}
+          aria-hidden="true"
+        />
+        <input
+          ref={endRef}
+          type="date"
+          value={isRange ? dateFilter.end : ''}
+          min={isRange ? dateFilter.start : undefined}
+          onChange={onEndChange}
+          className="absolute inset-0 opacity-0 pointer-events-none"
+          tabIndex={-1}
+          aria-hidden="true"
+        />
+      </span>
+    </div>
+  )
+}
+
+function SortToggle({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex items-baseline gap-1 transition-colors ${
+        active
+          ? 'text-[var(--color-ink)] font-semibold'
+          : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+      }`}
+    >
+      <span>{label}</span>
+    </button>
+  )
+}
+
+function Highlight({ text, q }: { text: string; q: string }) {
+  const query = q.trim()
+  if (!query) return <>{text}</>
+  const lowerText = text.toLowerCase()
+  const lowerQ = query.toLowerCase()
+  const idx = lowerText.indexOf(lowerQ)
+  if (idx === -1) return <>{text}</>
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="bg-[var(--color-warning-soft)] text-[var(--color-ink)] px-0.5 rounded-[2px]">
+        {text.slice(idx, idx + query.length)}
+      </mark>
+      {text.slice(idx + query.length)}
+    </>
+  )
+}
+
+function SearchIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle cx="7" cy="7" r="4.6" stroke="currentColor" strokeWidth="1.4" />
+      <line
+        x1="10.5"
+        y1="10.5"
+        x2="14"
+        y2="14"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function CalendarIcon() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 14 14"
+      fill="none"
+      aria-hidden="true"
+    >
+      <rect
+        x="1.5"
+        y="2.5"
+        width="11"
+        height="10"
+        rx="1"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
+      <line
+        x1="1.5"
+        y1="5.5"
+        x2="12.5"
+        y2="5.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
+      <line
+        x1="4.5"
+        y1="1"
+        x2="4.5"
+        y2="3.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+      <line
+        x1="9.5"
+        y1="1"
+        x2="9.5"
+        y2="3.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function ClearIcon() {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M3 3 L9 9 M9 3 L3 9"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}

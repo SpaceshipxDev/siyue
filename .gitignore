@@ -17,6 +17,10 @@
 /.next/
 /out/
 
+# local file-db
+/data/
+/public/uploads/
+
 # production
 /build
 
@@ -35,6 +39,12 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# playwright / screenshots / one-off scripts at repo root
+/.playwright-mcp/
+/*.png
+/inspect-*.mjs
+/make-cookie.mjs
 
 # typescript
 *.tsbuildinfo

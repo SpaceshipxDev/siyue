@@ -1,0 +1,217 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - link "思跃" [ref=e6] [cursor=pointer]:
+            - /url: /
+          - heading "商务总览" [level=1] [ref=e7]
+          - generic [ref=e8]: 全部在产工单
+        - generic [ref=e9]:
+          - generic [ref=e10]:
+            - generic [ref=e11]:
+              - generic [ref=e12]: 逾期
+              - generic [ref=e13]: "0"
+            - generic [ref=e14]:
+              - generic [ref=e15]: 今日
+              - generic [ref=e16]: "0"
+            - generic [ref=e17]:
+              - generic [ref=e18]: 在产
+              - generic [ref=e19]: "1"
+            - generic [ref=e20]:
+              - generic [ref=e21]: 总额
+              - generic [ref=e22]: ¥2,100
+            - generic [ref=e23]:
+              - generic [ref=e24]: 外发
+              - generic [ref=e25]: ¥0
+            - generic [ref=e26]:
+              - generic [ref=e27]: 毛利
+              - generic [ref=e28]: ¥2,100
+          - button "清空" [ref=e30] [cursor=pointer]
+          - generic [ref=e31]: 老板
+          - button "退出" [ref=e32] [cursor=pointer]
+          - generic [ref=e33]: 今日 · 2026-05-05
+      - navigation [ref=e34]:
+        - generic [ref=e35]:
+          - link "商务" [ref=e36] [cursor=pointer]:
+            - /url: /
+            - text: 商务
+          - link "月结" [ref=e38] [cursor=pointer]:
+            - /url: /month
+          - link "外协" [ref=e39] [cursor=pointer]:
+            - /url: /station/outsource
+          - link "工程" [ref=e40] [cursor=pointer]:
+            - /url: /station/%E5%B7%A5%E7%A8%8B
+          - link "编程" [ref=e41] [cursor=pointer]:
+            - /url: /station/%E7%BC%96%E7%A8%8B
+          - link "操机" [ref=e42] [cursor=pointer]:
+            - /url: /station/%E6%93%8D%E6%9C%BA
+          - link "手工" [ref=e43] [cursor=pointer]:
+            - /url: /station/%E6%89%8B%E5%B7%A5
+          - link "打磨" [ref=e44] [cursor=pointer]:
+            - /url: /station/%E6%89%93%E7%A3%A8
+          - link "喷漆" [ref=e45] [cursor=pointer]:
+            - /url: /station/%E5%96%B7%E6%BC%86
+          - link "丝印" [ref=e46] [cursor=pointer]:
+            - /url: /station/%E4%B8%9D%E5%8D%B0
+          - link "质量" [ref=e47] [cursor=pointer]:
+            - /url: /station/%E8%B4%A8%E9%87%8F
+          - link "出货" [ref=e48] [cursor=pointer]:
+            - /url: /station/%E5%87%BA%E8%B4%A7
+    - main [ref=e49]:
+      - generic [ref=e50]:
+        - generic [ref=e51]:
+          - paragraph [ref=e52]: 商务视图
+          - heading "全部工单" [level=2] [ref=e53]
+          - paragraph [ref=e54]: 按交期排序 · 点击任意单元格进入工单 · 点击工段表头进入工段台
+        - paragraph [ref=e55]: 1 个工单
+      - generic [ref=e57]:
+        - generic [ref=e58] [cursor=pointer]:
+          - paragraph [ref=e60]: 导入工单
+          - paragraph [ref=e61]: 拖入或点击上传 Excel
+          - paragraph [ref=e62]: 支持 .xlsx / .xls / .csv · YNMX-* 报价单 / 生产单
+        - generic [ref=e63]:
+          - paragraph [ref=e64]: 最近上传
+          - paragraph [ref=e65]: 上传后这里会显示文件状态 · 每个文件独立解析，不影响看板
+      - generic [ref=e66]:
+        - generic [ref=e67]:
+          - generic:
+            - img
+          - searchbox "搜索 · 工号 / 客户 / 产品" [ref=e68]
+        - generic [ref=e69]:
+          - button "全部 1" [pressed] [ref=e70]:
+            - generic [ref=e71]: 全部
+            - generic [ref=e72]: "1"
+          - button "逾期" [disabled] [ref=e73]:
+            - generic [ref=e74]: 逾期
+          - button "今日" [disabled] [ref=e75]:
+            - generic [ref=e76]: 今日
+          - button "明日" [disabled] [ref=e77]:
+            - generic [ref=e78]: 明日
+          - button "本周" [disabled] [ref=e79]:
+            - generic [ref=e80]: 本周
+          - generic [ref=e81]:
+            - button "选择日期" [ref=e82]:
+              - img [ref=e84]
+              - generic [ref=e86]: 日期
+            - textbox
+        - generic [ref=e87]: "1"
+      - table [ref=e89]:
+        - rowgroup [ref=e106]:
+          - row "# 工号 客户 / 产品 金额 交期 工程 编程 操机 手工 打磨 喷漆 丝印 质量 出货 备注" [ref=e107]:
+            - columnheader "#" [ref=e108]
+            - columnheader "工号" [ref=e109]
+            - columnheader "客户 / 产品" [ref=e110]
+            - columnheader "金额" [ref=e111]
+            - columnheader "交期" [ref=e112]
+            - columnheader "工程" [ref=e113]:
+              - link "工程" [ref=e114] [cursor=pointer]:
+                - /url: /station/%E5%B7%A5%E7%A8%8B
+                - generic [ref=e117]: 工程
+            - columnheader "编程" [ref=e118]:
+              - link "编程" [ref=e119] [cursor=pointer]:
+                - /url: /station/%E7%BC%96%E7%A8%8B
+                - generic [ref=e122]: 编程
+            - columnheader "操机" [ref=e123]:
+              - link "操机" [ref=e124] [cursor=pointer]:
+                - /url: /station/%E6%93%8D%E6%9C%BA
+                - generic [ref=e127]: 操机
+            - columnheader "手工" [ref=e128]:
+              - link "手工" [ref=e129] [cursor=pointer]:
+                - /url: /station/%E6%89%8B%E5%B7%A5
+                - generic [ref=e132]: 手工
+            - columnheader "打磨" [ref=e133]:
+              - link "打磨" [ref=e134] [cursor=pointer]:
+                - /url: /station/%E6%89%93%E7%A3%A8
+                - generic [ref=e137]: 打磨
+            - columnheader "喷漆" [ref=e138]:
+              - link "喷漆" [ref=e139] [cursor=pointer]:
+                - /url: /station/%E5%96%B7%E6%BC%86
+                - generic [ref=e142]: 喷漆
+            - columnheader "丝印" [ref=e143]:
+              - link "丝印" [ref=e144] [cursor=pointer]:
+                - /url: /station/%E4%B8%9D%E5%8D%B0
+                - generic [ref=e147]: 丝印
+            - columnheader "质量" [ref=e148]:
+              - link "质量" [ref=e149] [cursor=pointer]:
+                - /url: /station/%E8%B4%A8%E9%87%8F
+                - generic [ref=e152]: 质量
+            - columnheader "出货" [ref=e153]:
+              - link "出货" [ref=e154] [cursor=pointer]:
+                - /url: /station/%E5%87%BA%E8%B4%A7
+                - generic [ref=e157]: 出货
+            - columnheader "备注" [ref=e158]
+        - rowgroup [ref=e159]:
+          - 'row "01 1-7（晨鹰军泰）报价单 -更新 (2) 晨鹰军泰科技有限公司 手板 ¥2,100 2026-05-20 15 天后 1-7（晨鹰军泰）报价单 -更新 (2) · 工程 1-7（晨鹰军泰）报价单 -更新 (2) · 编程 1-7（晨鹰军泰）报价单 -更新 (2) · 操机 1-7（晨鹰军泰）报价单 -更新 (2) · 手工 1-7（晨鹰军泰）报价单 -更新 (2) · 打磨 1-7（晨鹰军泰）报价单 -更新 (2) · 喷漆 1-7（晨鹰军泰）报价单 -更新 (2) · 丝印 1-7（晨鹰军泰）报价单 -更新 (2) · 质量 1-7（晨鹰军泰）报价单 -更新 (2) · 出货 付款方式 : 月结30天; 验收标准 : 依据甲方2D、3D、说明文档等相关约定文件进行验收" [ref=e160]':
+            - cell "01" [ref=e161]
+            - cell "1-7（晨鹰军泰）报价单 -更新 (2)" [ref=e162]:
+              - link "1-7（晨鹰军泰）报价单 -更新 (2)" [ref=e163] [cursor=pointer]:
+                - /url: /jobs/J-mosb6qc7-rmt6cv
+            - cell "晨鹰军泰科技有限公司 手板" [ref=e164]:
+              - generic [ref=e165]:
+                - generic [ref=e166]: 晨鹰军泰科技有限公司
+                - generic [ref=e167]: 手板
+            - cell "¥2,100" [ref=e168]:
+              - generic [ref=e170]: ¥2,100
+            - cell "2026-05-20 15 天后" [ref=e171]:
+              - generic [ref=e172]:
+                - generic [ref=e173]: 2026-05-20
+                - generic [ref=e174]: 15 天后
+            - cell "1-7（晨鹰军泰）报价单 -更新 (2) · 工程" [ref=e175]:
+              - link "1-7（晨鹰军泰）报价单 -更新 (2) · 工程" [ref=e176] [cursor=pointer]:
+                - /url: /jobs/J-mosb6qc7-rmt6cv
+                - generic [ref=e178]: —
+            - cell "1-7（晨鹰军泰）报价单 -更新 (2) · 编程" [ref=e179]:
+              - link "1-7（晨鹰军泰）报价单 -更新 (2) · 编程" [ref=e180] [cursor=pointer]:
+                - /url: /jobs/J-mosb6qc7-rmt6cv
+                - generic [ref=e182]: —
+            - cell "1-7（晨鹰军泰）报价单 -更新 (2) · 操机" [ref=e183]:
+              - link "1-7（晨鹰军泰）报价单 -更新 (2) · 操机" [ref=e184] [cursor=pointer]:
+                - /url: /jobs/J-mosb6qc7-rmt6cv
+                - generic [ref=e186]: —
+            - cell "1-7（晨鹰军泰）报价单 -更新 (2) · 手工" [ref=e187]:
+              - link "1-7（晨鹰军泰）报价单 -更新 (2) · 手工" [ref=e188] [cursor=pointer]:
+                - /url: /jobs/J-mosb6qc7-rmt6cv
+                - generic [ref=e190]: —
+            - cell "1-7（晨鹰军泰）报价单 -更新 (2) · 打磨" [ref=e191]:
+              - link "1-7（晨鹰军泰）报价单 -更新 (2) · 打磨" [ref=e192] [cursor=pointer]:
+                - /url: /jobs/J-mosb6qc7-rmt6cv
+                - generic [ref=e194]: —
+            - cell "1-7（晨鹰军泰）报价单 -更新 (2) · 喷漆" [ref=e195]:
+              - link "1-7（晨鹰军泰）报价单 -更新 (2) · 喷漆" [ref=e196] [cursor=pointer]:
+                - /url: /jobs/J-mosb6qc7-rmt6cv
+                - generic [ref=e198]: —
+            - cell "1-7（晨鹰军泰）报价单 -更新 (2) · 丝印" [ref=e199]:
+              - link "1-7（晨鹰军泰）报价单 -更新 (2) · 丝印" [ref=e200] [cursor=pointer]:
+                - /url: /jobs/J-mosb6qc7-rmt6cv
+                - generic [ref=e202]: —
+            - cell "1-7（晨鹰军泰）报价单 -更新 (2) · 质量" [ref=e203]:
+              - link "1-7（晨鹰军泰）报价单 -更新 (2) · 质量" [ref=e204] [cursor=pointer]:
+                - /url: /jobs/J-mosb6qc7-rmt6cv
+                - generic [ref=e206]: —
+            - cell "1-7（晨鹰军泰）报价单 -更新 (2) · 出货" [ref=e207]:
+              - link "1-7（晨鹰军泰）报价单 -更新 (2) · 出货" [ref=e208] [cursor=pointer]:
+                - /url: /jobs/J-mosb6qc7-rmt6cv
+                - generic [ref=e210]: —
+            - 'cell "付款方式 : 月结30天; 验收标准 : 依据甲方2D、3D、说明文档等相关约定文件进行验收" [ref=e211]':
+              - textbox "备注…" [ref=e212]: "付款方式 : 月结30天; 验收标准 : 依据甲方2D、3D、说明文档等相关约定文件进行验收"
+      - generic [ref=e213]:
+        - generic [ref=e214]: 图例
+        - generic [ref=e215]:
+          - generic [ref=e217]: ✓
+          - generic [ref=e218]: 该工段所有零件已完成
+        - generic [ref=e219]:
+          - generic [ref=e221]: 3/5
+          - generic [ref=e222]: 进行中 (已完成/总数)
+        - generic [ref=e223]:
+          - generic [ref=e225]: —
+          - generic [ref=e226]: 未开始
+        - generic [ref=e230]: 逾期
+        - generic [ref=e234]: 今日
+    - contentinfo [ref=e235]:
+      - generic [ref=e236]:
+        - generic [ref=e237]: 越侬模型 · 思跃 MES v0.1
+        - generic [ref=e238]: 基准日 2026-05-05
+  - button "Open Next.js Dev Tools" [ref=e244] [cursor=pointer]:
+    - img [ref=e245]
+  - alert [ref=e248]

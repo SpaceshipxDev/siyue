@@ -1,65 +1,301 @@
-import Image from "next/image";
+import Link from 'next/link'
+import {
+  STAGES,
+  dueState,
+  formatCny,
+  jobEffectiveDueDate,
+  jobExternalSpend,
+  type Stage,
+} from '@/lib/data'
+import { today } from '@/lib/today'
+import { getJobs } from '@/lib/db'
+import { requireUser } from '@/lib/auth'
+import { scrubJob } from '@/lib/dto'
+import { Pill, TopBar, type TabKey } from './_ui'
+import { MasterUploader } from './_uploader'
+import { DeleteInboxButton } from './_inbox'
+import { MasterSheet } from './_master_filter'
+import { StationSummary } from './_station_summary'
+import { StationWorkbench } from './_workbench'
 
-export default function Home() {
+export const dynamic = 'force-dynamic'
+
+export default async function MasterBoard(
+  props: PageProps<'/'>,
+) {
+  const user = await requireUser()
+  const isProduction = user.role === 'production'
+  // 工程 head sees the holistic master view (same UI as commerce) minus
+  // customer + money. They land at bare /, never auto-pinned to ?stage=工程.
+  const isEngineering = isProduction && user.defaultStage === '工程'
+
+  // Workers land on `/?stage=<their-stage>` via the post-login proxy redirect
+  // so the URL itself encodes the filter — refresh-stable and shareable.
+  // We deliberately do NOT auto-redirect here on missing `?stage=`: that would
+  // re-apply the filter the moment a worker clicks "查看全部" (which pushes
+  // bare `/`), making the toggle un-clickable.
+  const sp = await props.searchParams
+  const rawStage = typeof sp?.stage === 'string' ? sp.stage : undefined
+
+  const stageFilter: Stage | undefined =
+    rawStage && (STAGES as readonly string[]).includes(rawStage)
+      ? (rawStage as Stage)
+      : undefined
+
+  const rawJobs = await getJobs()
+  const jobs = isProduction
+    ? rawJobs.map((j) => scrubJob(j, user))
+    : rawJobs
+
+  const inbox = isProduction
+    ? []
+    : jobs.filter(
+        (j) =>
+          j.status === 'parsing' || j.status === 'draft' || j.status === 'failed',
+      )
+  const live = jobs.filter(
+    (j) => j.status !== 'parsing' && j.status !== 'draft' && j.status !== 'failed',
+  )
+  // Effective due date: returning jobs sort by their internal rework deadline,
+  // not the long-past original ship date. Top-bar overdue/今日 pills follow
+  // the same effective date so the counters match what the user sees on the
+  // grid. See jobEffectiveDueDate.
+  const sorted = [...live].sort((a, b) =>
+    jobEffectiveDueDate(a).localeCompare(jobEffectiveDueDate(b)),
+  )
+  const overdue = sorted.filter(
+    (j) => dueState(jobEffectiveDueDate(j)) === 'overdue',
+  ).length
+  const dueToday = sorted.filter(
+    (j) => dueState(jobEffectiveDueDate(j)) === 'today',
+  ).length
+  const totalAmount = sorted.reduce((sum, job) => sum + (job.amountCny ?? 0), 0)
+  const totalExternal = sorted.reduce((sum, job) => sum + jobExternalSpend(job), 0)
+  const totalMargin = totalAmount - totalExternal
+
+  // Production users see just their station name as the title — no "工单" /
+  // "我的工单" subtitle clutter; the StationSummary card below carries the
+  // weight that subtitle used to. 工程 head's holistic landing borrows the
+  // commerce chrome (title + subtitle) since they're looking at the whole
+  // floor, not just their own queue.
+  const title = isProduction
+    ? isEngineering && !stageFilter
+      ? '工程总览'
+      : stageFilter ?? '全厂工单'
+    : stageFilter
+      ? `${stageFilter} 工段`
+      : '商务总览'
+  const subtitle = isProduction
+    ? isEngineering && !stageFilter
+      ? '全部在产工单'
+      : undefined
+    : stageFilter
+      ? `查看 · ${stageFilter}`
+      : '全部在产工单'
+  const currentTab: TabKey | undefined = isProduction
+    ? undefined
+    : (stageFilter as TabKey | undefined) ?? '商务'
+  // The stage we treat as "this station" for the StationSummary + MasterSheet
+  // highlight: URL stage if present, else the user's home station. Commerce
+  // gets the summary only when they've navigated to a station; the bare
+  // overview keeps its existing 6-pill TopBar.
+  const summaryStage: Stage | undefined =
+    stageFilter ?? (isProduction ? user.defaultStage : undefined)
+  // "Overview" = commerce hovering over the whole factory (no station picked).
+  // The 商务视图 header / MasterUploader / inbox / Legend chrome is for that
+  // landing only — when commerce drills into a station they get the same
+  // station-floor view a worker sees, with no overview clutter.
+  const isOverview = !isProduction && !stageFilter
+  // 工程 head shares the commerce-style holistic chrome at bare /, but
+  // without the master uploader (commerce-only) or import inbox (commerce
+  // owns initial confirmation). Money pills are also stripped — they don't
+  // see prices anywhere else.
+  const isEngineeringOverview = isEngineering && !stageFilter
+  // Anything that should render the commerce-style header/legend on the
+  // master view — pure commerce overview OR 工程 holistic view.
+  const showOverviewChrome = isOverview || isEngineeringOverview
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+    <div className="flex-1 flex flex-col">
+      <TopBar
+        title={title}
+        subtitle={subtitle}
+        currentTab={currentTab}
+        role={user.role}
+        defaultStage={user.defaultStage}
+        userName={user.name}
+        right={
+          isProduction ? null : (
+            <div className="flex items-center gap-2">
+              <Pill tone="overdue" label="逾期" value={overdue} />
+              <Pill tone="warning" label="今日" value={dueToday} />
+              <Pill tone="neutral" label="在产" value={sorted.length} />
+              <Pill tone="info" label="总额" value={formatCny(totalAmount)} />
+              <Pill tone="info" label="外发" value={formatCny(totalExternal)} />
+              <Pill tone="success" label="毛利" value={formatCny(totalMargin)} />
+            </div>
+          )
+        }
+      />
+
+      <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">
+        {isOverview && (
+          <div className="mb-6 flex items-baseline justify-between">
+            <div>
+              <p className="label mb-1">商务视图</p>
+              <h2 className="text-[28px] font-semibold tracking-tight text-[var(--color-ink)]">
+                全部工单
+              </h2>
+              <p className="mt-1 text-[13px] text-[var(--color-ink-2)]">
+                点击任意单元格进入工单 · 点击工段表头进入工段台
+              </p>
+            </div>
+            <p className="label">{sorted.length} 个工单</p>
+          </div>
+        )}
+
+        {isOverview && <MasterUploader />}
+
+        {isOverview && inbox.length > 0 ? (
+          <section className="mb-8 rounded-sm border border-[var(--color-warning)] bg-[var(--color-warning-soft)]">
+            <div className="flex items-baseline justify-between px-5 py-3 border-b border-[var(--color-warning)]">
+              <p className="label text-[var(--color-ink)]">
+                导入收件箱 · {inbox.length}
+              </p>
+              <p className="text-[12px] text-[var(--color-ink-2)]">
+                解析完成后逐项核对、配图、确认才会进入看板
+              </p>
+            </div>
+            <ul className="divide-y divide-[var(--color-warning)]">
+              {inbox.map((d) => {
+                const tone =
+                  d.status === 'parsing'
+                    ? 'text-[var(--color-warning)]'
+                    : d.status === 'failed'
+                      ? 'text-[var(--color-overdue)]'
+                      : 'text-[var(--color-ink)]'
+                const label =
+                  d.status === 'parsing'
+                    ? '解析中'
+                    : d.status === 'failed'
+                      ? '解析失败'
+                      : '待审核'
+                return (
+                  <li key={d.id} className="flex items-stretch hover:bg-[#f5e6b8]">
+                    <Link
+                      href={`/import/${d.id}`}
+                      className="flex items-baseline gap-4 px-5 py-3 text-[13px] flex-1 min-w-0"
+                    >
+                      <span className={`label w-16 shrink-0 ${tone}`}>{label}</span>
+                      <span className="mono font-medium text-[var(--color-ink)] w-32 shrink-0 truncate">
+                        {d.jobNo}
+                      </span>
+                      <span className="text-[var(--color-ink)] flex-1 truncate">
+                        {d.customer}
+                        <span className="ml-2 text-[var(--color-ink-3)]">
+                          {d.product}
+                        </span>
+                      </span>
+                      <span className="label text-[var(--color-ink-2)]">
+                        {d.status === 'parsing'
+                          ? '—'
+                          : `${d.components.length} 件`}
+                      </span>
+                      <span className="label text-[var(--color-ink)]">打开 →</span>
+                    </Link>
+                    <div className="flex items-center pr-3">
+                      <DeleteInboxButton
+                        jobId={d.id}
+                        label={`${d.jobNo} · ${d.customer}`}
+                      />
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        ) : null}
+
+        {summaryStage && <StationSummary jobs={sorted} stage={summaryStage} />}
+
+        {stageFilter ? (
+          <StationWorkbench
+            jobs={sorted}
+            stage={stageFilter}
+            role={user.role}
+            defaultStage={user.defaultStage}
+          />
+        ) : (
+          <MasterSheet
+            jobs={sorted}
+            role={user.role}
+            defaultStage={user.defaultStage}
+            stageFilter={stageFilter}
+          />
+        )}
+
+        {isOverview && <Legend />}
       </main>
+
+      <footer className="border-t border-[var(--color-border)] bg-[var(--color-surface)]">
+        <div className="mx-auto max-w-[1500px] px-4 md:px-10 py-4 flex items-baseline justify-between text-[var(--color-ink-3)]">
+          <span className="label">越侬模型 · 思跃 MES v0.1</span>
+          <span className="label">基准日 {today()}</span>
+        </div>
+      </footer>
     </div>
-  );
+  )
+}
+
+function Legend() {
+  return (
+    <div className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-3 text-[var(--color-ink-2)]">
+      <span className="label">图例</span>
+      <LegendItem
+        swatch={
+          <span className="text-[12px] font-semibold tracking-wider text-[var(--color-success)]">
+            ✓
+          </span>
+        }
+        text="该工段所有零件已完成"
+      />
+      <LegendItem
+        swatch={
+          <span className="mono text-[12px] text-[var(--color-warning)] font-medium">
+            3/5
+          </span>
+        }
+        text="进行中 (已完成/总数)"
+      />
+      <LegendItem
+        swatch={<span className="mono text-[12px] text-[var(--color-ink-4)]">—</span>}
+        text="未开始"
+      />
+      <LegendItem
+        swatch={<span className="block h-3 w-1 bg-[var(--color-overdue)]" />}
+        text="逾期"
+      />
+      <LegendItem
+        swatch={<span className="block h-3 w-1 bg-[var(--color-warning)]" />}
+        text="今日"
+      />
+    </div>
+  )
+}
+
+function LegendItem({
+  swatch,
+  text,
+}: {
+  swatch: React.ReactNode
+  text: string
+}) {
+  return (
+    <span className="flex items-center gap-2">
+      <span className="inline-flex h-5 min-w-[28px] items-center justify-center">
+        {swatch}
+      </span>
+      <span className="text-[12px] text-[var(--color-ink-2)]">{text}</span>
+    </span>
+  )
 }

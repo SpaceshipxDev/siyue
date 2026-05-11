@@ -1,26 +1,255 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* warm-paper palette — Swiss + Apple */
+  --color-bg: #fbfaf7;
+  --color-surface: #ffffff;
+  --color-border: #e7e5e0;
+  --color-border-strong: #d6d3cc;
+  --color-ink: #14130f;
+  --color-ink-2: #5a5851;
+  --color-ink-3: #9b988f;
+  --color-ink-4: #c4c1b8;
+  --color-overdue: #b8341c;
+  --color-overdue-soft: #fbeae5;
+  --color-warning: #b8881c;
+  --color-warning-soft: #f8eeca;
+  --color-success: #2f6b4a;
+  --color-success-soft: #eaf2ec;
+  --color-info: #2c5e8c;
+  --color-info-soft: #e6eef6;
+  --color-muted-bg: #f1efe9;
+  --color-active-bg: #efece4;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-border: var(--color-border);
+  --color-border-strong: var(--color-border-strong);
+  --color-ink: var(--color-ink);
+  --color-ink-2: var(--color-ink-2);
+  --color-ink-3: var(--color-ink-3);
+  --color-ink-4: var(--color-ink-4);
+  --color-overdue: var(--color-overdue);
+  --color-warning: var(--color-warning);
+  --color-success: var(--color-success);
+  --color-muted-bg: var(--color-muted-bg);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+html, body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  /* iOS Safari: stop the auto-zoom-on-focus quirk that fires when an input
+   * has font-size < 16px. We override per-element where layout matters. */
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Hide scrollbars on the horizontal tab/table strips while keeping scrollability. */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+/* Toggle a node between screen and print. Used by editable wrappers that render
+ * a hidden plain-text fallback so the printed doc never carries native input
+ * chrome (date pickers, datalist arrows, number-input layout quirks). */
+.screen-only { display: revert; }
+.print-only  { display: none; }
+@media print {
+  .screen-only { display: none !important; }
+  .print-only  { display: inline !important; }
+}
+
+/* spreadsheet primitives */
+.sheet {
+  font-variant-numeric: tabular-nums;
+  /* Honor <colgroup> widths — without this, long content (e.g. vendor names
+   * inside stage cells) shrinks adjacent columns like 零件. */
+  table-layout: fixed;
+}
+.sheet th, .sheet td {
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  overflow: hidden;
+}
+.sheet thead th {
+  background: #f5f3ed;
+  border-bottom: 1px solid var(--color-border-strong);
+  border-top: 1px solid var(--color-border-strong);
+}
+.sheet tbody tr:hover td {
+  background: #faf8f2;
+}
+/* Frozen identifier columns — keep "which row am I on" visible while the
+ * stage columns scroll horizontally. The table sets `left` inline per col. */
+.sheet .sticky-col {
+  position: sticky;
+  z-index: 1;
+  background: var(--color-surface);
+}
+.sheet thead th.sticky-col {
+  z-index: 11;
+  background: #f5f3ed;
+}
+.sheet tbody tr:hover td.sticky-col {
+  background: #faf8f2;
+}
+.sheet .sticky-col-edge {
+  box-shadow: 6px 0 6px -6px rgba(0, 0, 0, 0.08);
+}
+.mono {
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-ink-3);
+  font-weight: 500;
+}
+
+/* Reserve bold-weight width on every tab so the active tab's font-semibold
+ * does not shift its neighbors. The ::before paints an invisible bold ghost
+ * (zero height) that fixes the column width to the bold metrics. */
+.tab-link {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.tab-link::before {
+  content: attr(data-text);
+  font-weight: 600;
+  height: 0;
+  visibility: hidden;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Hide native number-input spinners — they overlap right-aligned values in narrow cells. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+@keyframes cell-done-pop {
+  0%   { transform: scale(0.94); opacity: 0; }
+  55%  { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-cell-done {
+  animation: cell-done-pop 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Smooth row reorders + cell repaints when state changes via useTransition. */
+::view-transition-group(*) {
+  animation-duration: 720ms;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0.18, 1);
+}
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation-duration: 480ms;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0.18, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.doc {
+  --doc-width: 210mm;
+  --doc-pad: 18mm;
+  width: var(--doc-width);
+  margin: 0 auto;
+  padding: var(--doc-pad);
+  background: #fff;
+  color: var(--color-ink);
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.doc table { width: 100%; border-collapse: collapse; }
+.doc th, .doc td { padding: 6px 8px; border-bottom: 1px solid #c4c1b8; text-align: left; vertical-align: top; }
+.doc td { font-size: 12px; line-height: 1.45; }
+.doc th { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #5a5851; font-weight: 500; border-bottom: 1px solid #14130f; }
+.doc-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border: 1px solid #d6d3cc;
+  border-radius: 2px;
+  display: block;
+  background: #fff;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+@media screen {
+  .doc {
+    margin: 24px auto 96px;
+    box-shadow: 0 0 0 1px var(--color-border), 0 12px 40px rgba(0,0,0,0.06);
+  }
+}
+
+@media print {
+  @page { size: A4 portrait; margin: 0; }
+  body { background: #fff !important; }
+  .doc {
+    --doc-pad: 14mm;
+    margin: 0;
+    box-shadow: none;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .no-print { display: none !important; }
+  /* Editable fields collapse to inline plain text — no hover/focus borders,
+   * no native date/datalist/number chrome, no placeholder dashes, no
+   * intrinsic input width that breaks horizontal flow. */
+  .doc input, .doc textarea, .doc select {
+    display: inline !important;
+    width: auto !important;
+    min-width: 0 !important;
+    /* `field-sizing: content` shrinks the input to fit its value, ignoring
+     * the `size` HTML attribute (default 20). Without it, an input with
+     * `width: auto` still rounds to ~20ch and leaves a visible gap on print. */
+    field-sizing: content !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    outline: none !important;
+    border: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    color: inherit !important;
+    font: inherit !important;
+    line-height: inherit !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+  }
+  .doc input::placeholder, .doc textarea::placeholder { color: transparent !important; }
+  .doc input::-webkit-calendar-picker-indicator,
+  .doc input::-webkit-list-button,
+  .doc input::-webkit-inner-spin-button,
+  .doc input::-webkit-outer-spin-button {
+    display: none !important;
+    -webkit-appearance: none !important;
+  }
+  /* `.screen-only` / `.print-only` must beat the `.doc input` rule above
+   * (same specificity, earlier in source). Re-state with `.doc` prefix to
+   * bump specificity by one class. */
+  .doc .screen-only { display: none !important; }
+  .doc .print-only  { display: inline !important; }
 }

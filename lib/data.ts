@@ -1,0 +1,915 @@
+export const STAGES = [
+  '工程',
+  '编程',
+  '操机',
+  '手工',
+  '打磨',
+  '喷漆',
+  '丝印',
+  '质量',
+  '出货',
+] as const
+
+export const SCHEMA_VERSION = 6
+
+export type Stage = (typeof STAGES)[number]
+
+// 出货 is always an in-house terminal stage: vendors never ship to the
+// customer directly — they ship parts back to us, then we ship to the
+// customer. Outsource blocks therefore cover production stages only.
+export const PRODUCTION_STAGES: Stage[] = STAGES.filter((s) => s !== '出货')
+
+// 工程 is the in-house routing-planning stage: engineering decides which
+// stages each part runs through before production starts. Vendors execute
+// routings, they don't author them — so 工程 is never part of an outsource
+// block. The picker hides it and the server rejects any block that includes
+// it. Legacy data may still contain 工程 in older blocks; we don't mutate
+// those, only block new ones.
+export const OUTSOURCEABLE_STAGES: Stage[] = PRODUCTION_STAGES.filter(
+  (s) => s !== '工程',
+)
+
+export type StageStatus = 'pending' | 'in_progress' | 'done'
+
+export type StageState = {
+  status: StageStatus
+  // MM-DD display string stamped at finish — kept for the historic "✓ 04-25"
+  // checkmark label all over the UI.
+  completedAt?: string
+  // ISO timestamp captured when the stage went pending → in_progress.
+  // Powers the live "在做 N 分钟" station timer; preserved through
+  // undo/finish as an audit trace.
+  startedAt?: string
+  // ISO timestamp captured when the stage went in_progress → done. Pairs
+  // with startedAt to drive the per-stage avg flow time in StationSummary.
+  finishedAt?: string
+  by?: string
+  // Partial-completion count while status='in_progress': how many of the
+  // part's qty have been finished at this stage. Undefined = none yet (or
+  // status='done' which implies all of qty). Status only flips to 'done'
+  // once the count reaches qty — we never persist a 'done' row with a
+  // doneQty < qty (the finish path clears it).
+  doneQty?: number
+}
+
+export type VendorId = string
+export type Vendor = {
+  id: VendorId
+  name: string
+  notes?: string
+  address?: string
+}
+
+export type CustomerId = string
+export type Customer = {
+  id: CustomerId
+  name: string
+  contact?: string
+  address?: string
+  phone?: string
+}
+
+export type OutsourceBlockMember = {
+  componentId: string
+  name: string
+  qty: number
+  material?: string
+  imageUrl?: string
+  // Per-part return state. `returnedQty` is the running total of units back
+  // from the vendor (0 = nothing back, qty = all back). `returnedAt` stamps
+  // the date of the most recent return event and doubles as the member's
+  // closure date once returnedQty reaches qty.
+  returnedQty?: number
+  returnedAt?: string
+}
+
+// Helpers — keep the qty-based open/closed semantics in one place so callers
+// don't reach into the field directly.
+export function memberReturnedQty(m: OutsourceBlockMember): number {
+  return m.returnedQty ?? 0
+}
+export function memberRemainingQty(m: OutsourceBlockMember): number {
+  return Math.max(0, m.qty - memberReturnedQty(m))
+}
+export function isMemberFullyReturned(m: OutsourceBlockMember): boolean {
+  return memberRemainingQty(m) === 0
+}
+export function isMemberPartiallyReturned(m: OutsourceBlockMember): boolean {
+  const r = memberReturnedQty(m)
+  return r > 0 && r < m.qty
+}
+
+export type OutsourceBlock = {
+  id: string
+  vendorId: VendorId
+  stages: Stage[]
+  // Null when commerce hasn't priced the shipment yet (加急 path: ship now,
+  // quote later). Display as 待补金额 / "—" until backfilled.
+  amountCny: number | null
+  sentDate: string
+  expectedReturn: string
+  notes?: string
+  docNo?: string
+  // 加急 = rush. Bypasses the requirement that 金额 be set at create time.
+  isRush?: boolean
+  // Per-doc fields for the printed 外协单. Null/undefined = use defaults
+  // from the vendor row or the BRAND constants.
+  createdBy?: string
+  recipientAddress?: string
+  recipientContactName?: string
+  recipientContactPhone?: string
+  members: OutsourceBlockMember[]
+}
+
+// "Closed" is derived: a block is closed when every member's returned_qty
+// has reached its qty. The closure date is the latest member returnedAt —
+// that's when the last missing piece finally got back.
+export function blockClosedAt(block: OutsourceBlock): string | undefined {
+  if (block.members.length === 0) return undefined
+  let latest: string | undefined
+  for (const m of block.members) {
+    if (!isMemberFullyReturned(m)) return undefined
+    if (m.returnedAt && (!latest || m.returnedAt > latest)) latest = m.returnedAt
+  }
+  return latest
+}
+
+export function isBlockClosed(block: OutsourceBlock): boolean {
+  if (block.members.length === 0) return false
+  return block.members.every(isMemberFullyReturned)
+}
+
+function memberFor(
+  block: OutsourceBlock,
+  componentId: string,
+): OutsourceBlockMember | undefined {
+  return block.members.find((m) => m.componentId === componentId)
+}
+
+export type Component = {
+  id: string
+  name: string
+  qty: number
+  material?: string
+  surfaceTreatment?: string
+  notes?: string
+  imageUrl?: string
+  // Per-line quote fields. Both stored independently — qty * unitPriceCny is
+  // not enforced to equal lineTotalCny, since real 报价单s often line-discount,
+  // round, or tax differently per item. Either may be undefined when the AI
+  // could not find a number; commerce can hand-correct in the UI.
+  unitPriceCny?: number
+  lineTotalCny?: number
+  // A part's "route" is the set of stages with rows in part_stages. A missing
+  // key means the stage doesn't apply (n/a) — never queued, never blocking,
+  // never counted in the rollup. 出货 is always present.
+  stages: Partial<Record<Stage, StageState>>
+  outsourceBlocks?: OutsourceBlock[]
+}
+
+// Best-effort line subtotal: prefer the explicitly-quoted lineTotalCny;
+// otherwise derive from qty * unitPriceCny when both are present. Returns
+// undefined when neither path yields a number, so callers can render "—"
+// instead of forcing zero into a rollup.
+export function componentLineTotal(c: Component): number | undefined {
+  if (typeof c.lineTotalCny === 'number' && Number.isFinite(c.lineTotalCny)) {
+    return c.lineTotalCny
+  }
+  if (typeof c.unitPriceCny === 'number' && Number.isFinite(c.unitPriceCny)) {
+    return c.unitPriceCny * c.qty
+  }
+  return undefined
+}
+
+// Sum of per-component subtotals across the job — what 商务 sees as the
+// breakdown total, separate from the job-level amountCny (which is the
+// quoted/contract grand total and may include tax, delivery, etc).
+export function jobComponentsTotal(job: Job): number {
+  let sum = 0
+  for (const c of job.components) sum += componentLineTotal(c) ?? 0
+  return sum
+}
+
+export function partRoute(component: Component): Stage[] {
+  return STAGES.filter((s) => component.stages[s] !== undefined)
+}
+
+// How many of this component's qty have been finished at this stage,
+// for display. 'done' counts as full, 'in_progress' returns the running
+// partial count (0 if the worker hasn't entered one yet). Anything
+// else returns 0.
+export function stageDoneCount(component: Component, stage: Stage): number {
+  const st = component.stages[stage]
+  if (!st) return 0
+  if (st.status === 'done') return component.qty
+  if (st.status === 'in_progress') {
+    const n = st.doneQty ?? 0
+    if (!Number.isFinite(n) || n < 0) return 0
+    return Math.min(n, component.qty)
+  }
+  return 0
+}
+
+export function isStageInRoute(component: Component, stage: Stage): boolean {
+  return component.stages[stage] !== undefined
+}
+
+export type JobStatus = 'parsing' | 'draft' | 'ready' | 'failed'
+
+// 退货 — customer returns. Modeled outside STAGES on purpose; see
+// supabase/migrations/0011_returns.sql for the rationale. An open return
+// re-opens 工程 on the named parts; the 工程 head trims/restores the route
+// from there.
+export const RETURN_REASONS = [
+  '尺寸不符',
+  '表面瑕疵',
+  '装配问题',
+  '客户要求修改',
+  '其他',
+] as const
+export type ReturnReason = (typeof RETURN_REASONS)[number]
+
+export type ReturnPart = { partId: string; qty: number }
+
+export type ReturnStatus = 'open' | 'closed'
+
+export type JobReturn = {
+  id: string
+  jobId: string
+  reason: ReturnReason
+  reasonText?: string
+  dueDate: string
+  status: ReturnStatus
+  createdAt: string
+  closedAt?: string
+  createdBy?: string
+  parts: ReturnPart[]
+}
+
+export type Job = {
+  id: string
+  jobNo: string
+  customer: string
+  customerId?: CustomerId
+  product: string
+  amountCny?: number
+  dueDate: string
+  notes?: string
+  status?: JobStatus
+  sourceFile?: string
+  sourceFileUrl?: string
+  parseError?: string
+  shippingDocNo?: string
+  // Per-doc fields for the printed 出货单.
+  createdBy?: string
+  contractNo?: string
+  batchNo?: string
+  // ISO timestamp the job row was created. Used as the wait-timer anchor on
+  // the first stage (工程) where there's no upstream finishedAt to fall back to.
+  createdAt?: string
+  components: Component[]
+  // The single currently-open 退货, if any. Closed returns are history and
+  // are fetched separately on demand (e.g. /退货 已完成 tab).
+  activeReturn?: JobReturn
+}
+
+// Job has shipped iff every in-route part is done at 出货. Returns can only
+// be opened against shipped jobs.
+export function jobIsShipped(job: Job): boolean {
+  return jobIsDoneAtStage(job, '出货')
+}
+
+// Effective due date: while a return is open, the return's internal deadline
+// drives master-grid color/sort. Original dueDate resumes once closed.
+export function jobEffectiveDueDate(job: Job): string {
+  return job.activeReturn?.dueDate ?? job.dueDate
+}
+
+// Set of part ids re-opened by the active return. Empty when no open return.
+export function jobReturnedPartIds(job: Job): Set<string> {
+  if (!job.activeReturn) return new Set()
+  return new Set(job.activeReturn.parts.map((p) => p.partId))
+}
+
+// Parse a YNMX-style 工号 of the form `YNMX-YY-M-D-NNN`. The trailing NNN is
+// a monthly cumulative counter; the YY-M-D is the 生产日 (the day production
+// was logged for this job), NOT the due date. Returns null for free-text 工号
+// so callers can fall back gracefully — legacy rows still display, they just
+// don't participate in 按工号 sort or 生产日 filtering.
+export type JobNoParts = { intakeDate: string; seq: number }
+
+export function parseJobNo(jobNo: string | undefined): JobNoParts | null {
+  if (!jobNo) return null
+  const m = jobNo.trim().match(/^[A-Z][A-Z0-9]*-(\d{2})-(\d{1,2})-(\d{1,2})-(\d+)$/i)
+  if (!m) return null
+  const yy = parseInt(m[1], 10)
+  const mm = parseInt(m[2], 10)
+  const dd = parseInt(m[3], 10)
+  const seq = parseInt(m[4], 10)
+  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null
+  const iso = `20${String(yy).padStart(2, '0')}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`
+  return { intakeDate: iso, seq }
+}
+
+export function jobIntakeDate(job: Job): string | undefined {
+  return parseJobNo(job.jobNo)?.intakeDate
+}
+
+// Sort key for 按工号 mode. Parsed jobs lex-sort by (intakeDate desc, seq desc)
+// — newest at top. Unparseable 工号 sink to the bottom, preserving caller order.
+export function jobNoSortKey(job: Job): string {
+  const p = parseJobNo(job.jobNo)
+  if (!p) return '￿' // ensures unparseable rows sink below any parsed key
+  // Negate by subtracting from a high constant so DESC sorts naturally as ASC
+  // string compare. seq capped at 99999 — no factory hits 6 digits in a month.
+  const seqInv = 99999 - Math.min(99999, p.seq)
+  // Date inversion: epoch days from 9999-12-31 minus the intake date.
+  // Cheap inversion via lex-comparable inverted ISO: replace each digit d with (9-d).
+  const dateInv = p.intakeDate.replace(/\d/g, (d) => String(9 - parseInt(d, 10)))
+  return `${dateInv}-${String(seqInv).padStart(5, '0')}`
+}
+
+import { today } from './today'
+
+// No seed jobs. Real data comes from the import flow.
+export const JOBS: Job[] = []
+
+export type RollupKind = 'pending' | 'partial' | 'done' | 'na'
+
+export type Rollup = {
+  kind: RollupKind
+  done: number
+  total: number
+  latestDate?: string
+  /** Count of parts at this stage currently at a vendor (open outsource block).
+   * Folded INTO `done` for the in-house worker's POV (nothing to do here),
+   * but tracked separately so the UI can surface a 外协 indicator on the
+   * cell — the boss/operator should see at a glance which work is offsite. */
+  outsourcedOpen?: number
+}
+
+export function canStartStage(component: Component, stage: Stage): boolean {
+  // Stage not in this part's route — never startable.
+  const st = component.stages[stage]
+  if (!st) return false
+  const blocks = component.outsourceBlocks ?? []
+  // Per-stage gate only — a block covering OTHER stages on this part doesn't
+  // block in-house work on stages the vendor isn't handling. Workers click
+  // through their own stages as if the part were fully in-house.
+  // 出货 is always in-house regardless of any block.
+  if (stage !== '出货') {
+    for (const b of blocks) {
+      if (!b.stages.includes(stage)) continue
+      const m = memberFor(b, component.id)
+      if (m === undefined) continue
+      // Vendor owns this stage — open (still at vendor) or closed (vendor did
+      // it on return). Either way, in-house worker doesn't touch it.
+      return false
+    }
+  }
+  // Permissive: any pending in-house stage can be started — workers can grab
+  // a part at any point. Finish only marks this stage; earlier stages stay
+  // pending until their own heads sign off (出货 is the exception — see
+  // cascadeBackFinish in lib/db.ts).
+  return st.status === 'pending'
+}
+
+export function rollupStage(job: Job, stage: Stage): Rollup {
+  // Parts where the stage isn't in the route are n/a — excluded from the
+  // denominator, so a "no paint" part doesn't show as eternally pending in
+  // the 喷漆 column.
+  const effs = job.components
+    .filter((c) => isStageInRoute(c, stage))
+    .map((c) => effectiveStageState(c, stage))
+  const total = effs.length
+  let done = 0
+  let inProgress = 0
+  let outsourcedOpen = 0
+  const dates: string[] = []
+  for (const e of effs) {
+    if (e.kind === 'done') {
+      done++
+      if (e.completedAt) dates.push(e.completedAt)
+    } else if (e.kind === 'outsourced') {
+      // Vendor is handling it — nothing for the in-house worker to do at this
+      // stage. From the rollup's POV, count as done so a job with all parts
+      // either finished in-house or sent out reads as ✓ rather than partial.
+      // Also tracked separately so the cell can surface a 外协 indicator.
+      done++
+      outsourcedOpen++
+    } else if (e.kind === 'in_progress') {
+      inProgress++
+    }
+  }
+  const latestDate = dates.length ? dates.sort().at(-1) : undefined
+  // No part in this job needs the stage at all.
+  if (total === 0) return { kind: 'na', done: 0, total: 0, latestDate: undefined }
+  if (done === 0) {
+    return {
+      kind: inProgress > 0 ? 'partial' : 'pending',
+      done,
+      total,
+      latestDate,
+      outsourcedOpen,
+    }
+  }
+  if (done === total) return { kind: 'done', done, total, latestDate, outsourcedOpen }
+  return { kind: 'partial', done, total, latestDate, outsourcedOpen }
+}
+
+// True iff at least one part on this job is currently at a vendor (an open
+// outsource block exists for some non-出货 stage in the part's route). Used
+// by the master board to flag the row with a 外协 chip.
+export function jobHasOpenOutsource(job: Job): boolean {
+  for (const c of job.components) {
+    for (const b of c.outsourceBlocks ?? []) {
+      const m = memberFor(b, c.id)
+      if (m && !isMemberFullyReturned(m)) return true
+    }
+  }
+  return false
+}
+
+export type DueState = 'overdue' | 'today' | 'soon' | 'normal'
+
+export function dueState(dueDate: string, ref: string = today()): DueState {
+  if (dueDate < ref) return 'overdue'
+  if (dueDate === ref) return 'today'
+  const [y1, m1, d1] = ref.split('-').map(Number)
+  const [y2, m2, d2] = dueDate.split('-').map(Number)
+  const t = Date.UTC(y1, m1 - 1, d1)
+  const u = Date.UTC(y2, m2 - 1, d2)
+  const days = (u - t) / 86_400_000
+  if (days <= 2) return 'soon'
+  return 'normal'
+}
+
+export function daysFromToday(dueDate: string, ref: string = today()): number {
+  const [y1, m1, d1] = ref.split('-').map(Number)
+  const [y2, m2, d2] = dueDate.split('-').map(Number)
+  const t = Date.UTC(y1, m1 - 1, d1)
+  const u = Date.UTC(y2, m2 - 1, d2)
+  return Math.round((u - t) / 86_400_000)
+}
+
+export function formatCny(amount?: number | null): string {
+  if (typeof amount !== 'number' || !Number.isFinite(amount)) return '—'
+  return `¥${new Intl.NumberFormat('zh-CN', {
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+  }).format(amount)}`
+}
+
+
+// Vendors are user-created at runtime. No seed contractors — fresh start.
+export const VENDORS: Vendor[] = []
+
+export function vendorById(id: VendorId, vendors: Vendor[] = VENDORS): Vendor | undefined {
+  return vendors.find((v) => v.id === id)
+}
+
+export function vendorName(id: VendorId | undefined, vendors: Vendor[] = VENDORS): string {
+  if (!id) return '—'
+  return vendorById(id, vendors)?.name ?? id
+}
+
+// Customers — same shape contract as vendors. Created lazily when a name is
+// first picked/typed in the 出货单 combobox.
+export const CUSTOMERS: Customer[] = []
+
+export function customerById(
+  id: CustomerId | undefined,
+  customers: Customer[] = CUSTOMERS,
+): Customer | undefined {
+  if (!id) return undefined
+  return customers.find((c) => c.id === id)
+}
+
+export function customerByName(
+  name: string | undefined,
+  customers: Customer[] = CUSTOMERS,
+): Customer | undefined {
+  if (!name) return undefined
+  const target = name.trim().toLowerCase()
+  if (!target) return undefined
+  return customers.find((c) => c.name.trim().toLowerCase() === target)
+}
+
+export type EffectiveStageState =
+  | { kind: 'pending'; canStart: boolean }
+  | { kind: 'in_progress'; by?: string }
+  | { kind: 'done'; completedAt?: string; by?: string }
+  | { kind: 'outsourced'; block: OutsourceBlock; vendor?: Vendor }
+  | { kind: 'na' }
+
+// Per-part: a block "covers" this part at this stage when the block's stage
+// list includes the stage AND this part is in the block's members.
+// "Open" = part hasn't returned yet; "closed" = part has its returnedAt set.
+function findOpenBlockCovering(
+  component: Component,
+  stage: Stage,
+): { block: OutsourceBlock; member: OutsourceBlockMember } | undefined {
+  for (const b of component.outsourceBlocks ?? []) {
+    if (!b.stages.includes(stage)) continue
+    const m = memberFor(b, component.id)
+    if (m && !isMemberFullyReturned(m)) return { block: b, member: m }
+  }
+  return undefined
+}
+
+function findClosedBlockCovering(
+  component: Component,
+  stage: Stage,
+): { block: OutsourceBlock; member: OutsourceBlockMember } | undefined {
+  for (const b of component.outsourceBlocks ?? []) {
+    if (!b.stages.includes(stage)) continue
+    const m = memberFor(b, component.id)
+    if (m && isMemberFullyReturned(m)) return { block: b, member: m }
+  }
+  return undefined
+}
+
+export function effectiveStageState(
+  component: Component,
+  stage: Stage,
+  vendors: Vendor[] = VENDORS,
+): EffectiveStageState {
+  const st = component.stages[stage]
+  if (!st) return { kind: 'na' }
+  // 出货 is always in-house — block coverage of 出货 is meaningless on legacy
+  // full-stage blocks, so we ignore it here and trust the in-house status.
+  const open = stage === '出货' ? undefined : findOpenBlockCovering(component, stage)
+  if (open) {
+    return {
+      kind: 'outsourced',
+      block: open.block,
+      vendor: vendorById(open.block.vendorId, vendors),
+    }
+  }
+  const closed =
+    stage === '出货' ? undefined : findClosedBlockCovering(component, stage)
+  if (closed) {
+    return {
+      kind: 'done',
+      completedAt: closed.member.returnedAt,
+      by: vendorById(closed.block.vendorId, vendors)?.name ?? closed.block.vendorId,
+    }
+  }
+  if (st.status === 'pending') {
+    return { kind: 'pending', canStart: canStartStage(component, stage) }
+  }
+  if (st.status === 'in_progress') {
+    return { kind: 'in_progress', by: st.by }
+  }
+  return { kind: 'done', completedAt: st.completedAt, by: st.by }
+}
+
+export function isComponentDone(component: Component): boolean {
+  // Stages outside the part's route count as already-done (n/a) — a component
+  // with only {工程, 编程, 出货} is "done" once those three are done.
+  return STAGES.every((s) => {
+    const eff = effectiveStageState(component, s)
+    return eff.kind === 'done' || eff.kind === 'na'
+  })
+}
+
+// === Per-job, per-stage station-view helpers ===
+//
+// Centralized so the server-rendered StationSummary and the client-rendered
+// MasterSheet agree pixel-for-pixel on what counts as "mine," "done," or
+// "upstream" at a given station. Drift between the two showed up as the
+// dreaded "在此 5" + table only listing 4 rows mismatch.
+
+// "Mine" = the head genuinely owes this work TODAY. A part qualifies when
+// it's in_progress here, or pending here AND every prior in-route stage is
+// effectively done. Permissive cascade-from-pending starts don't count —
+// upstream has to actually hand off first.
+export function jobIsMineAtStage(job: Job, stage: Stage): boolean {
+  const stageIdx = STAGES.indexOf(stage)
+  for (const c of job.components) {
+    if (!isStageInRoute(c, stage)) continue
+    const me = c.stages[stage]
+    if (!me) continue
+    const effHere = effectiveStageState(c, stage)
+    if (effHere.kind === 'in_progress') return true
+    if (effHere.kind === 'pending' && effHere.canStart) {
+      let allPriorEffDone = true
+      for (let i = 0; i < stageIdx; i++) {
+        if (!isStageInRoute(c, STAGES[i])) continue
+        const prior = effectiveStageState(c, STAGES[i])
+        if (prior.kind === 'done' || prior.kind === 'na') continue
+        allPriorEffDone = false
+        break
+      }
+      if (allPriorEffDone) return true
+    }
+  }
+  return false
+}
+
+// Done for a station board = no in-house work remains at this station.
+// A vendor-owned stage (`outsourced`) is handled from the station head's point
+// of view, and `rollupStage` already shows it as done with an 外协 marker.
+// Keep this helper aligned with that rollup so rows do not disappear between
+// the active queue and the greyed "recently handled" tier.
+export function jobIsDoneAtStage(job: Job, stage: Stage): boolean {
+  let any = false
+  for (const c of job.components) {
+    if (!isStageInRoute(c, stage)) continue
+    any = true
+    const eff = effectiveStageState(c, stage)
+    if (eff.kind === 'done' || eff.kind === 'na' || eff.kind === 'outsourced') {
+      continue
+    }
+    return false
+  }
+  return any
+}
+
+// Sort key for the "最近完成" tier — latest finish across in-route components
+// at this stage. Prefers ISO finishedAt (precise); falls back to MM-DD
+// completedAt for legacy rows / outsourced-as-done. ISO timestamps lex-sort
+// after MM-DD, so precise finishes rise to the top — desired.
+export function jobMostRecentFinishedAt(job: Job, stage: Stage): string {
+  let best = ''
+  for (const c of job.components) {
+    if (!isStageInRoute(c, stage)) continue
+    const st = c.stages[stage]
+    if (!st) continue
+    const eff = effectiveStageState(c, stage)
+    if (eff.kind !== 'done') continue
+    const ts = st.finishedAt ?? eff.completedAt ?? st.completedAt ?? ''
+    if (ts > best) best = ts
+  }
+  return best
+}
+
+// Upstream = job visits this stage, isn't mine yet, and at least one prior
+// in-route stage is still pending / in_progress / outsourced. Done-only
+// upstream means it's actually mine (handled above); no upstream activity
+// at all means it's just "filed" — exclude.
+export function jobIsUpstreamOfStage(job: Job, stage: Stage): boolean {
+  const stageIdx = STAGES.indexOf(stage)
+  let hasStageInRoute = false
+  let anyPriorActive = false
+  for (const c of job.components) {
+    if (!isStageInRoute(c, stage)) continue
+    hasStageInRoute = true
+    for (let i = 0; i < stageIdx; i++) {
+      if (!isStageInRoute(c, STAGES[i])) continue
+      const eff = effectiveStageState(c, STAGES[i])
+      if (
+        eff.kind === 'in_progress' ||
+        eff.kind === 'pending' ||
+        eff.kind === 'outsourced'
+      ) {
+        anyPriorActive = true
+        break
+      }
+    }
+    if (anyPriorActive) break
+  }
+  return hasStageInRoute && anyPriorActive
+}
+
+// Per-stage in-house counts — what JobStageActionButton needs to pick its
+// pending / in_progress / done aggregate state. Outsourced and n/a parts
+// don't contribute (vendor's responsibility / not in route).
+export function jobStageCounts(job: Job, stage: Stage): {
+  inProgress: number
+  pending: number
+  done: number
+} {
+  let inProgress = 0
+  let pending = 0
+  let done = 0
+  for (const c of job.components) {
+    if (!isStageInRoute(c, stage)) continue
+    const eff = effectiveStageState(c, stage)
+    if (eff.kind === 'in_progress') inProgress++
+    else if (eff.kind === 'pending') pending++
+    else if (eff.kind === 'done') done++
+  }
+  return { inProgress, pending, done }
+}
+
+// Anchor timestamp for the live RowTimer at the station-highlight cell.
+// in_progress wins over pending; pending falls back to the latest done
+// upstream stage's finishedAt (= when the work physically arrived here).
+// At the first stage there is no upstream, so we fall back to the job's
+// createdAt — that's when the job landed on the production board and 工程
+// became eligible to start. Returns null when there's no work at this stage,
+// or when the timestamps pre-date the started_at/finished_at migration.
+export function jobTimerAtStage(
+  job: Job,
+  stage: Stage,
+): { since: string; tone: 'pending' | 'in_progress' } | null {
+  const stageIdx = STAGES.indexOf(stage)
+  let inProgressEarliest: number | null = null
+  let pendingArrivedEarliest: number | null = null
+  let hasPendingHere = false
+  for (const c of job.components) {
+    const eff = effectiveStageState(c, stage)
+    if (eff.kind === 'in_progress') {
+      const st = c.stages[stage]
+      if (st?.startedAt) {
+        const t = Date.parse(st.startedAt)
+        if (Number.isFinite(t)) {
+          inProgressEarliest =
+            inProgressEarliest === null ? t : Math.min(inProgressEarliest, t)
+        }
+      }
+    } else if (eff.kind === 'pending') {
+      hasPendingHere = true
+      let arrived: number | null = null
+      for (let i = stageIdx - 1; i >= 0; i--) {
+        const upstream = c.stages[STAGES[i]]
+        if (upstream?.status === 'done' && upstream.finishedAt) {
+          const t = Date.parse(upstream.finishedAt)
+          if (Number.isFinite(t)) {
+            arrived = t
+            break
+          }
+        }
+      }
+      if (arrived !== null) {
+        pendingArrivedEarliest =
+          pendingArrivedEarliest === null
+            ? arrived
+            : Math.min(pendingArrivedEarliest, arrived)
+      }
+    }
+  }
+  if (inProgressEarliest !== null) {
+    return {
+      since: new Date(inProgressEarliest).toISOString(),
+      tone: 'in_progress',
+    }
+  }
+  if (pendingArrivedEarliest !== null) {
+    return {
+      since: new Date(pendingArrivedEarliest).toISOString(),
+      tone: 'pending',
+    }
+  }
+  // First-stage fallback: no upstream to anchor against, so use the job's
+  // createdAt. Without this, 工程 rows never show a wait timer and the head
+  // can't tell at a glance which incoming jobs have been sitting longest.
+  if (hasPendingHere && job.createdAt) {
+    const t = Date.parse(job.createdAt)
+    if (Number.isFinite(t)) {
+      return { since: new Date(t).toISOString(), tone: 'pending' }
+    }
+  }
+  return null
+}
+
+// Average minutes a JOB spends at this station — from the first start click
+// (earliest startedAt across the job's in-route components) to the last
+// finish click (latest finishedAt). One sample per job, only when every
+// in-route component for the stage is done with both timestamps set;
+// cascade-back-filled stages skip startedAt and would skew the number, and
+// partial completion would understate the flow time.
+//
+// Returns null when sample size < 3 — better than rendering noise as a
+// load-bearing number on day one of rollout.
+export function avgStageFlowMinutes(
+  jobs: Job[],
+  stage: Stage,
+  minSamples = 3,
+  windowSize = 50,
+): number | null {
+  type Sample = { minutes: number; finishedAt: number }
+  const samples: Sample[] = []
+  for (const job of jobs) {
+    let earliestStart = Number.POSITIVE_INFINITY
+    let latestFinish = Number.NEGATIVE_INFINITY
+    let routed = 0
+    let usable = true
+    for (const c of job.components) {
+      if (!isStageInRoute(c, stage)) continue
+      routed++
+      const st = c.stages[stage]
+      if (!st || st.status !== 'done' || !st.startedAt || !st.finishedAt) {
+        usable = false
+        break
+      }
+      const start = Date.parse(st.startedAt)
+      const end = Date.parse(st.finishedAt)
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+        usable = false
+        break
+      }
+      if (start < earliestStart) earliestStart = start
+      if (end > latestFinish) latestFinish = end
+    }
+    if (!usable || routed === 0) continue
+    samples.push({
+      minutes: (latestFinish - earliestStart) / 60_000,
+      finishedAt: latestFinish,
+    })
+  }
+  if (samples.length < minSamples) return null
+  // Most recent first, take the trailing window so the number tracks current
+  // shop reality rather than week-old pace.
+  samples.sort((a, b) => b.finishedAt - a.finishedAt)
+  const recent = samples.slice(0, windowSize)
+  const total = recent.reduce((s, r) => s + r.minutes, 0)
+  return total / recent.length
+}
+
+// Format a minute count as the most natural unit at hour resolution.
+// Designed for the StationSummary card: large, scannable, no overprecise
+// tail. Sub-hour values round to the nearest hour (with a "<1时" floor so a
+// real but tiny average still reads as a number rather than 0).
+export function formatMinutes(m: number | null | undefined): string {
+  if (m == null || !Number.isFinite(m)) return '—'
+  const hours = m / 60
+  if (hours < 24) {
+    const h = Math.round(hours)
+    return h < 1 ? '<1时' : `${h} 时`
+  }
+  const days = hours / 24
+  return `${days.toFixed(days < 10 ? 1 : 0)} 天`
+}
+
+export function jobExternalSpend(job: Job): number {
+  let total = 0
+  for (const c of job.components) {
+    for (const b of c.outsourceBlocks ?? []) {
+      // 加急 blocks ship before commerce has a quote — null amount is a
+      // "待补金额" placeholder, not zero. Skip until backfilled so the
+      // 外/利 chips don't go NaN.
+      if (b.amountCny != null) total += b.amountCny
+    }
+  }
+  return total
+}
+
+export function jobMargin(job: Job): number | undefined {
+  if (typeof job.amountCny !== 'number') return undefined
+  return job.amountCny - jobExternalSpend(job)
+}
+
+export type OpenBlockRow = {
+  jobId: string
+  jobNo: string
+  customer: string
+  product: string
+  block: OutsourceBlock
+}
+
+export function openOutsourceBlocks(jobs: Job[]): OpenBlockRow[] {
+  return allOutsourceBlocks(jobs).filter((r) => !isBlockClosed(r.block))
+}
+
+export function allOutsourceBlocks(jobs: Job[]): OpenBlockRow[] {
+  // Dedupe by block.id — a block now spans N components but should appear
+  // once in cockpit/aggregations.
+  const rows: OpenBlockRow[] = []
+  const seen = new Set<string>()
+  for (const job of jobs) {
+    for (const c of job.components) {
+      for (const b of c.outsourceBlocks ?? []) {
+        if (seen.has(b.id)) continue
+        seen.add(b.id)
+        rows.push({
+          jobId: job.id,
+          jobNo: job.jobNo,
+          customer: job.customer,
+          product: job.product,
+          block: b,
+        })
+      }
+    }
+  }
+  return rows
+}
+
+export function stageRangeLabel(stages: Stage[]): string {
+  if (stages.length === 0) return '—'
+  if (stages.length === 1) return stages[0]
+  // Sort by canonical stage order so the label is stable and reads naturally.
+  const ordered = STAGES.filter((s) => stages.includes(s))
+  const indices = ordered.map((s) => STAGES.indexOf(s))
+  const isContiguous = indices.every((i, k) => k === 0 || i === indices[k - 1] + 1)
+  if (isContiguous) return `${ordered[0]} → ${ordered[ordered.length - 1]}`
+  return ordered.join(' · ')
+}
+
+export function isFullStageCoverage(stages: Stage[]): boolean {
+  // Match the current default (OUTSOURCEABLE_STAGES — excludes 工程 and 出货)
+  // plus the older PRODUCTION_STAGES and STAGES shapes still in legacy data.
+  return (
+    stages.length === OUTSOURCEABLE_STAGES.length ||
+    stages.length === PRODUCTION_STAGES.length ||
+    stages.length === STAGES.length
+  )
+}
+
+// New outsource blocks cover the full production process — show "全程" for
+// those, keep the range label for legacy partial blocks still in the dataset.
+export function outsourceLabel(stages: Stage[]): string {
+  if (isFullStageCoverage(stages)) return '全程'
+  return stageRangeLabel(stages)
+}
