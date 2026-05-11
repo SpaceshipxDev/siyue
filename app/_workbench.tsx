@@ -140,6 +140,54 @@ function formatPickedDate(iso: string): string {
   return `${parseInt(m, 10)}月${parseInt(d, 10)}日`
 }
 
+// Date-range presets exposed in the SortBar. 本周 uses a Monday-start week —
+// the factory's natural boundary; payroll, day-folders, and 排产 cycles all
+// anchor on Monday.
+const PRESETS = [
+  { key: 'today', label: '今天' },
+  { key: 'week', label: '本周' },
+  { key: 'month', label: '本月' },
+] as const
+type PresetKey = (typeof PRESETS)[number]['key']
+
+// Local-time ISO. toISOString() would UTC-shift dates by ±1 day depending on
+// timezone, which silently corrupts the filter near midnight.
+function isoLocal(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function presetRange(key: PresetKey): { start: string; end: string } {
+  const now = new Date()
+  if (key === 'today') {
+    const s = isoLocal(now)
+    return { start: s, end: s }
+  }
+  if (key === 'week') {
+    const day = now.getDay()
+    const offsetToMonday = day === 0 ? -6 : 1 - day
+    const monday = new Date(now)
+    monday.setDate(now.getDate() + offsetToMonday)
+    const sunday = new Date(monday)
+    sunday.setDate(monday.getDate() + 6)
+    return { start: isoLocal(monday), end: isoLocal(sunday) }
+  }
+  const first = new Date(now.getFullYear(), now.getMonth(), 1)
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  return { start: isoLocal(first), end: isoLocal(last) }
+}
+
+function matchingPreset(f: DateFilter): PresetKey | null {
+  if (f.kind !== 'range') return null
+  for (const p of PRESETS) {
+    const r = presetRange(p.key)
+    if (r.start === f.start && r.end === f.end) return p.key
+  }
+  return null
+}
+
 type Role = 'commerce' | 'production'
 
 // 出货 production users get full search affordances (jobNo / customer /
@@ -618,10 +666,9 @@ function SearchInput({
   )
 }
 
-// Two-tap date chip. Idle → click opens start picker; after start, end picker
-// auto-opens (dismiss = single-day). When a true range is active each bound is
-// its own button that re-opens only its own picker. Mirrors the SortBar in
-// _master_filter.tsx — kept duplicated to match the existing pattern.
+// Inline range filter. Idle = chip "📅 交期"; click expands to a preset row
+// (今天 · 本周 · 本月) + 从/到 date labels with hidden native pickers + ✕.
+// Mirrors _master_filter.tsx — kept duplicated to match the existing pattern.
 function SortBar({
   sortMode,
   setSortMode,
@@ -635,9 +682,13 @@ function SortBar({
 }) {
   const startRef = useRef<HTMLInputElement>(null)
   const endRef = useRef<HTMLInputElement>(null)
-  const autoChain = useRef(false)
+  // UI flag for "user clicked the chip but hasn't picked anything yet". An
+  // active filter forces expanded regardless.
+  const [uiExpanded, setUiExpanded] = useState(false)
   const isRange = dateFilter.kind === 'range'
-  const isSingleDay = isRange && dateFilter.start === dateFilter.end
+  const expanded = uiExpanded || isRange
+  const currentPreset = matchingPreset(dateFilter)
+  const inactiveLabel = sortMode === 'jobNo' ? '生产日' : '交期'
 
   const openPicker = (ref: React.RefObject<HTMLInputElement | null>) => {
     const el = ref.current
@@ -655,50 +706,39 @@ function SortBar({
     }
   }
 
-  const onStartClick = () => {
-    if (!isRange || isSingleDay) {
-      autoChain.current = true
-    }
-    openPicker(startRef)
-  }
-
-  const onEndClick = () => {
-    openPicker(endRef)
+  const applyPreset = (key: PresetKey) => {
+    setDateFilter({ kind: 'range', ...presetRange(key) })
   }
 
   const onStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value
     if (!v) return
-    let newEnd: string
-    if (autoChain.current || !isRange) {
-      newEnd = v
+    if (isRange) {
+      const end = v > dateFilter.end ? v : dateFilter.end
+      setDateFilter({ kind: 'range', start: v, end })
     } else {
-      newEnd = v > dateFilter.end ? v : dateFilter.end
-    }
-    setDateFilter({ kind: 'range', start: v, end: newEnd })
-    if (autoChain.current) {
-      autoChain.current = false
-      setTimeout(() => openPicker(endRef), 0)
+      setDateFilter({ kind: 'range', start: v, end: v })
     }
   }
 
   const onEndChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value
-    if (!v || !isRange) return
-    const start = dateFilter.start
-    if (v < start) {
-      setDateFilter({ kind: 'range', start: v, end: start })
+    if (!v) return
+    if (isRange) {
+      if (v < dateFilter.start) {
+        setDateFilter({ kind: 'range', start: v, end: dateFilter.start })
+      } else {
+        setDateFilter({ kind: 'range', start: dateFilter.start, end: v })
+      }
     } else {
-      setDateFilter({ kind: 'range', start, end: v })
+      setDateFilter({ kind: 'range', start: v, end: v })
     }
   }
 
-  const onClear = () => {
-    autoChain.current = false
+  const onCollapse = () => {
+    setUiExpanded(false)
     setDateFilter({ kind: 'all' })
   }
-
-  const inactiveLabel = sortMode === 'jobNo' ? '生产日' : '交期'
 
   return (
     <div className="flex items-baseline gap-x-5 gap-y-2 flex-wrap text-[13px]">
@@ -713,73 +753,122 @@ function SortBar({
         onClick={() => setSortMode('jobNo')}
       />
 
-      <span className="relative inline-flex items-baseline gap-1.5">
+      {!expanded ? (
         <button
           type="button"
-          onClick={onStartClick}
-          aria-label={isRange ? '修改起始日期' : '选择日期范围'}
+          onClick={() => setUiExpanded(true)}
+          aria-label="选择日期范围"
           title={
             sortMode === 'jobNo' ? '按生产日筛选 (工号上的日期)' : '按交期筛选'
           }
-          className={`inline-flex items-baseline gap-1.5 transition-colors ${
-            isRange
-              ? 'text-[var(--color-ink)] hover:opacity-70'
-              : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
-          }`}
+          className="inline-flex items-baseline gap-1.5 text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
         >
           <span className="translate-y-[1px]">
             <CalendarIcon />
           </span>
-          <span className={isRange ? 'mono font-semibold' : ''}>
-            {isRange ? formatPickedDate(dateFilter.start) : inactiveLabel}
-          </span>
+          <span>{inactiveLabel}</span>
         </button>
-        {isRange && !isSingleDay && (
-          <>
-            <span className="text-[var(--color-ink-3)]" aria-hidden="true">
-              →
-            </span>
+      ) : (
+        <span className="inline-flex items-baseline gap-x-3 gap-y-1 flex-wrap">
+          <span
+            className="translate-y-[1px] text-[var(--color-ink-2)]"
+            aria-hidden="true"
+          >
+            <CalendarIcon />
+          </span>
+          {PRESETS.map((p) => (
             <button
+              key={p.key}
               type="button"
-              onClick={onEndClick}
-              aria-label="修改结束日期"
-              className="mono font-semibold text-[var(--color-ink)] hover:opacity-70 transition-opacity"
+              onClick={() => applyPreset(p.key)}
+              aria-pressed={currentPreset === p.key}
+              className={`transition-colors ${
+                currentPreset === p.key
+                  ? 'text-[var(--color-ink)] font-semibold'
+                  : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+              }`}
             >
-              {formatPickedDate(dateFilter.end)}
+              {p.label}
             </button>
-          </>
-        )}
-        {isRange && (
+          ))}
+          <span className="text-[var(--color-ink-4)]" aria-hidden="true">
+            ·
+          </span>
+          <span className="text-[var(--color-ink-3)]">从</span>
+          <DateLabel
+            value={isRange ? dateFilter.start : undefined}
+            inputRef={startRef}
+            onClick={() => openPicker(startRef)}
+            onChange={onStartChange}
+          />
+          <span className="text-[var(--color-ink-3)]" aria-hidden="true">
+            →
+          </span>
+          <span className="text-[var(--color-ink-3)]">到</span>
+          <DateLabel
+            value={isRange ? dateFilter.end : undefined}
+            inputRef={endRef}
+            min={isRange ? dateFilter.start : undefined}
+            onClick={() => openPicker(endRef)}
+            onChange={onEndChange}
+          />
           <button
             type="button"
-            onClick={onClear}
-            aria-label="清除日期筛选"
+            onClick={onCollapse}
+            aria-label="清除并收起日期筛选"
             className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
           >
             <ClearIcon />
           </button>
-        )}
-        <input
-          ref={startRef}
-          type="date"
-          value={isRange ? dateFilter.start : ''}
-          onChange={onStartChange}
-          className="absolute inset-0 opacity-0 pointer-events-none"
-          tabIndex={-1}
-          aria-hidden="true"
-        />
-        <input
-          ref={endRef}
-          type="date"
-          value={isRange ? dateFilter.end : ''}
-          min={isRange ? dateFilter.start : undefined}
-          onChange={onEndChange}
-          className="absolute inset-0 opacity-0 pointer-events-none"
-          tabIndex={-1}
-          aria-hidden="true"
-        />
-      </span>
+        </span>
+      )}
     </div>
+  )
+}
+
+function DateLabel({
+  value,
+  inputRef,
+  min,
+  onClick,
+  onChange,
+}: {
+  value?: string
+  inputRef: React.RefObject<HTMLInputElement | null>
+  min?: string
+  onClick: () => void
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+}) {
+  return (
+    <span className="relative inline-flex items-baseline">
+      <button
+        type="button"
+        onClick={onClick}
+        className={`inline-flex items-baseline gap-0.5 transition-colors ${
+          value
+            ? 'mono font-medium text-[var(--color-ink)] hover:opacity-70'
+            : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+        }`}
+      >
+        <span>{value ? formatPickedDate(value) : '选择'}</span>
+        <span
+          className="text-[var(--color-ink-4)] text-[9px] translate-y-[-2px]"
+          aria-hidden="true"
+        >
+          ▼
+        </span>
+      </button>
+      <input
+        ref={inputRef}
+        type="date"
+        value={value ?? ''}
+        min={min}
+        onChange={onChange}
+        className="absolute inset-0 opacity-0 pointer-events-none"
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+    </span>
   )
 }
 

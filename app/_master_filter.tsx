@@ -91,6 +91,59 @@ function formatPickedDate(iso: string): string {
   return `${parseInt(m, 10)}月${parseInt(d, 10)}日`
 }
 
+// Date-range presets exposed in the SortBar. Order matches reading flow
+// (narrowest → widest). 本周 uses a Monday-start week — the factory's natural
+// boundary; payroll, day-folders, and 排产 cycles all anchor on Monday.
+const PRESETS = [
+  { key: 'today', label: '今天' },
+  { key: 'week', label: '本周' },
+  { key: 'month', label: '本月' },
+] as const
+type PresetKey = (typeof PRESETS)[number]['key']
+
+// Local-time ISO. Important: toISOString() would UTC-shift dates by ±1 day
+// depending on timezone, which silently corrupts the filter near midnight.
+function isoLocal(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function presetRange(key: PresetKey): { start: string; end: string } {
+  const now = new Date()
+  if (key === 'today') {
+    const s = isoLocal(now)
+    return { start: s, end: s }
+  }
+  if (key === 'week') {
+    // Monday = 1, Sunday = 0 in JS; pull forward to Monday of the current week.
+    const day = now.getDay()
+    const offsetToMonday = day === 0 ? -6 : 1 - day
+    const monday = new Date(now)
+    monday.setDate(now.getDate() + offsetToMonday)
+    const sunday = new Date(monday)
+    sunday.setDate(monday.getDate() + 6)
+    return { start: isoLocal(monday), end: isoLocal(sunday) }
+  }
+  // 'month': first → last day of the current month.
+  const first = new Date(now.getFullYear(), now.getMonth(), 1)
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  return { start: isoLocal(first), end: isoLocal(last) }
+}
+
+// If the current filter exactly matches a preset's range, return its key so
+// the SortBar can bold that preset label — the user gets a free "I'm on 本周"
+// readout without parsing the dates.
+function matchingPreset(f: DateFilter): PresetKey | null {
+  if (f.kind !== 'range') return null
+  for (const p of PRESETS) {
+    const r = presetRange(p.key)
+    if (r.start === f.start && r.end === f.end) return p.key
+  }
+  return null
+}
+
 export function MasterSheet({
   jobs,
   role,
@@ -823,17 +876,13 @@ function SearchInput({
   )
 }
 
-// Two-mode 排序 toggle + a two-tap date chip that takes its meaning from the
-// active mode. 按交期 filters on 交期; 按工号 filters on 生产日 (the YY-M-D
-// embedded in YNMX-...). The chip:
-//   1. inactive — click opens the start picker.
-//   2. start picked — chip becomes single-day; end picker auto-opens.
-//      Escape / dismiss the end picker leaves it as a single-day filter.
-//   3. end picked — chip becomes "M月D日 → M月D日". Either bound is a button
-//      that re-opens its own picker for an independent edit.
-// The chain (open end immediately after start) only fires on the idle→active
-// transition. Once a range is active, clicking the start label re-picks start
-// alone — chaining there would be intrusive.
+// 排序 toggle + an inline range filter.
+//   • Idle — single chip "📅 交期 / 生产日". Click expands the filter inline.
+//   • Expanded — preset row [今天 · 本周 · 本月] then "从 [date] → 到 [date] ✕".
+//     Presets fill both bounds in one click. Each date label opens its own
+//     native picker. ✕ both clears the filter AND collapses back to the chip.
+// The active preset (if the range matches one) bolds itself so the user gets a
+// free "I'm on 本周" readout without parsing the ISO dates.
 function SortBar({
   sortMode,
   setSortMode,
@@ -847,12 +896,16 @@ function SortBar({
 }) {
   const startRef = useRef<HTMLInputElement>(null)
   const endRef = useRef<HTMLInputElement>(null)
-  // Set when the user enters the picker flow from idle or from the single-day
-  // state. Consumed by onStartChange to decide whether to auto-open the end
-  // picker after start is set.
-  const autoChain = useRef(false)
+  // UI flag for "user clicked the chip but hasn't picked anything yet". An
+  // active filter forces expanded regardless. If the filter is cleared
+  // externally (e.g. the overview's 清除筛选 button) the chip stays expanded
+  // with empty date labels until the user clicks ✕ — they can also just pick
+  // a new range from the open form.
+  const [uiExpanded, setUiExpanded] = useState(false)
   const isRange = dateFilter.kind === 'range'
-  const isSingleDay = isRange && dateFilter.start === dateFilter.end
+  const expanded = uiExpanded || isRange
+  const currentPreset = matchingPreset(dateFilter)
+  const inactiveLabel = sortMode === 'jobNo' ? '生产日' : '交期'
 
   const openPicker = (ref: React.RefObject<HTMLInputElement | null>) => {
     const el = ref.current
@@ -870,58 +923,43 @@ function SortBar({
     }
   }
 
-  // Clicking the (only) chip from idle, OR clicking the date label when the
-  // filter is still a single day, restarts the two-tap flow (chain enabled).
-  // Clicking the start label of a true range re-picks start alone (no chain).
-  const onStartClick = () => {
-    if (!isRange || isSingleDay) {
-      autoChain.current = true
-    }
-    openPicker(startRef)
-  }
-
-  const onEndClick = () => {
-    openPicker(endRef)
+  const applyPreset = (key: PresetKey) => {
+    setDateFilter({ kind: 'range', ...presetRange(key) })
   }
 
   const onStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value
     if (!v) return
-    let newEnd: string
-    if (autoChain.current || !isRange) {
-      // Fresh pick — collapse to single-day; the chained end picker may extend.
-      newEnd = v
+    if (isRange) {
+      // Editing start of an active range: clamp so end never falls behind.
+      const end = v > dateFilter.end ? v : dateFilter.end
+      setDateFilter({ kind: 'range', start: v, end })
     } else {
-      // Editing start of an active range: clamp so end never falls behind start.
-      newEnd = v > dateFilter.end ? v : dateFilter.end
-    }
-    setDateFilter({ kind: 'range', start: v, end: newEnd })
-    if (autoChain.current) {
-      autoChain.current = false
-      // Defer a tick so the end input's `min` reflects the freshly-set start.
-      setTimeout(() => openPicker(endRef), 0)
+      // First pick from expanded-but-empty: collapse to single-day. The user
+      // can extend via the end label or a preset.
+      setDateFilter({ kind: 'range', start: v, end: v })
     }
   }
 
   const onEndChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value
-    if (!v || !isRange) return
-    const start = dateFilter.start
-    // Picked an end before start — swap rather than reject. Matches the
-    // forgiving behavior of macOS range pickers.
-    if (v < start) {
-      setDateFilter({ kind: 'range', start: v, end: start })
+    if (!v) return
+    if (isRange) {
+      // End before start → swap rather than reject (Apple-style forgiveness).
+      if (v < dateFilter.start) {
+        setDateFilter({ kind: 'range', start: v, end: dateFilter.start })
+      } else {
+        setDateFilter({ kind: 'range', start: dateFilter.start, end: v })
+      }
     } else {
-      setDateFilter({ kind: 'range', start, end: v })
+      setDateFilter({ kind: 'range', start: v, end: v })
     }
   }
 
-  const onClear = () => {
-    autoChain.current = false
+  const onCollapse = () => {
+    setUiExpanded(false)
     setDateFilter({ kind: 'all' })
   }
-
-  const inactiveLabel = sortMode === 'jobNo' ? '生产日' : '交期'
 
   return (
     <div className="flex items-baseline gap-x-5 gap-y-2 flex-wrap text-[13px]">
@@ -936,75 +974,129 @@ function SortBar({
         onClick={() => setSortMode('jobNo')}
       />
 
-      <span className="relative inline-flex items-baseline gap-1.5">
+      {!expanded ? (
         <button
           type="button"
-          onClick={onStartClick}
-          aria-label={isRange ? '修改起始日期' : '选择日期范围'}
+          onClick={() => setUiExpanded(true)}
+          aria-label="选择日期范围"
           title={
             sortMode === 'jobNo'
               ? '按生产日筛选 (工号上的日期)'
               : '按交期筛选'
           }
-          className={`inline-flex items-baseline gap-1.5 transition-colors ${
-            isRange
-              ? 'text-[var(--color-ink)] hover:opacity-70'
-              : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
-          }`}
+          className="inline-flex items-baseline gap-1.5 text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
         >
           <span className="translate-y-[1px]">
             <CalendarIcon />
           </span>
-          <span className={isRange ? 'mono font-semibold' : ''}>
-            {isRange ? formatPickedDate(dateFilter.start) : inactiveLabel}
-          </span>
+          <span>{inactiveLabel}</span>
         </button>
-        {isRange && !isSingleDay && (
-          <>
-            <span className="text-[var(--color-ink-3)]" aria-hidden="true">
-              →
-            </span>
+      ) : (
+        <span className="inline-flex items-baseline gap-x-3 gap-y-1 flex-wrap">
+          <span
+            className="translate-y-[1px] text-[var(--color-ink-2)]"
+            aria-hidden="true"
+          >
+            <CalendarIcon />
+          </span>
+          {PRESETS.map((p) => (
             <button
+              key={p.key}
               type="button"
-              onClick={onEndClick}
-              aria-label="修改结束日期"
-              className="mono font-semibold text-[var(--color-ink)] hover:opacity-70 transition-opacity"
+              onClick={() => applyPreset(p.key)}
+              aria-pressed={currentPreset === p.key}
+              className={`transition-colors ${
+                currentPreset === p.key
+                  ? 'text-[var(--color-ink)] font-semibold'
+                  : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+              }`}
             >
-              {formatPickedDate(dateFilter.end)}
+              {p.label}
             </button>
-          </>
-        )}
-        {isRange && (
+          ))}
+          <span className="text-[var(--color-ink-4)]" aria-hidden="true">
+            ·
+          </span>
+          <span className="text-[var(--color-ink-3)]">从</span>
+          <DateLabel
+            value={isRange ? dateFilter.start : undefined}
+            inputRef={startRef}
+            onClick={() => openPicker(startRef)}
+            onChange={onStartChange}
+          />
+          <span className="text-[var(--color-ink-3)]" aria-hidden="true">
+            →
+          </span>
+          <span className="text-[var(--color-ink-3)]">到</span>
+          <DateLabel
+            value={isRange ? dateFilter.end : undefined}
+            inputRef={endRef}
+            min={isRange ? dateFilter.start : undefined}
+            onClick={() => openPicker(endRef)}
+            onChange={onEndChange}
+          />
           <button
             type="button"
-            onClick={onClear}
-            aria-label="清除日期筛选"
+            onClick={onCollapse}
+            aria-label="清除并收起日期筛选"
             className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
           >
             <ClearIcon />
           </button>
-        )}
-        <input
-          ref={startRef}
-          type="date"
-          value={isRange ? dateFilter.start : ''}
-          onChange={onStartChange}
-          className="absolute inset-0 opacity-0 pointer-events-none"
-          tabIndex={-1}
-          aria-hidden="true"
-        />
-        <input
-          ref={endRef}
-          type="date"
-          value={isRange ? dateFilter.end : ''}
-          min={isRange ? dateFilter.start : undefined}
-          onChange={onEndChange}
-          className="absolute inset-0 opacity-0 pointer-events-none"
-          tabIndex={-1}
-          aria-hidden="true"
-        />
-      </span>
+        </span>
+      )}
     </div>
+  )
+}
+
+// A clickable date label that hides a native <input type="date"> directly
+// behind itself. The hidden input is positioned absolutely over the button so
+// the native picker pops up at the button's location (not floating elsewhere
+// in the bar). showPicker() drives the open; the visible text is the
+// formatted M月D日 (or "选择" placeholder).
+function DateLabel({
+  value,
+  inputRef,
+  min,
+  onClick,
+  onChange,
+}: {
+  value?: string
+  inputRef: React.RefObject<HTMLInputElement | null>
+  min?: string
+  onClick: () => void
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+}) {
+  return (
+    <span className="relative inline-flex items-baseline">
+      <button
+        type="button"
+        onClick={onClick}
+        className={`inline-flex items-baseline gap-0.5 transition-colors ${
+          value
+            ? 'mono font-medium text-[var(--color-ink)] hover:opacity-70'
+            : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+        }`}
+      >
+        <span>{value ? formatPickedDate(value) : '选择'}</span>
+        <span
+          className="text-[var(--color-ink-4)] text-[9px] translate-y-[-2px]"
+          aria-hidden="true"
+        >
+          ▼
+        </span>
+      </button>
+      <input
+        ref={inputRef}
+        type="date"
+        value={value ?? ''}
+        min={min}
+        onChange={onChange}
+        className="absolute inset-0 opacity-0 pointer-events-none"
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+    </span>
   )
 }
 
