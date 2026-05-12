@@ -1,7 +1,8 @@
 import { notFound } from 'next/navigation'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { requireUser } from '@/lib/auth'
-import { ensureShippingDocNo, getCustomers, getJob } from '@/lib/db'
+import { getCustomers, getJob } from '@/lib/db'
+import { latestShipment } from '@/lib/data'
 import { fetchImages } from '@/lib/pdf/images'
 import { ShippingDocPDF } from '@/lib/pdf/shipping'
 
@@ -24,11 +25,12 @@ export async function GET(
   const [job, customers] = await Promise.all([getJob(id), getCustomers()])
   if (!job) notFound()
 
-  const docNo = job.shippingDocNo ?? (await ensureShippingDocNo(id))
+  const shipment = latestShipment(job)
+  const docNo = shipment?.docNo ?? job.shippingDocNo ?? 'draft'
   const images = await fetchImages(job.components.map((c) => c.imageUrl))
 
   const pdf = await renderToBuffer(
-    ShippingDocPDF({ job, customers, docNo, images }),
+    ShippingDocPDF({ job, customers, images }),
   )
 
   // Inline so it opens in the browser's PDF viewer; Save still works from there.

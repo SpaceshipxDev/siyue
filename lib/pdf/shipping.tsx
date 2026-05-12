@@ -1,7 +1,11 @@
 import 'server-only'
 import { Document, Image, Page, Text, View } from '@react-pdf/renderer'
 import type { Customer, Job } from './../data'
-import { customerById } from './../data'
+import {
+  customerById,
+  formatShipmentTimestamp,
+  latestShipment,
+} from './../data'
 import { BRAND } from './../brand'
 import { COLOR, styles } from './styles'
 import { ensureFontsRegistered } from './fonts'
@@ -24,21 +28,35 @@ const COL = {
 export function ShippingDocPDF({
   job,
   customers,
-  docNo,
   images,
 }: {
   job: Job
   customers: Customer[]
-  docNo: string
   images: Map<string, ImageSource>
 }) {
   const customer = customerById(job.customerId, customers)
   const customerName = customer?.name ?? job.customer
-  const totalQty = job.components.reduce((s, c) => s + c.qty, 0)
+
+  // PDF mirrors the print page: the most recent shipment is the printable
+  // batch. Older shipments are audit history and are not re-rendered.
+  const shipment = latestShipment(job)
+  const componentById = new Map(job.components.map((c) => [c.id, c]))
+  const shippingRows = shipment
+    ? shipment.parts
+        .map((sp) => {
+          const c = componentById.get(sp.componentId)
+          return c ? { component: c, qty: sp.qty } : null
+        })
+        .filter((x): x is { component: Job['components'][number]; qty: number } => x !== null)
+    : []
+  const shippingStarted = shippingRows.length > 0
+  const totalShipped = shippingRows.reduce((s, r) => s + r.qty, 0)
+  const docNo = shipment?.docNo ?? job.shippingDocNo ?? ''
+  const printedAt = shipment ? formatShipmentTimestamp(shipment.createdAt) : ''
 
   return (
     <Document
-      title={`出货单 ${docNo}`}
+      title={docNo ? `出货单 ${docNo}` : '出货单'}
       author={BRAND.legalName}
       creator={BRAND.software}
       producer={BRAND.software}
@@ -53,7 +71,10 @@ export function ShippingDocPDF({
 
         {/* Field grid */}
         <View style={styles.fieldGrid}>
-          <Field label="出货单号" value={docNo} />
+          <Field
+            label="出货单号"
+            value={printedAt ? `${docNo || '—'}  ${printedAt}` : docNo || '—'}
+          />
           <Field label="送货日期" value={job.dueDate} />
           <Field label="客户名称" value={customerName || '—'} />
           <Field label="制单人" value={job.createdBy || '—'} />
@@ -64,93 +85,99 @@ export function ShippingDocPDF({
           <Field full label="备注" value={job.notes || '—'} />
         </View>
 
-        {/* Table */}
-        <View style={styles.tableWrap}>
-          <View style={styles.tableHeaderRow} fixed>
-            <Text style={[styles.th, { width: COL.seq }]}>序号</Text>
-            <Text style={[styles.th, { width: COL.thumb }]}>产品图片</Text>
-            <Text style={[styles.th, { flex: 1 }]}>产品名称</Text>
-            <Text style={[styles.th, { width: COL.material }]}>材质</Text>
-            <Text style={[styles.th, { width: COL.qty, textAlign: 'right' }]}>
-              出货数量
-            </Text>
-            <Text style={[styles.th, { width: COL.partNo }]}>料号</Text>
-            <Text style={[styles.th, { width: COL.notes }]}>备注</Text>
-          </View>
+        {/* Table — rendered only after the shipping stage has been opened on at
+            least one component. Until then the doc prints as a blank intent
+            note: header + customer info, no line items, no totals, no amount. */}
+        {shippingStarted ? (
+          <>
+            <View style={styles.tableWrap}>
+              <View style={styles.tableHeaderRow} fixed>
+                <Text style={[styles.th, { width: COL.seq }]}>序号</Text>
+                <Text style={[styles.th, { width: COL.thumb }]}>产品图片</Text>
+                <Text style={[styles.th, { flex: 1 }]}>产品名称</Text>
+                <Text style={[styles.th, { width: COL.material }]}>材质</Text>
+                <Text style={[styles.th, { width: COL.qty, textAlign: 'right' }]}>
+                  出货数量
+                </Text>
+                <Text style={[styles.th, { width: COL.partNo }]}>料号</Text>
+                <Text style={[styles.th, { width: COL.notes }]}>备注</Text>
+              </View>
 
-          {job.components.map((c, i) => {
-            const img = c.imageUrl ? images.get(c.imageUrl) : undefined
-            return (
-              <View key={c.id} style={styles.tableRow} wrap={false}>
-                <Text style={[styles.tdSeq, { width: COL.seq }]}>
-                  {String(i + 1).padStart(2, '0')}
-                </Text>
-                <View style={[styles.thumbCell, { width: COL.thumb }]}>
-                  {img ? (
-                    // eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image, no alt prop
-                    <Image style={styles.thumb} src={img.data} />
-                  ) : (
-                    <Text style={styles.thumbPlaceholder}>—</Text>
-                  )}
-                </View>
-                <Text style={[styles.td, { flex: 1, fontWeight: 500 }]}>
-                  {c.name}
-                </Text>
-                <Text style={[styles.tdMuted, { width: COL.material }]}>
-                  {c.material ?? '—'}
+              {shippingRows.map(({ component: c, qty }, i) => {
+                const img = c.imageUrl ? images.get(c.imageUrl) : undefined
+                return (
+                  <View key={c.id} style={styles.tableRow} wrap={false}>
+                    <Text style={[styles.tdSeq, { width: COL.seq }]}>
+                      {String(i + 1).padStart(2, '0')}
+                    </Text>
+                    <View style={[styles.thumbCell, { width: COL.thumb }]}>
+                      {img ? (
+                        // eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image, no alt prop
+                        <Image style={styles.thumb} src={img.data} />
+                      ) : (
+                        <Text style={styles.thumbPlaceholder}>—</Text>
+                      )}
+                    </View>
+                    <Text style={[styles.td, { flex: 1, fontWeight: 500 }]}>
+                      {c.name}
+                    </Text>
+                    <Text style={[styles.tdMuted, { width: COL.material }]}>
+                      {c.material ?? '—'}
+                    </Text>
+                    <Text
+                      style={[styles.td, { width: COL.qty, textAlign: 'right' }]}
+                    >
+                      {qty}
+                    </Text>
+                    <Text style={[styles.tdMuted, { width: COL.partNo }]}>
+                      {c.name}
+                    </Text>
+                    <Text style={[styles.tdMuted, { width: COL.notes }]}>
+                      {c.notes ?? ''}
+                    </Text>
+                  </View>
+                )
+              })}
+
+              {/* Totals row */}
+              <View style={styles.tableTotalRow}>
+                <Text
+                  style={[
+                    styles.th,
+                    {
+                      width: COL.seq + COL.thumb + COL.material,
+                      flex: 1,
+                      textAlign: 'right',
+                    },
+                  ]}
+                >
+                  合计
                 </Text>
                 <Text
-                  style={[styles.td, { width: COL.qty, textAlign: 'right' }]}
+                  style={[
+                    styles.td,
+                    {
+                      width: COL.qty,
+                      textAlign: 'right',
+                      fontWeight: 600,
+                    },
+                  ]}
                 >
-                  {c.qty}
+                  {totalShipped}
                 </Text>
-                <Text style={[styles.tdMuted, { width: COL.partNo }]}>
-                  {c.name}
-                </Text>
-                <Text style={[styles.tdMuted, { width: COL.notes }]}>
-                  {c.notes ?? ''}
-                </Text>
+                <Text style={[styles.td, { width: COL.partNo + COL.notes }]} />
               </View>
-            )
-          })}
+            </View>
 
-          {/* Totals row */}
-          <View style={styles.tableTotalRow}>
-            <Text
-              style={[
-                styles.th,
-                {
-                  width: COL.seq + COL.thumb + COL.material,
-                  flex: 1,
-                  textAlign: 'right',
-                },
-              ]}
-            >
-              合计
-            </Text>
-            <Text
-              style={[
-                styles.td,
-                {
-                  width: COL.qty,
-                  textAlign: 'right',
-                  fontWeight: 600,
-                },
-              ]}
-            >
-              {totalQty}
-            </Text>
-            <Text style={[styles.td, { width: COL.partNo + COL.notes }]} />
-          </View>
-        </View>
-
-        {/* Amount */}
-        <View style={styles.amountRow}>
-          <Text style={styles.amountLabel}>金额</Text>
-          <Text style={styles.amountValue}>
-            ¥{typeof job.amountCny === 'number' ? job.amountCny : '—'}
-          </Text>
-        </View>
+            {/* Amount */}
+            <View style={styles.amountRow}>
+              <Text style={styles.amountLabel}>金额</Text>
+              <Text style={styles.amountValue}>
+                ¥{typeof job.amountCny === 'number' ? job.amountCny : '—'}
+              </Text>
+            </View>
+          </>
+        ) : null}
 
         {/* Footer signature */}
         <View style={styles.signatureBlock}>

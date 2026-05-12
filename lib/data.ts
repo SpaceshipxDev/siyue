@@ -246,6 +246,21 @@ export type JobReturn = {
   parts: ReturnPart[]
 }
 
+// One printed 出货单 = one Shipment row. Each shipment is an immutable batch
+// audit-log; cumulative shipped per part = sum across all the job's shipments
+// for that componentId. Mostly grown via the 制作出货单 picker, which writes
+// a row here per submission. createdAt is ISO so we can render local time
+// down to the minute on the 出货记录 column.
+export type ShipmentEntry = { componentId: string; qty: number }
+
+export type Shipment = {
+  id: string
+  docNo?: string
+  createdAt: string
+  createdBy?: string
+  parts: ShipmentEntry[]
+}
+
 export type Job = {
   id: string
   jobNo: string
@@ -271,6 +286,91 @@ export type Job = {
   // The single currently-open 退货, if any. Closed returns are history and
   // are fetched separately on demand (e.g. /退货 已完成 tab).
   activeReturn?: JobReturn
+  // Audit log of every 出货单 printed for this job. Newest last. Empty (not
+  // undefined) when nothing has shipped yet.
+  shipments: Shipment[]
+}
+
+// === Shipment helpers ===
+
+// Sum of all batches that have shipped this component so far.
+export function componentShippedTotal(
+  componentId: string,
+  shipments: Shipment[],
+): number {
+  let n = 0
+  for (const s of shipments) {
+    for (const p of s.parts) if (p.componentId === componentId) n += p.qty
+  }
+  return n
+}
+
+export function componentRemainingQty(
+  component: Component,
+  shipments: Shipment[],
+): number {
+  return Math.max(0, component.qty - componentShippedTotal(component.id, shipments))
+}
+
+// Per-component shipment history, sorted by createdAt ascending.
+export function componentShipmentEntries(
+  componentId: string,
+  shipments: Shipment[],
+): Array<{ qty: number; createdAt: string; docNo?: string }> {
+  const rows: Array<{ qty: number; createdAt: string; docNo?: string }> = []
+  for (const s of shipments) {
+    for (const p of s.parts) {
+      if (p.componentId !== componentId) continue
+      rows.push({ qty: p.qty, createdAt: s.createdAt, docNo: s.docNo })
+    }
+  }
+  rows.sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
+  return rows
+}
+
+// Single newline-separated string for the 出货记录 column: each line reads
+// "YYYY-MM-DD HH:mm ×N". Empty string when the part has nothing shipped yet
+// so callers can branch on falsiness.
+export function formatShipmentLog(
+  entries: Array<{ qty: number; createdAt: string }>,
+): string {
+  if (entries.length === 0) return ''
+  return entries
+    .map((e) => `${formatShipmentTimestamp(e.createdAt)} ×${e.qty}`)
+    .join('\n')
+}
+
+// Asia/Shanghai-ish local display. The DB stores ISO UTC; the floor reads in
+// local time. We don't pull in a tz library — toLocaleString with zh-CN +
+// fixed timeZone keeps the print output predictable across server vs. client.
+export function formatShipmentTimestamp(iso: string): string {
+  const t = Date.parse(iso)
+  if (!Number.isFinite(t)) return iso
+  const d = new Date(t)
+  const fmt = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+  // zh-CN renders as "2026/05/11 21:14"; flip to ISO-style for consistency
+  // with the rest of the doc (YYYY-MM-DD HH:mm).
+  const parts = fmt.formatToParts(d)
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`
+}
+
+// Most recent printed batch for a job — drives the read-only 出货单 preview.
+export function latestShipment(job: Job): Shipment | undefined {
+  if (!job.shipments.length) return undefined
+  let best = job.shipments[0]
+  for (let i = 1; i < job.shipments.length; i++) {
+    if (job.shipments[i].createdAt > best.createdAt) best = job.shipments[i]
+  }
+  return best
 }
 
 // Job has shipped iff every in-route part is done at 出货. Returns can only

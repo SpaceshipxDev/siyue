@@ -1,12 +1,13 @@
 import { Suspense } from 'react'
-import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import {
   STAGES,
+  componentShipmentEntries,
   daysFromToday,
   dueState,
   effectiveStageState,
   formatCny,
+  formatShipmentLog,
   isBlockClosed,
   jobComponentsTotal,
   jobExternalSpend,
@@ -48,6 +49,7 @@ import { StageChips } from '@/app/_stagechips'
 import { ComponentsScrollArea } from '@/app/_components_table'
 import { SourceFileRow } from '@/app/_source_file'
 import { ActiveReturnBadge, OpenReturnButton } from '@/app/_returns'
+import { ShippingComposerButton } from '@/app/_shipping'
 import {
   ProcessCardButton,
   type StoredProcessCard,
@@ -171,14 +173,11 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             <Suspense fallback={<ProcessCardButtonFallback />}>
               <AsyncProcessCardButton jobId={job.id} jobNo={job.jobNo} />
             </Suspense>
-            <Link
-              href={`/jobs/${job.id}/print/shipping`}
-              target="_blank"
-              rel="noopener"
-              className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-sm hover:opacity-80"
-            >
-              打印出货单
-            </Link>
+            <ShippingComposerButton
+              jobId={job.id}
+              components={job.components}
+              shipments={job.shipments}
+            />
             {!isProduction && (
               <span
                 aria-hidden
@@ -433,6 +432,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     <StageHeader name={s} />
                   </th>
                 ))}
+                <th className="px-3 py-3 label whitespace-nowrap">出货记录</th>
                 {canEditFields && (
                   <th className="px-4 py-3 label whitespace-nowrap">备注</th>
                 )}
@@ -565,6 +565,9 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         </td>
                       )
                     })}
+                    <ShipmentLogCell
+                      entries={componentShipmentEntries(c.id, job.shipments)}
+                    />
                     {canEditFields && (
                       <td className="px-3 py-3">
                         <ComponentNotes
@@ -650,6 +653,30 @@ function ProcessCardButtonFallback() {
     <span className="px-3 py-1.5 text-[12px] tracking-wider rounded-sm border border-[var(--color-border)] text-[var(--color-ink-3)]">
       工艺卡 …
     </span>
+  )
+}
+
+// Per-part shipment history cell — one row per batch shipped, newest at top.
+// Empty state renders a single muted dash so the column stays the same width.
+function ShipmentLogCell({
+  entries,
+}: {
+  entries: ReturnType<typeof componentShipmentEntries>
+}) {
+  if (entries.length === 0) {
+    return (
+      <td className="px-3 py-3 text-[var(--color-ink-4)] mono text-[11px] align-top">
+        —
+      </td>
+    )
+  }
+  const log = formatShipmentLog([...entries].reverse())
+  return (
+    <td className="px-3 py-3 align-top">
+      <pre className="mono text-[11px] leading-snug text-[var(--color-ink-2)] whitespace-pre-wrap font-normal">
+        {log}
+      </pre>
+    </td>
   )
 }
 

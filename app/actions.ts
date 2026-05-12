@@ -19,6 +19,7 @@ import {
   finishStage,
   markJobAsDraft,
   parseJobNoConflictError,
+  prepareShipping,
   resetDb,
   setBlockMembersReturnedQty,
   setComponentImage,
@@ -115,6 +116,30 @@ export async function setStageDoneQtyAction(
   const u = await requireStage(stage)
   await setStageDoneQty(jobId, componentId, stage, qty, u.name)
   revalidateStage(jobId, stage)
+}
+
+// 制作出货单 — single-shot write that turns a user's per-part shipping picks
+// into a new shipment row + cumulative 出货 stage rollup. Auth follows the
+// same gate as other 出货 writes (commerce, 工程 head, 出货 station head).
+// Returns the new shipment's doc number so the client can deep-link the
+// printed 出货单 it just made.
+export type ShippingPickInput = { componentId: string; qty: number }
+
+export type PrepareShippingResponse = {
+  shipmentId: string
+  docNo: string
+}
+
+export async function prepareShippingAction(
+  jobId: string,
+  selections: ShippingPickInput[],
+): Promise<PrepareShippingResponse> {
+  const u = await requireStage('出货')
+  const result = await prepareShipping(jobId, selections, u.name)
+  revalidateStage(jobId, '出货')
+  revalidatePath(`/jobs/${jobId}/print/shipping`)
+  revalidatePath(`/jobs/${jobId}/print/shipping/pdf`)
+  return result
 }
 
 export async function startJobStageAction(
