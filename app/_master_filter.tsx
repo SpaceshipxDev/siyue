@@ -28,6 +28,12 @@ import { DueCell, RollupCell, StageHeader } from './_ui'
 import { JobStageActionButton } from './_cell'
 import { JobNotesInline } from './_editable'
 import { ReturnChip } from './_returns'
+import {
+  MatchedComponentsStrip,
+  SearchInput,
+  matchedComponents,
+  searchHaystack,
+} from './_search'
 
 // Role mirrored locally so this client component doesn't import lib/auth
 // (which is server-only).
@@ -214,17 +220,14 @@ export function MasterSheet({
 
   // Pipeline: text → sort by mode → date filter → partition. The parent
   // pre-sorts by due date but we re-sort here so the toggle is purely local.
-  // For non-出货 production users we restrict the search to jobNo only
-  // (they don't need — and shouldn't see — customer text in the search box).
+  // For non-出货 production users we restrict customer + product text from the
+  // haystack (their privacy line); 零件名 / 材料 stay searchable for everyone
+  // — production workers search their own parts. searchHaystack centralizes
+  // this rule with the popover.
   const matchedByText = useMemo(() => {
     const query = q.trim().toLowerCase()
     if (!query) return scopedJobs
-    return scopedJobs.filter((j) => {
-      const haystack = jobNoOnly
-        ? j.jobNo
-        : `${j.jobNo} ${j.customer} ${j.product}`
-      return haystack.toLowerCase().includes(query)
-    })
+    return scopedJobs.filter((j) => searchHaystack(j, jobNoOnly).includes(query))
   }, [scopedJobs, q, jobNoOnly])
 
   const sortedByMode = useMemo(
@@ -320,7 +323,11 @@ export function MasterSheet({
       )}
 
       <div className="mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-3">
-        <SearchInput q={q} setQ={setQ} placeholder={searchPlaceholder(jobNoOnly)} />
+        <SearchInput
+          q={q}
+          setQ={setQ}
+          placeholder={searchPlaceholder(jobNoOnly)}
+        />
         <SortBar
           sortMode={sortMode}
           setSortMode={setSortMode}
@@ -556,7 +563,7 @@ export function MasterSheet({
 }
 
 function searchPlaceholder(jobNoOnly: boolean): string {
-  return jobNoOnly ? '搜索 工号' : '搜索 · 工号 / 客户 / 产品'
+  return jobNoOnly ? '搜索 · 工号 / 零件' : '搜索 · 工号 / 客户 / 产品 / 零件'
 }
 
 // Two text buttons, no container, no fill — just typography. Active label
@@ -719,6 +726,12 @@ function JobRow({
           >
             <Highlight text={job.product} q={q} />
           </span>
+          <MatchedComponentsStrip
+            job={job}
+            components={matchedComponents(job, q)}
+            q={q}
+            viewerStage={highlightStage}
+          />
         </div>
       </td>
       {showMoney && (
@@ -835,44 +848,6 @@ function JobRow({
         />
       </td>
     </tr>
-  )
-}
-
-function SearchInput({
-  q,
-  setQ,
-  placeholder,
-}: {
-  q: string
-  setQ: (s: string) => void
-  placeholder: string
-}) {
-  return (
-    <div className="relative inline-block">
-      <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[var(--color-ink-3)] pointer-events-none">
-        <SearchIcon />
-      </span>
-      <input
-        type="search"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder={placeholder}
-        spellCheck={false}
-        autoComplete="off"
-        className="w-[220px] md:w-[300px] h-8 pl-6 pr-6 bg-transparent border-0 border-b border-[var(--color-border-strong)] placeholder:text-[var(--color-ink-3)] focus:outline-none focus:border-[var(--color-ink)] transition-colors"
-        style={{ fontSize: '14px' }}
-      />
-      {q && (
-        <button
-          type="button"
-          onClick={() => setQ('')}
-          aria-label="清除搜索"
-          className="absolute right-0 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded-full text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
-        >
-          <ClearIcon />
-        </button>
-      )}
-    </div>
   )
 }
 
@@ -1140,29 +1115,6 @@ function Highlight({ text, q }: { text: string; q: string }) {
       </mark>
       {text.slice(idx + query.length)}
     </>
-  )
-}
-
-function SearchIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      aria-hidden="true"
-    >
-      <circle cx="7" cy="7" r="4.6" stroke="currentColor" strokeWidth="1.4" />
-      <line
-        x1="10.5"
-        y1="10.5"
-        x2="14"
-        y2="14"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-    </svg>
   )
 }
 

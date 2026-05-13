@@ -47,6 +47,7 @@ import { ExternalBadge } from '@/app/_externalbadge'
 import { ComponentImageUploader } from '@/app/_image_uploader'
 import { StageChips } from '@/app/_stagechips'
 import { ComponentsScrollArea } from '@/app/_components_table'
+import { ComponentAnchorScroller } from '@/app/_component_anchor'
 import { SourceFileRow } from '@/app/_source_file'
 import { ActiveReturnBadge, OpenReturnButton } from '@/app/_returns'
 import { ShippingComposerButton } from '@/app/_shipping'
@@ -152,6 +153,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
       />
 
       <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">
+        <ComponentAnchorScroller />
         <div className="mb-6 flex items-center justify-between gap-3">
           <BackButton fallback={backFallback} />
           <div className="flex items-center gap-3 flex-wrap justify-end">
@@ -450,7 +452,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             </thead>
             <tbody>
               {job.components.map((c, i) => (
-                <tr key={c.id} className="align-middle">
+                <tr key={c.id} id={`c-${c.id}`} className="align-middle">
                     <td
                       className="sticky-col px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]"
                       style={{ left: 0 }}

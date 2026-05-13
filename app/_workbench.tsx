@@ -25,6 +25,12 @@ import { DueCell } from './_ui'
 import { JobStageActionButton } from './_cell'
 import { JobNotesInline } from './_editable'
 import { ReturnChip } from './_returns'
+import {
+  MatchedComponentsStrip,
+  SearchInput,
+  matchedComponents,
+  searchHaystack,
+} from './_search'
 
 // Production user's home view at /?stage=<theirs>. The 16-column master grid
 // is the wrong shape for a worker who only acts on ONE column; at 50 jobs/
@@ -217,17 +223,14 @@ export function StationWorkbench({
   const jobNoOnly = isJobNoOnlySearch(role, defaultStage)
 
   // Pipeline: text → date → sort. Partition into the three tabs at the end
-  // so each tab badge reflects the live filter.
+  // so each tab badge reflects the live filter. searchHaystack centralizes
+  // the field set (incl. 零件名 / 材料) so the in-place filter agrees with
+  // the SearchBox popover.
   const matched = useMemo(() => {
     const query = q.trim().toLowerCase()
     let out = jobs
     if (query) {
-      out = out.filter((j) => {
-        const haystack = jobNoOnly
-          ? j.jobNo
-          : `${j.jobNo} ${j.customer} ${j.product}`
-        return haystack.toLowerCase().includes(query)
-      })
+      out = out.filter((j) => searchHaystack(j, jobNoOnly).includes(query))
     }
     out = out.filter((j) => jobMatchesDate(j, dateFilter, sortMode))
     return sortJobs(out, sortMode)
@@ -276,7 +279,11 @@ export function StationWorkbench({
   return (
     <>
       <div className="mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-3">
-        <SearchInput q={q} setQ={setQ} placeholder={searchPlaceholder(jobNoOnly)} />
+        <SearchInput
+          q={q}
+          setQ={setQ}
+          placeholder={searchPlaceholder(jobNoOnly)}
+        />
         <SortBar
           sortMode={sortMode}
           setSortMode={setSortMode}
@@ -430,80 +437,97 @@ function WorkbenchRow({
         : 'transparent'
   const detailHref = `/jobs/${job.id}`
 
+  const matched = matchedComponents(job, q)
+
   return (
     <li
-      className="flex items-stretch min-h-[80px]"
+      className="flex flex-col"
       style={{
         viewTransitionName: `row-${job.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
         borderLeft: `3px solid ${stripeColor}`,
       }}
     >
-      <div className="flex items-center pl-3 pr-2 mono text-[11px] text-[var(--color-ink-4)] w-[44px] shrink-0 tabular-nums">
-        {String(index + 1).padStart(2, '0')}
-      </div>
+      <div className="flex items-stretch min-h-[80px]">
+        <div className="flex items-center pl-3 pr-2 mono text-[11px] text-[var(--color-ink-4)] w-[44px] shrink-0 tabular-nums">
+          {String(index + 1).padStart(2, '0')}
+        </div>
 
-      <Link
-        href={detailHref}
-        className="flex flex-1 min-w-0 items-center gap-5 px-2 py-3 hover:bg-[#f7f5ee] transition-colors"
-      >
-        <div className="w-[150px] shrink-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="mono text-[14px] font-medium text-[var(--color-ink)]">
-              <Highlight text={job.jobNo} q={q} />
-            </span>
-            {jobHasOpenOutsource(job) && (
-              <span
-                className="mono text-[10px] tracking-wider px-1.5 py-px rounded-sm border border-[var(--color-info)] text-[var(--color-info)] leading-tight"
-                title="此工单有零件正在外协"
-              >
-                外协
+        <Link
+          href={detailHref}
+          className="flex flex-1 min-w-0 items-center gap-5 px-2 py-3 hover:bg-[#f7f5ee] transition-colors"
+        >
+          <div className="w-[150px] shrink-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="mono text-[14px] font-medium text-[var(--color-ink)]">
+                <Highlight text={job.jobNo} q={q} />
               </span>
-            )}
-            {job.activeReturn && <ReturnChip ret={job.activeReturn} />}
+              {jobHasOpenOutsource(job) && (
+                <span
+                  className="mono text-[10px] tracking-wider px-1.5 py-px rounded-sm border border-[var(--color-info)] text-[var(--color-info)] leading-tight"
+                  title="此工单有零件正在外协"
+                >
+                  外协
+                </span>
+              )}
+              {job.activeReturn && <ReturnChip ret={job.activeReturn} />}
+            </div>
           </div>
-        </div>
 
-        <div className="flex-1 min-w-0">
-          {showCustomer && (
-            <p className="text-[14px] font-medium text-[var(--color-ink)] truncate">
-              <Highlight text={job.customer} q={q} />
+          <div className="flex-1 min-w-0">
+            {showCustomer && (
+              <p className="text-[14px] font-medium text-[var(--color-ink)] truncate">
+                <Highlight text={job.customer} q={q} />
+              </p>
+            )}
+            <p
+              className={
+                showCustomer
+                  ? 'text-[12px] text-[var(--color-ink-3)] truncate mt-0.5'
+                  : 'text-[14px] text-[var(--color-ink)] truncate'
+              }
+            >
+              <Highlight text={job.product} q={q} />
             </p>
-          )}
-          <p
-            className={
-              showCustomer
-                ? 'text-[12px] text-[var(--color-ink-3)] truncate mt-0.5'
-                : 'text-[14px] text-[var(--color-ink)] truncate'
-            }
-          >
-            <Highlight text={job.product} q={q} />
-          </p>
-          {tab === 'upstream' && (
-            <UpstreamHint job={job} stage={stage} />
-          )}
+            {tab === 'upstream' && (
+              <UpstreamHint job={job} stage={stage} />
+            )}
+          </div>
+
+          <div className="w-[110px] shrink-0">
+            <DueCell date={effDue} state={ds} daysOff={days} />
+          </div>
+        </Link>
+
+        <div className="w-[200px] shrink-0 border-l border-[var(--color-border)]">
+          <ActionCell job={job} stage={stage} tab={tab} />
         </div>
 
-        <div className="w-[110px] shrink-0">
-          <DueCell date={effDue} state={ds} daysOff={days} />
+        <div className="w-[200px] shrink-0 border-l border-[var(--color-border)] flex items-center px-3">
+          <JobNotesInline
+            jobId={job.id}
+            value={job.notes}
+            placeholder="备注…"
+            className={`text-[12px] w-full ${
+              job.notes && job.notes.includes('催')
+                ? 'text-[var(--color-overdue)]'
+                : 'text-[var(--color-ink-2)]'
+            }`}
+          />
         </div>
-      </Link>
-
-      <div className="w-[200px] shrink-0 border-l border-[var(--color-border)]">
-        <ActionCell job={job} stage={stage} tab={tab} />
       </div>
-
-      <div className="w-[200px] shrink-0 border-l border-[var(--color-border)] flex items-center px-3">
-        <JobNotesInline
-          jobId={job.id}
-          value={job.notes}
-          placeholder="备注…"
-          className={`text-[12px] w-full ${
-            job.notes && job.notes.includes('催')
-              ? 'text-[var(--color-overdue)]'
-              : 'text-[var(--color-ink-2)]'
-          }`}
-        />
-      </div>
+      {matched.length > 0 && (
+        // Indented to align with the product column above. The match strip
+        // sits OUTSIDE the row's parent Link so its own Link children aren't
+        // nested anchors.
+        <div className="pl-[210px] pr-3 pb-2">
+          <MatchedComponentsStrip
+            job={job}
+            components={matched}
+            q={q}
+            viewerStage={stage}
+          />
+        </div>
+      )}
     </li>
   )
 }
@@ -625,45 +649,7 @@ function EmptyState({
 }
 
 function searchPlaceholder(jobNoOnly: boolean): string {
-  return jobNoOnly ? '搜索 工号' : '搜索 · 工号 / 客户 / 产品'
-}
-
-function SearchInput({
-  q,
-  setQ,
-  placeholder,
-}: {
-  q: string
-  setQ: (s: string) => void
-  placeholder: string
-}) {
-  return (
-    <div className="relative inline-block">
-      <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[var(--color-ink-3)] pointer-events-none">
-        <SearchIcon />
-      </span>
-      <input
-        type="search"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder={placeholder}
-        spellCheck={false}
-        autoComplete="off"
-        className="w-[220px] md:w-[300px] h-8 pl-6 pr-6 bg-transparent border-0 border-b border-[var(--color-border-strong)] placeholder:text-[var(--color-ink-3)] focus:outline-none focus:border-[var(--color-ink)] transition-colors"
-        style={{ fontSize: '14px' }}
-      />
-      {q && (
-        <button
-          type="button"
-          onClick={() => setQ('')}
-          aria-label="清除搜索"
-          className="absolute right-0 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded-full text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
-        >
-          <ClearIcon />
-        </button>
-      )}
-    </div>
-  )
+  return jobNoOnly ? '搜索 · 工号 / 零件' : '搜索 · 工号 / 客户 / 产品 / 零件'
 }
 
 // Inline range filter. Idle = chip "📅 交期"; click expands to a preset row
@@ -912,23 +898,6 @@ function Highlight({ text, q }: { text: string; q: string }) {
       </mark>
       {text.slice(idx + query.length)}
     </>
-  )
-}
-
-function SearchIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="7" cy="7" r="4.6" stroke="currentColor" strokeWidth="1.4" />
-      <line
-        x1="10.5"
-        y1="10.5"
-        x2="14"
-        y2="14"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-    </svg>
   )
 }
 
