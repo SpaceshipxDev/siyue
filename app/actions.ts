@@ -22,6 +22,7 @@ import {
   prepareShipping,
   resetDb,
   setBlockMembersReturnedQty,
+  setBlockMemberUnitPrice,
   setComponentImage,
   setMemberReturnedQty,
   setPartRoute,
@@ -391,6 +392,20 @@ export async function setBlockMembersReturnedQtyAction(
   await requireOutsourceManager()
   await setBlockMembersReturnedQty(blockId, items, date)
   revalidateExternal(jobId)
+}
+
+export async function setBlockMemberUnitPriceAction(
+  blockId: string,
+  componentId: string,
+  unitPriceCny: number | null,
+  jobId?: string,
+): Promise<void> {
+  await requireOutsourceManager()
+  await setBlockMemberUnitPrice(blockId, componentId, unitPriceCny)
+  revalidateExternal(jobId)
+  revalidatePath(`/print/outsource/${blockId}`)
+  revalidatePath(`/print/outsource/${blockId}/pdf`)
+  revalidatePath(`/print/outsource/${blockId}/pdf/raw`)
 }
 
 export async function deleteOutsourceBlockAction(

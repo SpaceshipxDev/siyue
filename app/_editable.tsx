@@ -19,6 +19,7 @@ import type {
 import {
   pickCustomerForJobAction,
   pickVendorForBlockAction,
+  setBlockMemberUnitPriceAction,
   updateComponentAction,
   updateCustomerAction,
   updateJobAction,
@@ -756,6 +757,73 @@ export function OutsourceBlockText({
                   : { notes: next }
         await updateOutsourceBlockAction(blockId, patch, jobId)
       }}
+    />
+  )
+}
+
+// Per-member vendor unit price. Mirrors OutsourceBlockAmount's empty-clears
+// semantic — leaving the input blank stores null (printed as "—" on the
+// 外协单 PDF). Click-to-edit inline within the member list.
+export function BlockMemberUnitPrice({
+  blockId,
+  componentId,
+  jobId,
+  value,
+  className,
+}: {
+  blockId: string
+  componentId: string
+  jobId?: string
+  value: number | null | undefined
+  className?: string
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  const isPending = value == null
+  const initial = isPending ? '' : String(value)
+  const { draft, setDraft, setFocused, pending, start } = useDraft(initial)
+
+  const commit = (next: string) => {
+    const trimmed = next.trim()
+    if (trimmed === '') {
+      if (isPending) return
+      start(async () => {
+        await setBlockMemberUnitPriceAction(blockId, componentId, null, jobId)
+      })
+      return
+    }
+    const n = Number(trimmed)
+    if (!Number.isFinite(n) || n < 0) return
+    if (!isPending && n === Number(initial)) return
+    start(async () => {
+      await setBlockMemberUnitPriceAction(blockId, componentId, n, jobId)
+    })
+  }
+
+  return (
+    <input
+      ref={ref}
+      type="number"
+      inputMode="decimal"
+      min={0}
+      step={1}
+      value={draft}
+      placeholder={isPending ? '单价' : undefined}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false)
+        commit(draft)
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          ref.current?.blur()
+        } else if (e.key === 'Escape') {
+          setDraft(initial)
+          requestAnimationFrame(() => ref.current?.blur())
+        }
+      }}
+      className={`${baseInputClass} mono ${pending ? 'opacity-60' : ''} ${className ?? ''}`}
     />
   )
 }

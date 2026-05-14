@@ -81,6 +81,10 @@ export type OutsourceBlockMember = {
   // closure date once returnedQty reaches qty.
   returnedQty?: number
   returnedAt?: string
+  // Per-unit vendor price for this part on this block — the number the
+  // 外协单 PDF prints in the 单价 column. Undefined = not yet quoted.
+  // Stored on outsource_block_parts.unit_price_cny.
+  unitPriceCny?: number
 }
 
 // Helpers — keep the qty-based open/closed semantics in one place so callers
@@ -94,6 +98,61 @@ export function memberRemainingQty(m: OutsourceBlockMember): number {
 export function isMemberFullyReturned(m: OutsourceBlockMember): boolean {
   return memberRemainingQty(m) === 0
 }
+// Per-member line subtotal (qty × unit price). Undefined when no price
+// has been entered yet — callers render "—" instead of forcing zero.
+export function memberLineTotal(m: OutsourceBlockMember): number | undefined {
+  const p = m.unitPriceCny
+  if (typeof p !== 'number' || !Number.isFinite(p)) return undefined
+  return p * m.qty
+}
+
+// PDF convenience: single-member blocks that have a block-level
+// amountCny but no explicit per-member unitPriceCny should still print
+// a 单价 (= amountCny / qty) — they're trivially the same number. This
+// is read-only inference; nothing is written back to the row.
+export function effectiveUnitPriceCny(
+  m: OutsourceBlockMember,
+  block: OutsourceBlock,
+): number | undefined {
+  if (typeof m.unitPriceCny === 'number' && Number.isFinite(m.unitPriceCny)) {
+    return m.unitPriceCny
+  }
+  if (
+    block.members.length === 1 &&
+    typeof block.amountCny === 'number' &&
+    Number.isFinite(block.amountCny) &&
+    m.qty > 0
+  ) {
+    return block.amountCny / m.qty
+  }
+  return undefined
+}
+
+export function effectiveMemberLineTotal(
+  m: OutsourceBlockMember,
+  block: OutsourceBlock,
+): number | undefined {
+  const p = effectiveUnitPriceCny(m, block)
+  if (p == null) return undefined
+  return p * m.qty
+}
+
+// Sum of line subtotals across a block. Used as a fallback when the
+// block's grand-total amountCny is null (and as the 合计 on the PDF
+// when per-line prices are present). Returns undefined when *no*
+// member has a price set, so we don't print a misleading ¥0.
+export function blockLineTotalsSum(block: OutsourceBlock): number | undefined {
+  let sum = 0
+  let any = false
+  for (const m of block.members) {
+    const lt = memberLineTotal(m)
+    if (lt == null) continue
+    sum += lt
+    any = true
+  }
+  return any ? sum : undefined
+}
+
 export function isMemberPartiallyReturned(m: OutsourceBlockMember): boolean {
   const r = memberReturnedQty(m)
   return r > 0 && r < m.qty

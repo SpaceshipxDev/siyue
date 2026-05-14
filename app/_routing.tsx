@@ -7,9 +7,11 @@ import {
   OUTSOURCE_ACTIVITIES,
   blockActivityLabel,
   daysFromToday,
+  formatCny,
   isBlockClosed,
   isMemberFullyReturned,
   isMemberPartiallyReturned,
+  memberLineTotal,
   memberRemainingQty,
   memberReturnedQty,
   stageRangeLabel,
@@ -28,6 +30,7 @@ import {
 
 import { today } from '@/lib/today'
 import {
+  BlockMemberUnitPrice,
   NameCombobox,
   OutsourceBlockAmount,
   OutsourceBlockDate,
@@ -193,6 +196,14 @@ export function NewBlockForm({
   const [newVendorName, setNewVendorName] = useState('')
   const [newVendorAddress, setNewVendorAddress] = useState('')
   const [amount, setAmount] = useState('')
+  // Per-component vendor unit prices, keyed by componentId. Free-form
+  // text input (matches the existing 金额 input) so empty/non-numeric
+  // means "no price yet" and the row prints "—". A user typing a number
+  // in any selected component's row commits a real unit_price_cny on
+  // submit.
+  const [unitPrices, setUnitPrices] = useState<Record<string, string>>({})
+  const setUnitPriceFor = (id: string, v: string) =>
+    setUnitPrices((prev) => ({ ...prev, [id]: v }))
   const [sentDate, setSentDate] = useState(() => today())
   const [expectedReturn, setExpectedReturn] = useState(() => today())
   // Named activity is the primary thing — selected from the fixed list
@@ -241,6 +252,16 @@ export function NewBlockForm({
         }
         useVendorId = created.id
       }
+      // Collect per-component prices for just the selected components.
+      // A non-empty input that parses to a positive number is kept; empty
+      // or invalid → omit (column is nullable, prints "—").
+      const unitPricesCny: Record<string, number | null> = {}
+      for (const cid of selected) {
+        const raw = unitPrices[cid]?.trim() ?? ''
+        if (raw === '') continue
+        const n = Number(raw)
+        if (Number.isFinite(n) && n >= 0) unitPricesCny[cid] = n
+      }
       const id = await createOutsourceBlockAction(jobId, [...selected], {
         vendorId: useVendorId,
         activity: activityTrim,
@@ -248,12 +269,14 @@ export function NewBlockForm({
         amountCny: amountTrim === '' ? null : Number(amountTrim),
         sentDate,
         expectedReturn,
+        unitPricesCny,
       })
       if (!id) {
         setError('创建失败：所选零件中可能已有外协记录')
         return
       }
       setAmount('')
+      setUnitPrices({})
       setSelected(new Set())
       setActivity('')
       setStageFrom(OUTSOURCEABLE_STAGES[0])
@@ -298,26 +321,48 @@ export function NewBlockForm({
 
       <div className="grid grid-cols-2 md:grid-cols-12 gap-3">
         <div className="col-span-2 md:col-span-3 flex flex-col gap-1">
-          <span className="label">零件 · 多选</span>
-          <div className="flex flex-col gap-1 max-h-[140px] overflow-auto border border-[var(--color-border)] rounded-sm bg-[var(--color-surface)] px-2 py-1.5">
-            {available.map((c) => (
-              <label
-                key={c.id}
-                className="flex items-center gap-2 text-[13px] text-[var(--color-ink)] cursor-pointer hover:text-[var(--color-ink)]"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.has(c.id)}
-                  onChange={() => toggle(c.id)}
-                  disabled={pending}
-                  className="accent-[var(--color-ink)]"
-                />
-                <span className="flex-1 truncate">{c.name}</span>
-                <span className="mono text-[11px] text-[var(--color-ink-3)] shrink-0">
-                  {c.qty}件
-                </span>
-              </label>
-            ))}
+          <span className="label">零件 · 多选 + 单价</span>
+          <div className="flex flex-col gap-1 max-h-[180px] overflow-auto border border-[var(--color-border)] rounded-sm bg-[var(--color-surface)] px-2 py-1.5">
+            {available.map((c) => {
+              const isSelected = selected.has(c.id)
+              return (
+                <div
+                  key={c.id}
+                  className="flex items-center gap-2 text-[13px] text-[var(--color-ink)]"
+                >
+                  <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggle(c.id)}
+                      disabled={pending}
+                      className="accent-[var(--color-ink)]"
+                    />
+                    <span className="flex-1 truncate">{c.name}</span>
+                    <span className="mono text-[11px] text-[var(--color-ink-3)] shrink-0">
+                      {c.qty}件
+                    </span>
+                  </label>
+                  <span
+                    className={`mono text-[11px] shrink-0 ${isSelected ? 'text-[var(--color-ink-3)]' : 'text-[var(--color-ink-4)]'}`}
+                  >
+                    ¥
+                  </span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step={1}
+                    value={unitPrices[c.id] ?? ''}
+                    onChange={(e) => setUnitPriceFor(c.id, e.target.value)}
+                    disabled={pending || !isSelected}
+                    placeholder="单价"
+                    title="每件单价 · 可留空"
+                    className="mono text-[12px] w-[68px] text-right px-1 py-0.5 rounded-sm bg-transparent border border-[var(--color-border)] focus:border-[var(--color-ink)] focus:outline-none disabled:opacity-40"
+                  />
+                </div>
+              )
+            })}
           </div>
         </div>
         <div className="col-span-2 md:col-span-3 flex flex-col gap-1">
@@ -460,12 +505,10 @@ export function NewBlockForm({
 //
 // The per-member list collapses to nothing in the common single-member /
 // no-partial case. It expands inline only when there are 2+ members OR any
-// member is partially returned. 收件 also has two flavors:
-//
-//   • Single-member, no partial → [收件 N] commits "all back today" in one
-//     click (the by-far common case at this shop).
-//   • Multi-member or partial    → [收件 ⌄] toggles a tray with per-member
-//     qty inputs + a receive date picker.
+// member is partially returned. 收件 always opens a tray with per-member
+// qty inputs + a receive date picker — even in the single-member case, so
+// the operator can record partial returns or backdate the receive without
+// a special "everything came back today" shortcut.
 //
 // `jobNo` / `customer` are optional context strings the parent passes when
 // the row is rendered outside the job detail page (where they'd be redundant
@@ -511,11 +554,13 @@ export function BlockRow({
     0,
   )
 
-  // The list/tray only adds information when there's >1 member or a member
-  // is mid-return. Otherwise the headline already says everything.
-  const needsList = block.members.length > 1 || partialMembers.length > 0
-  // ↓ dropdown variant vs. one-click variant of the 收件 button.
-  const oneClickReceive = !needsList && pendingMembers.length === 1
+  // The list/tray only adds information when there's >1 member, a member is
+  // mid-return, OR any member has an explicit per-line price (because the
+  // 单价 editor itself lives in the list — single-member blocks where the
+  // user typed a vendor unit price need the list shown so they can change it).
+  const hasAnyLinePrice = block.members.some((m) => m.unitPriceCny != null)
+  const needsList =
+    block.members.length > 1 || partialMembers.length > 0 || hasAnyLinePrice
 
   // The headline — the boss's word for what this is.
   // Prefer the named activity (外发氧化, 外发CNC, …). When there's no
@@ -673,32 +718,20 @@ export function BlockRow({
 
         <div className="ml-auto flex items-center gap-2 shrink-0">
           {!closed && pendingMembers.length > 0 ? (
-            oneClickReceive ? (
-              <button
-                type="button"
-                disabled={pending}
-                onClick={submitReceive}
-                title="确认全部已回厂，日期为今天"
-                className="px-3 py-1 text-[12px] tracking-wider bg-[var(--color-success)] text-[var(--color-surface)] rounded-sm hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                收件 <span className="ml-1 mono">{remainingTotal}</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() => setTrayOpen((v) => !v)}
-                aria-expanded={trayOpen}
-                title="展开收件明细"
-                className={`px-3 py-1 text-[12px] tracking-wider rounded-sm hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed ${
-                  trayOpen
-                    ? 'bg-[var(--color-ink)] text-[var(--color-surface)]'
-                    : 'bg-[var(--color-success)] text-[var(--color-surface)]'
-                }`}
-              >
-                收件 <span className="ml-1 mono">{trayOpen ? '⌃' : '⌄'}</span>
-              </button>
-            )
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => setTrayOpen((v) => !v)}
+              aria-expanded={trayOpen}
+              title="展开收件明细 · 可调整数量与日期"
+              className={`px-3 py-1 text-[12px] tracking-wider rounded-sm hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed ${
+                trayOpen
+                  ? 'bg-[var(--color-ink)] text-[var(--color-surface)]'
+                  : 'bg-[var(--color-success)] text-[var(--color-surface)]'
+              }`}
+            >
+              收件 <span className="ml-1 mono">{trayOpen ? '⌃' : `${remainingTotal} ⌄`}</span>
+            </button>
           ) : null}
           <BlockKebab
             blockId={block.id}
@@ -764,15 +797,29 @@ export function BlockRow({
             const remaining = memberRemainingQty(m)
             const returnedSoFar = memberReturnedQty(m)
 
+            const lineTotal = memberLineTotal(m)
             if (fullyReturned) {
               return (
                 <li
                   key={m.componentId}
                   className="flex items-baseline gap-2 text-[12px]"
                 >
-                  <span className="text-[var(--color-ink)] truncate">{m.name}</span>
-                  <span className="mono text-[11px] text-[var(--color-ink-3)]">
+                  <span className="text-[var(--color-ink)] truncate basis-[140px] grow">{m.name}</span>
+                  <span className="mono text-[11px] text-[var(--color-ink-3)] shrink-0">
                     {m.qty}件
+                  </span>
+                  <span className="inline-flex items-baseline gap-0.5 shrink-0">
+                    <span className="mono text-[11px] text-[var(--color-ink-3)]">¥</span>
+                    <BlockMemberUnitPrice
+                      blockId={block.id}
+                      componentId={m.componentId}
+                      jobId={jobId}
+                      value={m.unitPriceCny}
+                      className="text-[12px] text-[var(--color-ink-2)] text-right [field-sizing:content] min-w-[3ch]"
+                    />
+                  </span>
+                  <span className="mono text-[11px] text-[var(--color-ink-3)] w-[68px] text-right shrink-0">
+                    {lineTotal != null ? formatCny(lineTotal) : ''}
                   </span>
                   <span className="ml-auto inline-flex items-baseline gap-1.5 text-[var(--color-success)]">
                     <span className="mono text-[11px]">回 ✓ {m.qty}/{m.qty}</span>
@@ -805,9 +852,22 @@ export function BlockRow({
                 key={m.componentId}
                 className="flex items-baseline gap-2 text-[12px]"
               >
-                <span className="text-[var(--color-ink-2)] truncate">{m.name}</span>
-                <span className="mono text-[11px] text-[var(--color-ink-3)]">
+                <span className="text-[var(--color-ink-2)] truncate basis-[140px] grow">{m.name}</span>
+                <span className="mono text-[11px] text-[var(--color-ink-3)] shrink-0">
                   {m.qty}件
+                </span>
+                <span className="inline-flex items-baseline gap-0.5 shrink-0">
+                  <span className="mono text-[11px] text-[var(--color-ink-3)]">¥</span>
+                  <BlockMemberUnitPrice
+                    blockId={block.id}
+                    componentId={m.componentId}
+                    jobId={jobId}
+                    value={m.unitPriceCny}
+                    className="text-[12px] text-[var(--color-ink-2)] text-right [field-sizing:content] min-w-[3ch]"
+                  />
+                </span>
+                <span className="mono text-[11px] text-[var(--color-ink-3)] w-[68px] text-right shrink-0">
+                  {lineTotal != null ? formatCny(lineTotal) : ''}
                 </span>
                 <span className="ml-auto label">
                   {partial ? (

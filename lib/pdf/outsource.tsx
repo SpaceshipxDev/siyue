@@ -1,7 +1,13 @@
 import 'server-only'
 import { Document, Image, Page, Text, View } from '@react-pdf/renderer'
 import type { OutsourceBlock, Vendor } from './../data'
-import { formatCny, vendorById } from './../data'
+import {
+  blockLineTotalsSum,
+  effectiveMemberLineTotal,
+  effectiveUnitPriceCny,
+  formatCny,
+  vendorById,
+} from './../data'
 import { BRAND } from './../brand'
 import { styles } from './styles'
 import { ensureFontsRegistered } from './fonts'
@@ -9,14 +15,19 @@ import type { ImageSource } from './images'
 
 ensureFontsRegistered()
 
+// Column widths. The vendor PO format vendors expect: 序号 · 图 · 编号 ·
+// 名称 · 数量 · 单价 · 金额 · 材料 · 备注. 单价/金额 take precedence over
+// 备注 on width — when the vendor scans the page their eye lands on the
+// 金额 column first, and the notes column is mostly empty.
 const COL = {
-  seq: 28,
-  thumb: 56,
-  partNo: 100,
-  name: 120,
-  qty: 56,
-  material: 70,
-  notes: 76,
+  seq: 24,
+  thumb: 50,
+  partNo: 86,
+  qty: 40,
+  unitPrice: 54,
+  lineTotal: 64,
+  material: 56,
+  notes: 60,
 } as const
 
 export function OutsourceDocPDF({
@@ -41,6 +52,12 @@ export function OutsourceDocPDF({
   const recipientPhone =
     block.recipientContactPhone ?? BRAND.receivingContact.phone
   const totalQty = block.members.reduce((s, m) => s + m.qty, 0)
+  // 合计 prefers the sum of per-line subtotals when any member has a
+  // unit price set — that's the breakdown vendors expect to see add up.
+  // Falls back to the block's manually-entered amountCny otherwise so
+  // legacy blocks (no per-line prices) still print a grand total.
+  const lineTotalSum = blockLineTotalsSum(block)
+  const grandTotal = lineTotalSum ?? block.amountCny ?? null
 
   return (
     <Document
@@ -79,7 +96,17 @@ export function OutsourceDocPDF({
             <Text style={[styles.th, { width: COL.partNo }]}>产品编号</Text>
             <Text style={[styles.th, { flex: 1 }]}>产品名称</Text>
             <Text style={[styles.th, { width: COL.qty, textAlign: 'right' }]}>
-              采购数量
+              数量
+            </Text>
+            <Text
+              style={[styles.th, { width: COL.unitPrice, textAlign: 'right' }]}
+            >
+              单价
+            </Text>
+            <Text
+              style={[styles.th, { width: COL.lineTotal, textAlign: 'right' }]}
+            >
+              金额
             </Text>
             <Text style={[styles.th, { width: COL.material }]}>材料</Text>
             <Text style={[styles.th, { width: COL.notes }]}>备注</Text>
@@ -88,6 +115,8 @@ export function OutsourceDocPDF({
           {block.members.map((m, i) => {
             const isOrphan = m.componentId.startsWith('__orphan__')
             const img = m.imageUrl ? images.get(m.imageUrl) : undefined
+            const up = effectiveUnitPriceCny(m, block)
+            const lt = effectiveMemberLineTotal(m, block)
             return (
               <View
                 key={`${m.componentId}-${i}`}
@@ -122,6 +151,22 @@ export function OutsourceDocPDF({
                 >
                   {m.qty}
                 </Text>
+                <Text
+                  style={[
+                    styles.tdMuted,
+                    { width: COL.unitPrice, textAlign: 'right' },
+                  ]}
+                >
+                  {up != null ? formatCny(up) : '—'}
+                </Text>
+                <Text
+                  style={[
+                    styles.td,
+                    { width: COL.lineTotal, textAlign: 'right' },
+                  ]}
+                >
+                  {lt != null ? formatCny(lt) : '—'}
+                </Text>
                 <Text style={[styles.tdMuted, { width: COL.material }]}>
                   {m.material ?? '—'}
                 </Text>
@@ -153,15 +198,17 @@ export function OutsourceDocPDF({
             >
               {totalQty}
             </Text>
-            <Text style={[styles.td, { width: COL.material }]} />
+            <Text style={[styles.td, { width: COL.unitPrice }]} />
             <Text
               style={[
                 styles.td,
-                { width: COL.notes, textAlign: 'right', fontWeight: 600 },
+                { width: COL.lineTotal, textAlign: 'right', fontWeight: 600 },
               ]}
             >
-              {formatCny(block.amountCny)}
+              {grandTotal != null ? formatCny(grandTotal) : '—'}
             </Text>
+            <Text style={[styles.td, { width: COL.material }]} />
+            <Text style={[styles.td, { width: COL.notes }]} />
           </View>
         </View>
 
