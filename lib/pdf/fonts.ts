@@ -8,15 +8,21 @@ import { Font } from '@react-pdf/renderer'
 // Why Noto Sans SC: it's the only widely available CJK font that ships with
 // matching Latin glyphs in Regular/Medium/Bold weights, served as raw OTF
 // (not woff2). pdfkit, which @react-pdf/renderer wraps, accepts TTF/OTF only.
-// jsDelivr's /gh/ mirror gives us versioned, globally-cached URLs that survive
-// CDN restarts and don't depend on Google Fonts' format negotiation.
+//
+// We pin to the upstream `notofonts/noto-cjk` GitHub repo at a known commit.
+// jsDelivr's `/gh/` mirror used to be the source here, but jsDelivr now 403s
+// large OTFs at pinned commits (see prod logs 2026-05 — "Failed to fetch font
+// from cdn.jsdelivr.net/.../NotoSansSC-Regular.otf: 403 Forbidden"), so every
+// PDF render returned 500. raw.githubusercontent.com serves the same bytes,
+// is unmetered for low-volume reads, and the in-memory `registered` guard
+// means we fetch at most three files per process lifetime (≈ once per deploy).
 
 const SANS_REGULAR =
-  'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@165c01b/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf'
+  'https://raw.githubusercontent.com/notofonts/noto-cjk/165c01b/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf'
 const SANS_MEDIUM =
-  'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@165c01b/Sans/SubsetOTF/SC/NotoSansSC-Medium.otf'
+  'https://raw.githubusercontent.com/notofonts/noto-cjk/165c01b/Sans/SubsetOTF/SC/NotoSansSC-Medium.otf'
 const SANS_BOLD =
-  'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@165c01b/Sans/SubsetOTF/SC/NotoSansSC-Bold.otf'
+  'https://raw.githubusercontent.com/notofonts/noto-cjk/165c01b/Sans/SubsetOTF/SC/NotoSansSC-Bold.otf'
 
 let registered = false
 
