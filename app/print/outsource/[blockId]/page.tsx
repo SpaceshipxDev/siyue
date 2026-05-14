@@ -1,11 +1,19 @@
 import { notFound } from 'next/navigation'
-import { formatCny, vendorById } from '@/lib/data'
+import {
+  blockLineTotalsSum,
+  effectiveMemberLineTotal,
+  effectiveUnitPriceCny,
+  formatCny,
+  vendorById,
+} from '@/lib/data'
 import { ensureOutsourceDocNo, getOutsourceBlock, getVendors } from '@/lib/db'
 import { requireOutsourceManager } from '@/lib/auth'
 import { BRAND } from '@/lib/brand'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { PrintToolbar } from '@/app/_print'
 import {
+  BlockMemberUnitPrice,
+  ComponentQty,
   NameCombobox,
   OutsourceBlockAmount,
   OutsourceBlockDate,
@@ -191,14 +199,18 @@ export default async function OutsourceDocPage(
                 <th style={{ width: 72 }}>产品图片</th>
                 <th>产品编号</th>
                 <th>产品名称</th>
-                <th style={{ width: 70, textAlign: 'right' }}>采购数量</th>
-                <th>材料</th>
+                <th style={{ width: 80 }}>材料</th>
+                <th style={{ width: 80, textAlign: 'right' }}>采购数量</th>
+                <th style={{ width: 80, textAlign: 'right' }}>单价</th>
+                <th style={{ width: 90, textAlign: 'right' }}>总价</th>
                 <th style={{ width: 90 }}>备注</th>
               </tr>
             </thead>
             <tbody>
               {info.block.members.map((m, i) => {
                 const isOrphan = m.componentId.startsWith('__orphan__')
+                const up = effectiveUnitPriceCny(m, info.block)
+                const lt = effectiveMemberLineTotal(m, info.block)
                 return (
                   <tr key={`${m.componentId}-${i}`}>
                     <td className="mono text-[var(--color-ink-3)]">
@@ -222,11 +234,39 @@ export default async function OutsourceDocPage(
                     >
                       {m.name}
                     </td>
-                    <td className="mono" style={{ textAlign: 'right' }}>
-                      {m.qty}
-                    </td>
                     <td className="text-[var(--color-ink-2)]">
                       {m.material ?? '—'}
+                    </td>
+                    <td className="mono" style={{ textAlign: 'right' }}>
+                      {isOrphan ? (
+                        m.qty
+                      ) : (
+                        <ComponentQty
+                          jobId={info.jobId}
+                          componentId={m.componentId}
+                          value={m.qty}
+                          className="mono text-right [field-sizing:content] min-w-[3ch]"
+                        />
+                      )}
+                    </td>
+                    <td className="mono" style={{ textAlign: 'right' }}>
+                      <span className="inline-flex items-baseline gap-0.5">
+                        <span className="text-[var(--color-ink-3)]">¥</span>
+                        {isOrphan ? (
+                          <span>{up != null ? Math.round(up) : '—'}</span>
+                        ) : (
+                          <BlockMemberUnitPrice
+                            blockId={info.block.id}
+                            componentId={m.componentId}
+                            jobId={info.jobId}
+                            value={m.unitPriceCny}
+                            className="mono text-right [field-sizing:content] min-w-[3ch]"
+                          />
+                        )}
+                      </span>
+                    </td>
+                    <td className="mono font-medium" style={{ textAlign: 'right' }}>
+                      {lt != null ? formatCny(lt) : '—'}
                     </td>
                     <td className="text-[var(--color-ink-2)]">
                       {i === 0 ? (info.block.notes ?? '') : ''}
@@ -235,18 +275,21 @@ export default async function OutsourceDocPage(
                 )
               })}
               <tr>
-                <td colSpan={4} className="label" style={{ textAlign: 'right' }}>
+                <td colSpan={5} className="label" style={{ textAlign: 'right' }}>
                   合计
                 </td>
                 <td className="mono font-semibold" style={{ textAlign: 'right' }}>
                   {info.block.members.reduce((s, m) => s + m.qty, 0)}
                 </td>
-                <td colSpan={2} className="text-right">
-                  <span className="label mr-2">采购金额</span>
-                  <span className="mono font-semibold">
-                    {formatCny(info.block.amountCny)}
-                  </span>
+                <td />
+                <td className="mono font-semibold" style={{ textAlign: 'right' }}>
+                  {(() => {
+                    const sum = blockLineTotalsSum(info.block)
+                    const grand = sum ?? info.block.amountCny
+                    return grand != null ? formatCny(grand) : '—'
+                  })()}
                 </td>
+                <td />
               </tr>
             </tbody>
           </table>

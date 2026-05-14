@@ -15,18 +15,18 @@ import type { ImageSource } from './images'
 
 ensureFontsRegistered()
 
-// Column widths. The vendor PO format vendors expect: 序号 · 图 · 编号 ·
-// 名称 · 数量 · 单价 · 金额 · 材料 · 备注. 单价/金额 take precedence over
-// 备注 on width — when the vendor scans the page their eye lands on the
-// 金额 column first, and the notes column is mostly empty.
+// Column widths. The vendor PO format vendors expect:
+//   序号 · 图 · 编号 · 名称 · 材料 · 数量 · 单价 · 金额 · 备注
+// 单价/金额 take precedence over 备注 on width — when the vendor scans
+// the page their eye lands on the 金额 column first.
 const COL = {
   seq: 24,
   thumb: 50,
   partNo: 86,
+  material: 56,
   qty: 40,
   unitPrice: 54,
   lineTotal: 64,
-  material: 56,
   notes: 60,
 } as const
 
@@ -95,6 +95,7 @@ export function OutsourceDocPDF({
             <Text style={[styles.th, { width: COL.thumb }]}>产品图片</Text>
             <Text style={[styles.th, { width: COL.partNo }]}>产品编号</Text>
             <Text style={[styles.th, { flex: 1 }]}>产品名称</Text>
+            <Text style={[styles.th, { width: COL.material }]}>材料</Text>
             <Text style={[styles.th, { width: COL.qty, textAlign: 'right' }]}>
               数量
             </Text>
@@ -108,7 +109,6 @@ export function OutsourceDocPDF({
             >
               金额
             </Text>
-            <Text style={[styles.th, { width: COL.material }]}>材料</Text>
             <Text style={[styles.th, { width: COL.notes }]}>备注</Text>
           </View>
 
@@ -146,6 +146,9 @@ export function OutsourceDocPDF({
                     {m.name}
                   </Text>
                 )}
+                <Text style={[styles.tdMuted, { width: COL.material }]}>
+                  {m.material ?? '—'}
+                </Text>
                 <Text
                   style={[styles.td, { width: COL.qty, textAlign: 'right' }]}
                 >
@@ -167,9 +170,6 @@ export function OutsourceDocPDF({
                 >
                   {lt != null ? formatCny(lt) : '—'}
                 </Text>
-                <Text style={[styles.tdMuted, { width: COL.material }]}>
-                  {m.material ?? '—'}
-                </Text>
                 <Text style={[styles.tdMuted, { width: COL.notes }]}>
                   {i === 0 ? (block.notes ?? '') : ''}
                 </Text>
@@ -182,7 +182,8 @@ export function OutsourceDocPDF({
               style={[
                 styles.th,
                 {
-                  width: COL.seq + COL.thumb + COL.partNo,
+                  width:
+                    COL.seq + COL.thumb + COL.partNo + COL.material,
                   flex: 1,
                   textAlign: 'right',
                 },
@@ -207,7 +208,6 @@ export function OutsourceDocPDF({
             >
               {grandTotal != null ? formatCny(grandTotal) : '—'}
             </Text>
-            <Text style={[styles.td, { width: COL.material }]} />
             <Text style={[styles.td, { width: COL.notes }]} />
           </View>
         </View>
