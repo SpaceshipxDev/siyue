@@ -1,12 +1,12 @@
 import Link from 'next/link'
 import {
+  blockActivityLabel,
   blockClosedAt,
   formatCny,
   jobExternalSpend,
-  outsourceLabel,
 } from '@/lib/data'
 import { today } from '@/lib/today'
-import type { Job, Stage, Vendor } from '@/lib/data'
+import type { Job, Vendor } from '@/lib/data'
 import { getJobs, getVendors } from '@/lib/db'
 import { requireCommerce } from '@/lib/auth'
 import { TopBar } from '../_ui'
@@ -73,7 +73,9 @@ type ClosedBlock = {
   product: string
   componentName: string
   vendorName: string
-  stages: Stage[]
+  // What the block was for, in the boss's words (外发氧化, 外发CNC, …).
+  // Pre-derived via blockActivityLabel so the table cell is a plain string.
+  activity: string
   // null when a 加急 block closed before commerce backfilled the quote.
   amountCny: number | null
   closedAt: string
@@ -109,7 +111,7 @@ function collectClosedBlocks(
           product: job.product,
           componentName: summary,
           vendorName: v?.name ?? b.vendorId,
-          stages: b.stages,
+          activity: blockActivityLabel(b),
           amountCny: b.amountCny,
           closedAt,
         })
@@ -282,7 +284,7 @@ export default async function MonthSettlement({
                       </Link>
                     </td>
                     <td className="py-3 pr-6 text-[12px] text-[var(--color-ink-3)] tracking-wider">
-                      {outsourceLabel(b.stages)}
+                      {b.activity}
                     </td>
                     <td className="py-3 text-[14px] tabular-nums text-right text-[var(--color-ink)]">
                       {formatCny(b.amountCny)}

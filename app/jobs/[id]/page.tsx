@@ -17,7 +17,12 @@ import {
   type Job,
   type Vendor,
 } from '@/lib/data'
-import { getJob, getProcessCard, getVendors } from '@/lib/db'
+import {
+  getJob,
+  getOutsourceActivitySuggestions,
+  getProcessCard,
+  getVendors,
+} from '@/lib/db'
 import {
   canEditPartRoute,
   canEditProductionFields,
@@ -69,7 +74,11 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // depends on it. Pull it in via <Suspense> so the page header + parts table
   // can flush as soon as job + vendors resolve, instead of blocking on the
   // slowest of three queries.
-  const [rawJob, rawVendors] = await Promise.all([getJob(id), getVendors()])
+  const [rawJob, rawVendors, activitySuggestions] = await Promise.all([
+    getJob(id),
+    getVendors(),
+    getOutsourceActivitySuggestions(),
+  ])
   if (!rawJob) notFound()
 
   const isProduction = user.role === 'production'
@@ -613,6 +622,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             vendors={vendors}
             componentOptions={componentOptions}
             blockRows={blockRows}
+            activitySuggestions={activitySuggestions}
           />
         )}
 
@@ -707,6 +717,7 @@ function ExternalSection({
   vendors,
   componentOptions,
   blockRows,
+  activitySuggestions,
 }: {
   jobId: string
   vendors: Vendor[]
@@ -719,6 +730,7 @@ function ExternalSection({
   blockRows: {
     block: NonNullable<Job['components'][number]['outsourceBlocks']>[number]
   }[]
+  activitySuggestions: string[]
 }) {
   return (
     <section className="mt-12 grid grid-cols-1 gap-10">
@@ -754,6 +766,7 @@ function ExternalSection({
             jobId={jobId}
             components={componentOptions}
             vendors={vendors}
+            activitySuggestions={activitySuggestions}
           />
         </div>
       </div>

@@ -102,6 +102,11 @@ export function isMemberPartiallyReturned(m: OutsourceBlockMember): boolean {
 export type OutsourceBlock = {
   id: string
   vendorId: VendorId
+  // What's being outsourced, in the boss's own words: 外发氧化, 外发CNC,
+  // 外发电镀, 包胶, 电火花, … Free-text — autocomplete from past entries.
+  // The list grows organically; no admin page. Undefined on legacy rows
+  // that predate the field (the cell falls back to the stage-range label).
+  activity?: string
   stages: Stage[]
   // Null when commerce hasn't priced the shipment yet (加急 path: ship now,
   // quote later). Display as 待补金额 / "—" until backfilled.
@@ -119,6 +124,16 @@ export type OutsourceBlock = {
   recipientContactName?: string
   recipientContactPhone?: string
   members: OutsourceBlockMember[]
+}
+
+// The label to render anywhere we used to render `外协 · {stage range}`.
+// Prefers the named activity (boss's word) — that's the whole point of the
+// new field. Falls back to the derived stage-range label for legacy blocks
+// that never had an activity set, so nothing reads as a blank cell.
+export function blockActivityLabel(block: OutsourceBlock): string {
+  const a = block.activity?.trim()
+  if (a) return a
+  return outsourceLabel(block.stages)
 }
 
 // "Closed" is derived: a block is closed when every member's returned_qty

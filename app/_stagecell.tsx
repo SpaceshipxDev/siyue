@@ -1,4 +1,5 @@
 import {
+  blockActivityLabel,
   canStartStage,
   daysFromToday,
   effectiveStageState,
@@ -60,14 +61,22 @@ export function EffectiveStageCell({
     // the ExternalBadge under the 零件 name and in the 外协 section below the
     // table. Repeating it inside this 90px-wide cell pushes the layout and
     // shows raw "v-…" ids when the vendor list isn't in scope.
+    //
+    // The top label is the activity name (外发氧化, 外发CNC, …) — that's the
+    // boss's word for what's happening at this cell. Fallback to plain "外协"
+    // for legacy blocks that never had an activity set.
+    const label = blockActivityLabel(eff.block)
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-1 leading-none px-1 py-2">
+      <div
+        className="flex h-full w-full flex-col items-center justify-center gap-1 leading-none px-1 py-2"
+        title={`${label} · 预计回厂 ${fmtDate(eff.block.expectedReturn) ?? '—'}`}
+      >
         <span
-          className={`text-[10px] font-semibold tracking-wider ${
+          className={`text-[10px] font-semibold tracking-wider truncate max-w-full ${
             overdue ? 'text-[var(--color-overdue)]' : 'text-[var(--color-warning)]'
           }`}
         >
-          外协
+          {label}
         </span>
         <span
           className={`mono text-[10px] ${

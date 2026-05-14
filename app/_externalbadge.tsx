@@ -1,11 +1,15 @@
 import {
+  blockActivityLabel,
   isBlockClosed,
-  outsourceLabel,
   vendorById,
   type Component,
   type Vendor,
 } from '@/lib/data'
 
+// One line per block under the part name. Reads as "<activity> · <vendor>"
+// for live shipments and "已回 · <activity> · <vendor>" once everything's
+// back. The activity is the boss's word (外发氧化, 外发CNC, …) — falls
+// back to the derived stage label for legacy blocks predating the field.
 export function ExternalBadge({
   component,
   vendors,
@@ -26,7 +30,7 @@ export function ExternalBadge({
             key={b.id}
             className="text-[10px] tracking-wider text-[var(--color-warning)]"
           >
-            外协 · {outsourceLabel(b.stages)} · {vendor?.name ?? b.vendorId}
+            {blockActivityLabel(b)} · {vendor?.name ?? b.vendorId}
           </span>
         )
       })}
@@ -37,7 +41,7 @@ export function ExternalBadge({
             key={b.id}
             className="text-[10px] tracking-wider text-[var(--color-ink-3)]"
           >
-            已外协 · {outsourceLabel(b.stages)} · {vendor?.name ?? b.vendorId}
+            已回 · {blockActivityLabel(b)} · {vendor?.name ?? b.vendorId}
           </span>
         )
       })}

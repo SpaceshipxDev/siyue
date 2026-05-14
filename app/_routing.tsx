@@ -1,14 +1,14 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useId, useRef, useState, useTransition } from 'react'
 import {
   OUTSOURCEABLE_STAGES,
+  blockActivityLabel,
   isBlockClosed,
   isMemberFullyReturned,
   isMemberPartiallyReturned,
   memberRemainingQty,
   memberReturnedQty,
-  outsourceLabel,
   type OutsourceBlock,
   type Stage,
   type Vendor,
@@ -27,6 +27,7 @@ import {
   NameCombobox,
   OutsourceBlockAmount,
   OutsourceBlockDate,
+  OutsourceBlockText,
 } from './_editable'
 
 function fieldStyles(): string {
@@ -40,111 +41,125 @@ export type ComponentOption = {
   hasAnyBlock: boolean
 }
 
-// === Stage picker ===
+// === Stage range — two dropdowns ===
 //
-// Calendar-style two-click range: first click anchors one end, second click
-// closes the range to that point. A third click starts over. Hovering while
-// anchored previews the candidate range so the user sees the result before
-// committing. No "closer endpoint" math — the user's two clicks are exactly
-// the two endpoints, in either order.
-//
-// "Anchored" is derived from selected.length === 1, so a 全部 reset (or any
-// external mutation of `selected`) implicitly clears the gesture without an
-// internal anchor state to keep in sync.
-function StageRangePicker({
-  selected,
+// 从 [操机]  到 [打磨]. That's it. Two `<select>`s, the simplest widget on
+// earth. Replaces a two-click anchor/endpoint dot picker the boss kept
+// finding ambiguous ("did my first click commit, or did it just anchor?").
+// Defaults to "the range starts and ends at the same stage" — single-stage
+// blocks are the common case once activities (外发氧化, 外发CNC, …) are
+// what the boss thinks in.
+function StageRange({
+  from,
+  to,
   onChange,
   disabled,
 }: {
-  selected: Stage[]
-  onChange: (next: Stage[]) => void
+  from: Stage
+  to: Stage
+  onChange: (from: Stage, to: Stage) => void
   disabled?: boolean
 }) {
-  const [hover, setHover] = useState<Stage | null>(null)
-
-  const idxOf = (s: Stage) => OUTSOURCEABLE_STAGES.indexOf(s)
-  const indices = selected.map(idxOf).filter((i) => i >= 0).sort((a, b) => a - b)
-  const minIdx = indices[0] ?? -1
-  const maxIdx = indices[indices.length - 1] ?? -1
-  const isSelected = (s: Stage) => {
-    const i = idxOf(s)
-    return minIdx >= 0 && i >= minIdx && i <= maxIdx
+  const fromIdx = OUTSOURCEABLE_STAGES.indexOf(from)
+  const toIdx = OUTSOURCEABLE_STAGES.indexOf(to)
+  const handleFrom = (next: Stage) => {
+    const nextIdx = OUTSOURCEABLE_STAGES.indexOf(next)
+    // Keep the range valid — if "from" moves past "to", drag "to" along.
+    if (nextIdx > toIdx) onChange(next, next)
+    else onChange(next, to)
   }
-
-  const anchored = selected.length === 1
-  const anchorIdx = anchored ? idxOf(selected[0]) : -1
-  const hoverIdx = hover !== null ? idxOf(hover) : -1
-  const previewActive = anchored && hoverIdx >= 0
-  const previewLo = previewActive ? Math.min(anchorIdx, hoverIdx) : -1
-  const previewHi = previewActive ? Math.max(anchorIdx, hoverIdx) : -1
-
-  const handle = (s: Stage) => {
-    if (disabled) return
-    const idx = idxOf(s)
-    if (idx < 0) return
-    if (anchored) {
-      const lo = Math.min(anchorIdx, idx)
-      const hi = Math.max(anchorIdx, idx)
-      onChange(OUTSOURCEABLE_STAGES.slice(lo, hi + 1))
-      setHover(null)
-      return
-    }
-    onChange([s])
+  const handleTo = (next: Stage) => {
+    const nextIdx = OUTSOURCEABLE_STAGES.indexOf(next)
+    if (nextIdx < fromIdx) onChange(next, next)
+    else onChange(from, next)
   }
-
+  const baseSelectCls =
+    'bg-transparent border border-[var(--color-border)] rounded-sm px-2 py-1 text-[13px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50 mono'
   return (
-    <span
-      className="inline-flex flex-wrap items-center gap-x-1 gap-y-0.5 leading-none -ml-1"
-      onMouseLeave={() => setHover(null)}
-    >
-      {OUTSOURCEABLE_STAGES.map((stage) => {
-        const idx = idxOf(stage)
-        const sel = isSelected(stage)
-        const isAnchor = anchored && idx === anchorIdx
-        const inPreview = previewActive && idx >= previewLo && idx <= previewHi
-        // Treat the anchor as "in preview" too, so the start stays solid
-        // while hovering anywhere — including back over the anchor itself.
-        const filled = previewActive ? inPreview : sel
-        const boxCls = filled
-          ? 'bg-[var(--color-ink)] border-[var(--color-ink)]'
-          : 'bg-transparent border-[var(--color-ink-4)]'
-        const textCls = filled
-          ? 'text-[var(--color-ink)] font-medium'
-          : 'text-[var(--color-ink-3)]'
-        const hoverCls = !disabled
-          ? 'hover:bg-[#f1eee4] cursor-pointer'
-          : 'cursor-default'
-        const title = disabled
-          ? stage
-          : anchored
-            ? isAnchor
-              ? `${stage} · 起点 · 再点其他工段确定终点`
-              : `${selected[0]} → ${stage}`
-            : sel
-              ? `${stage} · 点击为新起点`
-              : `${stage} · 点击为起点`
-        return (
-          <button
-            key={stage}
-            type="button"
-            disabled={disabled}
-            onClick={() => handle(stage)}
-            onMouseEnter={() => setHover(stage)}
-            title={title}
-            aria-pressed={sel}
-            className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] ${hoverCls}`}
-          >
-            <span
-              aria-hidden="true"
-              className={`block h-[7px] w-[7px] rounded-[1px] border transition-colors ${boxCls}`}
-            />
-            <span className={`text-[11px] tracking-wider transition-colors ${textCls}`}>
-              {stage}
-            </span>
-          </button>
-        )
-      })}
+    <span className="inline-flex items-center gap-2">
+      <span className="label text-[var(--color-ink-3)]">从</span>
+      <select
+        className={baseSelectCls}
+        value={from}
+        onChange={(e) => handleFrom(e.target.value as Stage)}
+        disabled={disabled}
+        aria-label="起始工段"
+      >
+        {OUTSOURCEABLE_STAGES.map((s) => (
+          <option key={s} value={s}>
+            {s}
+          </option>
+        ))}
+      </select>
+      <span className="label text-[var(--color-ink-3)]">到</span>
+      <select
+        className={baseSelectCls}
+        value={to}
+        onChange={(e) => handleTo(e.target.value as Stage)}
+        disabled={disabled}
+        aria-label="结束工段"
+      >
+        {OUTSOURCEABLE_STAGES.map((s) => (
+          <option key={s} value={s}>
+            {s}
+          </option>
+        ))}
+      </select>
     </span>
+  )
+}
+
+// Range helper — slice the canonical OUTSOURCEABLE_STAGES between (inclusive)
+// two endpoints. Defined once so the form and the submit path agree.
+function stagesBetween(from: Stage, to: Stage): Stage[] {
+  const lo = OUTSOURCEABLE_STAGES.indexOf(from)
+  const hi = OUTSOURCEABLE_STAGES.indexOf(to)
+  if (lo < 0 || hi < 0) return []
+  const [a, b] = lo <= hi ? [lo, hi] : [hi, lo]
+  return OUTSOURCEABLE_STAGES.slice(a, b + 1)
+}
+
+// === Activity combobox ===
+//
+// Free-text input + autocomplete list of activities the user has ever typed
+// before, across every job. First time the boss types 外发氧化, it joins the
+// suggestion list forever. No admin page, no settings — the vocabulary
+// grows by use.
+function ActivityCombobox({
+  value,
+  onChange,
+  suggestions,
+  disabled,
+  placeholder = '送什么？例如 外发氧化',
+}: {
+  value: string
+  onChange: (next: string) => void
+  suggestions: string[]
+  disabled?: boolean
+  placeholder?: string
+}) {
+  const listId = useId()
+  const ref = useRef<HTMLInputElement>(null)
+  return (
+    <>
+      <input
+        ref={ref}
+        type="text"
+        list={listId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        autoComplete="off"
+        spellCheck={false}
+        className="bg-transparent border border-[var(--color-border)] rounded-sm px-3 py-2 text-[15px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50 w-full"
+      />
+      <datalist id={listId}>
+        {suggestions.map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
+    </>
   )
 }
 
@@ -152,10 +167,15 @@ export function NewBlockForm({
   jobId,
   components,
   vendors,
+  activitySuggestions,
 }: {
   jobId: string
   components: ComponentOption[]
   vendors: Vendor[]
+  // Distinct activity names ever used — autocomplete source for "送什么".
+  // Ordered most-recent first. Boss types a new one (外发激光雕刻) once and
+  // it joins the list forever.
+  activitySuggestions: string[]
 }) {
   // Components already covered by an outsource block can't be added again —
   // a block now covers a contiguous stage range and a second block on the
@@ -186,9 +206,19 @@ export function NewBlockForm({
   const [amount, setAmount] = useState('')
   const [sentDate, setSentDate] = useState(() => today())
   const [expectedReturn, setExpectedReturn] = useState(() => today())
-  const [stageRange, setStageRange] = useState<Stage[]>([...OUTSOURCEABLE_STAGES])
+  // Named activity is the primary thing — "what are we sending out for?"
+  // Free text, but populated via autocomplete from past entries so the
+  // shop's vocabulary stays consistent without anyone curating a list.
+  const [activity, setActivity] = useState('')
+  // 范围 collapsed from a two-click range gesture to two simple dropdowns.
+  // Single-stage default (从 == 到) — once activities are how the boss
+  // thinks, most blocks cover one in-house stage, not a range.
+  const [stageFrom, setStageFrom] = useState<Stage>(OUTSOURCEABLE_STAGES[0])
+  const [stageTo, setStageTo] = useState<Stage>(OUTSOURCEABLE_STAGES[0])
   const [pending, start] = useTransition()
   const [error, setError] = useState<string | null>(null)
+
+  const stageRange = stagesBetween(stageFrom, stageTo)
 
   // 金额 is always optional. Empty → null in DB, surfaced as 待补金额 on the
   // row so commerce can fill it in later. The user-facing label/placeholder
@@ -196,7 +226,9 @@ export function NewBlockForm({
   const vendorReady = vendorMode === 'select' ? !!vendorId : !!newVendorName.trim()
   const amountTrim = amount.trim()
   const amountValid = amountTrim === '' || Number(amountTrim) > 0
+  const activityTrim = activity.trim()
   const valid =
+    activityTrim.length > 0 &&
     selected.size > 0 &&
     vendorReady &&
     amountValid &&
@@ -223,6 +255,7 @@ export function NewBlockForm({
       }
       const id = await createOutsourceBlockAction(jobId, [...selected], {
         vendorId: useVendorId,
+        activity: activityTrim,
         stages: stageRange,
         amountCny: amountTrim === '' ? null : Number(amountTrim),
         sentDate,
@@ -234,7 +267,9 @@ export function NewBlockForm({
       }
       setAmount('')
       setSelected(new Set())
-      setStageRange([...OUTSOURCEABLE_STAGES])
+      setActivity('')
+      setStageFrom(OUTSOURCEABLE_STAGES[0])
+      setStageTo(OUTSOURCEABLE_STAGES[0])
       if (vendorMode === 'create') {
         setVendorId(useVendorId)
         setVendorMode('select')
@@ -256,9 +291,25 @@ export function NewBlockForm({
 
   return (
     <div className="rounded-sm border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)] p-4">
-      <div className="flex items-baseline justify-between mb-3">
+      <div className="flex items-baseline justify-between mb-4">
         <p className="label">新增外协 · 送出</p>
       </div>
+
+      {/* ── 送什么 ──
+          The named activity is the headline input. Larger type, full width,
+          autocomplete from past entries. The boss types 外发氧化 once, it
+          autocompletes forever — that's how the named list in the 金蝶
+          reference grows here, no admin screen. */}
+      <label className="flex flex-col gap-1.5 mb-4">
+        <span className="label">送什么 · 工序名称</span>
+        <ActivityCombobox
+          value={activity}
+          onChange={setActivity}
+          suggestions={activitySuggestions}
+          disabled={pending}
+        />
+      </label>
+
       <div className="grid grid-cols-2 md:grid-cols-12 gap-3">
         <div className="col-span-2 md:col-span-3 flex flex-col gap-1">
           <span className="label">零件 · 多选</span>
@@ -377,35 +428,25 @@ export function NewBlockForm({
           />
         </label>
         <div className="col-span-2 md:col-span-12 flex flex-col gap-1.5">
-          <span className="label">范围 · 外协承接的工段</span>
-          <div className="flex items-baseline gap-3 flex-wrap">
-            <StageRangePicker
-              selected={stageRange}
-              onChange={setStageRange}
+          <span className="label">外协承接的工段</span>
+          <div className="flex items-baseline gap-4 flex-wrap">
+            <StageRange
+              from={stageFrom}
+              to={stageTo}
+              onChange={(f, t) => {
+                setStageFrom(f)
+                setStageTo(t)
+              }}
               disabled={pending}
             />
             <span className="label text-[var(--color-ink-3)]">
-              {stageRange.length === 1
-                ? `起点 ${stageRange[0]} · 再点工段确定终点`
-                : (
-                  <>
-                    {outsourceLabel(stageRange)}
-                    {stageRange.length < OUTSOURCEABLE_STAGES.length
-                      ? ' · 其余环节在厂内'
-                      : ' · 出货 在厂内完成'}
-                  </>
-                )}
+              {stageFrom === stageTo
+                ? `${stageFrom} · 单工段`
+                : `${stageFrom} → ${stageTo} · 共 ${stageRange.length} 工段`}
+              {stageRange.length < OUTSOURCEABLE_STAGES.length
+                ? ' · 其余环节在厂内'
+                : ' · 出货 在厂内完成'}
             </span>
-            {stageRange.length !== OUTSOURCEABLE_STAGES.length ? (
-              <button
-                type="button"
-                onClick={() => setStageRange([...OUTSOURCEABLE_STAGES])}
-                disabled={pending}
-                className="label text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
-              >
-                全部
-              </button>
-            ) : null}
           </div>
         </div>
         <div className="col-span-2 md:col-span-12 flex items-end gap-3 flex-wrap">
@@ -417,6 +458,11 @@ export function NewBlockForm({
           >
             送出 · 生成外协单
           </button>
+          {!activityTrim && selected.size > 0 ? (
+            <span className="label text-[var(--color-ink-3)]">
+              请先在「送什么」填写工序名称
+            </span>
+          ) : null}
           {error ? (
             <span className="label text-[var(--color-overdue)]">{error}</span>
           ) : null}
@@ -529,11 +575,29 @@ export function BlockRow({
 
   return (
     <div className="py-3 border-b border-[var(--color-border)] last:border-b-0">
-      {/* Header line — always visible */}
+      {/* Header line — always visible.
+          The activity name (送什么) anchors the row visually — that's what
+          the boss reads first to know what this shipment is for. Falls back
+          to the stage-range label for legacy blocks that never had one. */}
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
-        <div className="flex flex-col leading-tight basis-[200px]">
+        <div className="flex flex-col leading-tight basis-[180px]">
+          <OutsourceBlockText
+            blockId={block.id}
+            jobId={jobId}
+            field="activity"
+            value={block.activity ?? blockActivityLabel(block)}
+            placeholder="送什么？"
+            className="text-[14px] font-semibold text-[var(--color-ink)] tracking-tight"
+          />
+          <span className="mono text-[10px] text-[var(--color-ink-3)] tracking-wider">
+            {block.stages.length === 1
+              ? block.stages[0]
+              : `${block.stages[0]} → ${block.stages[block.stages.length - 1]}`}
+          </span>
+        </div>
+        <div className="flex flex-col leading-tight basis-[180px]">
           <span
-            className="text-[13px] font-medium text-[var(--color-ink)] truncate"
+            className="text-[13px] text-[var(--color-ink-2)] truncate"
             title={block.members.map((m) => m.name).join(' · ')}
           >
             {summary}
