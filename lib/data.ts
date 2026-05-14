@@ -136,6 +136,30 @@ export function blockActivityLabel(block: OutsourceBlock): string {
   return outsourceLabel(block.stages)
 }
 
+// Named outsource activities — the boss's vocabulary, exactly the list he
+// pointed to in the 金蝶 reference screenshots. Selection-only in the form
+// so the named list stays consistent across jobs (no typos like "外发CNC"
+// vs "CNC外发"). Extending the list = add a string here; one-line change,
+// no schema migration. Order matches the boss's screenshots.
+export const OUTSOURCE_ACTIVITIES = [
+  '外发CNC',
+  '外发钣金',
+  '外发打印',
+  '外发打印半透',
+  '外发车',
+  '外发线割',
+  '电火花',
+  '外发其他1',
+  '外发氧化',
+  '外发电镀',
+  '外发喷塑',
+  '外发焊接',
+  '外发电泳',
+  '包胶',
+] as const
+
+export type OutsourceActivity = (typeof OUTSOURCE_ACTIVITIES)[number]
+
 // "Closed" is derived: a block is closed when every member's returned_qty
 // has reached its qty. The closure date is the latest member returnedAt —
 // that's when the last missing piece finally got back.

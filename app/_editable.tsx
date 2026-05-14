@@ -716,7 +716,6 @@ export function CustomerText({
 }
 
 type BlockTextField =
-  | 'activity'
   | 'createdBy'
   | 'recipientAddress'
   | 'recipientContactName'
@@ -746,17 +745,15 @@ export function OutsourceBlockText({
       onSave={async (v) => {
         const next = v.trim().length === 0 ? null : v
         const patch: BlockPatch =
-          field === 'activity'
-            ? { activity: next }
-            : field === 'createdBy'
-              ? { createdBy: next }
-              : field === 'recipientAddress'
-                ? { recipientAddress: next }
-                : field === 'recipientContactName'
-                  ? { recipientContactName: next }
-                  : field === 'recipientContactPhone'
-                    ? { recipientContactPhone: next }
-                    : { notes: next }
+          field === 'createdBy'
+            ? { createdBy: next }
+            : field === 'recipientAddress'
+              ? { recipientAddress: next }
+              : field === 'recipientContactName'
+                ? { recipientContactName: next }
+                : field === 'recipientContactPhone'
+                  ? { recipientContactPhone: next }
+                  : { notes: next }
         await updateOutsourceBlockAction(blockId, patch, jobId)
       }}
     />

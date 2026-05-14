@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useId, useRef, useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import {
   OUTSOURCEABLE_STAGES,
+  OUTSOURCE_ACTIVITIES,
   blockActivityLabel,
   isBlockClosed,
   isMemberFullyReturned,
@@ -27,7 +28,6 @@ import {
   NameCombobox,
   OutsourceBlockAmount,
   OutsourceBlockDate,
-  OutsourceBlockText,
 } from './_editable'
 
 function fieldStyles(): string {
@@ -119,47 +119,37 @@ function stagesBetween(from: Stage, to: Stage): Stage[] {
   return OUTSOURCEABLE_STAGES.slice(a, b + 1)
 }
 
-// === Activity combobox ===
+// === Activity picker ===
 //
-// Free-text input + autocomplete list of activities the user has ever typed
-// before, across every job. First time the boss types 外发氧化, it joins the
-// suggestion list forever. No admin page, no settings — the vocabulary
-// grows by use.
-function ActivityCombobox({
+// Selection-only from the fixed list in lib/data.ts (the boss's vocabulary
+// from the 金蝶 reference). Native <select> — minimal widget, all options
+// visible on one click, no risk of typos or "外发CNC" vs "CNC外发" drift.
+// Empty value = placeholder state; submit is gated on a real selection.
+function ActivityPicker({
   value,
   onChange,
-  suggestions,
   disabled,
-  placeholder = '送什么？例如 外发氧化',
 }: {
   value: string
   onChange: (next: string) => void
-  suggestions: string[]
   disabled?: boolean
-  placeholder?: string
 }) {
-  const listId = useId()
-  const ref = useRef<HTMLInputElement>(null)
   return (
-    <>
-      <input
-        ref={ref}
-        type="text"
-        list={listId}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        disabled={disabled}
-        autoComplete="off"
-        spellCheck={false}
-        className="bg-transparent border border-[var(--color-border)] rounded-sm px-3 py-2 text-[15px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50 w-full"
-      />
-      <datalist id={listId}>
-        {suggestions.map((s) => (
-          <option key={s} value={s} />
-        ))}
-      </datalist>
-    </>
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={disabled}
+      className="bg-transparent border border-[var(--color-border)] rounded-sm px-3 py-2 text-[15px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50 w-full"
+    >
+      <option value="" disabled>
+        选择工序…
+      </option>
+      {OUTSOURCE_ACTIVITIES.map((a) => (
+        <option key={a} value={a}>
+          {a}
+        </option>
+      ))}
+    </select>
   )
 }
 
@@ -167,15 +157,10 @@ export function NewBlockForm({
   jobId,
   components,
   vendors,
-  activitySuggestions,
 }: {
   jobId: string
   components: ComponentOption[]
   vendors: Vendor[]
-  // Distinct activity names ever used — autocomplete source for "送什么".
-  // Ordered most-recent first. Boss types a new one (外发激光雕刻) once and
-  // it joins the list forever.
-  activitySuggestions: string[]
 }) {
   // Components already covered by an outsource block can't be added again —
   // a block now covers a contiguous stage range and a second block on the
@@ -206,9 +191,8 @@ export function NewBlockForm({
   const [amount, setAmount] = useState('')
   const [sentDate, setSentDate] = useState(() => today())
   const [expectedReturn, setExpectedReturn] = useState(() => today())
-  // Named activity is the primary thing — "what are we sending out for?"
-  // Free text, but populated via autocomplete from past entries so the
-  // shop's vocabulary stays consistent without anyone curating a list.
+  // Named activity is the primary thing — selected from the fixed list
+  // in OUTSOURCE_ACTIVITIES. Empty until the user picks.
   const [activity, setActivity] = useState('')
   // 范围 collapsed from a two-click range gesture to two simple dropdowns.
   // Single-stage default (从 == 到) — once activities are how the boss
@@ -296,16 +280,14 @@ export function NewBlockForm({
       </div>
 
       {/* ── 送什么 ──
-          The named activity is the headline input. Larger type, full width,
-          autocomplete from past entries. The boss types 外发氧化 once, it
-          autocompletes forever — that's how the named list in the 金蝶
-          reference grows here, no admin screen. */}
+          Selection from the fixed list of named outsource activities — the
+          same vocabulary the boss reads in the 金蝶 reference. One click,
+          one choice. */}
       <label className="flex flex-col gap-1.5 mb-4">
-        <span className="label">送什么 · 工序名称</span>
-        <ActivityCombobox
+        <span className="label">送什么 · 工序</span>
+        <ActivityPicker
           value={activity}
           onChange={setActivity}
-          suggestions={activitySuggestions}
           disabled={pending}
         />
       </label>
@@ -429,25 +411,15 @@ export function NewBlockForm({
         </label>
         <div className="col-span-2 md:col-span-12 flex flex-col gap-1.5">
           <span className="label">外协承接的工段</span>
-          <div className="flex items-baseline gap-4 flex-wrap">
-            <StageRange
-              from={stageFrom}
-              to={stageTo}
-              onChange={(f, t) => {
-                setStageFrom(f)
-                setStageTo(t)
-              }}
-              disabled={pending}
-            />
-            <span className="label text-[var(--color-ink-3)]">
-              {stageFrom === stageTo
-                ? `${stageFrom} · 单工段`
-                : `${stageFrom} → ${stageTo} · 共 ${stageRange.length} 工段`}
-              {stageRange.length < OUTSOURCEABLE_STAGES.length
-                ? ' · 其余环节在厂内'
-                : ' · 出货 在厂内完成'}
-            </span>
-          </div>
+          <StageRange
+            from={stageFrom}
+            to={stageTo}
+            onChange={(f, t) => {
+              setStageFrom(f)
+              setStageTo(t)
+            }}
+            disabled={pending}
+          />
         </div>
         <div className="col-span-2 md:col-span-12 flex items-end gap-3 flex-wrap">
           <button
@@ -576,23 +548,13 @@ export function BlockRow({
   return (
     <div className="py-3 border-b border-[var(--color-border)] last:border-b-0">
       {/* Header line — always visible.
-          The activity name (送什么) anchors the row visually — that's what
-          the boss reads first to know what this shipment is for. Falls back
-          to the stage-range label for legacy blocks that never had one. */}
+          The activity name anchors the row visually — that's what the boss
+          reads first to know what this shipment is for. Falls back to the
+          derived stage label for legacy blocks predating the field. */}
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
         <div className="flex flex-col leading-tight basis-[180px]">
-          <OutsourceBlockText
-            blockId={block.id}
-            jobId={jobId}
-            field="activity"
-            value={block.activity ?? blockActivityLabel(block)}
-            placeholder="送什么？"
-            className="text-[14px] font-semibold text-[var(--color-ink)] tracking-tight"
-          />
-          <span className="mono text-[10px] text-[var(--color-ink-3)] tracking-wider">
-            {block.stages.length === 1
-              ? block.stages[0]
-              : `${block.stages[0]} → ${block.stages[block.stages.length - 1]}`}
+          <span className="text-[14px] font-semibold text-[var(--color-ink)] tracking-tight">
+            {blockActivityLabel(block)}
           </span>
         </div>
         <div className="flex flex-col leading-tight basis-[180px]">
