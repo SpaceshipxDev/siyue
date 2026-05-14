@@ -1032,9 +1032,15 @@ export function formatMinutes(m: number | null | undefined): string {
 }
 
 export function jobExternalSpend(job: Job): number {
+  // A block spanning N components is attached to each component's
+  // outsourceBlocks list — dedupe by id before summing or a multi-member
+  // block gets counted N times. See allOutsourceBlocks() for the same dedupe.
   let total = 0
+  const seen = new Set<string>()
   for (const c of job.components) {
     for (const b of c.outsourceBlocks ?? []) {
+      if (seen.has(b.id)) continue
+      seen.add(b.id)
       // 加急 blocks ship before commerce has a quote — null amount is a
       // "待补金额" placeholder, not zero. Skip until backfilled so the
       // 外/利 chips don't go NaN.
