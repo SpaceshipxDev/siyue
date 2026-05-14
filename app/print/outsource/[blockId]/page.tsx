@@ -197,10 +197,9 @@ export default async function OutsourceDocPage(
               <tr>
                 <th style={{ width: 36 }}>序号</th>
                 <th style={{ width: 72 }}>产品图片</th>
-                <th>产品编号</th>
                 <th>产品名称</th>
-                <th style={{ width: 80 }}>材料</th>
-                <th style={{ width: 80, textAlign: 'right' }}>采购数量</th>
+                <th style={{ width: 96 }}>材料</th>
+                <th style={{ width: 72, textAlign: 'right' }}>采购数量</th>
                 <th style={{ width: 80, textAlign: 'right' }}>单价</th>
                 <th style={{ width: 90, textAlign: 'right' }}>总价</th>
                 <th style={{ width: 90 }}>备注</th>
@@ -224,7 +223,6 @@ export default async function OutsourceDocPage(
                         <span className="text-[var(--color-ink-4)]">—</span>
                       )}
                     </td>
-                    <td className="mono">{m.name}</td>
                     <td
                       className={
                         isOrphan
@@ -275,7 +273,7 @@ export default async function OutsourceDocPage(
                 )
               })}
               <tr>
-                <td colSpan={5} className="label" style={{ textAlign: 'right' }}>
+                <td colSpan={4} className="label" style={{ textAlign: 'right' }}>
                   合计
                 </td>
                 <td className="mono font-semibold" style={{ textAlign: 'right' }}>

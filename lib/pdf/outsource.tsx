@@ -16,18 +16,20 @@ import type { ImageSource } from './images'
 ensureFontsRegistered()
 
 // Column widths. The vendor PO format vendors expect:
-//   序号 · 图 · 编号 · 名称 · 材料 · 数量 · 单价 · 金额 · 备注
-// 单价/金额 take precedence over 备注 on width — when the vendor scans
-// the page their eye lands on the 金额 column first.
+//   序号 · 图 · 产品名称 · 材料 · 数量 · 单价 · 金额 · 备注
+// (产品编号 was a duplicate of 产品名称 — the data model has only one
+// name field per part, so the legacy 编号/名称 split rendered the same
+// string twice and crowded the 材料 column into wrapping "7075--T6(SN)"
+// onto two lines.) 单价/金额 take precedence over 备注 on width — when
+// the vendor scans the page their eye lands on the 金额 column first.
 const COL = {
   seq: 24,
   thumb: 50,
-  partNo: 86,
-  material: 56,
-  qty: 40,
-  unitPrice: 54,
+  material: 76,
+  qty: 36,
+  unitPrice: 52,
   lineTotal: 64,
-  notes: 60,
+  notes: 56,
 } as const
 
 export function OutsourceDocPDF({
@@ -93,7 +95,6 @@ export function OutsourceDocPDF({
           <View style={styles.tableHeaderRow} fixed>
             <Text style={[styles.th, { width: COL.seq }]}>序号</Text>
             <Text style={[styles.th, { width: COL.thumb }]}>产品图片</Text>
-            <Text style={[styles.th, { width: COL.partNo }]}>产品编号</Text>
             <Text style={[styles.th, { flex: 1 }]}>产品名称</Text>
             <Text style={[styles.th, { width: COL.material }]}>材料</Text>
             <Text style={[styles.th, { width: COL.qty, textAlign: 'right' }]}>
@@ -134,9 +135,6 @@ export function OutsourceDocPDF({
                     <Text style={styles.thumbPlaceholder}>—</Text>
                   )}
                 </View>
-                <Text style={[styles.tdMuted, { width: COL.partNo }]}>
-                  {m.name}
-                </Text>
                 {isOrphan ? (
                   <Text style={[styles.orphanRowText, { flex: 1 }]}>
                     {m.name}
@@ -182,8 +180,7 @@ export function OutsourceDocPDF({
               style={[
                 styles.th,
                 {
-                  width:
-                    COL.seq + COL.thumb + COL.partNo + COL.material,
+                  width: COL.seq + COL.thumb + COL.material,
                   flex: 1,
                   textAlign: 'right',
                 },
