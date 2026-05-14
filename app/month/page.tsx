@@ -212,7 +212,7 @@ export default async function MonthSettlement({
           <Stat
             label="收入"
             value={formatCny(revenue)}
-            sub={`${live.length} 个在产工单`}
+            sub={`${inProgress.length} 个在产工单`}
           />
           <Stat
             label="外协支出"

@@ -4,6 +4,7 @@ import {
   formatCny,
   jobEffectiveDueDate,
   jobExternalSpend,
+  jobIsShipped,
   type Stage,
 } from '@/lib/data'
 import { today } from '@/lib/today'
@@ -66,10 +67,15 @@ export default async function MasterBoard(
   const sorted = [...live].sort((a, b) =>
     jobEffectiveDueDate(a).localeCompare(jobEffectiveDueDate(b)),
   )
-  const overdue = sorted.filter(
+  // 在产 / 逾期 / 今日 pills are "needs attention" signals — shipped jobs
+  // (every in-route part done at 出货) are off the floor, so they don't
+  // count even if their dueDate is in the past. Mirrors the MasterSheet
+  // 进行中 / 已出货 split (see _master_filter.tsx liveCount).
+  const inProgress = sorted.filter((j) => !jobIsShipped(j))
+  const overdue = inProgress.filter(
     (j) => dueState(jobEffectiveDueDate(j)) === 'overdue',
   ).length
-  const dueToday = sorted.filter(
+  const dueToday = inProgress.filter(
     (j) => dueState(jobEffectiveDueDate(j)) === 'today',
   ).length
   const totalAmount = sorted.reduce((sum, job) => sum + (job.amountCny ?? 0), 0)
@@ -155,13 +161,13 @@ export default async function MasterBoard(
             <div className="flex items-center gap-2">
               <Pill tone="overdue" label="逾期" value={overdue} />
               <Pill tone="warning" label="今日" value={dueToday} />
-              <Pill tone="neutral" label="在产" value={sorted.length} />
+              <Pill tone="neutral" label="在产" value={inProgress.length} />
             </div>
           ) : isProduction ? null : (
             <div className="flex items-center gap-2">
               <Pill tone="overdue" label="逾期" value={overdue} />
               <Pill tone="warning" label="今日" value={dueToday} />
-              <Pill tone="neutral" label="在产" value={sorted.length} />
+              <Pill tone="neutral" label="在产" value={inProgress.length} />
               <Pill tone="info" label="总额" value={formatCny(totalAmount)} />
               <Pill tone="info" label="外发" value={formatCny(totalExternal)} />
               <Pill tone="success" label="毛利" value={formatCny(totalMargin)} />
