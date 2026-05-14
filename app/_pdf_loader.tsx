@@ -2,11 +2,25 @@
 
 import { useEffect, useState } from 'react'
 
-// Shown while the /pdf page is fetching the actual PDF bytes from /pdf/raw.
-// Cold renders (Lambda warm-up + font fetch + image fetch + layout) take a
-// few seconds; a blank tab during that window felt broken to the user. We
-// fetch as a blob, then swap location.href to the blob URL so the browser's
-// PDF viewer takes over in the same tab.
+// Sits at /…/pdf and immediately bounces to /…/pdf/raw, where the
+// browser's native PDF viewer handles streaming, slow renders, and the
+// 保存 / 下载 action.
+//
+// Earlier this page fetch()'d the raw URL into a JS blob and navigated
+// to a blob:… URL. That looked snappy in Chrome on desktop but broke
+// the download path in mainland-mobile browsers (WeChat in-app, UC, QQ):
+// the blob URL rendered the PDF fine on screen, but tapping 保存 made
+// the browser try to re-resolve a blob:… URL via HTTP, which fails as
+// "无网络连接". Plus, JS-buffering the whole PDF into memory before
+// displaying it made the GFW-truncation failure mode (the *entire*
+// response must arrive intact before anything appears) much more likely
+// to surface. A direct location.replace lets the browser stream the
+// bytes natively, render the head of the PDF as soon as it arrives,
+// and 保存 just re-uses the response from cache.
+//
+// We still render the spinner card for the brief moment between mount
+// and the navigation taking effect, plus as a fallback if location
+// changes are blocked (some embedded webviews refuse replace()).
 
 export function PdfLoader({
   rawHref,
@@ -15,47 +29,21 @@ export function PdfLoader({
   rawHref: string
   title: string
 }) {
-  const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<string>('正在生成…')
 
   useEffect(() => {
-    let cancelled = false
-    let blobUrl: string | null = null
-
     const tick = setInterval(() => {
-      if (cancelled) return
-      setProgress((p) =>
-        p.endsWith('……') ? '正在生成…' : p + '·',
-      )
+      setProgress((p) => (p.endsWith('……') ? '正在生成…' : p + '·'))
     }, 600)
-
-    ;(async () => {
-      try {
-        const res = await fetch(rawHref, { cache: 'no-store' })
-        if (cancelled) return
-        if (!res.ok) {
-          setError(`生成失败 (${res.status})`)
-          return
-        }
-        const blob = await res.blob()
-        if (cancelled) return
-        blobUrl = URL.createObjectURL(blob)
-        // Replace history entry so the back button skips the loader.
-        window.location.replace(blobUrl)
-      } catch (e) {
-        if (cancelled) return
-        setError(e instanceof Error ? e.message : '网络错误')
-      } finally {
-        clearInterval(tick)
-      }
-    })()
-
-    return () => {
-      cancelled = true
-      clearInterval(tick)
-      // Don't revoke immediately — the navigation to blobUrl needs it alive.
-      // Browser will GC when the tab closes.
+    // replace() so the back button skips this loader page; the user's
+    // history reads as if they went straight to the PDF.
+    try {
+      window.location.replace(rawHref)
+    } catch {
+      // Some embedded webviews block programmatic replace(). The
+      // manual "如未跳转…" link below is the fallback.
     }
+    return () => clearInterval(tick)
   }, [rawHref])
 
   return (
@@ -64,22 +52,15 @@ export function PdfLoader({
         <Spinner />
         <div className="text-center">
           <p className="text-[14px] font-medium tracking-wide">{title}</p>
-          {error ? (
-            <p className="mt-2 text-[12px] text-[var(--color-overdue)] max-w-[280px]">
-              {error}
-              <br />
-              <a
-                href={rawHref}
-                className="underline mt-2 inline-block text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
-              >
-                直接打开 PDF
-              </a>
-            </p>
-          ) : (
-            <p className="mt-2 text-[11px] tracking-[0.18em] uppercase text-[var(--color-ink-3)]">
-              {progress}
-            </p>
-          )}
+          <p className="mt-2 text-[11px] tracking-[0.18em] uppercase text-[var(--color-ink-3)]">
+            {progress}
+          </p>
+          <a
+            href={rawHref}
+            className="mt-4 inline-block text-[12px] text-[var(--color-ink-3)] underline underline-offset-4 hover:text-[var(--color-ink)]"
+          >
+            如未跳转，点此打开 PDF
+          </a>
         </div>
       </div>
     </div>
