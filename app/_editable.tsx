@@ -760,6 +760,34 @@ export function OutsourceBlockText({
   )
 }
 
+// Multi-line notes editor for a block. Auto-grows. Empty input clears the
+// field back to null (so the "+ 添加备注…" hint reappears).
+export function OutsourceBlockNotes({
+  blockId,
+  jobId,
+  value,
+  placeholder = '+ 添加备注…',
+  className,
+}: {
+  blockId: string
+  jobId?: string
+  value: string | undefined
+  placeholder?: string
+  className?: string
+}) {
+  return (
+    <EditableTextArea
+      value={value}
+      placeholder={placeholder}
+      className={className}
+      onSave={async (v) => {
+        const next = v.trim().length === 0 ? null : v
+        await updateOutsourceBlockAction(blockId, { notes: next }, jobId)
+      }}
+    />
+  )
+}
+
 export function OutsourceBlockAmount({
   blockId,
   jobId,

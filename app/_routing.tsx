@@ -1,15 +1,18 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import Link from 'next/link'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import {
   OUTSOURCEABLE_STAGES,
   OUTSOURCE_ACTIVITIES,
   blockActivityLabel,
+  daysFromToday,
   isBlockClosed,
   isMemberFullyReturned,
   isMemberPartiallyReturned,
   memberRemainingQty,
   memberReturnedQty,
+  stageRangeLabel,
   type OutsourceBlock,
   type Stage,
   type Vendor,
@@ -28,6 +31,7 @@ import {
   NameCombobox,
   OutsourceBlockAmount,
   OutsourceBlockDate,
+  OutsourceBlockNotes,
 } from './_editable'
 
 function fieldStyles(): string {
@@ -446,23 +450,37 @@ export function NewBlockForm({
 
 // === Block row ===
 //
-// One row per shipment (block). Three states it can render:
+// Three lines per shipment, in priority order:
 //
-//   • Editing metadata (vendor / amount / dates) — same as before, unrelated
-//     to returns.
-//   • Open or partial — header + per-member receive list + footer with one
-//     date input + 收件 button + 全选 link. Common case is "today's batch
-//     came back": tick 全选, click 收件, two taps total. Rare case ("part X
-//     came back yesterday") is editable on the closed-line.
-//   • Fully closed (every member has returnedAt) — compact archived style
-//     showing the latest member returnedAt as the closure date.
+//   Line 1 — what · vendor · ¥ · expected return · [收件] · ⋯
+//            (the scan line — everything that matters lives here)
+//   Line 2 — provenance: optional job no + customer · stage range · 寄 sent
+//            (smaller, ink-3; click any token to edit)
+//   Line 3 — 备注 (Things-style inline, faint hint when empty)
+//
+// The per-member list collapses to nothing in the common single-member /
+// no-partial case. It expands inline only when there are 2+ members OR any
+// member is partially returned. 收件 also has two flavors:
+//
+//   • Single-member, no partial → [收件 N] commits "all back today" in one
+//     click (the by-far common case at this shop).
+//   • Multi-member or partial    → [收件 ⌄] toggles a tray with per-member
+//     qty inputs + a receive date picker.
+//
+// `jobNo` / `customer` are optional context strings the parent passes when
+// the row is rendered outside the job detail page (where they'd be redundant
+// since you're already on that job's page).
 export function BlockRow({
   jobId,
+  jobNo,
+  customer,
   block,
   vendor,
   vendors,
 }: {
   jobId: string
+  jobNo?: string
+  customer?: string
   block: OutsourceBlock
   vendor?: Vendor
   vendors: Vendor[]
@@ -475,18 +493,53 @@ export function BlockRow({
   // string = skip this member in the next 收件 submit.
   const [receiveDate, setReceiveDate] = useState(() => today())
   const [receiveQty, setReceiveQty] = useState<Record<string, string>>({})
+  const [trayOpen, setTrayOpen] = useState(false)
 
   const closed = isBlockClosed(block)
 
-  const totalMembers = block.members.length
   const pendingMembers = block.members.filter((m) => !isMemberFullyReturned(m))
+  const partialMembers = block.members.filter((m) => isMemberPartiallyReturned(m))
+  const fullyReturnedMembers = block.members.filter(isMemberFullyReturned)
   const totalQty = block.members.reduce((s, m) => s + m.qty, 0)
   const totalReturnedUnits = block.members.reduce((s, m) => s + memberReturnedQty(m), 0)
 
-  const summary =
-    block.members.length === 1
-      ? block.members[0].name
-      : `${block.members[0]?.name ?? '—'} 等 ${block.members.length} 件`
+  // The single number of "everything that would come back if you tap 收件
+  // right now and don't open the tray". For one-member blocks that's the
+  // full remaining qty; for multi it's the sum of remainings.
+  const remainingTotal = pendingMembers.reduce(
+    (s, m) => s + memberRemainingQty(m),
+    0,
+  )
+
+  // The list/tray only adds information when there's >1 member or a member
+  // is mid-return. Otherwise the headline already says everything.
+  const needsList = block.members.length > 1 || partialMembers.length > 0
+  // ↓ dropdown variant vs. one-click variant of the 收件 button.
+  const oneClickReceive = !needsList && pendingMembers.length === 1
+
+  // The headline — the boss's word for what this is.
+  // Prefer the named activity (外发氧化, 外发CNC, …). When there's no
+  // activity (the implicit "全程" or stage-range fallback), use the first
+  // member's name — it's the most concrete thing the boss can recognize.
+  const headline = block.activity?.trim() || (block.members[0]?.name ?? '—')
+
+  // The expected return — drives all "is this late" signaling on the row.
+  const daysLeft = daysFromToday(block.expectedReturn)
+  const overdue = !closed && daysLeft < 0
+  const dueSoon = !closed && daysLeft >= 0 && daysLeft <= 2
+  const status: 'closed' | 'overdue' | 'soon' | 'open' = closed
+    ? 'closed'
+    : overdue
+      ? 'overdue'
+      : dueSoon
+        ? 'soon'
+        : 'open'
+  const dotColor = {
+    closed: 'var(--color-ink-3)',
+    overdue: 'var(--color-overdue)',
+    soon: 'var(--color-warning)',
+    open: 'var(--color-success)',
+  }[status]
 
   // For a given member, the qty the user has typed for this batch. Defaults
   // to the member's remaining qty (the natural "all back" choice).
@@ -502,14 +555,15 @@ export function BlockRow({
 
   const clearAllDrafts = () => setReceiveQty({})
 
-  // Sum of pending units the 收件 button will commit if pressed now.
+  // Sum of pending units that 确认 in the tray will commit if pressed now.
   const batchTotal = pendingMembers.reduce((s, m) => {
     const v = parseInt(draftFor(m.componentId, memberRemainingQty(m)), 10)
     if (!Number.isFinite(v) || v <= 0) return s
-    // Clamp to remaining so a typo'd 99 doesn't show as 99 in the chip.
     return s + Math.min(v, memberRemainingQty(m))
   }, 0)
 
+  // Commit the receive batch. Used by both the one-click 收件 (with all
+  // defaults — everything came back today) and the tray's 确认 button.
   const submitReceive = () => {
     if (batchTotal <= 0) return
     const items: { componentId: string; qty: number }[] = []
@@ -527,6 +581,7 @@ export function BlockRow({
     start(async () => {
       await setBlockMembersReturnedQtyAction(block.id, items, receiveDate, jobId)
       clearAllDrafts()
+      setTrayOpen(false)
     })
   }
 
@@ -545,31 +600,50 @@ export function BlockRow({
     })
   }
 
+  const dueDisplay =
+    overdue
+      ? `逾期 ${Math.abs(daysLeft)} 天`
+      : closed
+        ? '已回'
+        : daysLeft === 0
+          ? '今天到期'
+          : `剩 ${daysLeft} 天`
+  const dueClass = overdue
+    ? 'text-[var(--color-overdue)]'
+    : dueSoon
+      ? 'text-[var(--color-warning)]'
+      : 'text-[var(--color-ink-3)]'
+
   return (
-    <div className="py-3 border-b border-[var(--color-border)] last:border-b-0">
-      {/* Header line — always visible.
-          The activity name anchors the row visually — that's what the boss
-          reads first to know what this shipment is for. Falls back to the
-          derived stage label for legacy blocks predating the field. */}
-      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
-        <div className="flex flex-col leading-tight basis-[180px]">
-          <span className="text-[14px] font-semibold text-[var(--color-ink)] tracking-tight">
-            {blockActivityLabel(block)}
-          </span>
-        </div>
-        <div className="flex flex-col leading-tight basis-[180px]">
+    <div
+      className={`relative py-3 pl-4 pr-1 border-b border-[var(--color-border)] last:border-b-0 ${closed ? 'opacity-60' : ''}`}
+    >
+      {/* Status dot — colored bullet hung in the gutter. */}
+      <span
+        aria-hidden
+        className="absolute left-1 top-[19px] inline-block h-[7px] w-[7px] rounded-full"
+        style={{ backgroundColor: dotColor }}
+      />
+
+      {/* Line 1 — the scan line. */}
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <div className="flex items-baseline gap-2 min-w-0 basis-[280px]">
           <span
-            className="text-[13px] text-[var(--color-ink-2)] truncate"
-            title={block.members.map((m) => m.name).join(' · ')}
+            className="text-[14px] font-semibold text-[var(--color-ink)] tracking-tight truncate"
+            title={
+              block.members.length > 1
+                ? block.members.map((m) => `${m.name} ×${m.qty}`).join(' · ')
+                : headline
+            }
           >
-            {summary}
+            {headline}
           </span>
-          <span className="mono text-[11px] text-[var(--color-ink-3)]">
-            {totalQty}件
+          <span className="mono text-[12px] text-[var(--color-ink-3)] shrink-0">
+            × {totalQty}
           </span>
         </div>
-        {/* Vendor — combobox upserts the vendor and re-points the block. */}
-        <div className="basis-[140px]">
+        <span className="text-[var(--color-ink-3)] shrink-0">→</span>
+        <div className="basis-[140px] shrink-0">
           <NameCombobox
             target={{ kind: 'vendor', blockId: block.id, jobId }}
             value={vendor?.name ?? block.vendorId}
@@ -577,40 +651,59 @@ export function BlockRow({
             className="text-[13px] text-[var(--color-ink)]"
           />
         </div>
-        {/* Amount — empty input clears back to 待补金额. */}
-        <div className="basis-[100px] flex items-baseline justify-end gap-0.5">
+        <div className="basis-[110px] shrink-0 flex items-baseline gap-0.5">
           <span className="mono text-[12px] text-[var(--color-ink-3)]">¥</span>
           <OutsourceBlockAmount
             blockId={block.id}
             jobId={jobId}
             value={block.amountCny}
-            className="text-[13px] text-[var(--color-ink)] text-right [field-sizing:content] min-w-[3ch]"
+            className="text-[13px] text-[var(--color-ink)] [field-sizing:content] min-w-[3ch]"
           />
         </div>
-        {/* Sent date — inline date input. */}
-        <div className="flex items-baseline gap-1 basis-[150px]">
-          <span className="label text-[var(--color-ink-3)]">寄</span>
+        <div className="basis-[180px] shrink-0 flex items-baseline gap-2">
           <OutsourceBlockDate
             blockId={block.id}
             jobId={jobId}
-            field="sentDate"
-            value={block.sentDate}
+            field="expectedReturn"
+            value={block.expectedReturn}
             className="text-[12px] text-[var(--color-ink-2)]"
           />
+          <span className={`label ${dueClass}`}>{dueDisplay}</span>
         </div>
-        <div className="flex items-center gap-3 ml-auto">
-          <a
-            href={`/print/outsource/${block.id}`}
-            target="_blank"
-            rel="noopener"
-            className="label inline-flex items-center gap-1.5 text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
-          >
-            打印外协单
-            <PrintIcon />
-          </a>
-          <RemoveBlockControl
+
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          {!closed && pendingMembers.length > 0 ? (
+            oneClickReceive ? (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={submitReceive}
+                title="确认全部已回厂，日期为今天"
+                className="px-3 py-1 text-[12px] tracking-wider bg-[var(--color-success)] text-[var(--color-surface)] rounded-sm hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                收件 <span className="ml-1 mono">{remainingTotal}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => setTrayOpen((v) => !v)}
+                aria-expanded={trayOpen}
+                title="展开收件明细"
+                className={`px-3 py-1 text-[12px] tracking-wider rounded-sm hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed ${
+                  trayOpen
+                    ? 'bg-[var(--color-ink)] text-[var(--color-surface)]'
+                    : 'bg-[var(--color-success)] text-[var(--color-surface)]'
+                }`}
+              >
+                收件 <span className="ml-1 mono">{trayOpen ? '⌃' : '⌄'}</span>
+              </button>
+            )
+          ) : null}
+          <BlockKebab
+            blockId={block.id}
             pending={pending}
-            onConfirm={() => {
+            onDelete={() => {
               start(async () => {
                 await deleteOutsourceBlockAction(block.id, jobId)
               })
@@ -619,8 +712,51 @@ export function BlockRow({
         </div>
       </div>
 
-      {/* Body: per-member receive list. */}
-      {totalMembers > 0 ? (
+      {/* Line 2 — provenance. Smaller, lower contrast; everything clickable. */}
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[12px] text-[var(--color-ink-3)]">
+        {jobNo ? (
+          <Link
+            href={`/jobs/${jobId}`}
+            className="mono text-[var(--color-ink-2)] hover:underline underline-offset-4"
+          >
+            {jobNo}
+          </Link>
+        ) : null}
+        {customer ? <span>{customer}</span> : null}
+        <span title={`工段范围 · 活动：${blockActivityLabel(block)}`}>
+          {block.activity?.trim()
+            ? `${stageRangeLabel(block.stages)}`
+            : blockActivityLabel(block)}
+        </span>
+        <span className="flex items-baseline gap-1">
+          <span>寄</span>
+          <OutsourceBlockDate
+            blockId={block.id}
+            jobId={jobId}
+            field="sentDate"
+            value={block.sentDate}
+            className="text-[12px] text-[var(--color-ink-3)]"
+          />
+        </span>
+        {totalReturnedUnits > 0 && !closed ? (
+          <span className="text-[var(--color-warning)]">
+            已回 {totalReturnedUnits}/{totalQty}
+          </span>
+        ) : null}
+      </div>
+
+      {/* Line 3 — notes. Things-style: borderless, hint when empty. */}
+      <div className="mt-1 text-[12px] leading-snug">
+        <OutsourceBlockNotes
+          blockId={block.id}
+          jobId={jobId}
+          value={block.notes}
+          className={`${block.notes ? 'text-[var(--color-ink-2)]' : 'text-[var(--color-ink-3)]'}`}
+        />
+      </div>
+
+      {/* Member list — only renders when it adds information. */}
+      {needsList ? (
         <ul className="mt-2 ml-1 flex flex-col gap-0.5">
           {block.members.map((m) => {
             const fullyReturned = isMemberFullyReturned(m)
@@ -634,8 +770,6 @@ export function BlockRow({
                   key={m.componentId}
                   className="flex items-baseline gap-2 text-[12px]"
                 >
-                  {/* Spacer to align with the qty input column */}
-                  <span className="inline-block w-[44px]" aria-hidden />
                   <span className="text-[var(--color-ink)] truncate">{m.name}</span>
                   <span className="mono text-[11px] text-[var(--color-ink-3)]">
                     {m.qty}件
@@ -666,80 +800,228 @@ export function BlockRow({
               )
             }
 
-            // Pending or partially returned. Single numeric input prefilled
-            // with the remaining qty — common case is "all of what's left
-            // came back today", press 收件, done. User can lower the number
-            // to record a partial receive ("6 of the 11 are back"), or set
-            // it to 0 to skip this member from this batch.
-            const draft = draftFor(m.componentId, remaining)
-            const draftN = parseInt(draft, 10)
-            const draftValid = Number.isFinite(draftN) && draftN >= 0 && draftN <= remaining
             return (
               <li
                 key={m.componentId}
                 className="flex items-baseline gap-2 text-[12px]"
               >
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={draft}
-                  onChange={(e) => {
-                    const v = e.target.value
-                    if (v === '' || /^\d+$/.test(v)) setDraftFor(m.componentId, v)
-                  }}
-                  disabled={pending}
-                  aria-label={`${m.name} 本次回件数`}
-                  title={`本次回件数 (剩 ${remaining})`}
-                  className={`mono text-[12px] w-[40px] text-right px-1 py-0.5 rounded-sm bg-transparent border ${
-                    draftValid
-                      ? 'border-[var(--color-border)] focus:border-[var(--color-ink)]'
-                      : 'border-[var(--color-overdue)]'
-                  } focus:outline-none`}
-                />
                 <span className="text-[var(--color-ink-2)] truncate">{m.name}</span>
                 <span className="mono text-[11px] text-[var(--color-ink-3)]">
                   {m.qty}件
                 </span>
-                {partial ? (
-                  <span className="ml-auto inline-flex items-baseline gap-2 label">
+                <span className="ml-auto label">
+                  {partial ? (
                     <span className="mono text-[11px] text-[var(--color-warning)]">
                       已回 {returnedSoFar}/{m.qty} · 在外 {remaining}
                     </span>
-                  </span>
-                ) : null}
+                  ) : (
+                    <span className="mono text-[11px] text-[var(--color-ink-3)]">
+                      在外 {remaining}
+                    </span>
+                  )}
+                </span>
               </li>
             )
           })}
         </ul>
       ) : null}
 
-      {/* Footer: receive controls. Hidden when fully closed. */}
-      {!closed && pendingMembers.length > 0 ? (
-        <div className="mt-2 flex items-center gap-3 flex-wrap">
-          <input
-            type="date"
-            className={`${fieldStyles()} mono text-[12px]`}
-            value={receiveDate}
-            onChange={(e) => setReceiveDate(e.target.value)}
-            disabled={pending}
-            title="收件日期"
-          />
+      {/* Receive tray — only renders when 收件 is in dropdown mode AND open. */}
+      {!closed && trayOpen && pendingMembers.length > 0 ? (
+        <div className="mt-3 rounded-sm border border-[var(--color-border)] bg-[var(--color-active-bg)] p-3">
+          <p className="label mb-2 text-[var(--color-ink-3)]">
+            本批次收件 · 修改数量则记录部分回厂
+          </p>
+          <ul className="flex flex-col gap-1">
+            {pendingMembers.map((m) => {
+              const remaining = memberRemainingQty(m)
+              const returnedSoFar = memberReturnedQty(m)
+              const draft = draftFor(m.componentId, remaining)
+              const draftN = parseInt(draft, 10)
+              const draftValid =
+                Number.isFinite(draftN) && draftN >= 0 && draftN <= remaining
+              return (
+                <li
+                  key={m.componentId}
+                  className="flex items-baseline gap-2 text-[12px]"
+                >
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={draft}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      if (v === '' || /^\d+$/.test(v)) setDraftFor(m.componentId, v)
+                    }}
+                    disabled={pending}
+                    aria-label={`${m.name} 本次回件数`}
+                    title={`本次回件数 (剩 ${remaining})`}
+                    className={`mono text-[12px] w-[44px] text-right px-1 py-0.5 rounded-sm bg-transparent border ${
+                      draftValid
+                        ? 'border-[var(--color-border)] focus:border-[var(--color-ink)]'
+                        : 'border-[var(--color-overdue)]'
+                    } focus:outline-none`}
+                  />
+                  <span className="mono text-[11px] text-[var(--color-ink-3)]">
+                    / {remaining}
+                  </span>
+                  <span className="text-[var(--color-ink-2)] truncate">{m.name}</span>
+                  {returnedSoFar > 0 ? (
+                    <span className="mono text-[11px] text-[var(--color-warning)]">
+                      · 已回 {returnedSoFar}
+                    </span>
+                  ) : null}
+                </li>
+              )
+            })}
+          </ul>
+          <div className="mt-3 flex items-center gap-3 flex-wrap">
+            <span className="label text-[var(--color-ink-3)]">收件日期</span>
+            <input
+              type="date"
+              className={`${fieldStyles()} mono text-[12px]`}
+              value={receiveDate}
+              onChange={(e) => setReceiveDate(e.target.value)}
+              disabled={pending}
+            />
+            <button
+              type="button"
+              disabled={pending || batchTotal <= 0}
+              onClick={submitReceive}
+              className="px-3 py-1 text-[12px] tracking-wider bg-[var(--color-success)] text-[var(--color-surface)] rounded-sm hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              确认 <span className="ml-1 mono">{batchTotal} 件</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                clearAllDrafts()
+                setTrayOpen(false)
+              }}
+              disabled={pending}
+              className="label text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Closed-block tail: latest returned date + the unreturn affordance.
+          Single-member closed blocks would otherwise have no member list and
+          nothing showing the closure date, since needsList is false. */}
+      {closed && !needsList && fullyReturnedMembers[0] ? (
+        <div className="mt-1 flex items-baseline gap-2 text-[12px] text-[var(--color-success)]">
+          <span>回 ✓</span>
+          {fullyReturnedMembers[0].returnedAt ? (
+            <input
+              type="date"
+              className="bg-transparent border-0 mono text-[11px] text-[var(--color-success)] focus:outline-none focus:bg-[var(--color-active-bg)] px-0.5 -mx-0.5 cursor-text"
+              value={fullyReturnedMembers[0].returnedAt}
+              onChange={(e) =>
+                editReturnDate(
+                  fullyReturnedMembers[0].componentId,
+                  e.target.value,
+                )
+              }
+              disabled={pending}
+              title="点击修改回厂日期"
+            />
+          ) : null}
           <button
             type="button"
-            disabled={pending || batchTotal <= 0}
-            onClick={submitReceive}
-            className="px-3 py-0.5 text-[12px] tracking-wider bg-[var(--color-success)] text-[var(--color-surface)] rounded-sm hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={() => unreturn(fullyReturnedMembers[0].componentId)}
+            disabled={pending}
+            title="撤销回厂"
+            className="text-[12px] leading-none hover:text-[var(--color-overdue)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-sm px-0.5"
           >
-            收件 →
-            {batchTotal > 0 ? (
-              <span className="ml-1.5 mono">{batchTotal} 件</span>
-            ) : null}
+            ↺
           </button>
-          {totalReturnedUnits > 0 ? (
-            <span className="label text-[var(--color-ink-3)]">
-              已回 {totalReturnedUnits}/{totalQty}
-            </span>
-          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+// Kebab menu — print + arming-confirm delete, both moved off the row to
+// stop the deletion text link from sitting at full weight next to print.
+// Click ⋯ to open; click outside (or pick an item) to close.
+function BlockKebab({
+  blockId,
+  pending,
+  onDelete,
+}: {
+  blockId: string
+  pending: boolean
+  onDelete: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [armed, setArmed] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) {
+        setOpen(false)
+        setArmed(false)
+      }
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={pending}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="更多"
+        className="px-1.5 py-0.5 text-[16px] leading-none text-[var(--color-ink-3)] hover:text-[var(--color-ink)] rounded-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:opacity-40"
+      >
+        ⋯
+      </button>
+      {open ? (
+        <div
+          role="menu"
+          className="absolute right-0 z-10 mt-1 min-w-[160px] rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg py-1 text-[12px]"
+        >
+          <a
+            href={`/print/outsource/${blockId}`}
+            target="_blank"
+            rel="noopener"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2 px-3 py-1.5 text-[var(--color-ink)] hover:bg-[var(--color-active-bg)]"
+          >
+            <PrintIcon />
+            打印外协单
+          </a>
+          {armed ? (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                setArmed(false)
+                onDelete()
+              }}
+              disabled={pending}
+              className="w-full text-left px-3 py-1.5 text-[var(--color-overdue)] hover:bg-[var(--color-active-bg)] disabled:opacity-40"
+            >
+              确认撤销外协
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setArmed(true)}
+              disabled={pending}
+              className="w-full text-left px-3 py-1.5 text-[var(--color-ink-2)] hover:bg-[var(--color-active-bg)] hover:text-[var(--color-overdue)] disabled:opacity-40"
+            >
+              撤销外协
+            </button>
+          )}
         </div>
       ) : null}
     </div>
@@ -806,70 +1088,6 @@ export function VendorAddressEditor({ vendor }: { vendor: Vendor }) {
         取消
       </button>
     </span>
-  )
-}
-
-// Two-step inline removal. A muted "撤销" label sits next to the print
-// link — discoverable at rest, deepens to overdue-red on hover. First
-// click arms it; the label flips to "取消 · 确认撤销" so the destructive
-// action requires a deliberate second click. Mouse-leave or 4 s of
-// inactivity disarms. Replaces the old window.confirm popup.
-function RemoveBlockControl({
-  pending,
-  onConfirm,
-}: {
-  pending: boolean
-  onConfirm: () => void
-}) {
-  const [armed, setArmed] = useState(false)
-
-  useEffect(() => {
-    if (!armed) return
-    const t = setTimeout(() => setArmed(false), 4000)
-    return () => clearTimeout(t)
-  }, [armed])
-
-  if (armed) {
-    return (
-      <span
-        className="inline-flex items-baseline gap-2"
-        onMouseLeave={() => setArmed(false)}
-      >
-        <button
-          type="button"
-          onClick={() => setArmed(false)}
-          disabled={pending}
-          className="label text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
-        >
-          取消
-        </button>
-        <button
-          type="button"
-          autoFocus
-          disabled={pending}
-          onClick={() => {
-            setArmed(false)
-            onConfirm()
-          }}
-          className="label text-[var(--color-overdue)] hover:opacity-70 disabled:opacity-40"
-        >
-          确认撤销
-        </button>
-      </span>
-    )
-  }
-
-  return (
-    <button
-      type="button"
-      disabled={pending}
-      onClick={() => setArmed(true)}
-      title="撤销外协"
-      aria-label="撤销外协"
-      className="label text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] transition-colors disabled:opacity-40 focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)]"
-    >
-      撤销
-    </button>
   )
 }
 

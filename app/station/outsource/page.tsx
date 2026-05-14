@@ -1,11 +1,9 @@
-import Link from 'next/link'
 import {
   allOutsourceBlocks,
   blockClosedAt,
   daysFromToday,
   formatCny,
   isBlockClosed,
-  stageRangeLabel,
   vendorById,
   type OpenBlockRow,
   type Vendor,
@@ -209,33 +207,17 @@ function VendorGroup({
           <Pill tone="info" label="金额" value={formatCny(group.total)} />
         </div>
       </div>
-      <div className="rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] px-4">
+      <div className="rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] px-2">
         {group.rows.map((r) => (
-          <div
+          <BlockRow
             key={r.block.id}
-            className="border-b border-[var(--color-border)] last:border-b-0"
-          >
-            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 pt-3 px-1">
-              <Link
-                href={`/jobs/${r.jobId}`}
-                className="mono text-[13px] font-medium text-[var(--color-ink)] hover:underline underline-offset-4"
-              >
-                {r.jobNo}
-              </Link>
-              <span className="text-[13px] text-[var(--color-ink-2)]">
-                {r.customer} · {r.product}
-              </span>
-              <span className="label text-[var(--color-ink-3)]">
-                范围 {stageRangeLabel(r.block.stages)}
-              </span>
-            </div>
-            <BlockRow
-              jobId={r.jobId}
-              block={r.block}
-              vendor={group.vendor}
-              vendors={vendors}
-            />
-          </div>
+            jobId={r.jobId}
+            jobNo={r.jobNo}
+            customer={`${r.customer} · ${r.product}`}
+            block={r.block}
+            vendor={group.vendor}
+            vendors={vendors}
+          />
         ))}
       </div>
     </section>
