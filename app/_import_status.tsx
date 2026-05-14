@@ -39,16 +39,44 @@ export function ParsingPoller({
 
   const stuck = !failed && elapsed >= TIMEOUT_SECONDS
 
+  // Poll a tiny JSON status endpoint instead of router.refresh()-ing the whole
+  // RSC tree every 1.5s. Mainland users hit the HK VM across the GFW; a full
+  // RSC refresh is a fat HTTP/2 stream that often gets cut mid-flight and
+  // surfaces as the "This page couldn't load" error overlay. The JSON payload
+  // here is ~50 bytes and rides over a fresh request, so a single dropped poll
+  // is a no-op — the next tick recovers. We only do router.refresh() ONCE,
+  // when the status actually flips, to re-render the page into its next phase.
   useEffect(() => {
     if (failed) return
     if (stuck) return
-    const poll = window.setInterval(() => router.refresh(), POLL_INTERVAL_MS)
+    let cancelled = false
     const tick = window.setInterval(() => setElapsed((s) => s + 1), 1_000)
+    const poll = window.setInterval(async () => {
+      try {
+        const r = await fetch(`/api/job-status/${jobId}`, {
+          cache: 'no-store',
+        })
+        if (!r.ok) return
+        const data = (await r.json().catch(() => null)) as
+          | { ok?: boolean; status?: string }
+          | null
+        if (!data?.ok || !data.status) return
+        if (cancelled) return
+        if (data.status !== 'parsing') {
+          // Status flipped to ready / draft / failed. One refresh hands off
+          // to the server-rendered next phase (review form or failure UI).
+          router.refresh()
+        }
+      } catch {
+        // Network blip — swallow and try again next tick.
+      }
+    }, POLL_INTERVAL_MS)
     return () => {
+      cancelled = true
       window.clearInterval(poll)
       window.clearInterval(tick)
     }
-  }, [failed, stuck, router])
+  }, [failed, stuck, router, jobId])
 
   // After a retry we reset the timer and fall back into the polling branch
   // above. The job's status is flipped server-side to 'parsing' before the

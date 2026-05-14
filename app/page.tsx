@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import {
   STAGES,
   dueState,
@@ -13,7 +12,7 @@ import { requireUser } from '@/lib/auth'
 import { scrubJob } from '@/lib/dto'
 import { Pill, TopBar, type TabKey } from './_ui'
 import { MasterUploader } from './_uploader'
-import { DeleteInboxButton } from './_inbox'
+import { InboxList } from './_inbox_list'
 import { MasterSheet } from './_master_filter'
 import { StationSummary } from './_station_summary'
 import { StationWorkbench } from './_workbench'
@@ -192,63 +191,16 @@ export default async function MasterBoard(
         {showOverviewChrome && <MasterUploader />}
 
         {showOverviewChrome && inbox.length > 0 ? (
-          <section className="mb-8 rounded-sm border border-[var(--color-warning)] bg-[var(--color-warning-soft)]">
-            <div className="flex items-baseline justify-between px-5 py-3 border-b border-[var(--color-warning)]">
-              <p className="label text-[var(--color-ink)]">
-                导入收件箱 · {inbox.length}
-              </p>
-              <p className="text-[12px] text-[var(--color-ink-2)]">
-                解析完成后逐项核对、配图、确认才会进入看板
-              </p>
-            </div>
-            <ul className="divide-y divide-[var(--color-warning)]">
-              {inbox.map((d) => {
-                const tone =
-                  d.status === 'parsing'
-                    ? 'text-[var(--color-warning)]'
-                    : d.status === 'failed'
-                      ? 'text-[var(--color-overdue)]'
-                      : 'text-[var(--color-ink)]'
-                const label =
-                  d.status === 'parsing'
-                    ? '解析中'
-                    : d.status === 'failed'
-                      ? '解析失败'
-                      : '待审核'
-                return (
-                  <li key={d.id} className="flex items-stretch hover:bg-[#f5e6b8]">
-                    <Link
-                      href={`/import/${d.id}`}
-                      className="flex items-baseline gap-4 px-5 py-3 text-[13px] flex-1 min-w-0"
-                    >
-                      <span className={`label w-16 shrink-0 ${tone}`}>{label}</span>
-                      <span className="mono font-medium text-[var(--color-ink)] w-32 shrink-0 truncate">
-                        {d.jobNo}
-                      </span>
-                      <span className="text-[var(--color-ink)] flex-1 truncate">
-                        {d.customer}
-                        <span className="ml-2 text-[var(--color-ink-3)]">
-                          {d.product}
-                        </span>
-                      </span>
-                      <span className="label text-[var(--color-ink-2)]">
-                        {d.status === 'parsing'
-                          ? '—'
-                          : `${d.components.length} 件`}
-                      </span>
-                      <span className="label text-[var(--color-ink)]">打开 →</span>
-                    </Link>
-                    <div className="flex items-center pr-3">
-                      <DeleteInboxButton
-                        jobId={d.id}
-                        label={`${d.jobNo} · ${d.customer}`}
-                      />
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
-          </section>
+          <InboxList
+            inbox={inbox.map((d) => ({
+              id: d.id,
+              jobNo: d.jobNo,
+              customer: d.customer,
+              product: d.product,
+              status: d.status as 'parsing' | 'draft' | 'failed',
+              componentCount: d.components.length,
+            }))}
+          />
         ) : null}
 
         {summaryStage && <StationSummary jobs={sorted} stage={summaryStage} />}

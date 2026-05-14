@@ -318,7 +318,11 @@ export async function confirmJobAction(
 export async function deleteJobAction(jobId: string): Promise<void> {
   await requireCommerce()
   await deleteJob(jobId)
-  revalidatePath('/', 'layout')
+  // Page-scoped (not 'layout') — keeps the response RSC payload small so it
+  // survives cross-border HTTP/2 paths for mainland users. The inbox list also
+  // does an optimistic local removal, so even if this RSC reply is truncated
+  // the UI stays correct.
+  revalidatePath('/')
 }
 
 // Escape hatch for a stuck/failed parse: skip extraction entirely and drop
