@@ -109,12 +109,12 @@ export default async function MasterBoard(
       : stageFilter
         ? `查看 · ${stageFilter}`
         : '全部在产工单'
-  // 工程 head's nav has a 工程 tab pointing at their master view — light it
-  // up whenever they're on /, /?stage=工程, or any URL that renders the
-  // engineering view. Other production stations have no tabs to highlight.
+  // 工程 head's nav mirrors commerce — home tab is 工程 (not 商务), and the
+  // stage tabs light up the same way when drilling into any station.
+  // Other production stations have no tabs to highlight.
   const currentTab: TabKey | undefined = isProduction
-    ? isEngineering && (!stageFilter || stageFilter === '工程')
-      ? '工程'
+    ? isEngineering
+      ? (stageFilter as TabKey | undefined) ?? '工程'
       : undefined
     : (stageFilter as TabKey | undefined) ?? '商务'
   // 工程 stage no longer has a per-stage StationWorkbench surface — the
