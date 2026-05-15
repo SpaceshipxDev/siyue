@@ -19,10 +19,15 @@ type InboxItem = {
 // gets truncated mid-stream and the action LOOKS failed even though the DB
 // delete succeeded. Optimistic removal hides this entirely — the row vanishes
 // immediately, and the next full page load confirms the deletion.
+const COLLAPSED_COUNT = 3
+
 export function InboxList({ inbox }: { inbox: InboxItem[] }) {
   const [removed, setRemoved] = useState<Set<string>>(new Set())
+  const [expanded, setExpanded] = useState(false)
   const visible = inbox.filter((d) => !removed.has(d.id))
   if (visible.length === 0) return null
+  const overflow = visible.length - COLLAPSED_COUNT
+  const shown = expanded || overflow <= 0 ? visible : visible.slice(0, COLLAPSED_COUNT)
   return (
     <section className="mb-8 rounded-sm border border-[var(--color-warning)] bg-[var(--color-warning-soft)]">
       <div className="flex items-baseline justify-between px-5 py-3 border-b border-[var(--color-warning)]">
@@ -34,7 +39,7 @@ export function InboxList({ inbox }: { inbox: InboxItem[] }) {
         </p>
       </div>
       <ul className="divide-y divide-[var(--color-warning)]">
-        {visible.map((d) => (
+        {shown.map((d) => (
           <InboxRow
             key={d.id}
             item={d}
@@ -48,6 +53,15 @@ export function InboxList({ inbox }: { inbox: InboxItem[] }) {
           />
         ))}
       </ul>
+      {overflow > 0 ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="label w-full px-5 py-2 border-t border-[var(--color-warning)] text-[var(--color-ink-2)] hover:bg-[#f5e6b8] hover:text-[var(--color-ink)] text-left"
+        >
+          {expanded ? '收起 ↑' : `展开全部 ${visible.length} 条 ↓`}
+        </button>
+      ) : null}
     </section>
   )
 }
@@ -131,7 +145,7 @@ function DeleteButton({
         })
       }}
       title="删除此条草稿 / 解析失败 / 卡住的条目"
-      className="label px-2 py-1 -my-1 rounded-sm text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] hover:bg-[#f5e6b8] disabled:opacity-50"
+      className="flex items-center justify-center w-9 h-9 -my-1 rounded-sm text-[22px] leading-none text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] hover:bg-[#f5e6b8] disabled:opacity-50"
     >
       {pending ? '…' : '×'}
     </button>

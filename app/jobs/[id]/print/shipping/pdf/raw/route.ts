@@ -1,8 +1,13 @@
 import { notFound } from 'next/navigation'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { requireUser } from '@/lib/auth'
-import { getCustomers, getJob } from '@/lib/db'
-import { latestShipment } from '@/lib/data'
+import {
+  getCustomers,
+  getJob,
+  updateJob,
+  upsertCustomerByName,
+} from '@/lib/db'
+import { customerById, latestShipment } from '@/lib/data'
 import { fetchImages } from '@/lib/pdf/images'
 import { ShippingDocPDF } from '@/lib/pdf/shipping'
 
@@ -22,8 +27,23 @@ export async function GET(
 ) {
   await requireUser()
   const { id } = await ctx.params
-  const [job, customers] = await Promise.all([getJob(id), getCustomers()])
+  let [job, customers] = await Promise.all([getJob(id), getCustomers()])
   if (!job) notFound()
+
+  // Mirror the preview page: link the customer row on first render so
+  // contact/phone are available here. Direct-to-PDF navigation (bookmarks,
+  // revalidatePath warm-ups) would otherwise miss the linking the preview
+  // performs and print 联系人 as '—' even when the customer record exists.
+  if (job.customer && !customerById(job.customerId, customers)) {
+    const upserted = await upsertCustomerByName(job.customer)
+    if (upserted && job.customerId !== upserted.id) {
+      await updateJob(job.id, { customerId: upserted.id })
+      const refreshed = await Promise.all([getJob(id), getCustomers()])
+      if (!refreshed[0]) notFound()
+      job = refreshed[0]
+      customers = refreshed[1]
+    }
+  }
 
   const shipment = latestShipment(job)
   const docNo = shipment?.docNo ?? job.shippingDocNo ?? 'draft'

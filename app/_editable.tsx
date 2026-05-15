@@ -20,6 +20,7 @@ import {
   pickCustomerForJobAction,
   pickVendorForBlockAction,
   setBlockMemberUnitPriceAction,
+  setJobCustomerFieldAction,
   updateComponentAction,
   updateCustomerAction,
   updateJobAction,
@@ -683,12 +684,19 @@ export function VendorText({
 
 export function CustomerText({
   customerId,
+  jobId,
   field,
   value,
   className,
   placeholder = '—',
 }: {
   customerId: string | undefined
+  // When the host page knows which job this edit belongs to, pass jobId.
+  // The save then resolves (and upserts/links) the customer on the server
+  // so an edit can never be silently dropped just because the page render
+  // happened before the customer row was linked. See the matching action
+  // setJobCustomerFieldAction in app/actions.ts.
+  jobId?: string
   field: CustomerTextField
   value: string | undefined
   className?: string
@@ -700,8 +708,12 @@ export function CustomerText({
       placeholder={placeholder}
       className={className}
       onSave={async (v) => {
-        if (!customerId) return
         const next = v.trim().length === 0 ? null : v
+        if (!customerId) {
+          if (!jobId || field === 'name') return
+          await setJobCustomerFieldAction(jobId, field, next)
+          return
+        }
         const patch: CustomerPatch =
           field === 'name'
             ? { name: v }

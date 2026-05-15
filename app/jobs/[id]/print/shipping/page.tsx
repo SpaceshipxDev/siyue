@@ -4,7 +4,12 @@ import {
   formatShipmentTimestamp,
   latestShipment,
 } from '@/lib/data'
-import { getCustomers, getJob } from '@/lib/db'
+import {
+  getCustomers,
+  getJob,
+  updateJob,
+  upsertCustomerByName,
+} from '@/lib/db'
 import { requireUser } from '@/lib/auth'
 import { BRAND } from '@/lib/brand'
 import { proxiedStorageUrl } from '@/lib/storage-url'
@@ -25,8 +30,24 @@ export default async function ShippingDocPage(
 ) {
   await requireUser()
   const { id } = await props.params
-  const [job, customers] = await Promise.all([getJob(id), getCustomers()])
+  let [job, customers] = await Promise.all([getJob(id), getCustomers()])
   if (!job) notFound()
+
+  // Auto-link the customer record when only the name is set. Imports leave
+  // customerId null with the name on job.customer, but the inline edits on
+  // this page (联系人 / 联系方式 → CustomerText) need a customerId to persist.
+  // Without this, users would type a contact, see it locally, then watch the
+  // value vanish on the printed PDF because the save silently no-op'd.
+  if (job.customer && !customerById(job.customerId, customers)) {
+    const upserted = await upsertCustomerByName(job.customer)
+    if (upserted && job.customerId !== upserted.id) {
+      await updateJob(job.id, { customerId: upserted.id })
+      const refreshed = await Promise.all([getJob(id), getCustomers()])
+      if (!refreshed[0]) notFound()
+      job = refreshed[0]
+      customers = refreshed[1]
+    }
+  }
 
   const customer = customerById(job.customerId, customers)
   const customerName = customer?.name ?? job.customer
@@ -110,6 +131,7 @@ export default async function ShippingDocPage(
             value={
               <CustomerText
                 customerId={customer?.id}
+                jobId={job.id}
                 field="contact"
                 value={customer?.contact}
               />
@@ -130,6 +152,7 @@ export default async function ShippingDocPage(
             value={
               <CustomerText
                 customerId={customer?.id}
+                jobId={job.id}
                 field="phone"
                 value={customer?.phone}
                 className="mono"

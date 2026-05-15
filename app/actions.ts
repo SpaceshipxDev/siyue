@@ -12,6 +12,7 @@ import {
   createOutsourceBlockAt,
   createReturn,
   createVendor,
+  getJob,
   deleteComponent,
   deleteJob,
   deleteOutsourceBlock,
@@ -461,6 +462,39 @@ export async function updateCustomerAction(
   patch: CustomerPatch,
 ): Promise<void> {
   await requireCommerce()
+  await updateCustomer(customerId, patch)
+  revalidatePath('/', 'layout')
+}
+
+// Writes a customer-field edit (联系人 / 联系方式 / 地址) by resolving the
+// job's customer at save time. If the job has only the customer name and
+// no linked Customer row, this upserts the row and patches customerId in
+// the same call. Used by the 出货单 print page so an inline edit can never
+// no-op just because the page rendered before the customer was linked —
+// which is what produced the "preview shows 联系人, PDF prints '—'" bug.
+export async function setJobCustomerFieldAction(
+  jobId: string,
+  field: 'contact' | 'address' | 'phone',
+  value: string | null,
+): Promise<void> {
+  await requireCommerce()
+  const job = await getJob(jobId)
+  if (!job) return
+  const customerName = job.customer?.trim()
+  if (!customerName) return
+  let customerId = job.customerId
+  if (!customerId) {
+    const c = await upsertCustomerByName(customerName)
+    if (!c) return
+    await updateJob(jobId, { customerId: c.id })
+    customerId = c.id
+  }
+  const patch: CustomerPatch =
+    field === 'contact'
+      ? { contact: value }
+      : field === 'address'
+        ? { address: value }
+        : { phone: value }
   await updateCustomer(customerId, patch)
   revalidatePath('/', 'layout')
 }
