@@ -10,7 +10,7 @@ import {
   type Component,
   type Shipment,
 } from '@/lib/data'
-import { prepareShippingAction } from './actions'
+import { mutate } from '@/lib/mutate'
 
 // 制作出货单 — pick how many of each part ship in this batch and emit one
 // new 出货单. The dialog reads existing shipment history per part, locks
@@ -190,8 +190,14 @@ export function ShippingComposer({
     }
     start(async () => {
       try {
-        await prepareShippingAction(jobId, selections)
+        await mutate<{ shipmentId: string; docNo: string }>({
+          kind: 'prepareShipping',
+          jobId,
+          selections,
+        })
         window.open(`/jobs/${jobId}/print/shipping`, '_blank', 'noopener')
+        // /jobs/[id] is force-dynamic; one router.refresh after a once-per-
+        // batch action is acceptable. Inline edits already bypass refresh.
         router.refresh()
         onClose()
       } catch (e) {

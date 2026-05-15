@@ -16,18 +16,14 @@ import type {
   JobPatch,
   VendorPatch,
 } from '@/lib/db'
-import {
-  pickCustomerForJobAction,
-  pickVendorForBlockAction,
-  setBlockMemberUnitPriceAction,
-  setJobCustomerFieldAction,
-  updateComponentAction,
-  updateCustomerAction,
-  updateJobAction,
-  updateJobNotesAction,
-  updateOutsourceBlockAction,
-  updateVendorAction,
-} from './actions'
+import { mutate } from '@/lib/mutate'
+
+// Every primitive in this file commits via /api/mutate (~30-byte JSON
+// request/response) instead of a server action. Server-action responses
+// inline the current page's RSC payload — that fat HTTP/2 stream is what
+// the GFW kept truncating for mainland users editing 工号 / parts /
+// outsource fields against the HK VM. The JSON path here matches the
+// survivability profile of the existing /api/job-status poller.
 
 const baseInputClass =
   'block w-full bg-transparent border-0 outline-none rounded-sm px-1 -mx-1 py-0.5 transition-[background-color,box-shadow] duration-150 hover:bg-[var(--color-active-bg)] hover:shadow-[inset_0_-1px_0_var(--color-border-strong)] focus:bg-[var(--color-active-bg)] focus:shadow-[inset_0_-1px_0_var(--color-ink)]'
@@ -285,7 +281,7 @@ export function JobText({
 }) {
   const save = async (v: string) => {
     const patch: JobPatch = { [field]: v }
-    await updateJobAction(jobId, patch)
+    await mutate({ kind: 'updateJob', jobId, patch })
   }
   if (multiline) {
     return (
@@ -322,7 +318,7 @@ export function JobDueDate({
     <EditableDate
       value={value}
       onSave={async (v) => {
-        await updateJobAction(jobId, { dueDate: v })
+        await mutate({ kind: 'updateJob', jobId, patch: { dueDate: v } })
       }}
       className={className}
     />
@@ -349,7 +345,7 @@ export function JobAmount({
     if (trimmed === '') {
       if (initial === undefined) return
       start(async () => {
-        await updateJobAction(jobId, { amountCny: null })
+        await mutate({ kind: 'updateJob', jobId, patch: { amountCny: null } })
       })
       return
     }
@@ -357,7 +353,7 @@ export function JobAmount({
     if (!Number.isFinite(n) || n < 0) return
     if (n === initial) return
     start(async () => {
-      await updateJobAction(jobId, { amountCny: n })
+      await mutate({ kind: 'updateJob', jobId, patch: { amountCny: n } })
     })
   }
 
@@ -391,8 +387,8 @@ export function JobAmount({
 }
 
 // Job-level notes — the one field every authenticated user can edit (生产 +
-// 商务). Saves through updateJobNotesAction so the action's auth gate, not
-// this component, enforces "any logged-in user".
+// 商务). The dispatcher's `updateJobNotes` kind enforces "any logged-in
+// user" via requireUser, matching the original action gate.
 export function JobNotes({
   jobId,
   value,
@@ -408,7 +404,11 @@ export function JobNotes({
     <EditableTextArea
       value={value}
       onSave={async (v) => {
-        await updateJobNotesAction(jobId, v.length === 0 ? null : v)
+        await mutate({
+          kind: 'updateJobNotes',
+          jobId,
+          notes: v.length === 0 ? null : v,
+        })
       }}
       className={className}
       placeholder={placeholder}
@@ -433,7 +433,11 @@ export function JobNotesInline({
     <EditableText
       value={value}
       onSave={async (v) => {
-        await updateJobNotesAction(jobId, v.length === 0 ? null : v)
+        await mutate({
+          kind: 'updateJobNotes',
+          jobId,
+          notes: v.length === 0 ? null : v,
+        })
       }}
       className={className}
       placeholder={placeholder}
@@ -468,7 +472,7 @@ export function ComponentText({
             : field === 'material'
               ? { material: v.length === 0 ? null : v }
               : { surfaceTreatment: v.length === 0 ? null : v }
-        await updateComponentAction(jobId, componentId, patch)
+        await mutate({ kind: 'updateComponent', jobId, componentId, patch })
       }}
       className={className}
       placeholder={placeholder}
@@ -492,7 +496,12 @@ export function ComponentQty({
       value={value}
       min={0}
       onSave={async (n) => {
-        await updateComponentAction(jobId, componentId, { qty: n })
+        await mutate({
+          kind: 'updateComponent',
+          jobId,
+          componentId,
+          patch: { qty: n },
+        })
       }}
       className={className}
     />
@@ -527,7 +536,12 @@ function ComponentMoney({
     if (trimmed === '') {
       if (initial === undefined) return
       start(async () => {
-        await updateComponentAction(jobId, componentId, { [field]: null })
+        await mutate({
+          kind: 'updateComponent',
+          jobId,
+          componentId,
+          patch: { [field]: null },
+        })
       })
       return
     }
@@ -535,7 +549,12 @@ function ComponentMoney({
     if (!Number.isFinite(n) || n < 0) return
     if (n === initial) return
     start(async () => {
-      await updateComponentAction(jobId, componentId, { [field]: n })
+      await mutate({
+        kind: 'updateComponent',
+        jobId,
+        componentId,
+        patch: { [field]: n },
+      })
     })
   }
 
@@ -629,8 +648,11 @@ export function ComponentNotes({
     <EditableText
       value={value}
       onSave={async (v) => {
-        await updateComponentAction(jobId, componentId, {
-          notes: v.length === 0 ? null : v,
+        await mutate({
+          kind: 'updateComponent',
+          jobId,
+          componentId,
+          patch: { notes: v.length === 0 ? null : v },
         })
       }}
       className={className}
@@ -676,7 +698,7 @@ export function VendorText({
             : field === 'notes'
               ? { notes: next }
               : { address: next }
-        await updateVendorAction(vendorId, patch)
+        await mutate({ kind: 'updateVendor', vendorId, patch })
       }}
     />
   )
@@ -694,8 +716,8 @@ export function CustomerText({
   // When the host page knows which job this edit belongs to, pass jobId.
   // The save then resolves (and upserts/links) the customer on the server
   // so an edit can never be silently dropped just because the page render
-  // happened before the customer row was linked. See the matching action
-  // setJobCustomerFieldAction in app/actions.ts.
+  // happened before the customer row was linked. The dispatcher's
+  // `setJobCustomerField` kind handles the upsert atomically.
   jobId?: string
   field: CustomerTextField
   value: string | undefined
@@ -711,7 +733,12 @@ export function CustomerText({
         const next = v.trim().length === 0 ? null : v
         if (!customerId) {
           if (!jobId || field === 'name') return
-          await setJobCustomerFieldAction(jobId, field, next)
+          await mutate({
+            kind: 'setJobCustomerField',
+            jobId,
+            field,
+            value: next,
+          })
           return
         }
         const patch: CustomerPatch =
@@ -722,7 +749,7 @@ export function CustomerText({
               : field === 'address'
                 ? { address: next }
                 : { phone: next }
-        await updateCustomerAction(customerId, patch)
+        await mutate({ kind: 'updateCustomer', customerId, patch })
       }}
     />
   )
@@ -767,7 +794,12 @@ export function OutsourceBlockText({
                 : field === 'recipientContactPhone'
                   ? { recipientContactPhone: next }
                   : { notes: next }
-        await updateOutsourceBlockAction(blockId, patch, jobId)
+        await mutate({
+          kind: 'updateOutsourceBlock',
+          blockId,
+          patch,
+          jobId,
+        })
       }}
     />
   )
@@ -799,7 +831,13 @@ export function BlockMemberUnitPrice({
     if (trimmed === '') {
       if (isPending) return
       start(async () => {
-        await setBlockMemberUnitPriceAction(blockId, componentId, null, jobId)
+        await mutate({
+          kind: 'setBlockMemberUnitPrice',
+          blockId,
+          componentId,
+          unitPriceCny: null,
+          jobId,
+        })
       })
       return
     }
@@ -807,7 +845,13 @@ export function BlockMemberUnitPrice({
     if (!Number.isFinite(n) || n < 0) return
     if (!isPending && n === Number(initial)) return
     start(async () => {
-      await setBlockMemberUnitPriceAction(blockId, componentId, n, jobId)
+      await mutate({
+        kind: 'setBlockMemberUnitPrice',
+        blockId,
+        componentId,
+        unitPriceCny: n,
+        jobId,
+      })
     })
   }
 
@@ -862,7 +906,12 @@ export function OutsourceBlockNotes({
       className={className}
       onSave={async (v) => {
         const next = v.trim().length === 0 ? null : v
-        await updateOutsourceBlockAction(blockId, { notes: next }, jobId)
+        await mutate({
+          kind: 'updateOutsourceBlock',
+          blockId,
+          patch: { notes: next },
+          jobId,
+        })
       }}
     />
   )
@@ -893,7 +942,12 @@ export function OutsourceBlockAmount({
     if (trimmed === '') {
       if (isPending) return
       start(async () => {
-        await updateOutsourceBlockAction(blockId, { amountCny: null }, jobId)
+        await mutate({
+          kind: 'updateOutsourceBlock',
+          blockId,
+          patch: { amountCny: null },
+          jobId,
+        })
       })
       return
     }
@@ -901,7 +955,12 @@ export function OutsourceBlockAmount({
     if (!Number.isFinite(n) || n < 0) return
     if (!isPending && n === Number(initial)) return
     start(async () => {
-      await updateOutsourceBlockAction(blockId, { amountCny: n }, jobId)
+      await mutate({
+        kind: 'updateOutsourceBlock',
+        blockId,
+        patch: { amountCny: n },
+        jobId,
+      })
     })
   }
 
@@ -954,7 +1013,12 @@ export function OutsourceBlockDate({
       onSave={async (v) => {
         const patch: BlockPatch =
           field === 'sentDate' ? { sentDate: v } : { expectedReturn: v }
-        await updateOutsourceBlockAction(blockId, patch, jobId)
+        await mutate({
+          kind: 'updateOutsourceBlock',
+          blockId,
+          patch,
+          jobId,
+        })
       }}
     />
   )
@@ -988,7 +1052,7 @@ export function JobShippingText({
             : field === 'contractNo'
               ? { contractNo: next }
               : { batchNo: next }
-        await updateJobAction(jobId, patch)
+        await mutate({ kind: 'updateJob', jobId, patch })
       }}
     />
   )
@@ -1031,9 +1095,17 @@ export function NameCombobox({
     start(async () => {
       if (target.kind === 'vendor') {
         if (!trimmed) return
-        await pickVendorForBlockAction(target.blockId, trimmed)
+        await mutate({
+          kind: 'pickVendorForBlock',
+          blockId: target.blockId,
+          name: trimmed,
+        })
       } else {
-        await pickCustomerForJobAction(target.jobId, trimmed)
+        await mutate({
+          kind: 'pickCustomerForJob',
+          jobId: target.jobId,
+          name: trimmed,
+        })
       }
     })
   }

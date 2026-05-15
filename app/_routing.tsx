@@ -19,14 +19,8 @@ import {
   type Stage,
   type Vendor,
 } from '@/lib/data'
-import {
-  createOutsourceBlockAction,
-  createVendorAction,
-  deleteOutsourceBlockAction,
-  setBlockMembersReturnedQtyAction,
-  setMemberReturnedQtyAction,
-  updateVendorAction,
-} from './actions'
+import { mutate } from '@/lib/mutate'
+import type { Vendor as VendorRow } from '@/lib/data'
 
 import { today } from '@/lib/today'
 import {
@@ -241,11 +235,12 @@ export function NewBlockForm({
     start(async () => {
       let useVendorId = vendorId
       if (vendorMode === 'create') {
-        const created = await createVendorAction(
-          newVendorName.trim(),
-          undefined,
-          newVendorAddress.trim() || undefined,
-        )
+        const r = await mutate<{ vendor: VendorRow | undefined }>({
+          kind: 'createVendor',
+          name: newVendorName.trim(),
+          address: newVendorAddress.trim() || undefined,
+        })
+        const created = r.data.vendor
         if (!created) {
           setError('外协厂创建失败')
           return
@@ -262,15 +257,21 @@ export function NewBlockForm({
         const n = Number(raw)
         if (Number.isFinite(n) && n >= 0) unitPricesCny[cid] = n
       }
-      const id = await createOutsourceBlockAction(jobId, [...selected], {
-        vendorId: useVendorId,
-        activity: activityTrim,
-        stages: stageRange,
-        amountCny: amountTrim === '' ? null : Number(amountTrim),
-        sentDate,
-        expectedReturn,
-        unitPricesCny,
+      const r = await mutate<{ id: string | undefined }>({
+        kind: 'createOutsourceBlock',
+        jobId,
+        componentIds: [...selected],
+        input: {
+          vendorId: useVendorId,
+          activity: activityTrim,
+          stages: stageRange,
+          amountCny: amountTrim === '' ? null : Number(amountTrim),
+          sentDate,
+          expectedReturn,
+          unitPricesCny,
+        },
       })
+      const id = r.data.id
       if (!id) {
         setError('创建失败：所选零件中可能已有外协记录')
         return
@@ -624,7 +625,13 @@ export function BlockRow({
     }
     if (items.length === 0) return
     start(async () => {
-      await setBlockMembersReturnedQtyAction(block.id, items, receiveDate, jobId)
+      await mutate({
+        kind: 'setBlockMembersReturnedQty',
+        blockId: block.id,
+        items,
+        date: receiveDate,
+        jobId,
+      })
       clearAllDrafts()
       setTrayOpen(false)
     })
@@ -632,7 +639,14 @@ export function BlockRow({
 
   const unreturn = (componentId: string) => {
     start(async () => {
-      await setMemberReturnedQtyAction(block.id, componentId, 0, null, jobId)
+      await mutate({
+        kind: 'setMemberReturnedQty',
+        blockId: block.id,
+        componentId,
+        qty: 0,
+        date: null,
+        jobId,
+      })
     })
   }
 
@@ -641,7 +655,14 @@ export function BlockRow({
     const m = block.members.find((x) => x.componentId === componentId)
     if (!m) return
     start(async () => {
-      await setMemberReturnedQtyAction(block.id, componentId, memberReturnedQty(m), date, jobId)
+      await mutate({
+        kind: 'setMemberReturnedQty',
+        blockId: block.id,
+        componentId,
+        qty: memberReturnedQty(m),
+        date,
+        jobId,
+      })
     })
   }
 
@@ -738,7 +759,11 @@ export function BlockRow({
             pending={pending}
             onDelete={() => {
               start(async () => {
-                await deleteOutsourceBlockAction(block.id, jobId)
+                await mutate({
+                  kind: 'deleteOutsourceBlock',
+                  blockId: block.id,
+                  jobId,
+                })
               })
             }}
           />
@@ -1110,8 +1135,10 @@ export function VendorAddressEditor({ vendor }: { vendor: Vendor }) {
 
   const save = () => {
     start(async () => {
-      await updateVendorAction(vendor.id, {
-        address: address.trim() || null,
+      await mutate({
+        kind: 'updateVendor',
+        vendorId: vendor.id,
+        patch: { address: address.trim() || null },
       })
       setEditing(false)
     })

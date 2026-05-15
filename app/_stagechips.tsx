@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from 'react'
 import { STAGES, partRoute, type Component, type Stage } from '@/lib/data'
-import { setPartRouteAction } from './actions'
+import { mutate } from '@/lib/mutate'
+import type { SetPartRouteResult } from '@/lib/db'
 
 // 出货 is always in the route — every part eventually ships, so the chip is
 // shown lit and non-interactive. Outsource-covered chips are also locked
@@ -48,12 +49,14 @@ export function StageChips({
     return new Promise<void>((resolve) => {
       start(async () => {
         try {
-          const result = await setPartRouteAction(
+          const r = await mutate<SetPartRouteResult>({
+            kind: 'setPartRoute',
             jobId,
-            component.id,
+            componentId: component.id,
             stages,
-            { force },
-          )
+            force,
+          })
+          const result = r.data
           if (result.ok) {
             setConfirmState(null)
             resolve()

@@ -20,23 +20,25 @@ type Tab = { key: TabKey; label: string; href: string }
 // and the brand link top-left routes home. Less chrome on the floor, more
 // headroom for the numbers that matter.
 //
-// 工程 head is the one production exception: they share outsource duties
-// with commerce, so they get a single 外协 link in the bar so they can jump
-// to the 外协 view without going through a job page first.
-//
-// 退货 lives at the tail, after 出货. It's a post-shipping affordance — the
-// page itself is gated to commerce + 工程 head, but only commerce gets the
-// tab; the 工程 head reaches it via the master-grid chip when one shows up.
+// 工程 head (PMC in shop terms) runs the boss-style holistic nav: drills
+// into 外协, /退货, and every station to see what's happening across the
+// floor — same shape as commerce, minus the 月结 tab (no money visibility).
 function tabsForRole(role: Role, defaultStage?: string): Tab[] {
   if (role === 'production') {
     if (defaultStage === '工程') {
-      // 工程 head's holistic master view IS the 工程 view, so the 工程 tab
-      // here points at bare / (their landing) rather than /station/工程 — same
-      // place but reads as "go home" in the nav. 外协 stays alongside since
-      // they share outsource duties with commerce.
+      // 工程 head's home tab IS bare / (their holistic master view), not
+      // /station/工程 — same place but reads as "go home" in the nav.
+      // Stage tabs after let them peek at any other station's workbench
+      // the same way commerce can.
       return [
         { key: '工程', label: '工程', href: '/' },
         { key: '外协', label: '外协', href: '/station/outsource' },
+        ...STAGES.filter((s) => s !== '工程').map((s) => ({
+          key: s as TabKey,
+          label: s,
+          href: `/station/${encodeURIComponent(s)}`,
+        })),
+        { key: '退货', label: '退货', href: '/returns' },
       ]
     }
     return []

@@ -1,5 +1,24 @@
 'use server'
 
+// IMPORTANT — most server actions in this file are no longer called from
+// client code. Client components write through `app/api/mutate/route.ts` via
+// `lib/mutate.ts` instead. Why: a Next.js server action's response inlines
+// the current page's RSC payload, which is a fat sustained HTTP/2 stream
+// that the GFW frequently truncates for mainland users hitting the HK VM —
+// surfacing as the framework's "this page couldn't load" overlay. The JSON
+// dispatcher returns ~30 bytes and bypasses RSC entirely.
+//
+// Server actions are kept here for two reasons:
+//   1. The few that ARE still client-called are followed by a navigation
+//      (deleteJob → router.push('/'), confirmJob → router.push, login/
+//      logout → redirect). The fat stream risk is bounded to one click.
+//   2. Stale browser sessions with cached JS still find the actions; we
+//      narrowed their `revalidatePath` scope from `'layout'` to page-scope
+//      as defense-in-depth so even a stale-JS write produces a smaller
+//      response stream.
+//
+// When adding a new mutation: prefer adding a `kind` to the dispatcher.
+
 import { revalidatePath } from 'next/cache'
 import type { Stage } from '@/lib/data'
 import type { Customer, Vendor } from '@/lib/data'
@@ -212,7 +231,7 @@ export async function updateJobAction(
 ): Promise<void> {
   await requirePartRouteEditor()
   await updateJob(jobId, patch)
-  revalidatePath('/', 'layout')
+  revalidatePath('/')
 }
 
 // Notes are the one job field everyone owns. Production heads add 催单 /
@@ -224,7 +243,7 @@ export async function updateJobNotesAction(
 ): Promise<void> {
   await requireUser()
   await updateJob(jobId, { notes })
-  revalidatePath('/', 'layout')
+  revalidatePath('/')
 }
 
 // Component-level edits. Same model as updateJobAction — 工程 + commerce
@@ -237,13 +256,13 @@ export async function updateComponentAction(
 ): Promise<void> {
   await requirePartRouteEditor()
   await updateComponent(jobId, componentId, patch)
-  revalidatePath('/', 'layout')
+  revalidatePath('/')
 }
 
 export async function resetDbAction(): Promise<void> {
   await requireCommerce()
   await resetDb()
-  revalidatePath('/', 'layout')
+  revalidatePath('/')
 }
 
 // Image / add-row / delete-row don't touch commercial data, so 工程 head
@@ -256,7 +275,7 @@ export async function setComponentImageAction(
 ): Promise<void> {
   await requirePartRouteEditor()
   await setComponentImage(jobId, componentId, imageUrl)
-  revalidatePath('/', 'layout')
+  revalidatePath('/')
 }
 
 export async function appendComponentAction(jobId: string): Promise<string | undefined> {
@@ -286,7 +305,7 @@ export async function setPartRouteAction(
   await requirePartRouteEditor()
   const result = await setPartRoute(jobId, componentId, stages, options)
   if (result.ok) {
-    revalidatePath('/', 'layout')
+    revalidatePath('/')
   }
   return result
 }
@@ -313,7 +332,7 @@ export async function confirmJobAction(
     if (conflict) return { ok: false, conflict }
     return { ok: false, error: message }
   }
-  revalidatePath('/', 'layout')
+  revalidatePath('/')
   return { ok: true }
 }
 
@@ -334,7 +353,7 @@ export async function deleteJobAction(jobId: string): Promise<void> {
 export async function manualFillJobAction(jobId: string): Promise<void> {
   await requirePartRouteEditor()
   await markJobAsDraft(jobId)
-  revalidatePath('/', 'layout')
+  revalidatePath('/')
   revalidatePath(`/import/${jobId}`)
 }
 
@@ -463,7 +482,7 @@ export async function updateCustomerAction(
 ): Promise<void> {
   await requireCommerce()
   await updateCustomer(customerId, patch)
-  revalidatePath('/', 'layout')
+  revalidatePath('/')
 }
 
 // Writes a customer-field edit (联系人 / 联系方式 / 地址) by resolving the
@@ -496,7 +515,7 @@ export async function setJobCustomerFieldAction(
         ? { address: value }
         : { phone: value }
   await updateCustomer(customerId, patch)
-  revalidatePath('/', 'layout')
+  revalidatePath('/')
 }
 
 // === 退货 ===
@@ -515,14 +534,14 @@ export async function createReturnAction(
 ): Promise<JobReturn> {
   const u = await requirePartRouteEditor()
   const result = await createReturn({ ...input, byUserId: u.id })
-  revalidatePath('/', 'layout')
+  revalidatePath('/')
   return result
 }
 
 export async function closeReturnAction(returnId: string): Promise<void> {
   await requirePartRouteEditor()
   await closeReturn(returnId)
-  revalidatePath('/', 'layout')
+  revalidatePath('/')
 }
 
 // Used by the 客户名称 combobox on the 出货单 and on the import draft.
@@ -537,12 +556,12 @@ export async function pickCustomerForJobAction(
   const trimmed = name.trim()
   if (!trimmed) {
     await updateJob(jobId, { customer: '', customerId: null })
-    revalidatePath('/', 'layout')
+    revalidatePath('/')
     return undefined
   }
   const customer = await upsertCustomerByName(trimmed)
   if (!customer) return undefined
   await updateJob(jobId, { customer: customer.name, customerId: customer.id })
-  revalidatePath('/', 'layout')
+  revalidatePath('/')
   return customer
 }

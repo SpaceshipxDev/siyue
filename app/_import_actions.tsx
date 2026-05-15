@@ -4,11 +4,8 @@ import Link from 'next/link'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { STAGES, type Stage } from '@/lib/data'
-import {
-  appendComponentAction,
-  confirmJobAction,
-  deleteComponentAction,
-} from './actions'
+import { confirmJobAction } from './actions'
+import { mutate } from '@/lib/mutate'
 
 // Two-step deliberate confirm:
 //   1. Optionally click "→ 发往工段" to expose the station chips, then tap the
@@ -132,6 +129,7 @@ export function ConfirmImportButton({ jobId }: { jobId: string }) {
 }
 
 export function AddComponentButton({ jobId }: { jobId: string }) {
+  const router = useRouter()
   const [pending, start] = useTransition()
   return (
     <button
@@ -139,7 +137,11 @@ export function AddComponentButton({ jobId }: { jobId: string }) {
       disabled={pending}
       onClick={() =>
         start(async () => {
-          await appendComponentAction(jobId)
+          await mutate({ kind: 'appendComponent', jobId })
+          // Single router.refresh on /import/[id] (one job's parts list,
+          // not the master board). Once-per-click action; risk is small
+          // and proportional. Inline edits already bypass refresh.
+          router.refresh()
         })
       }
       className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border-strong)] text-[var(--color-ink-2)] rounded-sm hover:text-[var(--color-ink)] hover:border-[var(--color-ink)] disabled:opacity-50"
@@ -158,6 +160,7 @@ export function DeleteComponentButton({
   componentId: string
   componentName: string
 }) {
+  const router = useRouter()
   const [pending, start] = useTransition()
   return (
     <button
@@ -167,7 +170,8 @@ export function DeleteComponentButton({
         const label = componentName || '该零件'
         if (!confirm(`删除「${label}」？此操作不可撤销。`)) return
         start(async () => {
-          await deleteComponentAction(jobId, componentId)
+          await mutate({ kind: 'deleteComponent', jobId, componentId })
+          router.refresh()
         })
       }}
       className="label text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] disabled:opacity-50"

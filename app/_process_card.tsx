@@ -1,7 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useRef, useState } from 'react'
 import { STAGES, type Stage } from '@/lib/data'
 
 export type StoredSource = {
@@ -102,8 +101,6 @@ function ProcessCardModal({
   initial: StoredProcessCard | null
   onClose: () => void
 }) {
-  const router = useRouter()
-  const [, startTransition] = useTransition()
   const [stored, setStored] = useState<StoredProcessCard | null>(initial)
   const [mode, setMode] = useState<'view' | 'staging' | 'busy' | 'edit' | 'saving'>(
     initial ? 'view' : 'staging',
@@ -188,7 +185,9 @@ function ProcessCardModal({
       setStored(json.card as StoredProcessCard)
       setStaged([])
       setMode('view')
-      startTransition(() => router.refresh())
+      // No router.refresh — the parent /jobs/[id] page only reads the card
+      // for the toolbar button label, which it'll catch up on the next
+      // navigation. Dropping refresh removes the GFW-fragile RSC stream.
     } catch (err) {
       setError(err instanceof Error ? err.message : '生成失败')
       setMode('staging')
@@ -227,7 +226,6 @@ function ProcessCardModal({
       setStored(json.card as StoredProcessCard)
       setDraft(null)
       setMode('view')
-      startTransition(() => router.refresh())
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败')
       setMode('edit')
@@ -253,7 +251,6 @@ function ProcessCardModal({
       setDraft(null)
       setStaged([])
       setMode('staging')
-      startTransition(() => router.refresh())
     } catch (err) {
       setError(err instanceof Error ? err.message : '删除失败')
       setMode('view')

@@ -1,9 +1,22 @@
 'use client'
 
-import { useCallback, useRef, useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
-import { setComponentImageAction } from './actions'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { mutate } from '@/lib/mutate'
 import { proxiedStorageUrl } from '@/lib/storage-url'
+
+// Cross-component event used by the batch photo uploader on /import/[id] to
+// tell each per-row ComponentImageUploader that its component just got a new
+// image. Avoids the router.refresh() that would otherwise be needed to pick
+// up the change — refresh is a fat RSC stream and the GFW kills it.
+type ImageUpdatedDetail = { componentId: string; url: string | null }
+const IMAGE_UPDATED_EVENT = 'siyue:component-image-updated'
+
+export function dispatchComponentImageUpdated(detail: ImageUpdatedDetail) {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(
+    new CustomEvent<ImageUpdatedDetail>(IMAGE_UPDATED_EVENT, { detail }),
+  )
+}
 
 type Props = {
   jobId: string
@@ -20,12 +33,33 @@ export function ComponentImageUploader({
   size = 64,
   readOnly = false,
 }: Props) {
-  const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
   const [drag, setDrag] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | undefined>()
-  const [, startTransition] = useTransition()
+  // Local override for the server-rendered URL prop. After a successful
+  // upload/clear we update this and render it instead of the prop, so the
+  // user sees the new state immediately without a router.refresh() (which
+  // would trigger the fat RSC re-stream that the GFW kills on mainland → HK
+  // links). The next natural navigation re-renders /jobs/[id] or
+  // /import/[id] from the DB and the prop catches up.
+  // `null` = explicitly cleared. `undefined` = no local change yet.
+  const [override, setOverride] = useState<string | null | undefined>(undefined)
+  const effectiveUrl = override === undefined ? imageUrl : override ?? undefined
+
+  // Listen for batch uploads from BatchPhotoUploader (sibling component on
+  // the import page that uploads N images at once). It dispatches one event
+  // per successful upload so we can update our local override without a
+  // page-wide refresh.
+  useEffect(() => {
+    const onUpdate = (e: Event) => {
+      const ce = e as CustomEvent<ImageUpdatedDetail>
+      if (ce.detail.componentId !== componentId) return
+      setOverride(ce.detail.url)
+    }
+    window.addEventListener(IMAGE_UPDATED_EVENT, onUpdate)
+    return () => window.removeEventListener(IMAGE_UPDATED_EVENT, onUpdate)
+  }, [componentId])
 
   const upload = useCallback(
     async (file: File) => {
@@ -48,14 +82,15 @@ export function ComponentImageUploader({
           setError('error' in data ? data.error : '上传失败')
           return
         }
-        startTransition(() => router.refresh())
+        setOverride(data.url)
+        dispatchComponentImageUpdated({ componentId, url: data.url })
       } catch (err) {
         setError(err instanceof Error ? err.message : '上传失败')
       } finally {
         setBusy(false)
       }
     },
-    [componentId, jobId, router],
+    [componentId, jobId],
   )
 
   const onPick = (files: FileList | null) => {
@@ -67,8 +102,16 @@ export function ComponentImageUploader({
     setBusy(true)
     setError(undefined)
     try {
-      await setComponentImageAction(jobId, componentId, null)
-      startTransition(() => router.refresh())
+      await mutate({
+        kind: 'setComponentImage',
+        jobId,
+        componentId,
+        imageUrl: null,
+      })
+      setOverride(null)
+      dispatchComponentImageUpdated({ componentId, url: null })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '移除失败')
     } finally {
       setBusy(false)
     }
@@ -82,10 +125,10 @@ export function ComponentImageUploader({
         style={{ width: px, height: px }}
         className="relative overflow-hidden rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]"
       >
-        {imageUrl ? (
+        {effectiveUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={proxiedStorageUrl(imageUrl)}
+            src={proxiedStorageUrl(effectiveUrl)}
             alt="零件图"
             loading="lazy"
             decoding="async"
@@ -114,12 +157,12 @@ export function ComponentImageUploader({
           if (e.dataTransfer.files?.[0]) void upload(e.dataTransfer.files[0])
         }}
         onClick={() => inputRef.current?.click()}
-        title={imageUrl ? '点击更换 / 拖拽图片' : '点击或拖拽图片上传'}
+        title={effectiveUrl ? '点击更换 / 拖拽图片' : '点击或拖拽图片上传'}
         style={{ width: px, height: px }}
         className={`relative cursor-pointer overflow-hidden rounded-sm border transition-colors ${
           drag
             ? 'border-[var(--color-ink)] bg-[var(--color-active-bg)]'
-            : imageUrl
+            : effectiveUrl
               ? 'border-[var(--color-border-strong)] bg-[var(--color-surface)] hover:border-[var(--color-ink)]'
               : 'border-dashed border-[var(--color-border-strong)] bg-[var(--color-muted-bg)] hover:border-[var(--color-ink)]'
         } ${busy ? 'opacity-60' : ''}`}
@@ -131,7 +174,7 @@ export function ComponentImageUploader({
           className="hidden"
           onChange={(e) => onPick(e.target.files)}
         />
-        {imageUrl ? (
+        {effectiveUrl ? (
           // Plain <img> is intentional: dynamic local /uploads paths shouldn't go
           // through next/image's optimizer (no static analysis, and we want
           // print-template friendly raw bytes).
@@ -140,7 +183,7 @@ export function ComponentImageUploader({
           // tab spinner until every image finishes through the GFW link.
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={proxiedStorageUrl(imageUrl)}
+            src={proxiedStorageUrl(effectiveUrl)}
             alt="零件图"
             loading="lazy"
             decoding="async"
@@ -152,7 +195,7 @@ export function ComponentImageUploader({
           </div>
         )}
       </div>
-      {imageUrl ? (
+      {effectiveUrl ? (
         <button
           type="button"
           onClick={(e) => {

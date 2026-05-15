@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { dispatchComponentImageUpdated } from './_image_uploader'
 
 // Batch photo dropzone for the import-review page. Accepts a folder-dump of
 // images, matches each filename (sans extension, normalized) against the
@@ -79,7 +79,6 @@ export function BatchPhotoUploader({
   jobId: string
   components: ComponentLite[]
 }) {
-  const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
   const [drag, setDrag] = useState(false)
   const [staged, setStaged] = useState<Staged[]>([])
@@ -224,6 +223,14 @@ export function BatchPhotoUploader({
               | { ok: false; error: string }
             if (!('ok' in data) || !data.ok) {
               failures[item.id] = 'error' in data ? data.error : '失败'
+            } else {
+              // Tell sibling per-row uploaders to re-render with the new
+              // URL — replaces the router.refresh() this used to call,
+              // which was a fat RSC stream that the GFW would shred.
+              dispatchComponentImageUpdated({
+                componentId: (item.match as { componentId: string }).componentId,
+                url: data.url,
+              })
             }
           } catch (err) {
             failures[item.id] = err instanceof Error ? err.message : '失败'
@@ -249,7 +256,10 @@ export function BatchPhotoUploader({
       setStaged((prev) => prev.filter((s) => !succeededIds.has(s.id)))
       setErrors(failures)
       setProgress(null)
-      router.refresh()
+      // No router.refresh() — sibling thumbnails were updated via the
+      // dispatchComponentImageUpdated events above, and the page-level
+      // "已配图 N/M" badge will catch up on the next natural navigation
+      // (the import page is force-dynamic).
     })
   }
 

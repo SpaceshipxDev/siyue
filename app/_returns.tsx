@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { RETURN_REASONS, type Component, type JobReturn, type ReturnReason } from '@/lib/data'
 import { today } from '@/lib/today'
-import { closeReturnAction, createReturnAction } from './actions'
+import { mutate } from '@/lib/mutate'
 
 // Minimal shape the composer needs — id/name/qty are enough to drive the
 // pick list. Stays a structural subtype of Component so the job-detail page
@@ -118,13 +118,22 @@ export function ReturnComposer({
     }
     start(async () => {
       try {
-        await createReturnAction({
-          jobId,
-          parts,
-          reason,
-          reasonText: reasonText.trim() || undefined,
-          dueDate,
+        await mutate({
+          kind: 'createReturn',
+          input: {
+            jobId,
+            parts,
+            reason,
+            reasonText: reasonText.trim() || undefined,
+            dueDate,
+          },
         })
+        // /jobs/[id] is force-dynamic, so the next nav re-renders fresh.
+        // Stay-on-page reflects the new return via router.refresh — but
+        // /jobs/[id]'s RSC payload is moderate (single-job scope) and
+        // creating a return is a once-per-rework action, not per-keystroke,
+        // so the GFW exposure is acceptable here. Inline edits already
+        // bypass router.refresh entirely.
         router.refresh()
         onClose()
       } catch (e) {
@@ -289,7 +298,7 @@ export function ActiveReturnBadge({
   const close = () => {
     if (!confirm('确认关闭此次退货?关闭后该工单将不再标记为退货中。')) return
     start(async () => {
-      await closeReturnAction(ret.id)
+      await mutate({ kind: 'closeReturn', returnId: ret.id })
       router.refresh()
     })
   }

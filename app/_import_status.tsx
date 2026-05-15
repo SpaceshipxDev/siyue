@@ -3,7 +3,8 @@
 import Link from 'next/link'
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { deleteJobAction, manualFillJobAction } from './actions'
+import { deleteJobAction } from './actions'
+import { mutate } from '@/lib/mutate'
 
 // 1.5s matches the typical Gemini Flash Lite latency for a small xlsx —
 // short enough that the redirect to /draft feels instant.
@@ -110,9 +111,11 @@ export function ParsingPoller({
     setActionError(null)
     startManual(async () => {
       try {
-        await manualFillJobAction(jobId)
-        // Server action revalidates; refresh re-renders the page as the draft
-        // editor (status flipped to 'draft').
+        await mutate({ kind: 'manualFillJob', jobId })
+        // /import/[id] is force-dynamic — refresh re-renders as the draft
+        // editor (status flipped to 'draft'). The fetched RSC is moderate
+        // (single import page, not the master board) and this is a once-
+        // per-stuck-import recovery action, so the GFW exposure is small.
         router.refresh()
       } catch (err) {
         setActionError(err instanceof Error ? err.message : '切换失败')

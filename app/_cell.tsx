@@ -4,19 +4,13 @@ import { useState, useTransition } from 'react'
 import type { Stage, StageState } from '@/lib/data'
 import { STAGES } from '@/lib/data'
 import { Pause } from './_ui'
-import {
-  assignJobToStageAction,
-  assignToStageAction,
-  finishJobStageAction,
-  finishStageAction,
-  setStageDoneQtyAction,
-  startJobStageAction,
-  startStageAction,
-  undoJobStageAction,
-  undoStageAction,
-} from './actions'
+import { mutate } from '@/lib/mutate'
 import { RowTimer } from './_row_timer'
 import { QtyEditor } from './_qty_editor'
+
+// Stage button writes go through /api/mutate (~30-byte JSON) instead of
+// server actions. Server-action responses inline the current page's RSC,
+// which the GFW shreds for mainland users on the HK VM.
 
 // "Done ✓" cells used to be clickable only for 60 seconds after the same
 // React instance clicked finish — outside that window the cell rendered as a
@@ -71,7 +65,7 @@ export function StageCellButton({
     setOptimistic({ status: 'in_progress' })
     start(async () => {
       try {
-        await startStageAction(jobId, componentId, stage)
+        await mutate({ kind: 'startStage', jobId, componentId, stage })
       } catch {
         setOptimistic(null)
         setError(true)
@@ -84,7 +78,7 @@ export function StageCellButton({
     setOptimistic({ status: 'done', completedAt: 'now' })
     start(async () => {
       try {
-        await finishStageAction(jobId, componentId, stage)
+        await mutate({ kind: 'finishStage', jobId, componentId, stage })
       } catch {
         setOptimistic(null)
         setError(true)
@@ -97,7 +91,7 @@ export function StageCellButton({
     setOptimistic({ status: 'in_progress' })
     start(async () => {
       try {
-        await undoStageAction(jobId, componentId, stage)
+        await mutate({ kind: 'undoStage', jobId, componentId, stage })
       } catch {
         setOptimistic(null)
         setError(true)
@@ -116,7 +110,13 @@ export function StageCellButton({
     }
     start(async () => {
       try {
-        await setStageDoneQtyAction(jobId, componentId, stage, qty)
+        await mutate({
+          kind: 'setStageDoneQty',
+          jobId,
+          componentId,
+          stage,
+          qty,
+        })
       } catch {
         setOptimistic(null)
         setError(true)
@@ -296,7 +296,7 @@ export function JobStageActionButton({
     setOptimistic('in_progress')
     start(async () => {
       try {
-        await startJobStageAction(jobId, stage)
+        await mutate({ kind: 'startJobStage', jobId, stage })
       } catch {
         setOptimistic(null)
         setError(true)
@@ -309,7 +309,7 @@ export function JobStageActionButton({
     setOptimistic('done')
     start(async () => {
       try {
-        await finishJobStageAction(jobId, stage)
+        await mutate({ kind: 'finishJobStage', jobId, stage })
       } catch {
         setOptimistic(null)
         setError(true)
@@ -322,7 +322,7 @@ export function JobStageActionButton({
     setOptimistic('in_progress')
     start(async () => {
       try {
-        await undoJobStageAction(jobId, stage)
+        await mutate({ kind: 'undoJobStage', jobId, stage })
       } catch {
         setOptimistic(null)
         setError(true)
@@ -472,7 +472,12 @@ export function JobAssignSelect({
         const to = e.currentTarget.value as Stage
         if (!to) return
         start(async () => {
-          await assignJobToStageAction(jobId, fromStage, to)
+          await mutate({
+            kind: 'assignJobToStage',
+            jobId,
+            fromStage,
+            toStage: to,
+          })
         })
         e.currentTarget.value = ''
       }}
@@ -508,7 +513,13 @@ export function AssignSelect({
         const to = e.currentTarget.value as Stage
         if (!to) return
         start(async () => {
-          await assignToStageAction(jobId, componentId, fromStage, to)
+          await mutate({
+            kind: 'assignToStage',
+            jobId,
+            componentId,
+            fromStage,
+            toStage: to,
+          })
         })
         e.currentTarget.value = ''
       }}

@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useRef, useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 
 // 源文件 row — minimal commerce-only widget for the original Excel that
@@ -22,11 +21,18 @@ export function SourceFileRow({
   fileName?: string
   url?: string
 }) {
-  const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
   const [drag, setDrag] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pending, start] = useTransition()
+  // Hold the just-uploaded file locally so the row reflects the new state
+  // without a router.refresh() — refresh would re-stream the whole job
+  // detail RSC, which the GFW kills for mainland users on the HK VM.
+  const [override, setOverride] = useState<{ url: string; name: string } | null>(
+    null,
+  )
+  const effectiveUrl = override?.url ?? url
+  const effectiveName = override?.name ?? fileName
 
   const upload = useCallback(
     (file: File) => {
@@ -43,10 +49,10 @@ export function SourceFileRow({
           setError(data.error || '替换失败')
           return
         }
-        router.refresh()
+        setOverride({ url: data.url, name: data.fileName })
       })
     },
-    [jobId, router],
+    [jobId],
   )
 
   const onDrop = (e: React.DragEvent) => {
@@ -56,8 +62,8 @@ export function SourceFileRow({
     if (f) upload(f)
   }
 
-  const hasFile = Boolean(fileName)
-  const downloadName = fileName ?? '源文件'
+  const hasFile = Boolean(effectiveName)
+  const downloadName = effectiveName ?? '源文件'
 
   return (
     <div
@@ -86,9 +92,9 @@ export function SourceFileRow({
 
       {/* Download — always present, same square; live link when we have a
           URL, dimmed glyph (with explanatory title) otherwise. */}
-      {url ? (
+      {effectiveUrl ? (
         <a
-          href={proxiedStorageUrl(url)}
+          href={proxiedStorageUrl(effectiveUrl)}
           download={downloadName}
           title={`下载 ${downloadName}`}
           aria-label="下载源文件"

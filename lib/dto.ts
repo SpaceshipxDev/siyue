@@ -12,17 +12,29 @@ import { canSeeCustomerData, canSeeMoney, canSeeVendor } from './auth'
 const REDACTED_VENDOR_ID = '__redacted__'
 
 export function scrubBlock(b: OutsourceBlock, scope: Scope): OutsourceBlock {
-  if (canSeeVendor(scope)) return b
+  const vendorOk = canSeeVendor(scope)
+  const moneyOk = canSeeMoney(scope)
+  if (vendorOk && moneyOk) return b
+  if (!vendorOk) {
+    // No vendor visibility → strip everything (legacy production behavior).
+    return {
+      ...b,
+      vendorId: REDACTED_VENDOR_ID,
+      amountCny: 0,
+      notes: undefined,
+      docNo: undefined,
+      createdBy: undefined,
+      recipientAddress: undefined,
+      recipientContactName: undefined,
+      recipientContactPhone: undefined,
+    }
+  }
+  // Vendor visible but no money (PMC, 工程 head): keep vendor + dates +
+  // members so they can run the outsource handoff, but blank out prices.
   return {
     ...b,
-    vendorId: REDACTED_VENDOR_ID,
-    amountCny: 0,
-    notes: undefined,
-    docNo: undefined,
-    createdBy: undefined,
-    recipientAddress: undefined,
-    recipientContactName: undefined,
-    recipientContactPhone: undefined,
+    amountCny: null,
+    members: b.members.map((m) => ({ ...m, unitPriceCny: undefined })),
   }
 }
 
