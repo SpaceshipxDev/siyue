@@ -1,11 +1,5 @@
-import {
-  avgStageFlowMinutes,
-  dueState,
-  formatMinutes,
-  jobIsMineAtStage,
-  type Job,
-  type Stage,
-} from '@/lib/data'
+import { dueState, formatMinutes, type Stage } from '@/lib/data'
+import { rowIsMineAtStage, type MasterRow } from '@/lib/master'
 
 // One band of four numbers. No card, no border, no chrome — just the digits
 // and a small label below. Sits at the top of the station view so the head's
@@ -19,33 +13,34 @@ import {
 //            打磨 even if 打磨 is in its route.
 //   今日    : of those, how many are due today
 //   逾期    : of those, how many are already past due
-//   平均    : avg flow time through this station (null until we have ≥3 samples)
+//   平均    : avg flow time through this station. Computed server-side from
+//            the rollup; pass null to render "—" while we wire that in.
 export function StationSummary({
-  jobs,
+  rows,
   stage,
+  avgMinutes,
 }: {
-  jobs: Job[]
+  rows: MasterRow[]
   stage: Stage
+  avgMinutes?: number | null
 }) {
   let here = 0
   let dueToday = 0
   let overdue = 0
-  for (const j of jobs) {
-    if (!jobIsMineAtStage(j, stage)) continue
+  for (const r of rows) {
+    if (!rowIsMineAtStage(r, stage)) continue
     here++
-    const ds = dueState(j.dueDate)
+    const ds = dueState(r.dueDate)
     if (ds === 'overdue') overdue++
     else if (ds === 'today') dueToday++
   }
-
-  const avg = avgStageFlowMinutes(jobs, stage)
 
   return (
     <section className="mb-12 mt-2 grid grid-cols-2 sm:grid-cols-4 gap-y-8 gap-x-6 border-b border-[var(--color-border)] pb-10">
       <Metric label="在此" value={here} />
       <Metric label="今日" value={dueToday} tone={dueToday > 0 ? 'warning' : 'mute'} />
       <Metric label="逾期" value={overdue} tone={overdue > 0 ? 'overdue' : 'mute'} />
-      <Metric label="平均工段时长" value={formatMinutes(avg)} mono />
+      <Metric label="平均工段时长" value={formatMinutes(avgMinutes ?? null)} mono />
     </section>
   )
 }

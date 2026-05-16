@@ -6,10 +6,19 @@ import {
   daysFromToday,
   dueState,
   type DueState,
-  type JobReturn,
+  type ReturnReason,
 } from '@/lib/data'
 import type { ClosedReturnRow } from '@/lib/db'
 import { ReturnChip, ReturnComposer, type ReturnComposerComponent } from '@/app/_returns'
+
+// Lighter shape than the full JobReturn — the /returns list and composer
+// only read reason + dueDate from the active return, so MasterRow's
+// activeReturn (from the SQL view) is enough.
+export type ReturnsActiveReturn = {
+  id: string
+  reason: ReturnReason
+  dueDate: string
+}
 
 export type ReturnsListJob = {
   id: string
@@ -18,7 +27,7 @@ export type ReturnsListJob = {
   product: string
   shipDate: string
   daysSinceShip: number | null
-  activeReturn?: JobReturn
+  activeReturn?: ReturnsActiveReturn
   // Present on candidate rows so the inline 开退货 dialog can drive the part
   // picker without a round-trip to /jobs/[id].
   components?: ReturnComposerComponent[]
@@ -299,7 +308,7 @@ function CandidateList({
   )
 }
 
-function ActiveReturnInline({ ret }: { ret: JobReturn }) {
+function ActiveReturnInline({ ret }: { ret: ReturnsActiveReturn }) {
   const ds: DueState = dueState(ret.dueDate)
   const days = daysFromToday(ret.dueDate)
   const tone =

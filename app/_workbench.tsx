@@ -3,25 +3,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
-  STAGES,
   daysFromToday,
   dueState,
-  effectiveStageState,
-  isStageInRoute,
-  jobEffectiveDueDate,
-  jobHasOpenOutsource,
   jobIntakeDate,
-  jobIsMineAtStage,
-  jobIsPinnedAtStage,
-  jobIsShipped,
-  jobIsUpstreamOfStage,
-  jobMostRecentFinishedAt,
   jobNoSortKey,
-  jobStageCounts,
-  jobTimerAtStage,
-  type Job,
   type Stage,
 } from '@/lib/data'
+import {
+  rowIsDownstreamOf,
+  rowIsMineAtStage,
+  rowIsPinnedAtStage,
+  rowIsUpstreamOfStage,
+  rowMostRecentFinishedAt,
+  rowStageCounts,
+  rowTimerAtStage,
+  rowUpstreamActiveStages,
+  type MasterRow,
+} from '@/lib/master'
 import { DueCell } from './_ui'
 import { JobStageActionButton } from './_cell'
 import { JobNotesInline } from './_editable'
@@ -29,12 +27,7 @@ import { PinStar } from './_pin_star'
 import { ReturnChip } from './_returns'
 import { mutate } from '@/lib/mutate'
 import { showToast } from './_toast'
-import {
-  MatchedComponentsStrip,
-  SearchInput,
-  matchedComponents,
-  searchHaystack,
-} from './_search'
+import { SearchInput } from './_search'
 
 // Production user's home view at /?stage=<theirs>. The 16-column master grid
 // is the wrong shape for a worker who only acts on ONE column; at 50 jobs/
@@ -72,77 +65,23 @@ function downstreamLabel(stage: Stage): { label: string; sub: string } {
     : { label: '下游', sub: '已离开本站' }
 }
 
-// "Downstream" reads from the worker's POV: has the work visibly moved past
-// my station? In this codebase parts can be picked up at any point (permissive
-// starts), so we don't require my own stage to be done — we just look for any
-// part on the job that's currently active or finished at a stage AFTER mine.
-// A 5-part job with 4 parts at 操机 and 1 still at 工程 counts as downstream
-// of 编程 even though 编程 isn't strictly "done": the work has clearly crossed
-// past me. Shipped jobs are excluded so the floor stops worrying about them
-// once they leave the building. (Special-case 出货 itself: there's no further
-// stage, so the third tab pivots to "已出货" = jobIsShipped.)
-function jobIsDownstreamOf(job: Job, stage: Stage): boolean {
-  if (stage === '出货') return jobIsShipped(job)
-  if (jobIsShipped(job)) return false
-  const stageIdx = STAGES.indexOf(stage)
-  for (const c of job.components) {
-    for (let i = stageIdx + 1; i < STAGES.length; i++) {
-      const s = STAGES[i]
-      if (!isStageInRoute(c, s)) continue
-      const eff = effectiveStageState(c, s)
-      if (
-        eff.kind === 'in_progress' ||
-        eff.kind === 'done' ||
-        eff.kind === 'outsourced'
-      ) {
-        return true
-      }
-    }
-  }
-  return false
-}
-
-function jobMatchesDate(j: Job, f: DateFilter, mode: SortMode): boolean {
+function rowMatchesDate(r: MasterRow, f: DateFilter, mode: SortMode): boolean {
   if (f.kind === 'all') return true
-  const d = mode === 'jobNo' ? jobIntakeDate(j) : jobEffectiveDueDate(j)
-  // Jobs without an intake date drop out of a 生产日 range, same as under the
-  // old equality filter.
+  const d = mode === 'jobNo' ? jobIntakeDate(r) : r.effectiveDueDate
+  // Rows without an intake date drop out of a 生产日 range, same as under
+  // the old equality filter.
   if (!d) return false
   return d >= f.start && d <= f.end
 }
 
-function sortJobs(jobs: Job[], mode: SortMode): Job[] {
-  const arr = [...jobs]
+function sortRows(rows: MasterRow[], mode: SortMode): MasterRow[] {
+  const arr = [...rows]
   if (mode === 'jobNo') {
     arr.sort((a, b) => jobNoSortKey(a).localeCompare(jobNoSortKey(b)))
   } else {
-    arr.sort((a, b) =>
-      jobEffectiveDueDate(a).localeCompare(jobEffectiveDueDate(b)),
-    )
+    arr.sort((a, b) => a.effectiveDueDate.localeCompare(b.effectiveDueDate))
   }
   return arr
-}
-
-// Stages where work is *actually happening* for this job, restricted to
-// stages upstream of mine. "Pending" doesn't count — a pending stage isn't
-// "正在" doing anything, just queued. We list only in_progress and
-// outsourced (vendor is actively working it). Empty result is meaningful:
-// the job is upstream-queued but nobody has picked it up yet, so there's
-// nothing accurate to say in a "正在 · X" hint.
-function upstreamActiveStages(job: Job, stage: Stage): Stage[] {
-  const stageIdx = STAGES.indexOf(stage)
-  const active = new Set<Stage>()
-  for (const c of job.components) {
-    for (let i = 0; i < stageIdx; i++) {
-      const s = STAGES[i]
-      if (!isStageInRoute(c, s)) continue
-      const eff = effectiveStageState(c, s)
-      if (eff.kind === 'in_progress' || eff.kind === 'outsourced') {
-        active.add(s)
-      }
-    }
-  }
-  return STAGES.filter((s) => active.has(s))
 }
 
 function formatPickedDate(iso: string): string {
@@ -208,12 +147,12 @@ function isJobNoOnlySearch(role: Role, defaultStage?: Stage): boolean {
 }
 
 export function StationWorkbench({
-  jobs,
+  rows,
   stage,
   role,
   defaultStage,
 }: {
-  jobs: Job[]
+  rows: MasterRow[]
   stage: Stage
   role: Role
   defaultStage?: Stage
@@ -245,21 +184,21 @@ export function StationWorkbench({
     setOptimisticPins((prev) => {
       const next = { ...prev }
       let changed = false
-      for (const j of jobs) {
-        const serverPinned = jobIsPinnedAtStage(j, stage)
-        if (j.id in prev && prev[j.id] === serverPinned) {
-          delete next[j.id]
+      for (const r of rows) {
+        const serverPinned = rowIsPinnedAtStage(r, stage)
+        if (r.id in prev && prev[r.id] === serverPinned) {
+          delete next[r.id]
           changed = true
         }
       }
       return changed ? next : prev
     })
-  }, [jobs, stage])
+  }, [rows, stage])
 
   const effectivePinned = useCallback(
-    (job: Job): boolean => {
-      const o = optimisticPins[job.id]
-      return o === undefined ? jobIsPinnedAtStage(job, stage) : o
+    (row: MasterRow): boolean => {
+      const o = optimisticPins[row.id]
+      return o === undefined ? rowIsPinnedAtStage(row, stage) : o
     },
     [optimisticPins, stage],
   )
@@ -269,21 +208,23 @@ export function StationWorkbench({
   }, [])
 
   // Pipeline: text → date → sort. Partition into the three tabs at the end
-  // so each tab badge reflects the live filter. searchHaystack centralizes
-  // the field set (incl. 零件名 / 材料) so the in-place filter agrees with
-  // the SearchBox popover.
+  // so each tab badge reflects the live filter. row.searchHaystack carries
+  // the precomputed lowercased text (jobNo + customer + product + component
+  // names + materials); for jobNoOnly mode we substring-match the jobNo alone.
   const matched = useMemo(() => {
     const query = q.trim().toLowerCase()
-    let out = jobs
+    let out = rows
     if (query) {
-      out = out.filter((j) => searchHaystack(j, jobNoOnly).includes(query))
+      out = jobNoOnly
+        ? out.filter((r) => r.jobNo.toLowerCase().includes(query))
+        : out.filter((r) => r.searchHaystack.includes(query))
     }
-    out = out.filter((j) => jobMatchesDate(j, dateFilter, sortMode))
-    return sortJobs(out, sortMode)
-  }, [jobs, q, jobNoOnly, dateFilter, sortMode])
+    out = out.filter((r) => rowMatchesDate(r, dateFilter, sortMode))
+    return sortRows(out, sortMode)
+  }, [rows, q, jobNoOnly, dateFilter, sortMode])
 
   const { mineRows, upstreamRows, doneRows } = useMemo(() => {
-    // 下游 is INCLUSIVE — a job appears here if any part has moved past this
+    // 下游 is INCLUSIVE — a row appears here if any part has moved past this
     // stage and the job hasn't shipped, even if other parts of the same job
     // are still on my bench (在此). The worker's question "what of mine is
     // already past?" gets a complete answer regardless of split state.
@@ -291,24 +232,22 @@ export function StationWorkbench({
     // 在此 stays scoped to "parts on my bench right now." 上游 means "work
     // has not yet reached me at all" — exclude both 在此 (mine) and 下游
     // (work has moved past) so 上游 reads as a pure incoming queue.
-    const mine: Job[] = []
-    const downstream: Job[] = []
-    const upstream: Job[] = []
-    for (const j of matched) {
-      const mineHere = jobIsMineAtStage(j, stage)
-      const downstreamHere = jobIsDownstreamOf(j, stage)
-      if (mineHere) mine.push(j)
-      if (downstreamHere) downstream.push(j)
-      if (!mineHere && !downstreamHere && jobIsUpstreamOfStage(j, stage)) {
-        upstream.push(j)
+    const mine: MasterRow[] = []
+    const downstream: MasterRow[] = []
+    const upstream: MasterRow[] = []
+    for (const r of matched) {
+      const mineHere = rowIsMineAtStage(r, stage)
+      const downstreamHere = rowIsDownstreamOf(r, stage)
+      if (mineHere) mine.push(r)
+      if (downstreamHere) downstream.push(r)
+      if (!mineHere && !downstreamHere && rowIsUpstreamOfStage(r, stage)) {
+        upstream.push(r)
       }
     }
-    upstream.sort((a, b) =>
-      jobEffectiveDueDate(a).localeCompare(jobEffectiveDueDate(b)),
-    )
+    upstream.sort((a, b) => a.effectiveDueDate.localeCompare(b.effectiveDueDate))
     downstream.sort((a, b) =>
-      jobMostRecentFinishedAt(b, stage).localeCompare(
-        jobMostRecentFinishedAt(a, stage),
+      rowMostRecentFinishedAt(b, stage).localeCompare(
+        rowMostRecentFinishedAt(a, stage),
       ),
     )
     // Pinned-first float for the actionable tiers (在此 + 上游). Stable
@@ -319,12 +258,12 @@ export function StationWorkbench({
     //
     // Uses the OPTIMISTIC pin state so the row jumps to the top in the
     // same tick as the user's click, before the server round-trip lands.
-    const floatPinned = (arr: Job[]) => {
-      const pinned: Job[] = []
-      const rest: Job[] = []
-      for (const j of arr) {
-        if (effectivePinned(j)) pinned.push(j)
-        else rest.push(j)
+    const floatPinned = (arr: MasterRow[]) => {
+      const pinned: MasterRow[] = []
+      const rest: MasterRow[] = []
+      for (const r of arr) {
+        if (effectivePinned(r)) pinned.push(r)
+        else rest.push(r)
       }
       return [...pinned, ...rest]
     }
@@ -383,17 +322,17 @@ export function StationWorkbench({
         <EmptyState tab={tab} stage={stage} isFiltered={isFiltered} q={q} />
       ) : (
         <ul className="rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] divide-y divide-[var(--color-border)] overflow-hidden">
-          {tabRows.map((job, i) => (
+          {tabRows.map((row, i) => (
             <WorkbenchRow
-              key={job.id}
-              job={job}
+              key={row.id}
+              row={row}
               index={i}
               stage={stage}
               tab={tab}
               q={q}
               showCustomer={showCustomer}
               canPin={canPin}
-              pinned={effectivePinned(job)}
+              pinned={effectivePinned(row)}
               onPinChange={onPinChange}
             />
           ))}
@@ -478,7 +417,7 @@ function TabBar({
 }
 
 function WorkbenchRow({
-  job,
+  row,
   index,
   stage,
   tab,
@@ -488,7 +427,7 @@ function WorkbenchRow({
   pinned,
   onPinChange,
 }: {
-  job: Job
+  row: MasterRow
   index: number
   stage: Stage
   tab: Tab
@@ -498,7 +437,7 @@ function WorkbenchRow({
   pinned: boolean
   onPinChange: (jobId: string, next: boolean) => void
 }) {
-  const effDue = jobEffectiveDueDate(job)
+  const effDue = row.effectiveDueDate
   const ds = dueState(effDue)
   const days = daysFromToday(effDue)
   // Stripe stays purely for flow urgency (overdue / today). The pin's
@@ -511,9 +450,8 @@ function WorkbenchRow({
       : ds === 'today'
         ? 'var(--color-warning)'
         : 'transparent'
-  const detailHref = `/jobs/${job.id}`
+  const detailHref = `/jobs/${row.id}`
 
-  const matched = matchedComponents(job, q)
   // Star is rendered on every tab so the boss can pin from anywhere AND so
   // workers can see a pin even on rows they normally couldn't (e.g. a job
   // upstream that the boss has earmarked for this station). Hidden on the
@@ -524,7 +462,7 @@ function WorkbenchRow({
     <li
       className="flex flex-col"
       style={{
-        viewTransitionName: `row-${job.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+        viewTransitionName: `row-${row.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
         borderLeft: `3px solid ${stripeColor}`,
       }}
     >
@@ -542,15 +480,15 @@ function WorkbenchRow({
                     : `${stage} 已置顶`
               }
               onToggle={(next) => {
-                onPinChange(job.id, next)
-                mutate({ kind: 'pinJobStage', jobId: job.id, stage, pinned: next })
+                onPinChange(row.id, next)
+                mutate({ kind: 'pinJobStage', jobId: row.id, stage, pinned: next })
                   .then(() => {
                     showToast(
-                      next ? `${job.jobNo} · 已置顶` : `${job.jobNo} · 已取消置顶`,
+                      next ? `${row.jobNo} · 已置顶` : `${row.jobNo} · 已取消置顶`,
                     )
                   })
                   .catch(() => {
-                    onPinChange(job.id, !next)
+                    onPinChange(row.id, !next)
                     showToast('置顶失败,请重试', 'neutral')
                   })
               }}
@@ -568,9 +506,9 @@ function WorkbenchRow({
           <div className="w-[150px] shrink-0">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="mono text-[14px] font-medium text-[var(--color-ink)]">
-                <Highlight text={job.jobNo} q={q} />
+                <Highlight text={row.jobNo} q={q} />
               </span>
-              {jobHasOpenOutsource(job) && (
+              {row.hasOpenOutsource && (
                 <span
                   className="mono text-[10px] tracking-wider px-1.5 py-px rounded-sm border border-[var(--color-info)] text-[var(--color-info)] leading-tight"
                   title="此工单有零件正在外协"
@@ -578,14 +516,14 @@ function WorkbenchRow({
                   外协
                 </span>
               )}
-              {job.activeReturn && <ReturnChip ret={job.activeReturn} />}
+              {row.activeReturn && <ReturnChip ret={row.activeReturn} />}
             </div>
           </div>
 
           <div className="flex-1 min-w-0">
             {showCustomer && (
               <p className="text-[14px] font-medium text-[var(--color-ink)] truncate">
-                <Highlight text={job.customer} q={q} />
+                <Highlight text={row.customer} q={q} />
               </p>
             )}
             <p
@@ -595,10 +533,10 @@ function WorkbenchRow({
                   : 'text-[14px] text-[var(--color-ink)] truncate'
               }
             >
-              <Highlight text={job.product} q={q} />
+              <Highlight text={row.product} q={q} />
             </p>
             {tab === 'upstream' && (
-              <UpstreamHint job={job} stage={stage} />
+              <UpstreamHint row={row} stage={stage} />
             )}
           </div>
 
@@ -608,59 +546,47 @@ function WorkbenchRow({
         </Link>
 
         <div className="w-[200px] shrink-0 border-l border-[var(--color-border)]">
-          <ActionCell job={job} stage={stage} tab={tab} />
+          <ActionCell row={row} stage={stage} tab={tab} />
         </div>
 
         <div className="w-[200px] shrink-0 border-l border-[var(--color-border)] flex items-center px-3">
           <JobNotesInline
-            jobId={job.id}
-            value={job.notes}
+            jobId={row.id}
+            value={row.notes}
             placeholder="备注…"
             className={`text-[12px] w-full ${
-              job.notes && job.notes.includes('催')
+              row.notes && row.notes.includes('催')
                 ? 'text-[var(--color-overdue)]'
                 : 'text-[var(--color-ink-2)]'
             }`}
           />
         </div>
       </div>
-      {matched.length > 0 && (
-        // Indented to align with the product column above (star 32 + index
-        // 40 + jobNo column 150 ≈ 222px).
-        <div className="pl-[222px] pr-3 pb-2">
-          <MatchedComponentsStrip
-            job={job}
-            components={matched}
-            q={q}
-            viewerStage={stage}
-          />
-        </div>
-      )}
     </li>
   )
 }
 
-function ActionCell({ job, stage, tab }: { job: Job; stage: Stage; tab: Tab }) {
+function ActionCell({ row, stage, tab }: { row: MasterRow; stage: Stage; tab: Tab }) {
   if (tab === 'mine') {
-    const cnts = jobStageCounts(job, stage)
+    const cnts = rowStageCounts(row, stage)
     const total = cnts.inProgress + cnts.pending + cnts.done
     if (total === 0) {
       // No in-house work for this head at this stage (e.g. fully outsourced).
-      // Defensive — jobIsMineAtStage shouldn't return true in that case, but
+      // Defensive — rowIsMineAtStage shouldn't return true in that case, but
       // we render a calm placeholder rather than an empty cell.
       return (
         <Link
-          href={`/jobs/${job.id}`}
+          href={`/jobs/${row.id}`}
           className="flex h-full w-full items-center justify-center text-[12px] text-[var(--color-ink-3)] hover:bg-[#f7f5ee]"
         >
           <span className="mono">查看 →</span>
         </Link>
       )
     }
-    const timer = jobTimerAtStage(job, stage)
+    const timer = rowTimerAtStage(row, stage)
     return (
       <JobStageActionButton
-        jobId={job.id}
+        jobId={row.id}
         stage={stage}
         inProgress={cnts.inProgress}
         pending={cnts.pending}
@@ -673,9 +599,9 @@ function ActionCell({ job, stage, tab }: { job: Job; stage: Stage; tab: Tab }) {
   if (tab === 'upstream') {
     return (
       <Link
-        href={`/jobs/${job.id}`}
+        href={`/jobs/${row.id}`}
         className="flex h-full w-full items-center justify-center px-3 py-3 hover:bg-[#f7f5ee] transition-colors text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
-        aria-label={`查看 ${job.jobNo}`}
+        aria-label={`查看 ${row.jobNo}`}
       >
         <span className="text-[18px] leading-none">→</span>
       </Link>
@@ -683,7 +609,7 @@ function ActionCell({ job, stage, tab }: { job: Job; stage: Stage; tab: Tab }) {
   }
 
   // done tab
-  const finishedAt = jobMostRecentFinishedAt(job, stage)
+  const finishedAt = rowMostRecentFinishedAt(row, stage)
   const finishedDate = finishedAt
     ? finishedAt.length === 5 // MM-DD legacy
       ? finishedAt
@@ -691,9 +617,9 @@ function ActionCell({ job, stage, tab }: { job: Job; stage: Stage; tab: Tab }) {
     : ''
   return (
     <Link
-      href={`/jobs/${job.id}`}
+      href={`/jobs/${row.id}`}
       className="flex h-full w-full flex-col items-center justify-center gap-1 px-3 py-3 hover:bg-[#f7f5ee] transition-colors"
-      aria-label={`查看已完成 ${job.jobNo}`}
+      aria-label={`查看已完成 ${row.jobNo}`}
     >
       <span className="text-[20px] leading-none font-semibold text-[var(--color-success)]">
         ✓
@@ -707,8 +633,8 @@ function ActionCell({ job, stage, tab }: { job: Job; stage: Stage; tab: Tab }) {
   )
 }
 
-function UpstreamHint({ job, stage }: { job: Job; stage: Stage }) {
-  const active = upstreamActiveStages(job, stage)
+function UpstreamHint({ row, stage }: { row: MasterRow; stage: Stage }) {
+  const active = rowUpstreamActiveStages(row, stage)
   if (active.length === 0) return null
   return (
     <p className="label mt-1 text-[var(--color-ink-3)]">

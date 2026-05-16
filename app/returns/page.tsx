@@ -1,21 +1,29 @@
-import { jobIsShipped, type Job } from '@/lib/data'
-import { getJobs, listClosedReturns } from '@/lib/db'
+import { getJobsComponents, getMasterRows, listClosedReturns } from '@/lib/db'
 import { requirePartRouteEditor } from '@/lib/auth'
 import { TopBar } from '@/app/_ui'
 import { ReturnsView, type ReturnsListJob } from './_view'
+import type { MasterRow } from '@/lib/master'
 
 export const dynamic = 'force-dynamic'
 
 export default async function ReturnsPage() {
   const user = await requirePartRouteEditor()
-  const [jobs, closed] = await Promise.all([getJobs(), listClosedReturns()])
-  // Live = anything that's not stuck in import/parsing — same exclusion the
-  // master grid uses. Returns belong to real shipped work, not drafts.
-  const live = jobs.filter(
-    (j) => j.status !== 'parsing' && j.status !== 'draft' && j.status !== 'failed',
+
+  // Lightweight first pass — same shape the master grid uses. The candidate
+  // set (shipped, no active return) gets its components hydrated separately
+  // so the inline 开退货 composer has the picker rows ready. Open-return
+  // rows don't need components for this view's chrome.
+  const [rows, closed] = await Promise.all([getMasterRows(), listClosedReturns()])
+
+  const live = rows.filter(
+    (r) => r.status !== 'parsing' && r.status !== 'draft' && r.status !== 'failed',
   )
-  const open = live.filter((j) => Boolean(j.activeReturn))
-  const candidates = live.filter((j) => jobIsShipped(j) && !j.activeReturn)
+  const openRows = live.filter((r) => Boolean(r.activeReturn))
+  const candidateRows = live.filter((r) => r.isShipped && !r.activeReturn)
+
+  // Only candidates need components for the composer; open returns are
+  // already attached to specific parts via JobReturn.parts in lib/db.
+  const componentsByJob = await getJobsComponents(candidateRows.map((r) => r.id))
 
   return (
     <div className="flex-1 flex flex-col">
@@ -29,8 +37,8 @@ export default async function ReturnsPage() {
       />
       <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">
         <ReturnsView
-          openJobs={open.map(serializeJob)}
-          candidates={candidates.map(serializeJob)}
+          openJobs={openRows.map((r) => serializeRow(r, undefined))}
+          candidates={candidateRows.map((r) => serializeRow(r, componentsByJob.get(r.id)))}
           closed={closed}
         />
       </main>
@@ -38,30 +46,23 @@ export default async function ReturnsPage() {
   )
 }
 
-function serializeJob(j: Job): ReturnsListJob {
-  // "Ship date" = latest 出货 completedAt across components. Used for sorting
-  // candidates (most recently shipped = freshest in customer's hands = most
-  // likely to come back next).
-  let latest: string | undefined
-  for (const c of j.components) {
-    const st = c.stages['出货']
-    if (st?.completedAt) {
-      if (!latest || st.completedAt > latest) latest = st.completedAt
-    }
-  }
-  // completedAt is MM-DD; for "days since" use today vs MM-DD assuming current
-  // year. Best-effort, since the column is purposefully short to fit in the
-  // row.
-  const days = latest ? daysSinceMMDD(latest) : null
+function serializeRow(
+  r: MasterRow,
+  components?: Array<{ id: string; name: string; qty: number }>,
+): ReturnsListJob {
+  // "Ship date" = the latest 出货 completion date on the row's 出货 cell.
+  // Precomputed by the job_stage_rollup view as latest_completed_at.
+  const shipDate = r.cells['出货']?.latestCompletedAt ?? ''
+  const daysSinceShip = shipDate ? daysSinceMMDD(shipDate) : null
   return {
-    id: j.id,
-    jobNo: j.jobNo,
-    customer: j.customer,
-    product: j.product,
-    shipDate: latest ?? '',
-    daysSinceShip: days,
-    activeReturn: j.activeReturn,
-    components: j.components.map((c) => ({ id: c.id, name: c.name, qty: c.qty })),
+    id: r.id,
+    jobNo: r.jobNo,
+    customer: r.customer,
+    product: r.product,
+    shipDate,
+    daysSinceShip,
+    activeReturn: r.activeReturn,
+    components,
   }
 }
 
@@ -75,4 +76,3 @@ function daysSinceMMDD(mmdd: string): number | null {
   const ms = now.getTime() - candidate.getTime()
   return Math.floor(ms / (1000 * 60 * 60 * 24))
 }
-

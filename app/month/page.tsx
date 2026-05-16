@@ -3,28 +3,20 @@ import {
   blockActivityLabel,
   blockClosedAt,
   formatCny,
-  jobExternalSpend,
+  vendorById,
+  type OpenBlockRow,
+  type Vendor,
 } from '@/lib/data'
 import { today } from '@/lib/today'
-import type { Job, Vendor } from '@/lib/data'
-import { getJobs, getVendors } from '@/lib/db'
+import { getMasterRows, getOutsourceBlockRows, getVendors } from '@/lib/db'
 import { requireCommerce } from '@/lib/auth'
+import type { MasterRow } from '@/lib/master'
 import { TopBar } from '../_ui'
 
 export const dynamic = 'force-dynamic'
 const MONTHS = [
-  '01',
-  '02',
-  '03',
-  '04',
-  '05',
-  '06',
-  '07',
-  '08',
-  '09',
-  '10',
-  '11',
-  '12',
+  '01', '02', '03', '04', '05', '06',
+  '07', '08', '09', '10', '11', '12',
 ]
 
 // Date strings come in two shapes in this codebase: 'YYYY-MM-DD' (forms) and
@@ -45,27 +37,6 @@ function dayOf(dateStr?: string): string {
   return dateStr
 }
 
-// 出货 is always in-house — a job is "shipped" only once every component's
-// in-house 出货 stage is marked done. The shipped-at date is the latest such
-// completion across components. (出货 is guaranteed to be in every part's
-// route by the write path, so we treat a missing row as a data anomaly and
-// skip — never blocks the "shipped" check from progressing.)
-function jobShippedAt(job: Job): string | undefined {
-  let latest: string | undefined
-  for (const c of job.components) {
-    const s = c.stages['出货']
-    if (!s) continue
-    if (s.status === 'done' && s.completedAt) {
-      if (!latest || s.completedAt > latest) latest = s.completedAt
-    }
-  }
-  return latest
-}
-
-function isJobFullyShipped(job: Job): boolean {
-  return job.components.every((c) => c.stages['出货']?.status === 'done')
-}
-
 type ClosedBlock = {
   jobId: string
   jobNo: string
@@ -73,56 +44,43 @@ type ClosedBlock = {
   product: string
   componentName: string
   vendorName: string
-  // What the block was for, in the boss's words (外发氧化, 外发CNC, …).
-  // Pre-derived via blockActivityLabel so the table cell is a plain string.
   activity: string
-  // null when a 加急 block closed before commerce backfilled the quote.
   amountCny: number | null
   closedAt: string
 }
 
 function collectClosedBlocks(
-  jobs: Job[],
+  blocks: OpenBlockRow[],
   vendors: Vendor[],
   month: string,
 ): ClosedBlock[] {
   const out: ClosedBlock[] = []
-  // A block now lists once per job (members already give the per-component
-  // breakdown). Dedupe by block.id so the month list shows one row per
-  // shipment, not per part.
-  const seen = new Set<string>()
-  for (const job of jobs) {
-    for (const c of job.components) {
-      for (const b of c.outsourceBlocks ?? []) {
-        if (seen.has(b.id)) continue
-        const closedAt = blockClosedAt(b)
-        if (!closedAt) continue
-        if (monthOf(closedAt) !== month) continue
-        seen.add(b.id)
-        const v = vendors.find((x) => x.id === b.vendorId)
-        const summary =
-          b.members.length === 1
-            ? b.members[0].name
-            : `${b.members[0]?.name ?? c.name} 等 ${b.members.length} 件`
-        out.push({
-          jobId: job.id,
-          jobNo: job.jobNo,
-          customer: job.customer,
-          product: job.product,
-          componentName: summary,
-          vendorName: v?.name ?? b.vendorId,
-          activity: blockActivityLabel(b),
-          amountCny: b.amountCny,
-          closedAt,
-        })
-      }
-    }
+  for (const r of blocks) {
+    const closedAt = blockClosedAt(r.block)
+    if (!closedAt) continue
+    if (monthOf(closedAt) !== month) continue
+    const v = vendorById(r.block.vendorId, vendors)
+    const summary =
+      r.block.members.length === 1
+        ? r.block.members[0].name
+        : `${r.block.members[0]?.name ?? ''} 等 ${r.block.members.length} 件`
+    out.push({
+      jobId: r.jobId,
+      jobNo: r.jobNo,
+      customer: r.customer,
+      product: r.product,
+      componentName: summary,
+      vendorName: v?.name ?? r.block.vendorId,
+      activity: blockActivityLabel(r.block),
+      amountCny: r.block.amountCny,
+      closedAt,
+    })
   }
   out.sort((a, b) => a.closedAt.localeCompare(b.closedAt))
   return out
 }
 
-type ShippedRow = { job: Job; shippedAt: string }
+type ShippedRow = { row: MasterRow; shippedAt: string }
 
 export default async function MonthSettlement({
   searchParams,
@@ -140,33 +98,40 @@ export default async function MonthSettlement({
   const nextMonth = MONTHS[(monthIdx + 1) % 12]
   const isCurrent = month === currentMonth
 
-  const [jobs, vendors] = await Promise.all([getJobs(), getVendors()])
-  const live = jobs.filter(
-    (j) => j.status !== 'parsing' && j.status !== 'draft' && j.status !== 'failed',
+  const [rows, blockRows, vendors] = await Promise.all([
+    getMasterRows(),
+    getOutsourceBlockRows(),
+    getVendors(),
+  ])
+  const live = rows.filter(
+    (r) => r.status !== 'parsing' && r.status !== 'draft' && r.status !== 'failed',
   )
 
+  // "Shipped this month" = isShipped row whose 出货 latest completion lands
+  // in the picked month. The 出货 cell's latest_completed_at is precomputed
+  // by the rollup view (MM-DD).
   const shipped: ShippedRow[] = live
-    .filter(isJobFullyShipped)
-    .map<ShippedRow | null>((j) => {
-      const at = jobShippedAt(j)
-      return at ? { job: j, shippedAt: at } : null
+    .filter((r) => r.isShipped)
+    .map<ShippedRow | null>((r) => {
+      const at = r.cells['出货']?.latestCompletedAt
+      return at ? { row: r, shippedAt: at } : null
     })
     .filter((r): r is ShippedRow => r !== null)
     .filter((r) => monthOf(r.shippedAt) === month)
     .sort((a, b) => a.shippedAt.localeCompare(b.shippedAt))
 
-  const closed = collectClosedBlocks(live, vendors, month)
+  const closed = collectClosedBlocks(blockRows, vendors, month)
 
   const inProgress = live
-    .filter((j) => !isJobFullyShipped(j))
+    .filter((r) => !r.isShipped)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
 
   // Match the 商务 board pills: per-job summation across all live jobs, with
   // no 出货 gate. Counting revenue only after every component ships makes the
   // top line lag reality by weeks and decouples it from the external spend
   // (which is keyed off block closure date) — so margin came out nonsensical.
-  const revenue = live.reduce((s, j) => s + (j.amountCny ?? 0), 0)
-  const externalSpend = live.reduce((s, j) => s + jobExternalSpend(j), 0)
+  const revenue = live.reduce((s, r) => s + (r.amountCny ?? 0), 0)
+  const externalSpend = live.reduce((s, r) => s + r.externalSpendCny, 0)
   const margin = revenue - externalSpend
   const marginRate = revenue > 0 ? Math.round((margin / revenue) * 100) : 0
 
@@ -233,7 +198,7 @@ export default async function MonthSettlement({
               <tbody>
                 {shipped.map((r) => (
                   <tr
-                    key={r.job.id}
+                    key={r.row.id}
                     className="border-t border-[var(--color-border)] hover:bg-[var(--color-surface)]"
                   >
                     <td className="py-3 pr-6 label tabular-nums w-[80px] text-[var(--color-ink-3)]">
@@ -241,20 +206,20 @@ export default async function MonthSettlement({
                     </td>
                     <td className="py-3 pr-6">
                       <Link
-                        href={`/jobs/${r.job.id}`}
+                        href={`/jobs/${r.row.id}`}
                         className="text-[14px] tabular-nums text-[var(--color-ink)] hover:underline"
                       >
-                        {r.job.jobNo}
+                        {r.row.jobNo}
                       </Link>
                     </td>
                     <td className="py-3 pr-6 text-[14px] text-[var(--color-ink)]">
-                      {r.job.customer}
+                      {r.row.customer}
                     </td>
                     <td className="py-3 pr-6 text-[13px] text-[var(--color-ink-2)]">
-                      {r.job.product}
+                      {r.row.product}
                     </td>
                     <td className="py-3 text-[14px] tabular-nums text-right text-[var(--color-ink)]">
-                      {formatCny(r.job.amountCny)}
+                      {formatCny(r.row.amountCny)}
                     </td>
                   </tr>
                 ))}

@@ -329,8 +329,14 @@ export function ActiveReturnBadge({
 }
 
 // Compact pill for the master grid + /退货 listing. Reuses the same color
-// language as the badge so the visual mapping is consistent.
-export function ReturnChip({ ret }: { ret: JobReturn }) {
+// language as the badge so the visual mapping is consistent. Accepts either
+// the full JobReturn (workbench / job-detail) or the lighter MasterActiveReturn
+// the master grid carries — they share the fields this pill actually reads.
+export function ReturnChip({
+  ret,
+}: {
+  ret: Pick<JobReturn, 'reason' | 'dueDate'> & { reasonText?: string }
+}) {
   return (
     <span
       className="inline-flex items-baseline gap-1 px-1.5 py-px rounded-sm border border-[var(--color-overdue)] text-[var(--color-overdue)] mono text-[10px] tracking-wider leading-tight"

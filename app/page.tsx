@@ -2,15 +2,12 @@ import {
   STAGES,
   dueState,
   formatCny,
-  jobEffectiveDueDate,
-  jobExternalSpend,
-  jobIsShipped,
   type Stage,
 } from '@/lib/data'
 import { today } from '@/lib/today'
-import { getJobs } from '@/lib/db'
+import { getMasterRows, getStageFlowMinutes } from '@/lib/db'
 import { requireUser } from '@/lib/auth'
-import { scrubJob } from '@/lib/dto'
+import { scrubMasterRow } from '@/lib/dto'
 import { Pill, TopBar, type TabKey } from './_ui'
 import { MasterUploader } from './_uploader'
 import { InboxList } from './_inbox_list'
@@ -42,10 +39,20 @@ export default async function MasterBoard(
       ? (rawStage as Stage)
       : undefined
 
-  const rawJobs = await getJobs()
-  const jobs = isProduction
-    ? rawJobs.map((j) => scrubJob(j, user))
-    : rawJobs
+  // 工程 stage filter routes through MasterSheet (overview shape); other
+  // stage filters route through StationWorkbench. Both paths render off the
+  // same lightweight rollup — workbench used to need full Job[] for per-
+  // component drill-down, but the cells carry enough now for its mine /
+  // upstream / downstream / timer logic. Component-level data lives on the
+  // job-detail page (/jobs/[id]) which still loads a single-job snapshot.
+  const useMasterSheet = !stageFilter || stageFilter === '工程'
+
+  const [rawRows, stageFlowMinutes] = await Promise.all([
+    getMasterRows(),
+    getStageFlowMinutes(),
+  ])
+
+  const rows = isProduction ? rawRows.map((r) => scrubMasterRow(r, user)) : rawRows
 
   // 工程 head runs imports too, so they get the same draft/parsing inbox
   // commerce sees. Pure-floor production users (焊接, 喷塑, etc.) still
@@ -53,33 +60,30 @@ export default async function MasterBoard(
   const inbox =
     isProduction && !isEngineering
       ? []
-      : jobs.filter(
-          (j) =>
-            j.status === 'parsing' || j.status === 'draft' || j.status === 'failed',
+      : rows.filter(
+          (r) =>
+            r.status === 'parsing' || r.status === 'draft' || r.status === 'failed',
         )
-  const live = jobs.filter(
-    (j) => j.status !== 'parsing' && j.status !== 'draft' && j.status !== 'failed',
+  // Effective due date is precomputed on the row; just sort by it.
+  const live = rows.filter(
+    (r) => r.status !== 'parsing' && r.status !== 'draft' && r.status !== 'failed',
   )
-  // Effective due date: returning jobs sort by their internal rework deadline,
-  // not the long-past original ship date. Top-bar overdue/今日 pills follow
-  // the same effective date so the counters match what the user sees on the
-  // grid. See jobEffectiveDueDate.
   const sorted = [...live].sort((a, b) =>
-    jobEffectiveDueDate(a).localeCompare(jobEffectiveDueDate(b)),
+    a.effectiveDueDate.localeCompare(b.effectiveDueDate),
   )
   // 在产 / 逾期 / 今日 pills are "needs attention" signals — shipped jobs
   // (every in-route part done at 出货) are off the floor, so they don't
   // count even if their dueDate is in the past. Mirrors the MasterSheet
   // 进行中 / 已出货 split (see _master_filter.tsx liveCount).
-  const inProgress = sorted.filter((j) => !jobIsShipped(j))
+  const inProgress = sorted.filter((r) => !r.isShipped)
   const overdue = inProgress.filter(
-    (j) => dueState(jobEffectiveDueDate(j)) === 'overdue',
+    (r) => dueState(r.effectiveDueDate) === 'overdue',
   ).length
   const dueToday = inProgress.filter(
-    (j) => dueState(jobEffectiveDueDate(j)) === 'today',
+    (r) => dueState(r.effectiveDueDate) === 'today',
   ).length
-  const totalAmount = sorted.reduce((sum, job) => sum + (job.amountCny ?? 0), 0)
-  const totalExternal = sorted.reduce((sum, job) => sum + jobExternalSpend(job), 0)
+  const totalAmount = sorted.reduce((sum, r) => sum + (r.amountCny ?? 0), 0)
+  const totalExternal = sorted.reduce((sum, r) => sum + r.externalSpendCny, 0)
   const totalMargin = totalAmount - totalExternal
 
   // Production users see just their station name as the title — no "工单" /
@@ -117,11 +121,8 @@ export default async function MasterBoard(
       ? (stageFilter as TabKey | undefined) ?? '工程'
       : undefined
     : (stageFilter as TabKey | undefined) ?? '商务'
-  // 工程 stage no longer has a per-stage StationWorkbench surface — the
-  // whole "工程 view" is the holistic 商务-style master sheet, just with
-  // the 工程 column highlighted + actionable. So /?stage=工程 (the URL the
-  // 工程 tab routes to) renders the same MasterSheet as bare /.
-  const useMasterSheet = !stageFilter || stageFilter === '工程'
+  // useMasterSheet was computed above (before the data fetch) so we know
+  // which read shape to load. Workbench-path renders below.
   // "Overview" = commerce hovering over the whole factory (no station picked).
   // The 商务视图 header / MasterUploader / inbox / Legend chrome is for that
   // landing only — when commerce drills into a station they get the same
@@ -204,16 +205,22 @@ export default async function MasterBoard(
               customer: d.customer,
               product: d.product,
               status: d.status as 'parsing' | 'draft' | 'failed',
-              componentCount: d.components.length,
+              componentCount: d.componentCount,
             }))}
           />
         ) : null}
 
-        {summaryStage && <StationSummary jobs={sorted} stage={summaryStage} />}
+        {summaryStage && (
+          <StationSummary
+            rows={sorted}
+            stage={summaryStage}
+            avgMinutes={stageFlowMinutes.get(summaryStage) ?? null}
+          />
+        )}
 
         {useMasterSheet ? (
           <MasterSheet
-            jobs={sorted}
+            rows={sorted}
             role={user.role}
             defaultStage={user.defaultStage}
             stageFilter={stageFilter}
@@ -232,7 +239,7 @@ export default async function MasterBoard(
           />
         ) : (
           <StationWorkbench
-            jobs={sorted}
+            rows={sorted}
             stage={stageFilter!}
             role={user.role}
             defaultStage={user.defaultStage}

@@ -1,5 +1,6 @@
 import type { Job, OutsourceBlock, Vendor } from './data'
 import type { StationItem, StationJob } from './db'
+import type { MasterRow } from './master'
 import type { Scope } from './auth'
 import { canSeeCustomerData, canSeeMoney, canSeeVendor } from './auth'
 
@@ -80,4 +81,20 @@ export function scrubVendor(v: Vendor, scope: Scope): Vendor {
 export function scrubVendors(vendors: Vendor[], scope: Scope): Vendor[] {
   if (canSeeVendor(scope)) return vendors
   return vendors.map((v) => scrubVendor(v, scope))
+}
+
+// MasterRow has fewer leakable fields than Job since the rollup view does
+// not carry vendor names, customer contact, contractNo, etc. — only the
+// money + customer-name pair survive from scrubJob's concerns.
+export function scrubMasterRow(row: MasterRow, scope: Scope): MasterRow {
+  const customerOk = canSeeCustomerData(scope)
+  const moneyOk = canSeeMoney(scope)
+  if (customerOk && moneyOk) return row
+  return {
+    ...row,
+    customer: customerOk ? row.customer : '',
+    amountCny: moneyOk ? row.amountCny : undefined,
+    externalSpendCny: moneyOk ? row.externalSpendCny : 0,
+    marginCny: moneyOk ? row.marginCny : undefined,
+  }
 }

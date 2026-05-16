@@ -1,5 +1,4 @@
 import {
-  allOutsourceBlocks,
   blockClosedAt,
   daysFromToday,
   formatCny,
@@ -8,7 +7,7 @@ import {
   type OpenBlockRow,
   type Vendor,
 } from '@/lib/data'
-import { getJobs, getVendors } from '@/lib/db'
+import { getOutsourceBlockRows, getVendors } from '@/lib/db'
 import { requireOutsourceManager } from '@/lib/auth'
 import { Pill, TopBar } from '@/app/_ui'
 import { BlockRow, VendorAddressEditor } from '@/app/_routing'
@@ -17,8 +16,7 @@ export const dynamic = 'force-dynamic'
 
 export default async function OutsourcePage() {
   const user = await requireOutsourceManager()
-  const [jobs, vendors] = await Promise.all([getJobs(), getVendors()])
-  const all = allOutsourceBlocks(jobs)
+  const [all, vendors] = await Promise.all([getOutsourceBlockRows(), getVendors()])
   const open = all.filter((r) => !isBlockClosed(r.block))
   const archived = all.filter((r) => isBlockClosed(r.block))
 

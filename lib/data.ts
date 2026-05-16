@@ -533,13 +533,13 @@ export function parseJobNo(jobNo: string | undefined): JobNoParts | null {
   return { intakeDate: iso, seq }
 }
 
-export function jobIntakeDate(job: Job): string | undefined {
+export function jobIntakeDate(job: { jobNo: string | undefined } | Pick<Job, 'jobNo'>): string | undefined {
   return parseJobNo(job.jobNo)?.intakeDate
 }
 
 // Sort key for 按工号 mode. Parsed jobs lex-sort by (intakeDate desc, seq desc)
 // — newest at top. Unparseable 工号 sink to the bottom, preserving caller order.
-export function jobNoSortKey(job: Job): string {
+export function jobNoSortKey(job: { jobNo: string | undefined } | Pick<Job, 'jobNo'>): string {
   const p = parseJobNo(job.jobNo)
   if (!p) return '￿' // ensures unparseable rows sink below any parsed key
   // Negate by subtracting from a high constant so DESC sorts naturally as ASC

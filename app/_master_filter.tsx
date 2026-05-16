@@ -7,24 +7,22 @@ import {
   daysFromToday,
   dueState,
   formatCny,
-  jobEffectiveDueDate,
-  jobExternalSpend,
-  jobHasOpenOutsource,
   jobIntakeDate,
-  jobIsDoneAtStage,
-  jobIsMineAtStage,
-  jobIsPinned,
-  jobIsShipped,
-  jobIsUpstreamOfStage,
-  jobMargin,
-  jobMostRecentFinishedAt,
   jobNoSortKey,
-  jobStageCounts,
-  jobTimerAtStage,
-  rollupStage,
-  type Job,
   type Stage,
 } from '@/lib/data'
+import {
+  rowIsDoneAtStage,
+  rowIsMineAtStage,
+  rowIsPinned,
+  rowIsShipped,
+  rowIsUpstreamOfStage,
+  rowMostRecentFinishedAt,
+  rowRollupStage,
+  rowStageCounts,
+  rowTimerAtStage,
+  type MasterRow,
+} from '@/lib/master'
 import { DueCell, RollupCell, StageHeader } from './_ui'
 import { JobStageActionButton } from './_cell'
 import { JobNotesInline } from './_editable'
@@ -32,12 +30,7 @@ import { PinStar } from './_pin_star'
 import { ReturnChip } from './_returns'
 import { mutate } from '@/lib/mutate'
 import { showToast } from './_toast'
-import {
-  MatchedComponentsStrip,
-  SearchInput,
-  matchedComponents,
-  searchHaystack,
-} from './_search'
+import { SearchInput } from './_search'
 
 // Role mirrored locally so this client component doesn't import lib/auth
 // (which is server-only).
@@ -75,23 +68,21 @@ type DateFilter =
 // daily-attention set); 已出货 surfaces them for finance / archive lookups.
 type ShipFilter = 'live' | 'shipped'
 
-function jobMatchesDate(j: Job, f: DateFilter, mode: SortMode): boolean {
+function rowMatchesDate(r: MasterRow, f: DateFilter, mode: SortMode): boolean {
   if (f.kind === 'all') return true
-  const d = mode === 'jobNo' ? jobIntakeDate(j) : jobEffectiveDueDate(j)
-  // Jobs without an intake date (legacy / hand-entered 工号) drop out of a
+  const d = mode === 'jobNo' ? jobIntakeDate(r) : r.effectiveDueDate
+  // Rows without an intake date (legacy / hand-entered 工号) drop out of a
   // 生产日 range, same as they did under the old equality filter.
   if (!d) return false
   return d >= f.start && d <= f.end
 }
 
-function sortJobs(jobs: Job[], mode: SortMode): Job[] {
-  const arr = [...jobs]
+function sortRows(rows: MasterRow[], mode: SortMode): MasterRow[] {
+  const arr = [...rows]
   if (mode === 'jobNo') {
     arr.sort((a, b) => jobNoSortKey(a).localeCompare(jobNoSortKey(b)))
   } else {
-    arr.sort((a, b) =>
-      jobEffectiveDueDate(a).localeCompare(jobEffectiveDueDate(b)),
-    )
+    arr.sort((a, b) => a.effectiveDueDate.localeCompare(b.effectiveDueDate))
   }
   return arr
 }
@@ -155,13 +146,13 @@ function matchingPreset(f: DateFilter): PresetKey | null {
 }
 
 export function MasterSheet({
-  jobs,
+  rows,
   role,
   defaultStage,
   stageFilter,
   actionableHighlight = false,
 }: {
-  jobs: Job[]
+  rows: MasterRow[]
   role: Role
   /** The user's home station (undefined for commerce). */
   defaultStage?: Stage
@@ -199,36 +190,36 @@ export function MasterSheet({
     setOptimisticRowPins((prev) => {
       const next = { ...prev }
       let changed = false
-      for (const j of jobs) {
-        const serverPinned = jobIsPinned(j)
-        if (j.id in prev && prev[j.id] === serverPinned) {
-          delete next[j.id]
+      for (const r of rows) {
+        const serverPinned = rowIsPinned(r)
+        if (r.id in prev && prev[r.id] === serverPinned) {
+          delete next[r.id]
           changed = true
         }
       }
       return changed ? next : prev
     })
-  }, [jobs])
+  }, [rows])
 
   const effectiveRowPinned = useCallback(
-    (job: Job): boolean => {
-      const o = optimisticRowPins[job.id]
-      return o === undefined ? jobIsPinned(job) : o
+    (row: MasterRow): boolean => {
+      const o = optimisticRowPins[row.id]
+      return o === undefined ? rowIsPinned(row) : o
     },
     [optimisticRowPins],
   )
 
   const onRowPinToggle = useCallback(
-    (job: Job, next: boolean) => {
-      setOptimisticRowPins((prev) => ({ ...prev, [job.id]: next }))
-      mutate({ kind: 'pinJob', jobId: job.id, pinned: next })
+    (row: MasterRow, next: boolean) => {
+      setOptimisticRowPins((prev) => ({ ...prev, [row.id]: next }))
+      mutate({ kind: 'pinJob', jobId: row.id, pinned: next })
         .then(() => {
           showToast(
-            next ? `${job.jobNo} · 已置顶` : `${job.jobNo} · 已取消置顶`,
+            next ? `${row.jobNo} · 已置顶` : `${row.jobNo} · 已取消置顶`,
           )
         })
         .catch(() => {
-          setOptimisticRowPins((prev) => ({ ...prev, [job.id]: !next }))
+          setOptimisticRowPins((prev) => ({ ...prev, [row.id]: !next }))
           showToast('置顶失败,请重试', 'neutral')
         })
     },
@@ -245,21 +236,21 @@ export function MasterSheet({
   // every downstream call site.
   const showShipTabs = treatAsOverview
 
-  // Counts on the segmented control: total jobs in each scope BEFORE search /
+  // Counts on the segmented control: total rows in each scope BEFORE search /
   // sort / date narrowing. Apple-style segmented controls show stable counts;
   // the down-stream count chip already reflects the live filter.
   const liveCount = useMemo(
-    () => jobs.reduce((n, j) => (jobIsShipped(j) ? n : n + 1), 0),
-    [jobs],
+    () => rows.reduce((n, r) => (rowIsShipped(r) ? n : n + 1), 0),
+    [rows],
   )
-  const shippedCount = jobs.length - liveCount
+  const shippedCount = rows.length - liveCount
 
-  const scopedJobs = useMemo(() => {
-    if (!showShipTabs) return jobs
+  const scopedRows = useMemo(() => {
+    if (!showShipTabs) return rows
     return shipFilter === 'live'
-      ? jobs.filter((j) => !jobIsShipped(j))
-      : jobs.filter((j) => jobIsShipped(j))
-  }, [jobs, showShipTabs, shipFilter])
+      ? rows.filter((r) => !rowIsShipped(r))
+      : rows.filter((r) => rowIsShipped(r))
+  }, [rows, showShipTabs, shipFilter])
   // Highlight the user's home station for production; otherwise highlight the
   // URL stage (so commerce navigating to a station sees the same emphasis).
   const highlightStage: Stage | undefined = defaultStage ?? stageFilter
@@ -276,18 +267,21 @@ export function MasterSheet({
 
   // Pipeline: text → sort by mode → date filter → partition. The parent
   // pre-sorts by due date but we re-sort here so the toggle is purely local.
-  // For non-出货 production users we restrict customer + product text from the
-  // haystack (their privacy line); 零件名 / 材料 stay searchable for everyone
-  // — production workers search their own parts. searchHaystack centralizes
-  // this rule with the popover.
+  // For non-出货 production users we restrict the searchable text to jobNo
+  // only — customer + product are PII for them. The view-built haystack already
+  // includes everything; for the jobNoOnly path we substring-match against
+  // jobNo alone instead.
   const matchedByText = useMemo(() => {
     const query = q.trim().toLowerCase()
-    if (!query) return scopedJobs
-    return scopedJobs.filter((j) => searchHaystack(j, jobNoOnly).includes(query))
-  }, [scopedJobs, q, jobNoOnly])
+    if (!query) return scopedRows
+    if (jobNoOnly) {
+      return scopedRows.filter((r) => r.jobNo.toLowerCase().includes(query))
+    }
+    return scopedRows.filter((r) => r.searchHaystack.includes(query))
+  }, [scopedRows, q, jobNoOnly])
 
   const sortedByMode = useMemo(
-    () => sortJobs(matchedByText, sortMode),
+    () => sortRows(matchedByText, sortMode),
     [matchedByText, sortMode],
   )
 
@@ -313,8 +307,8 @@ export function MasterSheet({
   // -finished) — those tiers are about flow signals, not the user's chosen
   // ordering, so the toggle only affects the actionable top tier.
   const { topRows, upstreamRows, doneRows } = useMemo(() => {
-    const dateFiltered = sortedByMode.filter((j) =>
-      jobMatchesDate(j, dateFilter, sortMode),
+    const dateFiltered = sortedByMode.filter((r) =>
+      rowMatchesDate(r, dateFilter, sortMode),
     )
     // Float boss-pinned rows to the very top of the master grid. Uses the
     // OPTIMISTIC pin state so the row jumps the moment the user clicks the
@@ -322,12 +316,12 @@ export function MasterSheet({
     // most recently starred is first (pinned_at desc, optimistic pins win
     // since their pinnedAt is '' which sorts after — stable input order
     // keeps the just-clicked row at the top).
-    const floatRowPinned = (arr: Job[]) => {
-      const pinned: Job[] = []
-      const rest: Job[] = []
-      for (const j of arr) {
-        if (effectiveRowPinned(j)) pinned.push(j)
-        else rest.push(j)
+    const floatRowPinned = (arr: MasterRow[]) => {
+      const pinned: MasterRow[] = []
+      const rest: MasterRow[] = []
+      for (const r of arr) {
+        if (effectiveRowPinned(r)) pinned.push(r)
+        else rest.push(r)
       }
       pinned.sort((a, b) => {
         const ta = a.pinnedAt ?? ''
@@ -341,34 +335,32 @@ export function MasterSheet({
     if (!isStationView || !stageFilter) {
       return {
         topRows: floatRowPinned(dateFiltered),
-        upstreamRows: [] as Job[],
-        doneRows: [] as Job[],
+        upstreamRows: [] as MasterRow[],
+        doneRows: [] as MasterRow[],
       }
     }
     if (q.trim().length > 0) {
       return {
         topRows: floatRowPinned(dateFiltered),
-        upstreamRows: [] as Job[],
-        doneRows: [] as Job[],
+        upstreamRows: [] as MasterRow[],
+        doneRows: [] as MasterRow[],
       }
     }
-    const top = dateFiltered.filter((j) => jobIsMineAtStage(j, stageFilter))
+    const top = dateFiltered.filter((r) => rowIsMineAtStage(r, stageFilter))
     const upstream = dateFiltered
       .filter(
-        (j) =>
-          !jobIsMineAtStage(j, stageFilter) &&
-          !jobIsDoneAtStage(j, stageFilter) &&
-          jobIsUpstreamOfStage(j, stageFilter),
+        (r) =>
+          !rowIsMineAtStage(r, stageFilter) &&
+          !rowIsDoneAtStage(r, stageFilter) &&
+          rowIsUpstreamOfStage(r, stageFilter),
       )
-      .sort((a, b) =>
-        jobEffectiveDueDate(a).localeCompare(jobEffectiveDueDate(b)),
-      )
+      .sort((a, b) => a.effectiveDueDate.localeCompare(b.effectiveDueDate))
       .slice(0, 20)
     const done = dateFiltered
-      .filter((j) => jobIsDoneAtStage(j, stageFilter))
+      .filter((r) => rowIsDoneAtStage(r, stageFilter))
       .sort((a, b) =>
-        jobMostRecentFinishedAt(b, stageFilter).localeCompare(
-          jobMostRecentFinishedAt(a, stageFilter),
+        rowMostRecentFinishedAt(b, stageFilter).localeCompare(
+          rowMostRecentFinishedAt(a, stageFilter),
         ),
       )
       .slice(0, 20)
@@ -426,7 +418,7 @@ export function MasterSheet({
           >
             {filteredCount}
           </span>
-          {isFiltered ? `/ ${scopedJobs.length}` : ''}
+          {isFiltered ? `/ ${scopedRows.length}` : ''}
         </span>
       </div>
 
@@ -511,10 +503,10 @@ export function MasterSheet({
             </tr>
           </thead>
           <tbody>
-            {visibleTopRows.map((job, i) => (
+            {visibleTopRows.map((row, i) => (
               <JobRow
-                key={job.id}
-                job={job}
+                key={row.id}
+                row={row}
                 index={i}
                 q={q}
                 isProduction={isProduction}
@@ -523,7 +515,7 @@ export function MasterSheet({
                 highlightIsActionable={highlightIsActionable}
                 tier="mine"
                 canPin={canPin}
-                rowPinned={effectiveRowPinned(job)}
+                rowPinned={effectiveRowPinned(row)}
                 onRowPinToggle={onRowPinToggle}
               />
             ))}
@@ -569,10 +561,10 @@ export function MasterSheet({
                     </div>
                   </td>
                 </tr>
-                {upstreamRows.map((job, i) => (
+                {upstreamRows.map((row, i) => (
                   <JobRow
-                    key={job.id}
-                    job={job}
+                    key={row.id}
+                    row={row}
                     index={topRows.length + i}
                     q={q}
                     isProduction={isProduction}
@@ -581,7 +573,7 @@ export function MasterSheet({
                     highlightIsActionable={highlightIsActionable}
                     tier="upstream"
                     canPin={canPin}
-                    rowPinned={effectiveRowPinned(job)}
+                    rowPinned={effectiveRowPinned(row)}
                     onRowPinToggle={onRowPinToggle}
                   />
                 ))}
@@ -604,10 +596,10 @@ export function MasterSheet({
                     </div>
                   </td>
                 </tr>
-                {doneRows.map((job, i) => (
+                {doneRows.map((row, i) => (
                   <JobRow
-                    key={job.id}
-                    job={job}
+                    key={row.id}
+                    row={row}
                     index={topRows.length + upstreamRows.length + i}
                     q={q}
                     isProduction={isProduction}
@@ -616,7 +608,7 @@ export function MasterSheet({
                     highlightIsActionable={highlightIsActionable}
                     tier="done"
                     canPin={canPin}
-                    rowPinned={effectiveRowPinned(job)}
+                    rowPinned={effectiveRowPinned(row)}
                     onRowPinToggle={onRowPinToggle}
                   />
                 ))}
@@ -717,7 +709,7 @@ function ShipFilterToggle({
 }
 
 function JobRow({
-  job,
+  row,
   index,
   q,
   isProduction,
@@ -729,7 +721,7 @@ function JobRow({
   rowPinned,
   onRowPinToggle,
 }: {
-  job: Job
+  row: MasterRow
   index: number
   q: string
   isProduction: boolean
@@ -749,7 +741,7 @@ function JobRow({
   canPin: boolean
   /** Row-level boss-pin state (server + optimistic overlay from parent). */
   rowPinned: boolean
-  onRowPinToggle: (job: Job, next: boolean) => void
+  onRowPinToggle: (row: MasterRow, next: boolean) => void
 }) {
   // The head's own column is NEVER a navigation Link — clicks here are
   // stage-action gestures. Three flavors:
@@ -764,13 +756,14 @@ function JobRow({
   // the row stays drillable from any non-head column.
   const isMineHere =
     highlightIsActionable && highlightStage
-      ? jobIsMineAtStage(job, highlightStage)
+      ? rowIsMineAtStage(row, highlightStage)
       : false
   const timer =
-    isMineHere && highlightStage ? jobTimerAtStage(job, highlightStage) : null
-  // Returns override the master-grid color/sort while open — see
-  // jobEffectiveDueDate. Original ship date stays on the job-detail header.
-  const effDue = jobEffectiveDueDate(job)
+    isMineHere && highlightStage ? rowTimerAtStage(row, highlightStage) : null
+  // Returns override the master-grid color/sort while open — effective due
+  // date is precomputed on the row. Original ship date stays on the
+  // job-detail header.
+  const effDue = row.effectiveDueDate
   const ds = dueState(effDue)
   const days = daysFromToday(effDue)
   const stripeColor =
@@ -779,37 +772,31 @@ function JobRow({
       : ds === 'today'
         ? 'var(--color-warning)'
         : 'transparent'
-  const detailHref = `/jobs/${job.id}`
+  const detailHref = `/jobs/${row.id}`
   const rowOpacity =
     tier === 'mine' ? '' : tier === 'upstream' ? 'opacity-50' : 'opacity-40'
   return (
     <tr
       style={{
-        viewTransitionName: `row-${job.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+        viewTransitionName: `row-${row.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
       }}
       className={`group/row align-middle ${rowOpacity}`}
     >
       <td className="px-0.5 py-3 align-middle text-center">
         {(canPin || rowPinned) && (
-          <span
-            className={`inline-flex transition-opacity duration-150 ${
-              rowPinned
-                ? 'opacity-100'
-                : 'opacity-0 group-hover/row:opacity-100 focus-within:opacity-100'
-            }`}
-          >
+          <span className="inline-flex">
             <PinStar
               pinned={rowPinned}
               canPin={canPin}
               size={15}
               label={
                 rowPinned
-                  ? `取消置顶 ${job.jobNo}`
+                  ? `取消置顶 ${row.jobNo}`
                   : canPin
-                    ? `置顶 ${job.jobNo}`
-                    : `${job.jobNo} 已置顶`
+                    ? `置顶 ${row.jobNo}`
+                    : `${row.jobNo} 已置顶`
               }
-              onToggle={(next) => onRowPinToggle(job, next)}
+              onToggle={(next) => onRowPinToggle(row, next)}
             />
           </span>
         )}
@@ -823,9 +810,9 @@ function JobRow({
             href={detailHref}
             className="mono text-[13px] font-medium text-[var(--color-ink)] hover:underline underline-offset-4 decoration-[var(--color-ink-3)]"
           >
-            <Highlight text={job.jobNo} q={q} />
+            <Highlight text={row.jobNo} q={q} />
           </Link>
-          {jobHasOpenOutsource(job) && (
+          {row.hasOpenOutsource && (
             <span
               className="mono text-[10px] tracking-wider px-1.5 py-px rounded-sm border border-[var(--color-info)] text-[var(--color-info)] leading-tight"
               title="此工单有零件正在外协"
@@ -834,14 +821,14 @@ function JobRow({
               外协
             </span>
           )}
-          {job.activeReturn && <ReturnChip ret={job.activeReturn} />}
+          {row.activeReturn && <ReturnChip ret={row.activeReturn} />}
         </div>
       </td>
       <td className="px-4 py-3">
         <div className="flex flex-col leading-tight">
           {!isProduction && (
             <span className="text-[13px] font-medium text-[var(--color-ink)]">
-              <Highlight text={job.customer} q={q} />
+              <Highlight text={row.customer} q={q} />
             </span>
           )}
           <span
@@ -851,14 +838,10 @@ function JobRow({
                 : 'label mt-0.5 normal-case tracking-normal text-[11px] text-[var(--color-ink-3)]'
             }
           >
-            <Highlight text={job.product} q={q} />
+            <Highlight text={row.product} q={q} />
           </span>
-          <MatchedComponentsStrip
-            job={job}
-            components={matchedComponents(job, q)}
-            q={q}
-            viewerStage={highlightStage}
-          />
+          {/* MatchedComponentsStrip dropped on the lite shape — components
+              are not loaded on the master read. Job-detail still shows them. */}
         </div>
       </td>
       {showMoney && (
@@ -866,26 +849,21 @@ function JobRow({
           <div className="flex flex-col items-end leading-tight">
             <span
               className={
-                typeof job.amountCny === 'number'
+                typeof row.amountCny === 'number'
                   ? 'mono text-[13px] font-medium text-[var(--color-ink)]'
                   : 'mono text-[13px] text-[var(--color-ink-4)]'
               }
             >
-              {formatCny(job.amountCny)}
+              {formatCny(row.amountCny)}
             </span>
-            {(() => {
-              const ext = jobExternalSpend(job)
-              if (ext === 0) return null
-              const margin = jobMargin(job)
-              return (
-                <span className="mono text-[10px] text-[var(--color-ink-3)] mt-0.5">
-                  外 {formatCny(ext)}
-                  {typeof margin === 'number'
-                    ? ` · 利 ${formatCny(margin)}`
-                    : ''}
-                </span>
-              )
-            })()}
+            {row.externalSpendCny !== 0 && (
+              <span className="mono text-[10px] text-[var(--color-ink-3)] mt-0.5">
+                外 {formatCny(row.externalSpendCny)}
+                {typeof row.marginCny === 'number'
+                  ? ` · 利 ${formatCny(row.marginCny)}`
+                  : ''}
+              </span>
+            )}
           </div>
         </td>
       )}
@@ -919,8 +897,8 @@ function JobRow({
         // brown and navigated to /jobs/[id] instead of giving the head a way
         // to interact with the stage. The head's column owns stage actions.
         if (isHighlighted && highlightIsActionable) {
-          const rollup = rollupStage(job, stage)
-          const cnts = jobStageCounts(job, stage)
+          const rollup = rowRollupStage(row, stage)
+          const cnts = rowStageCounts(row, stage)
           const totalCounted = cnts.inProgress + cnts.pending + cnts.done
           if (totalCounted === 0) {
             return (
@@ -932,7 +910,7 @@ function JobRow({
           return (
             <td key={stage} className="p-0 h-[78px]" style={cellBgStyle}>
               <JobStageActionButton
-                jobId={job.id}
+                jobId={row.id}
                 stage={stage}
                 inProgress={cnts.inProgress}
                 pending={cnts.pending}
@@ -948,9 +926,9 @@ function JobRow({
             <Link
               href={detailHref}
               className={`block h-full w-full ${hoverCls} transition-colors`}
-              aria-label={`${job.jobNo} · ${stage}`}
+              aria-label={`${row.jobNo} · ${stage}`}
             >
-              <RollupCell rollup={rollupStage(job, stage)} />
+              <RollupCell rollup={rowRollupStage(row, stage)} />
             </Link>
           </td>
         )
@@ -962,11 +940,11 @@ function JobRow({
         onClick={(e) => e.stopPropagation()}
       >
         <JobNotesInline
-          jobId={job.id}
-          value={job.notes}
+          jobId={row.id}
+          value={row.notes}
           placeholder="备注…"
           className={`text-[12px] ${
-            job.notes && job.notes.includes('催')
+            row.notes && row.notes.includes('催')
               ? 'text-[var(--color-overdue)]'
               : 'text-[var(--color-ink-2)]'
           }`}
