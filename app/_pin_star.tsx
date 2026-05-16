@@ -113,8 +113,8 @@ function StarGlyph({ filled, size }: { filled: boolean; size: number }) {
       height={size}
       viewBox="0 0 24 24"
       fill={filled ? 'currentColor' : 'none'}
-      stroke={filled ? 'none' : 'currentColor'}
-      strokeWidth={filled ? 0 : 1.6}
+      stroke="currentColor"
+      strokeWidth={1.6}
       strokeLinejoin="round"
       aria-hidden="true"
     >
