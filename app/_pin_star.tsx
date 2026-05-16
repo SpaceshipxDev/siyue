@@ -68,7 +68,7 @@ export function PinStar({
       className={`pin-star group/star inline-flex items-center justify-center rounded-full transition-colors ${
         pinned
           ? 'text-[var(--color-pin,#facc15)]'
-          : 'text-[var(--color-ink-4)] hover:text-[var(--color-pin,#facc15)]'
+          : 'text-[var(--color-ink-3)] hover:text-[var(--color-pin,#facc15)]'
       }`}
       style={{ width: size + 6, height: size + 6 }}
     >
@@ -106,8 +106,6 @@ export function PinStar({
   )
 }
 
-// Single 5-point star path. Filled state always keeps a thin darker stroke
-// so the yellow doesn't visually disappear on the warm-paper background.
 function StarGlyph({ filled, size }: { filled: boolean; size: number }) {
   return (
     <svg
@@ -115,8 +113,8 @@ function StarGlyph({ filled, size }: { filled: boolean; size: number }) {
       height={size}
       viewBox="0 0 24 24"
       fill={filled ? 'currentColor' : 'none'}
-      stroke={filled ? 'var(--color-pin-stroke, #b58705)' : 'currentColor'}
-      strokeWidth={filled ? 1.1 : 1.6}
+      stroke={filled ? 'none' : 'currentColor'}
+      strokeWidth={filled ? 0 : 1.6}
       strokeLinejoin="round"
       aria-hidden="true"
     >
