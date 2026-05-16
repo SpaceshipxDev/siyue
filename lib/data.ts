@@ -387,6 +387,30 @@ export type Job = {
   // Audit log of every 出货单 printed for this job. Newest last. Empty (not
   // undefined) when nothing has shipped yet.
   shipments: Shipment[]
+  // Stages where the boss has pinned this job — surfaces at the top of that
+  // station's workbench, above the default 交期 sort. Per-station mark; a
+  // job can be pinned at 编程 and 操机 independently. Empty/undefined when
+  // nothing is pinned. See lib/data.ts#jobIsPinnedAtStage.
+  pinnedStages?: Stage[]
+  // Row-level boss pin. Set when 商务/工程 starred this whole row on the
+  // master grid — distinct from pinnedStages (which is per-station for the
+  // floor). Drives the float-to-top sort on the master grid only; station
+  // workbenches ignore it. ISO timestamp of the most recent pin so within
+  // the pinned bucket the most recent click rises to the top.
+  pinnedAt?: string
+  pinnedBy?: string
+}
+
+// True when the boss has starred this job for prioritization at this station.
+export function jobIsPinnedAtStage(job: Job, stage: Stage): boolean {
+  const arr = job.pinnedStages
+  if (!arr || arr.length === 0) return false
+  return arr.includes(stage)
+}
+
+// True when 商务/工程 starred this row on the master grid.
+export function jobIsPinned(job: Job): boolean {
+  return Boolean(job.pinnedAt)
 }
 
 // === Shipment helpers ===

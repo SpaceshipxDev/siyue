@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   STAGES,
@@ -12,6 +12,7 @@ import {
   jobHasOpenOutsource,
   jobIntakeDate,
   jobIsMineAtStage,
+  jobIsPinnedAtStage,
   jobIsShipped,
   jobIsUpstreamOfStage,
   jobMostRecentFinishedAt,
@@ -24,7 +25,10 @@ import {
 import { DueCell } from './_ui'
 import { JobStageActionButton } from './_cell'
 import { JobNotesInline } from './_editable'
+import { PinStar } from './_pin_star'
 import { ReturnChip } from './_returns'
+import { mutate } from '@/lib/mutate'
+import { showToast } from './_toast'
 import {
   MatchedComponentsStrip,
   SearchInput,
@@ -221,6 +225,48 @@ export function StationWorkbench({
 
   const showCustomer = role === 'commerce'
   const jobNoOnly = isJobNoOnlySearch(role, defaultStage)
+  // Pinning is the boss's daily 排产 surface. Commerce always; 工程 head
+  // also (they run the route + handoff for upstream stages so the pin is
+  // theirs to set too). Other production stations see the filled star
+  // when the boss has pinned a row but can't toggle it themselves.
+  const canPin = role === 'commerce' || defaultStage === '工程'
+
+  // Optimistic pin overrides keyed by jobId. When the user stars a row, we
+  // set this entry IMMEDIATELY (synchronously with the click) so the
+  // `floatPinned` re-sort below moves the row to the top in the same React
+  // tick — without this the row only jumps once the server round-trips and
+  // the page re-renders. Entries clear in the effect below as soon as the
+  // server-pushed `jobs` prop catches up to the optimistic value.
+  const [optimisticPins, setOptimisticPins] = useState<Record<string, boolean>>(
+    {},
+  )
+
+  useEffect(() => {
+    setOptimisticPins((prev) => {
+      const next = { ...prev }
+      let changed = false
+      for (const j of jobs) {
+        const serverPinned = jobIsPinnedAtStage(j, stage)
+        if (j.id in prev && prev[j.id] === serverPinned) {
+          delete next[j.id]
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [jobs, stage])
+
+  const effectivePinned = useCallback(
+    (job: Job): boolean => {
+      const o = optimisticPins[job.id]
+      return o === undefined ? jobIsPinnedAtStage(job, stage) : o
+    },
+    [optimisticPins, stage],
+  )
+
+  const onPinChange = useCallback((jobId: string, next: boolean) => {
+    setOptimisticPins((prev) => ({ ...prev, [jobId]: next }))
+  }, [])
 
   // Pipeline: text → date → sort. Partition into the three tabs at the end
   // so each tab badge reflects the live filter. searchHaystack centralizes
@@ -265,12 +311,29 @@ export function StationWorkbench({
         jobMostRecentFinishedAt(a, stage),
       ),
     )
+    // Pinned-first float for the actionable tiers (在此 + 上游). Stable
+    // sort: within pinned the existing order survives (due-date), within
+    // unpinned same — so unstarring a row drops it straight back to where
+    // it would otherwise sit. doneRows stays untouched; no point pinning
+    // work that's already moved past this station.
+    //
+    // Uses the OPTIMISTIC pin state so the row jumps to the top in the
+    // same tick as the user's click, before the server round-trip lands.
+    const floatPinned = (arr: Job[]) => {
+      const pinned: Job[] = []
+      const rest: Job[] = []
+      for (const j of arr) {
+        if (effectivePinned(j)) pinned.push(j)
+        else rest.push(j)
+      }
+      return [...pinned, ...rest]
+    }
     return {
-      mineRows: mine,
-      upstreamRows: upstream,
+      mineRows: floatPinned(mine),
+      upstreamRows: floatPinned(upstream),
       doneRows: downstream.slice(0, DONE_TAB_LIMIT),
     }
-  }, [matched, stage])
+  }, [matched, stage, effectivePinned])
 
   const isFiltered = q.length > 0 || dateFilter.kind !== 'all'
 
@@ -329,6 +392,9 @@ export function StationWorkbench({
               tab={tab}
               q={q}
               showCustomer={showCustomer}
+              canPin={canPin}
+              pinned={effectivePinned(job)}
+              onPinChange={onPinChange}
             />
           ))}
         </ul>
@@ -418,6 +484,9 @@ function WorkbenchRow({
   tab,
   q,
   showCustomer,
+  canPin,
+  pinned,
+  onPinChange,
 }: {
   job: Job
   index: number
@@ -425,10 +494,17 @@ function WorkbenchRow({
   tab: Tab
   q: string
   showCustomer: boolean
+  canPin: boolean
+  pinned: boolean
+  onPinChange: (jobId: string, next: boolean) => void
 }) {
   const effDue = jobEffectiveDueDate(job)
   const ds = dueState(effDue)
   const days = daysFromToday(effDue)
+  // Stripe stays purely for flow urgency (overdue / today). The pin's
+  // visual lives ENTIRELY in the filled star — no row tint, no extra
+  // stripe — so the pin reads as a deliberate management mark without
+  // shouting over the rest of the row.
   const stripeColor =
     ds === 'overdue'
       ? 'var(--color-overdue)'
@@ -438,6 +514,11 @@ function WorkbenchRow({
   const detailHref = `/jobs/${job.id}`
 
   const matched = matchedComponents(job, q)
+  // Star is rendered on every tab so the boss can pin from anywhere AND so
+  // workers can see a pin even on rows they normally couldn't (e.g. a job
+  // upstream that the boss has earmarked for this station). Hidden on the
+  // 已出货 / 下游 tab — no point pinning work that's already past.
+  const showStar = tab !== 'done'
 
   return (
     <li
@@ -448,7 +529,35 @@ function WorkbenchRow({
       }}
     >
       <div className="flex items-stretch min-h-[80px]">
-        <div className="flex items-center pl-3 pr-2 mono text-[11px] text-[var(--color-ink-4)] w-[44px] shrink-0 tabular-nums">
+        <div className="flex items-center justify-center pl-2 pr-1 w-[32px] shrink-0">
+          {showStar && (
+            <PinStar
+              pinned={pinned}
+              canPin={canPin}
+              label={
+                pinned
+                  ? `取消置顶 (${stage})`
+                  : canPin
+                    ? `置顶到 ${stage}`
+                    : `${stage} 已置顶`
+              }
+              onToggle={(next) => {
+                onPinChange(job.id, next)
+                mutate({ kind: 'pinJobStage', jobId: job.id, stage, pinned: next })
+                  .then(() => {
+                    showToast(
+                      next ? `${job.jobNo} · 已置顶` : `${job.jobNo} · 已取消置顶`,
+                    )
+                  })
+                  .catch(() => {
+                    onPinChange(job.id, !next)
+                    showToast('置顶失败,请重试', 'neutral')
+                  })
+              }}
+            />
+          )}
+        </div>
+        <div className="flex items-center pl-1 pr-2 mono text-[11px] text-[var(--color-ink-4)] w-[40px] shrink-0 tabular-nums">
           {String(index + 1).padStart(2, '0')}
         </div>
 
@@ -516,10 +625,9 @@ function WorkbenchRow({
         </div>
       </div>
       {matched.length > 0 && (
-        // Indented to align with the product column above. The match strip
-        // sits OUTSIDE the row's parent Link so its own Link children aren't
-        // nested anchors.
-        <div className="pl-[210px] pr-3 pb-2">
+        // Indented to align with the product column above (star 32 + index
+        // 40 + jobNo column 150 ≈ 222px).
+        <div className="pl-[222px] pr-3 pb-2">
           <MatchedComponentsStrip
             job={job}
             components={matched}

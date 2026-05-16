@@ -20,6 +20,11 @@
   --color-info-soft: #e6eef6;
   --color-muted-bg: #f1efe9;
   --color-active-bg: #efece4;
+  /* Boss's pin: bright yellow. Loud on purpose — a filled pin star is a
+   * deliberate management mark; it should pop against the warm-paper field
+   * even at thumbnail scale on the wall TV. */
+  --color-pin: #facc15;
+  --color-pin-stroke: #b58705;
 }
 
 @theme inline {

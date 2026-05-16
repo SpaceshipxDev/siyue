@@ -18,6 +18,8 @@ import {
   setBlockMembersReturnedQty,
   setBlockMemberUnitPrice,
   setComponentImage,
+  setJobPin,
+  setJobStagePin,
   setMemberReturnedQty,
   setPartRoute,
   setStageDoneQty,
@@ -40,6 +42,7 @@ import {
   type VendorPatch,
 } from '@/lib/db'
 import {
+  canManageOutsource,
   currentUser,
   requireCommerce,
   requireOutsourceManager,
@@ -377,6 +380,42 @@ async function dispatch(
       revalidatePath(`/station/${encodeURIComponent(fromStage)}`)
       revalidatePath(`/station/${encodeURIComponent(fromStage)}/${jobId}`)
       revalidatePath(`/station/${encodeURIComponent(toStage)}`)
+      return Response.json(ok())
+    }
+
+    // === Pin / unpin (boss's daily 排产 surface) ===
+    case 'pinJob': {
+      // Row-level master-grid pin (商务/工程's OWN priority sort). Distinct
+      // from pinJobStage (per-station floor pin) — different surface,
+      // different intent, shared auth.
+      const jobId = body.jobId
+      const pinned = body.pinned
+      if (!isString(jobId) || typeof pinned !== 'boolean')
+        return err('bad pinJob args')
+      const u = await requireUser()
+      if (!canManageOutsource(u)) {
+        return err('无权置顶 (仅商务/工程可操作)', 403)
+      }
+      await setJobPin(jobId, pinned, u.name)
+      revalidatePath('/')
+      return Response.json(ok())
+    }
+
+    case 'pinJobStage': {
+      const jobId = body.jobId
+      const stage = body.stage
+      const pinned = body.pinned
+      if (!isString(jobId) || !isStage(stage) || typeof pinned !== 'boolean')
+        return err('bad pinJobStage args')
+      const u = await requireUser()
+      // Only managerial scopes pin: commerce (boss) + 工程 head. Workers
+      // see pins but never set them — pinning IS the management surface.
+      if (!canManageOutsource(u)) {
+        return err('无权置顶 (仅商务/工程可操作)', 403)
+      }
+      await setJobStagePin(jobId, stage, pinned, u.name)
+      revalidatePath('/')
+      revalidatePath(`/station/${encodeURIComponent(stage)}`)
       return Response.json(ok())
     }
 

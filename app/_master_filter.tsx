@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   STAGES,
@@ -13,6 +13,7 @@ import {
   jobIntakeDate,
   jobIsDoneAtStage,
   jobIsMineAtStage,
+  jobIsPinned,
   jobIsShipped,
   jobIsUpstreamOfStage,
   jobMargin,
@@ -27,7 +28,10 @@ import {
 import { DueCell, RollupCell, StageHeader } from './_ui'
 import { JobStageActionButton } from './_cell'
 import { JobNotesInline } from './_editable'
+import { PinStar } from './_pin_star'
 import { ReturnChip } from './_returns'
+import { mutate } from '@/lib/mutate'
+import { showToast } from './_toast'
 import {
   MatchedComponentsStrip,
   SearchInput,
@@ -178,6 +182,58 @@ export function MasterSheet({
   const isProduction = role === 'production'
   const showMoney = role === 'commerce'
   const jobNoOnly = isJobNoOnlySearch(role, defaultStage)
+  // Row-level pin auth: commerce (boss) and 工程 head. Both share state —
+  // whatever 商务 stars, 工程 sees, and vice versa. The server enforces the
+  // same rule (canManageOutsource) in /api/mutate#pinJob.
+  const canPin = role === 'commerce' || defaultStage === '工程'
+
+  // Optimistic per-row pin overrides on the master grid. Keyed by jobId.
+  // Cleared in the reconciliation effect below once the server-pushed
+  // `jobs` prop catches up to the optimistic value — so the row stays
+  // at the top through the round-trip without flicker.
+  const [optimisticRowPins, setOptimisticRowPins] = useState<
+    Record<string, boolean>
+  >({})
+
+  useEffect(() => {
+    setOptimisticRowPins((prev) => {
+      const next = { ...prev }
+      let changed = false
+      for (const j of jobs) {
+        const serverPinned = jobIsPinned(j)
+        if (j.id in prev && prev[j.id] === serverPinned) {
+          delete next[j.id]
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [jobs])
+
+  const effectiveRowPinned = useCallback(
+    (job: Job): boolean => {
+      const o = optimisticRowPins[job.id]
+      return o === undefined ? jobIsPinned(job) : o
+    },
+    [optimisticRowPins],
+  )
+
+  const onRowPinToggle = useCallback(
+    (job: Job, next: boolean) => {
+      setOptimisticRowPins((prev) => ({ ...prev, [job.id]: next }))
+      mutate({ kind: 'pinJob', jobId: job.id, pinned: next })
+        .then(() => {
+          showToast(
+            next ? `${job.jobNo} · 已置顶` : `${job.jobNo} · 已取消置顶`,
+          )
+        })
+        .catch(() => {
+          setOptimisticRowPins((prev) => ({ ...prev, [job.id]: !next }))
+          showToast('置顶失败,请重试', 'neutral')
+        })
+    },
+    [],
+  )
   // 工程 is the one stage that intentionally uses the flat master grid even
   // when it's the URL filter — page.tsx already skips StationWorkbench for it,
   // and we mirror that here so the mine/upstream/done partition + pagination
@@ -260,16 +316,38 @@ export function MasterSheet({
     const dateFiltered = sortedByMode.filter((j) =>
       jobMatchesDate(j, dateFilter, sortMode),
     )
+    // Float boss-pinned rows to the very top of the master grid. Uses the
+    // OPTIMISTIC pin state so the row jumps the moment the user clicks the
+    // star, not after the server round-trip. Within the pinned bucket,
+    // most recently starred is first (pinned_at desc, optimistic pins win
+    // since their pinnedAt is '' which sorts after — stable input order
+    // keeps the just-clicked row at the top).
+    const floatRowPinned = (arr: Job[]) => {
+      const pinned: Job[] = []
+      const rest: Job[] = []
+      for (const j of arr) {
+        if (effectiveRowPinned(j)) pinned.push(j)
+        else rest.push(j)
+      }
+      pinned.sort((a, b) => {
+        const ta = a.pinnedAt ?? ''
+        const tb = b.pinnedAt ?? ''
+        // Most recent first; entries without pinnedAt (just-optimistic) sit
+        // at the top because the input array order is preserved.
+        return tb.localeCompare(ta)
+      })
+      return [...pinned, ...rest]
+    }
     if (!isStationView || !stageFilter) {
       return {
-        topRows: dateFiltered,
+        topRows: floatRowPinned(dateFiltered),
         upstreamRows: [] as Job[],
         doneRows: [] as Job[],
       }
     }
     if (q.trim().length > 0) {
       return {
-        topRows: dateFiltered,
+        topRows: floatRowPinned(dateFiltered),
         upstreamRows: [] as Job[],
         doneRows: [] as Job[],
       }
@@ -294,8 +372,12 @@ export function MasterSheet({
         ),
       )
       .slice(0, 20)
-    return { topRows: top, upstreamRows: upstream, doneRows: done }
-  }, [sortedByMode, dateFilter, sortMode, isStationView, stageFilter, q])
+    return {
+      topRows: floatRowPinned(top),
+      upstreamRows: upstream,
+      doneRows: done,
+    }
+  }, [sortedByMode, dateFilter, sortMode, isStationView, stageFilter, q, effectiveRowPinned])
 
   const filteredCount = topRows.length + upstreamRows.length + doneRows.length
   const isFiltered = q.length > 0 || dateFilter.kind !== 'all'
@@ -351,6 +433,7 @@ export function MasterSheet({
       <div className="overflow-x-auto rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]">
         <table className="sheet w-full text-left text-[13px]">
           <colgroup>
+            <col style={{ width: 30 }} />
             <col style={{ width: 56 }} />
             <col style={{ width: 130 }} />
             <col style={{ width: 220 }} />
@@ -382,6 +465,7 @@ export function MasterSheet({
           </colgroup>
           <thead>
             <tr className="text-[var(--color-ink-2)]">
+              <th className="px-1 py-3" aria-label="置顶" />
               <th className="px-3 py-3 text-center label whitespace-nowrap">#</th>
               <th className="px-4 py-3 label whitespace-nowrap">工号</th>
               <th className="px-4 py-3 label whitespace-nowrap">
@@ -438,12 +522,15 @@ export function MasterSheet({
                 highlightStage={highlightStage}
                 highlightIsActionable={highlightIsActionable}
                 tier="mine"
+                canPin={canPin}
+                rowPinned={effectiveRowPinned(job)}
+                onRowPinToggle={onRowPinToggle}
               />
             ))}
             {shouldPaginate && (showAll || hiddenTopCount > 0) && topRows.length > DEFAULT_PAGE_SIZE && (
               <tr>
                 <td
-                  colSpan={5 + STAGES.length + (showMoney ? 1 : 0)}
+                  colSpan={6 + STAGES.length + (showMoney ? 1 : 0)}
                   className="px-4 py-3 text-center border-t border-[var(--color-border)]"
                 >
                   <button
@@ -469,7 +556,7 @@ export function MasterSheet({
               <>
                 <tr aria-hidden="true">
                   <td
-                    colSpan={5 + STAGES.length + (showMoney ? 1 : 0)}
+                    colSpan={6 + STAGES.length + (showMoney ? 1 : 0)}
                     className="px-4 pt-8 pb-2"
                   >
                     <div className="flex items-baseline gap-3 border-t border-[var(--color-border)] pt-4">
@@ -493,6 +580,9 @@ export function MasterSheet({
                     highlightStage={highlightStage}
                     highlightIsActionable={highlightIsActionable}
                     tier="upstream"
+                    canPin={canPin}
+                    rowPinned={effectiveRowPinned(job)}
+                    onRowPinToggle={onRowPinToggle}
                   />
                 ))}
               </>
@@ -501,7 +591,7 @@ export function MasterSheet({
               <>
                 <tr aria-hidden="true">
                   <td
-                    colSpan={5 + STAGES.length + (showMoney ? 1 : 0)}
+                    colSpan={6 + STAGES.length + (showMoney ? 1 : 0)}
                     className="px-4 pt-8 pb-2"
                   >
                     <div className="flex items-baseline gap-3 border-t border-[var(--color-border)] pt-4">
@@ -525,6 +615,9 @@ export function MasterSheet({
                     highlightStage={highlightStage}
                     highlightIsActionable={highlightIsActionable}
                     tier="done"
+                    canPin={canPin}
+                    rowPinned={effectiveRowPinned(job)}
+                    onRowPinToggle={onRowPinToggle}
                   />
                 ))}
               </>
@@ -632,6 +725,9 @@ function JobRow({
   highlightStage,
   highlightIsActionable,
   tier,
+  canPin,
+  rowPinned,
+  onRowPinToggle,
 }: {
   job: Job
   index: number
@@ -648,6 +744,12 @@ function JobRow({
    *   'upstream' — opacity-50, "incoming"
    *   'done'     — opacity-40, "recently finished, no longer demanding" */
   tier: 'mine' | 'upstream' | 'done'
+  /** Commerce/工程 can toggle the row-level boss pin. Other roles see a
+   * filled star when pinned, nothing when not (hover-reveal disabled). */
+  canPin: boolean
+  /** Row-level boss-pin state (server + optimistic overlay from parent). */
+  rowPinned: boolean
+  onRowPinToggle: (job: Job, next: boolean) => void
 }) {
   // The head's own column is NEVER a navigation Link — clicks here are
   // stage-action gestures. Three flavors:
@@ -685,8 +787,33 @@ function JobRow({
       style={{
         viewTransitionName: `row-${job.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
       }}
-      className={`align-middle ${rowOpacity}`}
+      className={`group/row align-middle ${rowOpacity}`}
     >
+      <td className="px-0.5 py-3 align-middle text-center">
+        {(canPin || rowPinned) && (
+          <span
+            className={`inline-flex transition-opacity duration-150 ${
+              rowPinned
+                ? 'opacity-100'
+                : 'opacity-0 group-hover/row:opacity-100 focus-within:opacity-100'
+            }`}
+          >
+            <PinStar
+              pinned={rowPinned}
+              canPin={canPin}
+              size={15}
+              label={
+                rowPinned
+                  ? `取消置顶 ${job.jobNo}`
+                  : canPin
+                    ? `置顶 ${job.jobNo}`
+                    : `${job.jobNo} 已置顶`
+              }
+              onToggle={(next) => onRowPinToggle(job, next)}
+            />
+          </span>
+        )}
+      </td>
       <td className="px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]">
         {String(index + 1).padStart(2, '0')}
       </td>
@@ -796,8 +923,6 @@ function JobRow({
           const cnts = jobStageCounts(job, stage)
           const totalCounted = cnts.inProgress + cnts.pending + cnts.done
           if (totalCounted === 0) {
-            // No in-house work for this head at this stage — n/a or every
-            // part is currently at a vendor. Static cell, no Link, no button.
             return (
               <td key={stage} className="p-0 h-[78px]" style={cellBgStyle}>
                 <RollupCell rollup={rollup} />
