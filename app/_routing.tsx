@@ -545,14 +545,28 @@ export function BlockRow({
   // Two-step arming for per-member 撤销 — guards against fat-finger removal of
   // a component the operator actually wanted to keep on the shipment.
   const [armedRemoveId, setArmedRemoveId] = useState<string | null>(null)
+  // Optimistic per-member removal. After the user confirms 撤销 on a row,
+  // we add the componentId here so the row vanishes immediately — no wait
+  // for the server, no router.refresh() (which would scroll the page back to
+  // top and re-stream the full RSC tree). The DB write still fires; on the
+  // next natural navigation the server-side state catches up and these IDs
+  // simply no longer match anything in block.members.
+  const [removedIds, setRemovedIds] = useState<Set<string>>(() => new Set())
 
   const closed = isBlockClosed(block)
 
-  const pendingMembers = block.members.filter((m) => !isMemberFullyReturned(m))
-  const partialMembers = block.members.filter((m) => isMemberPartiallyReturned(m))
-  const fullyReturnedMembers = block.members.filter(isMemberFullyReturned)
-  const totalQty = block.members.reduce((s, m) => s + m.qty, 0)
-  const totalReturnedUnits = block.members.reduce((s, m) => s + memberReturnedQty(m), 0)
+  // All member-derived state runs off `members` (post-optimistic-removal),
+  // not `block.members`. Keeps the row's headline count, 收件 button, and
+  // member list consistent the instant the user clicks 撤销 on a row.
+  const members = removedIds.size === 0
+    ? block.members
+    : block.members.filter((m) => !removedIds.has(m.componentId))
+
+  const pendingMembers = members.filter((m) => !isMemberFullyReturned(m))
+  const partialMembers = members.filter((m) => isMemberPartiallyReturned(m))
+  const fullyReturnedMembers = members.filter(isMemberFullyReturned)
+  const totalQty = members.reduce((s, m) => s + m.qty, 0)
+  const totalReturnedUnits = members.reduce((s, m) => s + memberReturnedQty(m), 0)
 
   // The single number of "everything that would come back if you tap 收件
   // right now and don't open the tray". For one-member blocks that's the
@@ -566,15 +580,15 @@ export function BlockRow({
   // mid-return, OR any member has an explicit per-line price (because the
   // 单价 editor itself lives in the list — single-member blocks where the
   // user typed a vendor unit price need the list shown so they can change it).
-  const hasAnyLinePrice = block.members.some((m) => m.unitPriceCny != null)
+  const hasAnyLinePrice = members.some((m) => m.unitPriceCny != null)
   const needsList =
-    block.members.length > 1 || partialMembers.length > 0 || hasAnyLinePrice
+    members.length > 1 || partialMembers.length > 0 || hasAnyLinePrice
 
   // The headline — the boss's word for what this is.
   // Prefer the named activity (外发氧化, 外发CNC, …). When there's no
   // activity (the implicit "全程" or stage-range fallback), use the first
   // member's name — it's the most concrete thing the boss can recognize.
-  const headline = block.activity?.trim() || (block.members[0]?.name ?? '—')
+  const headline = block.activity?.trim() || (members[0]?.name ?? '—')
 
   // The expected return — drives all "is this late" signaling on the row.
   const daysLeft = daysFromToday(block.expectedReturn)
@@ -660,15 +674,40 @@ export function BlockRow({
   // Remove one component from this block. If it was the last remaining
   // member, the server deletes the whole block (see removeOutsourceBlockMember
   // in lib/db.ts). The arming check lives in the caller.
+  //
+  // We optimistically add the componentId to `removedIds` BEFORE awaiting
+  // the server — the row disappears the instant the user confirms 撤销, no
+  // network wait, no scroll jump. If the mutate fails we roll the local
+  // state back so the row reappears and surface the failure as a toast
+  // would, but in this codebase the mutate path is fire-and-forget for the
+  // destructive cases (see deleteOutsourceBlock above) so we match.
   const removeMember = (componentId: string) => {
     setArmedRemoveId(null)
+    setRemovedIds((prev) => {
+      if (prev.has(componentId)) return prev
+      const next = new Set(prev)
+      next.add(componentId)
+      return next
+    })
     start(async () => {
-      await mutate({
-        kind: 'removeOutsourceBlockMember',
-        blockId: block.id,
-        componentId,
-        jobId,
-      })
+      try {
+        await mutate({
+          kind: 'removeOutsourceBlockMember',
+          blockId: block.id,
+          componentId,
+          jobId,
+        })
+      } catch (e) {
+        // Roll back the optimistic removal — the row should reappear so the
+        // operator notices nothing actually got deleted.
+        setRemovedIds((prev) => {
+          if (!prev.has(componentId)) return prev
+          const next = new Set(prev)
+          next.delete(componentId)
+          return next
+        })
+        throw e
+      }
     })
   }
 
@@ -702,6 +741,11 @@ export function BlockRow({
       ? 'text-[var(--color-warning)]'
       : 'text-[var(--color-ink-3)]'
 
+  // Whole-block optimistic vanish — when the user removes the last remaining
+  // member, the server deletes the block; render nothing locally so the row
+  // disappears immediately without waiting for revalidation.
+  if (members.length === 0) return null
+
   return (
     <div
       className={`relative py-3 pl-4 pr-1 border-b border-[var(--color-border)] last:border-b-0 ${closed ? 'opacity-60' : ''}`}
@@ -719,8 +763,8 @@ export function BlockRow({
           <span
             className="text-[14px] font-semibold text-[var(--color-ink)] tracking-tight truncate"
             title={
-              block.members.length > 1
-                ? block.members.map((m) => `${m.name} ×${m.qty}`).join(' · ')
+              members.length > 1
+                ? members.map((m) => `${m.name} ×${m.qty}`).join(' · ')
                 : headline
             }
           >
@@ -843,11 +887,11 @@ export function BlockRow({
       {needsList ? (() => {
         const PREVIEW_COUNT = 6
         const COLLAPSE_AT = 10
-        const collapsible = block.members.length >= COLLAPSE_AT
+        const collapsible = members.length >= COLLAPSE_AT
         const visible = !collapsible || expanded
-          ? block.members
-          : block.members.slice(0, PREVIEW_COUNT)
-        const hiddenCount = block.members.length - visible.length
+          ? members
+          : members.slice(0, PREVIEW_COUNT)
+        const hiddenCount = members.length - visible.length
         return (
         <ul className="mt-2 ml-1 flex flex-col gap-0.5">
           {visible.map((m) => {

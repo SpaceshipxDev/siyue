@@ -103,6 +103,11 @@ parts_here as (
 ),
 -- Per-part effective line subtotal — same logic as data.ts#componentLineTotal:
 -- prefer the explicit line total, else qty × unit price, else 0.
+--
+-- is_unpriced tracks "neither price column is set" so the page can show a
+-- 未定价 count alongside the ¥. Without it, a stage of all-NULL-price parts
+-- reads as "this stage is worth ¥0" instead of "we don't know the value" —
+-- factually different signals that the boss needs separated.
 parts_here_money as (
   select
     stage,
@@ -112,7 +117,8 @@ parts_here_money as (
       line_total_cny,
       unit_price_cny * qty,
       0
-    )::numeric as line_total
+    )::numeric as line_total,
+    (line_total_cny is null and unit_price_cny is null) as is_unpriced
   from parts_here
 )
 select
@@ -121,7 +127,16 @@ select
   -- Distinct jobs sitting here (a job with 3 parts here = 1 job, 3 parts).
   count(distinct phm.job_id)::int                              as jobs_here,
   count(phm.part_id)::int                                      as parts_here,
-  coalesce(sum(phm.line_total), 0)::numeric                    as wip_cny
+  coalesce(sum(phm.line_total), 0)::numeric                    as wip_cny,
+  -- parts_unpriced is APPENDED at the end on purpose: CREATE OR REPLACE
+  -- VIEW only allows adding new columns at the tail of the column list
+  -- (Postgres rejects "cannot change name of view column" if you try to
+  -- insert in the middle). The loader selects by name, not position, so
+  -- order is irrelevant to the app.
+  --
+  -- count(col) ignores nulls so the LEFT-JOIN empty-stage row (all phm.*
+  -- null) contributes 0, not 1. count(*) would mis-report.
+  count(phm.part_id) filter (where phm.is_unpriced)::int       as parts_unpriced
 from stage_order so
 left join parts_here_money phm on phm.stage = so.stage
 group by so.stage, so.ord

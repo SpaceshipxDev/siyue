@@ -35,13 +35,16 @@ const PRODUCTION_FORBIDDEN_PREFIXES = [
 // the 外协 view and the printable 外协单. They also own imports — they upload
 // 报价单 PDFs and confirm them into the master grid the same way commerce
 // does — so /import/* and /api/ingest are explicitly allowed for them.
-// Everything else on the forbidden list (月结/backend/non-outsource print)
-// still blocks them.
+// /pulse (现场) is also open to them — they run the floor and need the
+// factory-wide pulse view; the page itself hides ¥ columns from them via
+// canSeeMoney. Everything else on the forbidden list (月结/backend/non-
+// outsource print) still blocks them.
 const ENGINEERING_ALLOWED_PREFIXES = [
   '/station/outsource',
   '/print/outsource',
   '/import',
   '/api/ingest',
+  '/pulse',
 ]
 
 export async function proxy(request: NextRequest) {

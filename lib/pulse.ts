@@ -13,6 +13,10 @@ export type StationWipRow = {
   stage: Stage
   jobsHere: number
   partsHere: number
+  /** Parts here whose unit_price_cny AND line_total_cny are both NULL —
+   *  the ¥0 contributors. Surfaced on the tile so a ¥0 column reads as
+   *  "we don't know" instead of "this stage is worthless." */
+  partsUnpriced: number
   wipCny: number
 }
 
@@ -35,11 +39,19 @@ export type StationEvent = {
 
 type AnyRow = Record<string, unknown>
 
-// Same PGRST205 fingerprint as lib/db.ts#isMissingTableError. Repeated here
-// to avoid pulling the rest of that 4k-line module into the pulse path.
-function isMissingViewError(e: unknown): boolean {
+// Tolerate two flavors of "schema lags the app code" so deploys are
+// forgiving:
+//   • PGRST205 — PostgREST schema cache doesn't know the view (the view
+//     itself hasn't been created yet — fresh DB, migration unapplied).
+//   • 42703    — Postgres "column does not exist." Hit when an older
+//     version of the view IS present but a newer column the loader asks
+//     for hasn't been added yet (migration partially applied / pre-update).
+// Both degrade to a zero-fallback so the page renders something instead
+// of 500'ing. Loud error in dev still surfaces in `next dev` logs.
+function isSchemaLagError(e: unknown): boolean {
   if (!e || typeof e !== 'object') return false
-  return (e as { code?: unknown }).code === 'PGRST205'
+  const code = (e as { code?: unknown }).code
+  return code === 'PGRST205' || code === '42703'
 }
 
 // One row per stage. Guarantees all 9 stages are present (the view itself
@@ -48,16 +60,17 @@ function isMissingViewError(e: unknown): boolean {
 export async function getStationWip(): Promise<StationWipRow[]> {
   const r = await supabase
     .from('station_wip')
-    .select('stage, jobs_here, parts_here, wip_cny')
+    .select('stage, jobs_here, parts_here, parts_unpriced, wip_cny')
     .order('stage_ord', { ascending: true })
   if (r.error) {
-    if (isMissingViewError(r.error)) {
+    if (isSchemaLagError(r.error)) {
       // Pre-0019 environment — degrade to all-zeros so the page still
       // renders the strip with placeholder digits instead of a 500.
       return STAGES.map((s) => ({
         stage: s,
         jobsHere: 0,
         partsHere: 0,
+        partsUnpriced: 0,
         wipCny: 0,
       }))
     }
@@ -70,6 +83,7 @@ export async function getStationWip(): Promise<StationWipRow[]> {
       stage,
       jobsHere: Number(row.jobs_here ?? 0),
       partsHere: Number(row.parts_here ?? 0),
+      partsUnpriced: Number(row.parts_unpriced ?? 0),
       wipCny: Number(row.wip_cny ?? 0),
     })
   }
@@ -80,6 +94,7 @@ export async function getStationWip(): Promise<StationWipRow[]> {
         stage: s,
         jobsHere: 0,
         partsHere: 0,
+        partsUnpriced: 0,
         wipCny: 0,
       },
   )
@@ -102,7 +117,7 @@ export async function getStationEvents(opts?: {
   if (opts?.stage) q = q.eq('stage', opts.stage)
   const r = await q
   if (r.error) {
-    if (isMissingViewError(r.error)) return []
+    if (isSchemaLagError(r.error)) return []
     throw r.error
   }
   const out: StationEvent[] = []

@@ -33,6 +33,7 @@ function tabsForRole(role: Role, defaultStage?: string): Tab[] {
       // the same way commerce can.
       return [
         { key: '工程', label: '工程', href: '/' },
+        { key: '现场', label: '现场', href: '/pulse' },
         { key: '外协', label: '外协', href: '/station/outsource' },
         ...STAGES.filter((s) => s !== '工程').map((s) => ({
           key: s as TabKey,

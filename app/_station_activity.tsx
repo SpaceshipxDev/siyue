@@ -76,7 +76,7 @@ function Header({ stage, count }: { stage: Stage; count?: number }) {
     <div className="flex items-baseline justify-between mb-5">
       <div className="flex items-baseline gap-3">
         <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
-          {stage} 动态
+          {stage} 最新动态
         </h2>
         <Link
           href={`/pulse?stage=${encodeURIComponent(stage)}`}

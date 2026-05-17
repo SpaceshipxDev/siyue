@@ -128,6 +128,21 @@ export async function requireOutsourceManager(): Promise<AuthUser> {
   redirect(landingPathFor(u))
 }
 
+// /pulse (现场) view — 商务 + 工程 both qualify. The 工程 head runs the
+// floor and needs the same factory-wide pulse view commerce uses (where is
+// work piling up? what just moved?). Money columns on the page itself
+// still follow canSeeMoney separately, so 工程 sees jobs/parts counts and
+// the activity feed but no ¥ values.
+export function canSeeFactoryPulse(s: Scope): boolean {
+  return s.role === 'commerce' || s.defaultStage === '工程'
+}
+
+export async function requirePulseViewer(): Promise<AuthUser> {
+  const u = await requireUser()
+  if (canSeeFactoryPulse(u)) return u
+  redirect(landingPathFor(u))
+}
+
 export function landingPathFor(user: AuthUser): string {
   if (user.role === 'commerce') return '/'
   // 工程 head sees the same holistic master view as commerce by default —

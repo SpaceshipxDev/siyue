@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import Link from 'next/link'
 import { STAGES, formatCny, type Stage } from '@/lib/data'
-import { requireCommerce } from '@/lib/auth'
+import { canSeeMoney, requirePulseViewer } from '@/lib/auth'
 import {
   formatEventTs,
   getStationEvents,
@@ -36,7 +36,12 @@ export default async function PulsePage({
 }: {
   searchParams: Promise<{ stage?: string }>
 }) {
-  const user = await requireCommerce()
+  const user = await requirePulseViewer()
+  // Money visibility split: commerce sees ¥ figures everywhere; 工程 head
+  // sees the same layout with the parts-count headline standing in. Single
+  // boolean drives both the page-level KPI and per-tile renderings, so the
+  // two surfaces stay consistent.
+  const showMoney = canSeeMoney(user)
   const sp = await searchParams
   const rawStage = typeof sp?.stage === 'string' ? sp.stage : undefined
   const stageFilter: Stage | undefined =
@@ -47,6 +52,7 @@ export default async function PulsePage({
   const wip = await getStationWip()
   const totalWip = wip.reduce((s, r) => s + r.wipCny, 0)
   const totalParts = wip.reduce((s, r) => s + r.partsHere, 0)
+  const totalJobs = wip.reduce((s, r) => s + r.jobsHere, 0)
 
   const heading = stageFilter ? `${stageFilter} · 现场` : '现场'
   const subtitle = stageFilter
@@ -57,7 +63,7 @@ export default async function PulsePage({
     <div className="flex-1 flex flex-col">
       <TopBar
         title="现场"
-        subtitle="实时动态 · 在制金额"
+        subtitle={showMoney ? '实时动态 · 在制金额' : '实时动态'}
         currentTab="现场"
         role={user.role}
         defaultStage={user.defaultStage}
@@ -74,23 +80,32 @@ export default async function PulsePage({
             </p>
           </div>
           <div className="flex items-baseline gap-8">
-            <Headline label="在制金额" value={formatCny(totalWip)} />
+            {showMoney && (
+              <Headline label="在制金额" value={formatCny(totalWip)} />
+            )}
             <Headline
               label="在制件数"
               value={new Intl.NumberFormat('zh-CN').format(totalParts)}
               mono
             />
+            {!showMoney && (
+              <Headline
+                label="在制工单"
+                value={new Intl.NumberFormat('zh-CN').format(totalJobs)}
+                mono
+              />
+            )}
           </div>
         </header>
 
-        <StationStrip wip={wip} active={stageFilter} />
+        <StationStrip wip={wip} active={stageFilter} showMoney={showMoney} />
 
         {/* Suspense key on stageFilter so chip changes re-trigger the
             fallback skeleton — feels instant even when the feed query
             takes a moment. */}
         <Suspense
           key={stageFilter ?? '_all'}
-          fallback={<FeedFallback filtered={!!stageFilter} />}
+          fallback={<FeedFallback />}
         >
           <FeedAsync stage={stageFilter} />
         </Suspense>
@@ -111,16 +126,21 @@ async function FeedAsync({ stage }: { stage: Stage | undefined }) {
 }
 
 // ---------------------------------------------------------------------------
-// Top strip: 9 tiles, one per stage. The ¥ figure is the headline; jobs/parts
-// is the line below. Selected tile inverts (ink on surface). Clicking any
-// tile rewrites ?stage=<X>; clicking the active tile clears it.
+// Top strip: 9 tiles, one per stage. The headline is the ¥ figure (commerce)
+// or the parts count (工程 head, no money visibility). The sub-line carries
+// jobs/parts (commerce) or just jobs (工程, since parts is now the headline).
+// 未定价 is shown to both — 工程 can flag commerce when coverage is thin.
+// Selected tile inverts (ink on surface). Clicking any tile rewrites
+// ?stage=<X>; clicking the active tile clears it.
 // ---------------------------------------------------------------------------
 function StationStrip({
   wip,
   active,
+  showMoney,
 }: {
   wip: StationWipRow[]
   active: Stage | undefined
+  showMoney: boolean
 }) {
   return (
     <nav
@@ -133,6 +153,16 @@ function StationStrip({
         const href = isActive
           ? '/pulse'
           : `/pulse?stage=${encodeURIComponent(row.stage)}`
+        const headlineText = showMoney
+          ? formatCny(row.wipCny)
+          : isEmpty
+            ? '—'
+            : `${new Intl.NumberFormat('zh-CN').format(row.partsHere)} 件`
+        const sublineText = isEmpty
+          ? '—'
+          : showMoney
+            ? `${row.jobsHere} 单 · ${row.partsHere} 件`
+            : `${row.jobsHere} 单`
         return (
           <Link
             key={row.stage}
@@ -162,7 +192,7 @@ function StationStrip({
                   : ''
               }`}
             >
-              {formatCny(row.wipCny)}
+              {headlineText}
             </span>
             <span
               className={`text-[11px] md:text-[12px] tabular-nums ${
@@ -171,10 +201,24 @@ function StationStrip({
                   : 'text-[var(--color-ink-3)]'
               }`}
             >
-              {row.partsHere === 0
-                ? '—'
-                : `${row.jobsHere} 单 · ${row.partsHere} 件`}
+              {sublineText}
             </span>
+            {/* 未定价 hint — only when there's coverage to flag.
+                For commerce: a ¥0 column with all-unpriced parts reads as
+                "we don't know" not "worthless." For 工程: same signal,
+                useful as a nudge to commerce. Hidden when every part is
+                priced so the strip stays calm. */}
+            {row.partsUnpriced > 0 && (
+              <span
+                className={`text-[10px] tabular-nums tracking-wide ${
+                  isActive
+                    ? 'text-[var(--color-bg)] opacity-60'
+                    : 'text-[var(--color-warning)]'
+                }`}
+              >
+                {row.partsUnpriced} 未定价
+              </span>
+            )}
           </Link>
         )
       })}
@@ -213,7 +257,7 @@ function ActivityFeed({
     <section className="border-t border-[var(--color-border)] pt-8">
       <div className="flex items-baseline justify-between mb-6">
         <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
-          动态
+          最新动态
         </h2>
         <p className="label tabular-nums">{events.length}</p>
       </div>
@@ -229,12 +273,12 @@ function ActivityFeed({
 // Skeleton that matches the resolved feed layout — same header, same row
 // grid, same row count target — so the swap is a content fade, not a
 // jump. Eight rows is enough to fill above the fold on most screens.
-function FeedFallback({ filtered }: { filtered: boolean }) {
+function FeedFallback() {
   return (
     <section className="border-t border-[var(--color-border)] pt-8">
       <div className="flex items-baseline justify-between mb-6">
         <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
-          {filtered ? '此工段动态' : '动态'}
+          最新动态
         </h2>
         <span className="siyue-shimmer h-3 w-6 rounded-sm inline-block" />
       </div>
