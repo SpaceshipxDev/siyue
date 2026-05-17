@@ -4,7 +4,7 @@ export const BRAND = {
   legalName: '杭州越侬模型科技有限公司',
   shortName: '越侬模型',
   code: 'YNMX',
-  address: '杭州市富阳区一号楼11号7幢越侬模型',
+  address: '杭州市富阳区同登路中交智能物联科技园6栋',
   receivingContact: { name: '王雪梅', phone: '15551519971' },
   software: '思跃 MES',
 } as const

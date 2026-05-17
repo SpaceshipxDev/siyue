@@ -10,6 +10,7 @@ import {
   createVendor,
   deleteComponent,
   deleteOutsourceBlock,
+  removeOutsourceBlockMember,
   finishJobStage,
   finishStage,
   getJob,
@@ -594,6 +595,22 @@ async function dispatch(
       await requireOutsourceManager()
       await deleteOutsourceBlock(blockId)
       revalidateExternal(jobId as string | undefined)
+      return Response.json(ok())
+    }
+
+    case 'removeOutsourceBlockMember': {
+      const blockId = body.blockId
+      const componentId = body.componentId
+      const jobId = body.jobId
+      if (!isString(blockId) || !isString(componentId))
+        return err('bad removeOutsourceBlockMember args')
+      if (jobId !== undefined && !isString(jobId)) return err('bad jobId')
+      await requireOutsourceManager()
+      await removeOutsourceBlockMember(blockId, componentId)
+      revalidateExternal(jobId as string | undefined)
+      revalidatePath(`/print/outsource/${blockId}`)
+      revalidatePath(`/print/outsource/${blockId}/pdf`)
+      revalidatePath(`/print/outsource/${blockId}/pdf/raw`)
       return Response.json(ok())
     }
 

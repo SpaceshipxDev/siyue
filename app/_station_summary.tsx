@@ -1,11 +1,11 @@
-import { dueState, formatMinutes, type Stage } from '@/lib/data'
+import { dueState, formatCny, formatMinutes, type Stage } from '@/lib/data'
 import { rowIsMineAtStage, type MasterRow } from '@/lib/master'
 
-// One band of four numbers. No card, no border, no chrome — just the digits
-// and a small label below. Sits at the top of the station view so the head's
-// eye lands on the totals before the table.
+// One band of metrics. No card, no border, no chrome — just the digits and a
+// small label below. Sits at the top of the station view so the head's eye
+// lands on the totals before the table.
 //
-// The four numbers, in scan order:
+// In scan order:
 //   在此    : jobs that are MINE at this station — strict definition that
 //            matches the master sheet exactly: in_progress here, or pending
 //            here AND every prior in-route stage already done. A job sitting
@@ -15,14 +15,19 @@ import { rowIsMineAtStage, type MasterRow } from '@/lib/master'
 //   逾期    : of those, how many are already past due
 //   平均    : avg flow time through this station. Computed server-side from
 //            the rollup; pass null to render "—" while we wire that in.
+//   在此金额 (opt-in via wipCny): boss-only ¥ value of WIP at this station.
+//            Workers without money visibility get the original 4-up layout.
 export function StationSummary({
   rows,
   stage,
   avgMinutes,
+  wipCny,
 }: {
   rows: MasterRow[]
   stage: Stage
   avgMinutes?: number | null
+  /** ¥ value of WIP at this station. Pass to render the 5th metric. */
+  wipCny?: number
 }) {
   let here = 0
   let dueToday = 0
@@ -35,12 +40,25 @@ export function StationSummary({
     else if (ds === 'today') dueToday++
   }
 
+  const showWip = typeof wipCny === 'number'
+  const gridCols = showWip
+    ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-5'
+    : 'grid-cols-2 sm:grid-cols-4'
+
   return (
-    <section className="mb-12 mt-2 grid grid-cols-2 sm:grid-cols-4 gap-y-8 gap-x-6 border-b border-[var(--color-border)] pb-10">
+    <section className={`mb-12 mt-2 grid ${gridCols} gap-y-8 gap-x-6 border-b border-[var(--color-border)] pb-10`}>
       <Metric label="在此" value={here} />
       <Metric label="今日" value={dueToday} tone={dueToday > 0 ? 'warning' : 'mute'} />
       <Metric label="逾期" value={overdue} tone={overdue > 0 ? 'overdue' : 'mute'} />
       <Metric label="平均工段时长" value={formatMinutes(avgMinutes ?? null)} mono />
+      {showWip && (
+        <Metric
+          label="在此金额"
+          value={formatCny(wipCny)}
+          tone={wipCny && wipCny > 0 ? 'ink' : 'mute'}
+          mono
+        />
+      )}
     </section>
   )
 }

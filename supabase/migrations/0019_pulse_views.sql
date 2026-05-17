@@ -133,15 +133,46 @@ order by so.ord;
 --    "What did each station click, in what order, by whom?"
 --
 --    Source: part_stages.started_at and finished_at. Each non-null timestamp
---    is one event; we UNION ALL the two columns so the same row can emit
---    both "开始" and "完成" events. by_user_id resolves to a display name,
---    falling back to the legacy free-text by_actor field for old rows.
+--    is one event; UNION ALL of the two columns emits two events from one
+--    row when both are set. by_user_id resolves to a display name, falling
+--    back to the legacy free-text by_actor field for old rows.
 --
---    LIMIT in the view caps the worst case (years of stage events × 9
---    stages) — the page handler does its own per-station LIMIT 20 on top.
---    The aggregate window keeps this cheap even on a multi-million-row
---    part_stages table.
+--    NO inner LIMIT on the view — a bottom-LIMIT here would (a) make
+--    stage-filtered queries incorrect (PostgREST's .eq('stage', X) gets
+--    applied AFTER the view's limit, so filtering would return whatever
+--    fraction of the top-N happens to match instead of the top-N matching),
+--    and (b) force a full sort over every request. Caller applies LIMIT.
+--
+--    Performance: the partial indexes below let Postgres do an index-scan
+--    over each branch of the UNION ALL in sorted order. With a MergeAppend
+--    plan the executor stops at the caller's LIMIT — query cost is O(LIMIT)
+--    regardless of how many part_stages rows exist in the table.
 -- ---------------------------------------------------------------------------
+
+-- Partial indexes — one per timestamp column. The `where ... is not null`
+-- clause matches the view's filter exactly so Postgres knows the index
+-- covers the whole branch. DESC ordering matches the view's ORDER BY so
+-- the scan reads in result order with no sort step.
+create index if not exists part_stages_started_at_desc_idx
+  on part_stages (started_at desc nulls last)
+  where started_at is not null;
+
+create index if not exists part_stages_finished_at_desc_idx
+  on part_stages (finished_at desc nulls last)
+  where finished_at is not null;
+
+-- Composite indexes for the per-station filtered case (the /?stage=X boss
+-- strip pulls events for one stage at a time, capped at ~20 rows). Lets
+-- the index scan also satisfy the WHERE stage='打磨' predicate, so the
+-- per-stage query reads exactly the rows it returns.
+create index if not exists part_stages_stage_started_at_desc_idx
+  on part_stages (stage, started_at desc nulls last)
+  where started_at is not null;
+
+create index if not exists part_stages_stage_finished_at_desc_idx
+  on part_stages (stage, finished_at desc nulls last)
+  where finished_at is not null;
+
 create or replace view station_events as
 with raw_events as (
   -- 完成 events.
@@ -195,8 +226,7 @@ select
 from raw_events re
 join jobs j on j.id = re.job_id
 left join users u on u.id = re.by_user_id
-order by re.ts desc
-limit 2000;
+order by re.ts desc;
 
 
 -- Schema-cache reload so PostgREST exposes the new views immediately on

@@ -538,6 +538,13 @@ export function BlockRow({
   const [receiveDate, setReceiveDate] = useState(() => today())
   const [receiveQty, setReceiveQty] = useState<Record<string, string>>({})
   const [trayOpen, setTrayOpen] = useState(false)
+  // Member list collapse — long blocks (e.g. 81 components on one CNC
+  // shipment) make the row taller than the screen. Default collapsed when
+  // members exceed PREVIEW_COUNT * 1.5 so we don't hide just a couple lines.
+  const [expanded, setExpanded] = useState(false)
+  // Two-step arming for per-member 撤销 — guards against fat-finger removal of
+  // a component the operator actually wanted to keep on the shipment.
+  const [armedRemoveId, setArmedRemoveId] = useState<string | null>(null)
 
   const closed = isBlockClosed(block)
 
@@ -645,6 +652,21 @@ export function BlockRow({
         componentId,
         qty: 0,
         date: null,
+        jobId,
+      })
+    })
+  }
+
+  // Remove one component from this block. If it was the last remaining
+  // member, the server deletes the whole block (see removeOutsourceBlockMember
+  // in lib/db.ts). The arming check lives in the caller.
+  const removeMember = (componentId: string) => {
+    setArmedRemoveId(null)
+    start(async () => {
+      await mutate({
+        kind: 'removeOutsourceBlockMember',
+        blockId: block.id,
+        componentId,
         jobId,
       })
     })
@@ -813,21 +835,44 @@ export function BlockRow({
         />
       </div>
 
-      {/* Member list — only renders when it adds information. */}
-      {needsList ? (
+      {/* Member list — only renders when it adds information.
+          Long lists (e.g. 81 components on one CNC shipment) collapse to a
+          PREVIEW_COUNT-row preview with a "+ N · 展开" toggle. Threshold is
+          set so a list that's only one or two rows past PREVIEW_COUNT just
+          renders in full — collapsing a 9-row list to 6 isn't worth it. */}
+      {needsList ? (() => {
+        const PREVIEW_COUNT = 6
+        const COLLAPSE_AT = 10
+        const collapsible = block.members.length >= COLLAPSE_AT
+        const visible = !collapsible || expanded
+          ? block.members
+          : block.members.slice(0, PREVIEW_COUNT)
+        const hiddenCount = block.members.length - visible.length
+        return (
         <ul className="mt-2 ml-1 flex flex-col gap-0.5">
-          {block.members.map((m) => {
+          {visible.map((m) => {
             const fullyReturned = isMemberFullyReturned(m)
             const partial = isMemberPartiallyReturned(m)
             const remaining = memberRemainingQty(m)
             const returnedSoFar = memberReturnedQty(m)
 
             const lineTotal = memberLineTotal(m)
+            const armed = armedRemoveId === m.componentId
+            const removeBtn = !closed ? (
+              <MemberRemoveButton
+                armed={armed}
+                pending={pending}
+                fullyReturned={fullyReturned}
+                onArm={() => setArmedRemoveId(m.componentId)}
+                onCancel={() => setArmedRemoveId(null)}
+                onConfirm={() => removeMember(m.componentId)}
+              />
+            ) : null
             if (fullyReturned) {
               return (
                 <li
                   key={m.componentId}
-                  className="flex items-baseline gap-2 text-[12px]"
+                  className={`flex items-baseline gap-2 text-[12px] group ${armed ? 'bg-[color-mix(in_srgb,var(--color-overdue)_8%,transparent)] rounded-sm -mx-1 px-1' : ''}`}
                 >
                   <span className="text-[var(--color-ink)] truncate basis-[140px] grow">{m.name}</span>
                   <span className="mono text-[11px] text-[var(--color-ink-3)] shrink-0">
@@ -868,6 +913,7 @@ export function BlockRow({
                       ↺
                     </button>
                   </span>
+                  {removeBtn}
                 </li>
               )
             }
@@ -875,7 +921,7 @@ export function BlockRow({
             return (
               <li
                 key={m.componentId}
-                className="flex items-baseline gap-2 text-[12px]"
+                className={`flex items-baseline gap-2 text-[12px] group ${armed ? 'bg-[color-mix(in_srgb,var(--color-overdue)_8%,transparent)] rounded-sm -mx-1 px-1' : ''}`}
               >
                 <span className="text-[var(--color-ink-2)] truncate basis-[140px] grow">{m.name}</span>
                 <span className="mono text-[11px] text-[var(--color-ink-3)] shrink-0">
@@ -905,11 +951,27 @@ export function BlockRow({
                     </span>
                   )}
                 </span>
+                {removeBtn}
               </li>
             )
           })}
+          {collapsible ? (
+            <li className="mt-0.5">
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="label text-[var(--color-ink-3)] hover:text-[var(--color-ink)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-sm px-0.5"
+                aria-expanded={expanded}
+              >
+                {expanded
+                  ? `折叠 ⌃`
+                  : `+ ${hiddenCount} 个零件 · 展开 ⌄`}
+              </button>
+            </li>
+          ) : null}
         </ul>
-      ) : null}
+        )
+      })() : null}
 
       {/* Receive tray — only renders when 收件 is in dropdown mode AND open. */}
       {!closed && trayOpen && pendingMembers.length > 0 ? (
@@ -1025,6 +1087,68 @@ export function BlockRow({
         </div>
       ) : null}
     </div>
+  )
+}
+
+// Per-member 撤销. Hover-revealed × on each member row in BlockRow.
+// One click = arm (turns red and asks for confirmation inline). Second click
+// on "撤销" fires the removal. Clicking anywhere else (handled by the parent's
+// armedRemoveId state being reset by the next click) cancels.
+//
+// We render a slightly louder warning when the member is fully returned —
+// removing a 已回 member silently is exactly the kind of thing the operator
+// would later swear they didn't do.
+function MemberRemoveButton({
+  armed,
+  pending,
+  fullyReturned,
+  onArm,
+  onCancel,
+  onConfirm,
+}: {
+  armed: boolean
+  pending: boolean
+  fullyReturned: boolean
+  onArm: () => void
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  if (!armed) {
+    return (
+      <button
+        type="button"
+        onClick={onArm}
+        disabled={pending}
+        title="从此外协单移除该零件"
+        aria-label="移除零件"
+        className="ml-1 text-[12px] leading-none text-[var(--color-ink-4)] opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-[var(--color-overdue)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-sm px-0.5 transition-opacity disabled:opacity-30"
+      >
+        ✕
+      </button>
+    )
+  }
+  return (
+    <span className="ml-1 inline-flex items-baseline gap-1 mono text-[11px]">
+      <span className="text-[var(--color-overdue)]">
+        {fullyReturned ? '已回 · 确认移除?' : '移除?'}
+      </span>
+      <button
+        type="button"
+        onClick={onConfirm}
+        disabled={pending}
+        className="text-[var(--color-overdue)] hover:opacity-70 focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-sm px-0.5 disabled:opacity-40"
+      >
+        撤销
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        disabled={pending}
+        className="text-[var(--color-ink-3)] hover:text-[var(--color-ink)] focus:outline-none rounded-sm px-0.5"
+      >
+        取消
+      </button>
+    </span>
   )
 }
 

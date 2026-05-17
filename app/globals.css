@@ -137,6 +137,35 @@ html, body {
   pointer-events: none;
 }
 
+/* Skeleton shimmer for Suspense fallbacks. One base muted color, one
+ * traveling highlight band — no layout cost, fades into the real content
+ * the moment Suspense resolves. */
+.siyue-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-muted-bg);
+}
+.siyue-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.7) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: siyue-shimmer-slide 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes siyue-shimmer-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .siyue-shimmer::after { animation: none; }
+}
+
 /* Hide native number-input spinners — they overlap right-aligned values in narrow cells. */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {

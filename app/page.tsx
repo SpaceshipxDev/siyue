@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import {
   STAGES,
   dueState,
@@ -6,13 +7,18 @@ import {
 } from '@/lib/data'
 import { today } from '@/lib/today'
 import { getMasterRows, getStageFlowMinutes } from '@/lib/db'
-import { requireUser } from '@/lib/auth'
+import { requireUser, canSeeMoney } from '@/lib/auth'
 import { scrubMasterRow } from '@/lib/dto'
+import { getStationWip } from '@/lib/pulse'
 import { Pill, TopBar, type TabKey } from './_ui'
 import { MasterUploader } from './_uploader'
 import { InboxList } from './_inbox_list'
 import { MasterSheet } from './_master_filter'
 import { StationSummary } from './_station_summary'
+import {
+  StationActivityAsync,
+  StationActivityFallback,
+} from './_station_activity'
 import { StationWorkbench } from './_workbench'
 
 export const dynamic = 'force-dynamic'
@@ -146,6 +152,19 @@ export default async function MasterBoard(
     stageFilter ??
     (isProduction && !isEngineeringOverview ? user.defaultStage : undefined)
 
+  // Boss-only station extras: ¥WIP (small, inline) and a per-station audit
+  // strip (larger, streamed). Skipped for workers (no money visibility) and
+  // skipped on the overview view (factory-wide chrome there instead).
+  //
+  // WIP is one tiny view read (9 rows) → fetched alongside the master pull
+  // so the StationSummary band paints in one shot. Activity is its own
+  // round-trip behind <Suspense> below so the workbench/sheet flushes
+  // immediately and the boss audit strip streams in after — workers never
+  // wait on it, boss never blocks on it.
+  const showBossStationExtras = canSeeMoney(user) && !!summaryStage
+  const stationWipRows = showBossStationExtras ? await getStationWip() : undefined
+  const wipForStation = stationWipRows?.find((r) => r.stage === summaryStage)?.wipCny
+
   return (
     <div className="flex-1 flex flex-col">
       <TopBar
@@ -215,6 +234,7 @@ export default async function MasterBoard(
             rows={sorted}
             stage={summaryStage}
             avgMinutes={stageFlowMinutes.get(summaryStage) ?? null}
+            wipCny={wipForStation}
           />
         )}
 
@@ -244,6 +264,12 @@ export default async function MasterBoard(
             role={user.role}
             defaultStage={user.defaultStage}
           />
+        )}
+
+        {showBossStationExtras && summaryStage && (
+          <Suspense fallback={<StationActivityFallback stage={summaryStage} />}>
+            <StationActivityAsync stage={summaryStage} />
+          </Suspense>
         )}
 
         {showOverviewChrome && <Legend />}

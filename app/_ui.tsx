@@ -7,6 +7,7 @@ import { LogoutButton } from './_logout'
 
 export type TabKey =
   | '商务'
+  | '现场'
   | '月结'
   | '工单'
   | (typeof STAGES)[number]
@@ -45,6 +46,7 @@ function tabsForRole(role: Role, defaultStage?: string): Tab[] {
   }
   return [
     { key: '商务', label: '商务', href: '/' },
+    { key: '现场', label: '现场', href: '/pulse' },
     { key: '月结', label: '月结', href: '/month' },
     { key: '外协', label: '外协', href: '/station/outsource' },
     ...STAGES.map((s) => ({

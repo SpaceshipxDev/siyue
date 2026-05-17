@@ -24,6 +24,7 @@ const PUBLIC_PATHS = ['/login']
 // the page itself), so it does not need a forbidden-prefix entry here.
 const PRODUCTION_FORBIDDEN_PREFIXES = [
   '/month',
+  '/pulse',
   '/import',
   '/print',
   '/backend',
