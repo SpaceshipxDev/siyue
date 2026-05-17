@@ -7,9 +7,9 @@ import {
   getStationEvents,
   getStationWip,
   type StationEvent,
-  type StationWipRow,
 } from '@/lib/pulse'
 import { TopBar } from '../_ui'
+import { StationStrip } from './_strip'
 
 export const dynamic = 'force-dynamic'
 
@@ -98,15 +98,15 @@ export default async function PulsePage({
           </div>
         </header>
 
-        <StationStrip wip={wip} active={stageFilter} showMoney={showMoney} />
+        <StationStrip wip={wip} showMoney={showMoney} />
 
-        {/* Suspense key on stageFilter so chip changes re-trigger the
-            fallback skeleton — feels instant even when the feed query
-            takes a moment. */}
-        <Suspense
-          key={stageFilter ?? '_all'}
-          fallback={<FeedFallback />}
-        >
+        {/* No `key` on this Suspense: React keeps the old feed visible
+            during chip-change transitions and swaps content when the new
+            stream resolves. Combined with useTransition in StationStrip,
+            the chip inverts instantly and the feed never skeleton-blinks
+            once it has rendered once. The fallback only shows on the very
+            first paint of /pulse, never on chip clicks. */}
+        <Suspense fallback={<FeedFallback />}>
           <FeedAsync stage={stageFilter} />
         </Suspense>
       </main>
@@ -125,106 +125,9 @@ async function FeedAsync({ stage }: { stage: Stage | undefined }) {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Top strip: 9 tiles, one per stage. The headline is the ¥ figure (commerce)
-// or the parts count (工程 head, no money visibility). The sub-line carries
-// jobs/parts (commerce) or just jobs (工程, since parts is now the headline).
-// 未定价 is shown to both — 工程 can flag commerce when coverage is thin.
-// Selected tile inverts (ink on surface). Clicking any tile rewrites
-// ?stage=<X>; clicking the active tile clears it.
-// ---------------------------------------------------------------------------
-function StationStrip({
-  wip,
-  active,
-  showMoney,
-}: {
-  wip: StationWipRow[]
-  active: Stage | undefined
-  showMoney: boolean
-}) {
-  return (
-    <nav
-      aria-label="工段筛选"
-      className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-px bg-[var(--color-border)] border border-[var(--color-border)] rounded-md overflow-hidden mb-12"
-    >
-      {wip.map((row) => {
-        const isActive = active === row.stage
-        const isEmpty = row.partsHere === 0
-        const href = isActive
-          ? '/pulse'
-          : `/pulse?stage=${encodeURIComponent(row.stage)}`
-        const headlineText = showMoney
-          ? formatCny(row.wipCny)
-          : isEmpty
-            ? '—'
-            : `${new Intl.NumberFormat('zh-CN').format(row.partsHere)} 件`
-        const sublineText = isEmpty
-          ? '—'
-          : showMoney
-            ? `${row.jobsHere} 单 · ${row.partsHere} 件`
-            : `${row.jobsHere} 单`
-        return (
-          <Link
-            key={row.stage}
-            href={href}
-            aria-current={isActive ? 'true' : undefined}
-            className={`group flex flex-col gap-2 px-3 md:px-4 py-4 md:py-5 transition-colors ${
-              isActive
-                ? 'bg-[var(--color-ink)] text-[var(--color-bg)]'
-                : 'bg-[var(--color-surface)] text-[var(--color-ink)] hover:bg-[var(--color-active-bg)]'
-            }`}
-          >
-            <span
-              className={`label tracking-[0.22em] ${
-                isActive
-                  ? 'text-[var(--color-bg)] opacity-70'
-                  : 'text-[var(--color-ink-3)]'
-              }`}
-            >
-              {row.stage}
-            </span>
-            <span
-              className={`text-[18px] md:text-[22px] font-semibold tabular-nums tracking-tight ${
-                isEmpty
-                  ? isActive
-                    ? 'opacity-50'
-                    : 'text-[var(--color-ink-3)]'
-                  : ''
-              }`}
-            >
-              {headlineText}
-            </span>
-            <span
-              className={`text-[11px] md:text-[12px] tabular-nums ${
-                isActive
-                  ? 'text-[var(--color-bg)] opacity-70'
-                  : 'text-[var(--color-ink-3)]'
-              }`}
-            >
-              {sublineText}
-            </span>
-            {/* 未定价 hint — only when there's coverage to flag.
-                For commerce: a ¥0 column with all-unpriced parts reads as
-                "we don't know" not "worthless." For 工程: same signal,
-                useful as a nudge to commerce. Hidden when every part is
-                priced so the strip stays calm. */}
-            {row.partsUnpriced > 0 && (
-              <span
-                className={`text-[10px] tabular-nums tracking-wide ${
-                  isActive
-                    ? 'text-[var(--color-bg)] opacity-60'
-                    : 'text-[var(--color-warning)]'
-                }`}
-              >
-                {row.partsUnpriced} 未定价
-              </span>
-            )}
-          </Link>
-        )
-      })}
-    </nav>
-  )
-}
+// StationStrip lives in ./_strip.tsx — client component for instant
+// optimistic highlight + transition-wrapped router.push. See that file
+// for the rationale.
 
 // ---------------------------------------------------------------------------
 // Activity feed. Single-column chronological list — newest at the top. Each
