@@ -31,6 +31,7 @@ import { ReturnChip } from './_returns'
 import { mutate } from '@/lib/mutate'
 import { showToast } from './_toast'
 import { SearchInput } from './_search'
+import { usePersistentState } from './_persist'
 
 // Role mirrored locally so this client component doesn't import lib/auth
 // (which is server-only).
@@ -164,11 +165,27 @@ export function MasterSheet({
    * cells from the same flat grid commerce sees, without losing the actions. */
   actionableHighlight?: boolean
 }) {
-  const [q, setQ] = useState('')
-  const [sortMode, setSortMode] = useState<SortMode>('due')
-  const [dateFilter, setDateFilter] = useState<DateFilter>({ kind: 'all' })
-  const [shipFilter, setShipFilter] = useState<ShipFilter>('live')
-  const [showAll, setShowAll] = useState(false)
+  // Scope persisted filter state per view context so the commerce overview,
+  // /?stage=工程, and any station-filtered overview each remember their own
+  // filter independently.
+  const persistKey = `mes:filter:v1:master:${stageFilter ?? 'overview'}`
+  const [q, setQ] = usePersistentState<string>(`${persistKey}:q`, '')
+  const [sortMode, setSortMode] = usePersistentState<SortMode>(
+    `${persistKey}:sort`,
+    'due',
+  )
+  const [dateFilter, setDateFilter] = usePersistentState<DateFilter>(
+    `${persistKey}:date`,
+    { kind: 'all' },
+  )
+  const [shipFilter, setShipFilter] = usePersistentState<ShipFilter>(
+    `${persistKey}:ship`,
+    'live',
+  )
+  const [showAll, setShowAll] = usePersistentState<boolean>(
+    `${persistKey}:showAll`,
+    false,
+  )
 
   const isProduction = role === 'production'
   const showMoney = role === 'commerce'

@@ -28,6 +28,7 @@ import { ReturnChip } from './_returns'
 import { mutate } from '@/lib/mutate'
 import { showToast } from './_toast'
 import { SearchInput } from './_search'
+import { usePersistentState } from './_persist'
 
 // Production user's home view at /?stage=<theirs>. The 16-column master grid
 // is the wrong shape for a worker who only acts on ONE column; at 50 jobs/
@@ -157,10 +158,21 @@ export function StationWorkbench({
   role: Role
   defaultStage?: Stage
 }) {
-  const [tab, setTab] = useState<Tab>('mine')
-  const [q, setQ] = useState('')
-  const [sortMode, setSortMode] = useState<SortMode>('due')
-  const [dateFilter, setDateFilter] = useState<DateFilter>({ kind: 'all' })
+  // Filter state persists per station so the worker's choice of 工号 / date
+  // range / tab survives the trip into /jobs/[id] and back. Each station gets
+  // its own key — commerce drilling between stations keeps each context's
+  // filter independent.
+  const persistKey = `mes:filter:v1:station:${stage}`
+  const [tab, setTab] = usePersistentState<Tab>(`${persistKey}:tab`, 'mine')
+  const [q, setQ] = usePersistentState<string>(`${persistKey}:q`, '')
+  const [sortMode, setSortMode] = usePersistentState<SortMode>(
+    `${persistKey}:sort`,
+    'due',
+  )
+  const [dateFilter, setDateFilter] = usePersistentState<DateFilter>(
+    `${persistKey}:date`,
+    { kind: 'all' },
+  )
 
   const showCustomer = role === 'commerce'
   const jobNoOnly = isJobNoOnlySearch(role, defaultStage)
