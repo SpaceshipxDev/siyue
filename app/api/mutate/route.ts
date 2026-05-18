@@ -92,7 +92,7 @@ function isString(x: unknown): x is string {
 function isStage(x: unknown): x is Stage {
   return (
     isString(x) &&
-    ['工程', '编程', '操机', '手工', '打磨', '喷漆', '丝印', '质量', '出货'].includes(x)
+    ['工程', '编程', '操机', '手工', '打磨', '喷漆丝印', '质量', '出货'].includes(x)
   )
 }
 

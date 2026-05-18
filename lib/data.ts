@@ -4,8 +4,7 @@ export const STAGES = [
   '操机',
   '手工',
   '打磨',
-  '喷漆',
-  '丝印',
+  '喷漆丝印',
   '质量',
   '出货',
 ] as const
@@ -599,7 +598,7 @@ export function canStartStage(component: Component, stage: Stage): boolean {
 export function rollupStage(job: Job, stage: Stage): Rollup {
   // Parts where the stage isn't in the route are n/a — excluded from the
   // denominator, so a "no paint" part doesn't show as eternally pending in
-  // the 喷漆 column.
+  // the 喷漆丝印 column.
   const effs = job.components
     .filter((c) => isStageInRoute(c, stage))
     .map((c) => effectiveStageState(c, stage))

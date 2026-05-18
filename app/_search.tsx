@@ -77,7 +77,7 @@ export function MatchedComponentsStrip({
   job: Job
   components: Component[]
   q: string
-  /** When the page is filtered to a station (打磨 / 喷漆 / etc.), show that
+  /** When the page is filtered to a station (打磨 / 喷漆丝印 / etc.), show that
    * stage's state on each matched component. Skip for commerce overview /
    * 工程 — the parent row already carries the rollup. */
   viewerStage?: Stage
