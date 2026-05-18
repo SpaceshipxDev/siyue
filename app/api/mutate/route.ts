@@ -85,6 +85,59 @@ function err(message: string, status = 400): Response {
   return Response.json({ ok: false, error: message } satisfies Err, { status })
 }
 
+// In-memory idempotency cache. Clients (lib/mutate.ts) attach a UUID
+// requestId to every POST. If the same requestId arrives twice within the
+// TTL window — which happens when the response of the first attempt was
+// killed mid-flight by the mainland↔HK link and the client retried — we
+// serve the cached response instead of re-running the write. Without this,
+// non-idempotent kinds (appendComponent, createOutsourceBlock, createReturn)
+// would double-apply on retry. Single pm2 worker so a Map is sufficient;
+// if we ever scale workers, this becomes Redis or a Postgres table.
+type CachedResponse = {
+  body: unknown
+  status: number
+  expiresAt: number
+}
+const IDEMPOTENCY_TTL_MS = 60_000
+const IDEMPOTENCY_MAX_ENTRIES = 2000
+const idempotencyCache = new Map<string, CachedResponse>()
+
+function evictExpired(now: number) {
+  for (const [k, v] of idempotencyCache) {
+    if (v.expiresAt < now) idempotencyCache.delete(k)
+  }
+  // Map iteration order is insertion order; trim the oldest.
+  if (idempotencyCache.size > IDEMPOTENCY_MAX_ENTRIES) {
+    const overflow = idempotencyCache.size - IDEMPOTENCY_MAX_ENTRIES
+    let i = 0
+    for (const k of idempotencyCache.keys()) {
+      if (i++ >= overflow) break
+      idempotencyCache.delete(k)
+    }
+  }
+}
+
+// Wraps a Response such that we can both (a) return it to the original
+// caller and (b) cache its body/status for a future retry. Response bodies
+// can only be read once, so we capture body+status BEFORE constructing the
+// outgoing Response.
+async function cacheAndSend(
+  requestId: string | null,
+  body: unknown,
+  status: number,
+): Promise<Response> {
+  if (requestId) {
+    const now = Date.now()
+    idempotencyCache.set(requestId, {
+      body,
+      status,
+      expiresAt: now + IDEMPOTENCY_TTL_MS,
+    })
+    evictExpired(now)
+  }
+  return Response.json(body, { status })
+}
+
 function isString(x: unknown): x is string {
   return typeof x === 'string'
 }
@@ -111,13 +164,44 @@ export async function POST(request: NextRequest): Promise<Response> {
   const kind = body.kind
   if (!isString(kind)) return err('missing kind', 400)
 
+  const requestId =
+    typeof body.requestId === 'string' ? (body.requestId as string) : null
+
+  // Idempotency: a client retry after a killed response carries the same
+  // requestId; replay the cached reply instead of double-applying the write.
+  if (requestId) {
+    const cached = idempotencyCache.get(requestId)
+    if (cached && cached.expiresAt > Date.now()) {
+      return Response.json(cached.body, { status: cached.status })
+    }
+  }
+
+  let response: Response
   try {
-    return await dispatch(kind, body)
+    response = await dispatch(kind, body)
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     console.error('[mutate]', kind, message)
-    return err(message, 500)
+    return cacheAndSend(
+      requestId,
+      { ok: false, error: message } satisfies Err,
+      500,
+    )
   }
+
+  // dispatch() returns its result via Response.json(). Read it back so we
+  // can cache body+status alongside the requestId, then reconstruct a fresh
+  // Response. Cheap round-trip; the bodies are ~30 bytes.
+  const status = response.status
+  let parsedBody: unknown
+  try {
+    parsedBody = await response.json()
+  } catch {
+    // Shouldn't happen for any current dispatch case, but if it does we
+    // fall through with no caching — the client will see the raw status.
+    return Response.json({ ok: false, error: `HTTP ${status}` }, { status })
+  }
+  return cacheAndSend(requestId, parsedBody, status)
 }
 
 // Page-scoped revalidate helpers — never use `'layout'`. Each helper

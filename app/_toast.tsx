@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react'
 // showToast replaces whatever is on screen (the boss may pin three jobs in a
 // row and the last one is the one he cares about).
 
-type Tone = 'success' | 'neutral'
+type Tone = 'success' | 'neutral' | 'warning'
 type ToastPayload = { id: number; text: string; tone: Tone }
 
 const EVENT_NAME = '__siyue_toast__'
@@ -53,7 +53,9 @@ export function ToastHost() {
   const accent =
     toast.tone === 'success'
       ? 'text-emerald-700 ring-emerald-200/70 bg-emerald-50/95'
-      : 'text-[var(--color-ink)] ring-black/10 bg-white/95'
+      : toast.tone === 'warning'
+        ? 'text-amber-800 ring-amber-200/80 bg-amber-50/95'
+        : 'text-[var(--color-ink)] ring-black/10 bg-white/95'
 
   return (
     <div

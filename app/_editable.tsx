@@ -17,6 +17,7 @@ import type {
   VendorPatch,
 } from '@/lib/db'
 import { mutate } from '@/lib/mutate'
+import { showToast } from '@/app/_toast'
 
 // Every primitive in this file commits via /api/mutate (~30-byte JSON
 // request/response) instead of a server action. Server-action responses
@@ -41,7 +42,26 @@ function useDraft<T>(value: T) {
     setSyncedFrom(value)
     setDraft(value)
   }
-  return { draft, setDraft, focused, setFocused, pending, start }
+  // safeStart wraps a transition body in a try/catch so a network failure
+  // during commit never propagates out of useTransition. The throw used to
+  // bubble up to app/error.tsx, blanking the screen with the "网络中断"
+  // overlay for mainland users when a single /api/mutate POST was killed by
+  // GFW — even though lib/mutate.ts already retries internally and the
+  // server-side idempotency cache makes the retries safe. On unrecoverable
+  // failure we revert the local draft and toast the user; the rest of the
+  // page keeps working and the user can re-Enter to try again.
+  const safeStart = (run: () => Promise<unknown>, revertTo: T) => {
+    start(async () => {
+      try {
+        await run()
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : '网络中断'
+        showToast(`保存失败 · ${msg}`, 'warning')
+        setDraft(revertTo)
+      }
+    })
+  }
+  return { draft, setDraft, focused, setFocused, pending, start, safeStart }
 }
 
 export function EditableText({
@@ -61,13 +81,11 @@ export function EditableText({
 }) {
   const ref = useRef<HTMLInputElement>(null)
   const initial = value ?? ''
-  const { draft, setDraft, setFocused, pending, start } = useDraft(initial)
+  const { draft, setDraft, setFocused, pending, safeStart } = useDraft(initial)
 
   const commit = (next: string) => {
     if (next === initial) return
-    start(async () => {
-      await onSave(next)
-    })
+    safeStart(() => onSave(next), initial)
   }
 
   return (
@@ -111,14 +129,14 @@ export function EditableNumber({
 }) {
   const ref = useRef<HTMLInputElement>(null)
   const initial = value ?? 0
-  const { draft, setDraft, setFocused, pending, start } = useDraft(String(initial))
+  const initialStr = String(initial)
+  const { draft, setDraft, setFocused, pending, safeStart } =
+    useDraft(initialStr)
 
   const commit = (next: string) => {
     const n = Number(next)
     if (!Number.isFinite(n) || n === initial) return
-    start(async () => {
-      await onSave(n)
-    })
+    safeStart(() => onSave(n), initialStr)
   }
 
   return (
@@ -159,13 +177,11 @@ export function EditableDate({
   className?: string
 }) {
   const ref = useRef<HTMLInputElement>(null)
-  const { draft, setDraft, setFocused, pending, start } = useDraft(value)
+  const { draft, setDraft, setFocused, pending, safeStart } = useDraft(value)
 
   const commit = (next: string) => {
     if (next === value || !next) return
-    start(async () => {
-      await onSave(next)
-    })
+    safeStart(() => onSave(next), value)
   }
 
   // <input type="date"> shows the OS-localized date format (e.g. "25/04/2026")
@@ -212,7 +228,7 @@ export function EditableTextArea({
 }) {
   const ref = useRef<HTMLTextAreaElement>(null)
   const initial = value ?? ''
-  const { draft, setDraft, setFocused, pending, start } = useDraft(initial)
+  const { draft, setDraft, setFocused, pending, safeStart } = useDraft(initial)
 
   // Auto-resize
   useLayoutEffect(() => {
@@ -224,9 +240,7 @@ export function EditableTextArea({
 
   const commit = (next: string) => {
     if (next === initial) return
-    start(async () => {
-      await onSave(next)
-    })
+    safeStart(() => onSave(next), initial)
   }
 
   return (
@@ -336,25 +350,28 @@ export function JobAmount({
 }) {
   const ref = useRef<HTMLInputElement>(null)
   const initial = value
-  const { draft, setDraft, setFocused, pending, start } = useDraft(
-    typeof initial === 'number' ? String(initial) : '',
-  )
+  const initialStr = typeof initial === 'number' ? String(initial) : ''
+  const { draft, setDraft, setFocused, pending, safeStart } =
+    useDraft(initialStr)
 
   const commit = (next: string) => {
     const trimmed = next.trim()
     if (trimmed === '') {
       if (initial === undefined) return
-      start(async () => {
-        await mutate({ kind: 'updateJob', jobId, patch: { amountCny: null } })
-      })
+      safeStart(
+        () =>
+          mutate({ kind: 'updateJob', jobId, patch: { amountCny: null } }),
+        initialStr,
+      )
       return
     }
     const n = Number(trimmed)
     if (!Number.isFinite(n) || n < 0) return
     if (n === initial) return
-    start(async () => {
-      await mutate({ kind: 'updateJob', jobId, patch: { amountCny: n } })
-    })
+    safeStart(
+      () => mutate({ kind: 'updateJob', jobId, patch: { amountCny: n } }),
+      initialStr,
+    )
   }
 
   return (
@@ -527,35 +544,39 @@ function ComponentMoney({
 }) {
   const ref = useRef<HTMLInputElement>(null)
   const initial = value
-  const { draft, setDraft, setFocused, pending, start } = useDraft(
-    typeof initial === 'number' ? String(initial) : '',
-  )
+  const initialStr = typeof initial === 'number' ? String(initial) : ''
+  const { draft, setDraft, setFocused, pending, safeStart } =
+    useDraft(initialStr)
 
   const commit = (next: string) => {
     const trimmed = next.trim()
     if (trimmed === '') {
       if (initial === undefined) return
-      start(async () => {
-        await mutate({
-          kind: 'updateComponent',
-          jobId,
-          componentId,
-          patch: { [field]: null },
-        })
-      })
+      safeStart(
+        () =>
+          mutate({
+            kind: 'updateComponent',
+            jobId,
+            componentId,
+            patch: { [field]: null },
+          }),
+        initialStr,
+      )
       return
     }
     const n = Number(trimmed)
     if (!Number.isFinite(n) || n < 0) return
     if (n === initial) return
-    start(async () => {
-      await mutate({
-        kind: 'updateComponent',
-        jobId,
-        componentId,
-        patch: { [field]: n },
-      })
-    })
+    safeStart(
+      () =>
+        mutate({
+          kind: 'updateComponent',
+          jobId,
+          componentId,
+          patch: { [field]: n },
+        }),
+      initialStr,
+    )
   }
 
   return (
@@ -824,35 +845,39 @@ export function BlockMemberUnitPrice({
   const ref = useRef<HTMLInputElement>(null)
   const isPending = value == null
   const initial = isPending ? '' : String(value)
-  const { draft, setDraft, setFocused, pending, start } = useDraft(initial)
+  const { draft, setDraft, setFocused, pending, safeStart } = useDraft(initial)
 
   const commit = (next: string) => {
     const trimmed = next.trim()
     if (trimmed === '') {
       if (isPending) return
-      start(async () => {
-        await mutate({
-          kind: 'setBlockMemberUnitPrice',
-          blockId,
-          componentId,
-          unitPriceCny: null,
-          jobId,
-        })
-      })
+      safeStart(
+        () =>
+          mutate({
+            kind: 'setBlockMemberUnitPrice',
+            blockId,
+            componentId,
+            unitPriceCny: null,
+            jobId,
+          }),
+        initial,
+      )
       return
     }
     const n = Number(trimmed)
     if (!Number.isFinite(n) || n < 0) return
     if (!isPending && n === Number(initial)) return
-    start(async () => {
-      await mutate({
-        kind: 'setBlockMemberUnitPrice',
-        blockId,
-        componentId,
-        unitPriceCny: n,
-        jobId,
-      })
-    })
+    safeStart(
+      () =>
+        mutate({
+          kind: 'setBlockMemberUnitPrice',
+          blockId,
+          componentId,
+          unitPriceCny: n,
+          jobId,
+        }),
+      initial,
+    )
   }
 
   return (
@@ -933,7 +958,7 @@ export function OutsourceBlockAmount({
   const ref = useRef<HTMLInputElement>(null)
   const isPending = value == null
   const initial = isPending ? '' : String(value)
-  const { draft, setDraft, setFocused, pending, start } = useDraft(initial)
+  const { draft, setDraft, setFocused, pending, safeStart } = useDraft(initial)
 
   const commit = (next: string) => {
     const trimmed = next.trim()
@@ -941,27 +966,31 @@ export function OutsourceBlockAmount({
     // emptying is a no-op.
     if (trimmed === '') {
       if (isPending) return
-      start(async () => {
-        await mutate({
-          kind: 'updateOutsourceBlock',
-          blockId,
-          patch: { amountCny: null },
-          jobId,
-        })
-      })
+      safeStart(
+        () =>
+          mutate({
+            kind: 'updateOutsourceBlock',
+            blockId,
+            patch: { amountCny: null },
+            jobId,
+          }),
+        initial,
+      )
       return
     }
     const n = Number(trimmed)
     if (!Number.isFinite(n) || n < 0) return
     if (!isPending && n === Number(initial)) return
-    start(async () => {
-      await mutate({
-        kind: 'updateOutsourceBlock',
-        blockId,
-        patch: { amountCny: n },
-        jobId,
-      })
-    })
+    safeStart(
+      () =>
+        mutate({
+          kind: 'updateOutsourceBlock',
+          blockId,
+          patch: { amountCny: n },
+          jobId,
+        }),
+      initial,
+    )
   }
 
   return (
@@ -1087,12 +1116,12 @@ export function NameCombobox({
   const ref = useRef<HTMLInputElement>(null)
   const listId = useId()
   const initial = value ?? ''
-  const { draft, setDraft, setFocused, pending, start } = useDraft(initial)
+  const { draft, setDraft, setFocused, pending, safeStart } = useDraft(initial)
 
   const commit = (next: string) => {
     const trimmed = next.trim()
     if (trimmed === initial.trim()) return
-    start(async () => {
+    safeStart(async () => {
       if (target.kind === 'vendor') {
         if (!trimmed) return
         await mutate({
@@ -1107,7 +1136,7 @@ export function NameCombobox({
           name: trimmed,
         })
       }
-    })
+    }, initial)
   }
 
   return (
