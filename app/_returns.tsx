@@ -347,3 +347,25 @@ export function ReturnChip({
     </span>
   )
 }
+
+// Per-component badge on the job-detail parts table. Renders "退 N / M" so
+// the floor sees both the returned qty and whether it's a partial — the
+// composer captured both numbers but nothing surfaced them after submit.
+export function ReturnedComponentChip({
+  qty,
+  total,
+}: {
+  qty: number
+  total: number
+}) {
+  const partial = qty < total
+  return (
+    <span
+      className="inline-flex items-baseline gap-1 px-1.5 py-px rounded-sm border border-[var(--color-overdue)] text-[var(--color-overdue)] mono text-[10px] tracking-wider leading-tight"
+      title={`此零件退货 ${qty} / ${total} 件${partial ? ' · 部分退货' : ' · 全部退货'}`}
+      aria-label={`此零件退货 ${qty} 件,共 ${total} 件`}
+    >
+      退 {qty}/{total}
+    </span>
+  )
+}

@@ -13,6 +13,7 @@ import {
   jobExternalSpend,
   jobIsShipped,
   jobMargin,
+  jobReturnedQtyByPart,
   vendorById,
   type Job,
   type Vendor,
@@ -49,7 +50,11 @@ import { StageChips } from '@/app/_stagechips'
 import { ComponentsScrollArea } from '@/app/_components_table'
 import { ComponentAnchorScroller } from '@/app/_component_anchor'
 import { SourceFileRow } from '@/app/_source_file'
-import { ActiveReturnBadge, OpenReturnButton } from '@/app/_returns'
+import {
+  ActiveReturnBadge,
+  OpenReturnButton,
+  ReturnedComponentChip,
+} from '@/app/_returns'
 import { ShippingComposerButton } from '@/app/_shipping'
 import {
   ProcessCardButton,
@@ -121,6 +126,10 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
     qty: c.qty,
     hasAnyBlock: (c.outsourceBlocks ?? []).length > 0,
   }))
+
+  // Per-component returned-qty lookup for the active return. Empty map when
+  // no return is open, so the badge naturally disappears once 关闭 is hit.
+  const returnedQtyByPart = jobReturnedQtyByPart(job)
 
   // A block now spans N components — dedupe by block.id so the per-job list
   // shows one row per shipment with all members.
@@ -492,6 +501,14 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       {isProduction && (c.outsourceBlocks ?? []).length > 0 && (
                         <span className="block mt-0.5 text-[10px] tracking-wider text-[var(--color-warning)]">
                           外协中
+                        </span>
+                      )}
+                      {returnedQtyByPart.has(c.id) && (
+                        <span className="block mt-1">
+                          <ReturnedComponentChip
+                            qty={returnedQtyByPart.get(c.id) ?? 0}
+                            total={c.qty}
+                          />
                         </span>
                       )}
                     </td>

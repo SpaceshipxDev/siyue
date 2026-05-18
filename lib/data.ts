@@ -512,6 +512,17 @@ export function jobReturnedPartIds(job: Job): Set<string> {
   return new Set(job.activeReturn.parts.map((p) => p.partId))
 }
 
+// Per-part returned qty for the active return. Used to mark each affected
+// component row with "退 N / M" so the floor can see how many units of that
+// part actually came back — the modal captures the number but nothing
+// surfaced it post-submit.
+export function jobReturnedQtyByPart(job: Job): Map<string, number> {
+  const m = new Map<string, number>()
+  if (!job.activeReturn) return m
+  for (const p of job.activeReturn.parts) m.set(p.partId, p.qty)
+  return m
+}
+
 // Parse a YNMX-style 工号 of the form `YNMX-YY-M-D-NNN`. The trailing NNN is
 // a monthly cumulative counter; the YY-M-D is the 生产日 (the day production
 // was logged for this job), NOT the due date. Returns null for free-text 工号
