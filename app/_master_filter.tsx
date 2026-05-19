@@ -32,6 +32,7 @@ import { mutate } from '@/lib/mutate'
 import { showToast } from './_toast'
 import { SearchInput } from './_search'
 import { usePersistentState } from './_persist'
+import { StickyHorizontalScrollbar } from './_sticky_hscroll'
 
 // Role mirrored locally so this client component doesn't import lib/auth
 // (which is server-only).
@@ -202,6 +203,13 @@ export function MasterSheet({
   const [optimisticRowPins, setOptimisticRowPins] = useState<
     Record<string, boolean>
   >({})
+
+  // Ref handed to <StickyHorizontalScrollbar>: the grid is hundreds of rows
+  // tall, so the native horizontal bar at the table's bottom is invisible
+  // until you scroll to the end of the list. The proxy bar pinned to the
+  // viewport bottom keeps the horizontal control reachable at every scroll
+  // position.
+  const tableScrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setOptimisticRowPins((prev) => {
@@ -439,7 +447,10 @@ export function MasterSheet({
         </span>
       </div>
 
-      <div className="overflow-x-auto rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div
+        ref={tableScrollRef}
+        className="siyue-hscroll-hide-native overflow-x-auto rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]"
+      >
         <table className="sheet w-full text-left text-[13px]">
           <colgroup>
             <col style={{ width: 30 }} />
@@ -660,6 +671,7 @@ export function MasterSheet({
           </div>
         )}
       </div>
+      <StickyHorizontalScrollbar containerRef={tableScrollRef} />
     </>
   )
 }

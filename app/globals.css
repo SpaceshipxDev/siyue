@@ -59,6 +59,59 @@ html, body {
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; }
 
+/* Hide the native horizontal scrollbar on a scroll container that's paired
+ * with <StickyHorizontalScrollbar>. The proxy bar pinned to the viewport
+ * bottom becomes the single visible control — two bars would compete and
+ * the native one only appears at the table's bottom edge anyway. */
+.siyue-hscroll-hide-native::-webkit-scrollbar { display: none; }
+.siyue-hscroll-hide-native { scrollbar-width: none; }
+
+/* Floating horizontal scrollbar pinned to the viewport bottom while a wide
+ * table extends past it. Thin frosted-glass strip with a manually-painted
+ * thumb — Apple Notes / Numbers vintage — so the control stays visible on
+ * every platform regardless of the OS "overlay scrollbar" preference (which
+ * would otherwise hide a native ::-webkit-scrollbar thumb when not actively
+ * scrolling). */
+.siyue-sticky-hscroll {
+  position: fixed;
+  bottom: 0;
+  height: 14px;
+  background-color: rgba(251, 250, 247, 0.78);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  backdrop-filter: saturate(180%) blur(14px);
+  border-top: 1px solid var(--color-border);
+  z-index: 30;
+  transition: opacity 180ms cubic-bezier(0.32, 0.72, 0.18, 1);
+  cursor: pointer;
+  touch-action: none;
+}
+.siyue-sticky-hscroll-thumb {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  height: 8px;
+  border-radius: 999px;
+  background-color: rgba(20, 19, 15, 0.32);
+  transition: background-color 140ms cubic-bezier(0.32, 0.72, 0.18, 1),
+              height 140ms cubic-bezier(0.32, 0.72, 0.18, 1),
+              top 140ms cubic-bezier(0.32, 0.72, 0.18, 1);
+  will-change: transform;
+  cursor: grab;
+}
+.siyue-sticky-hscroll:hover .siyue-sticky-hscroll-thumb,
+.siyue-sticky-hscroll-thumb.is-dragging {
+  background-color: rgba(20, 19, 15, 0.52);
+  height: 10px;
+  top: 2px;
+}
+.siyue-sticky-hscroll-thumb.is-dragging {
+  cursor: grabbing;
+}
+@media (prefers-reduced-motion: reduce) {
+  .siyue-sticky-hscroll,
+  .siyue-sticky-hscroll-thumb { transition: none; }
+}
+
 /* Toggle a node between screen and print. Used by editable wrappers that render
  * a hidden plain-text fallback so the printed doc never carries native input
  * chrome (date pickers, datalist arrows, number-input layout quirks). */
