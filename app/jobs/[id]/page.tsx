@@ -283,6 +283,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 jobId={job.id}
                 jobNo={job.jobNo}
                 initialType={job.jobType}
+                initialIsProduct={job.isProduct}
                 canEdit={canManageOutsource(user)}
               />
             </div>

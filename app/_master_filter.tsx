@@ -195,7 +195,8 @@ export function MasterSheet({
 
   // Optimistic overlay for jobType edits — chip + stripe + sort all update
   // in the same React tick as the click. See useOptimisticJobType.
-  const { effectiveType, setType } = useOptimisticJobType(rows)
+  const { effectiveType, effectiveIsProduct, setType, setIsProduct } =
+    useOptimisticJobType(rows)
 
   // Ref handed to <StickyHorizontalScrollbar>: the grid is hundreds of rows
   // tall, so the native horizontal bar at the table's bottom is invisible
@@ -494,7 +495,9 @@ export function MasterSheet({
                 tier="mine"
                 canEditType={canEditType}
                 jobType={effectiveType(row)}
+                isProduct={effectiveIsProduct(row)}
                 onTypeChange={(next) => setType(row, next)}
+                onProductChange={(next) => setIsProduct(row, next)}
               />
             ))}
             {shouldPaginate && (showAll || hiddenTopCount > 0) && topRows.length > DEFAULT_PAGE_SIZE && (
@@ -552,7 +555,9 @@ export function MasterSheet({
                     tier="upstream"
                     canEditType={canEditType}
                     jobType={effectiveType(row)}
+                    isProduct={effectiveIsProduct(row)}
                     onTypeChange={(next) => setType(row, next)}
+                    onProductChange={(next) => setIsProduct(row, next)}
                   />
                 ))}
               </>
@@ -587,7 +592,9 @@ export function MasterSheet({
                     tier="done"
                     canEditType={canEditType}
                     jobType={effectiveType(row)}
+                    isProduct={effectiveIsProduct(row)}
                     onTypeChange={(next) => setType(row, next)}
+                    onProductChange={(next) => setIsProduct(row, next)}
                   />
                 ))}
               </>
@@ -698,7 +705,9 @@ function JobRow({
   tier,
   canEditType,
   jobType,
+  isProduct,
   onTypeChange,
+  onProductChange,
 }: {
   row: MasterRow
   index: number
@@ -721,7 +730,9 @@ function JobRow({
   /** Effective job type after the optimistic overlay. Drives stripe color
    *  + chip label + rush-first sort (sort is done by parent). */
   jobType?: JobType
+  isProduct: boolean
   onTypeChange: (next: JobType | null) => void
+  onProductChange: (next: boolean) => void
 }) {
   // The head's own column is NEVER a navigation Link — clicks here are
   // stage-action gestures. Three flavors:
@@ -775,9 +786,11 @@ function JobRow({
           <div className="flex items-center gap-2 flex-nowrap">
             <TypeChip
               jobType={jobType}
+              isProduct={isProduct}
               jobNo={row.jobNo}
               canEdit={canEditType}
               onChange={onTypeChange}
+              onProductChange={onProductChange}
             />
             <Link
               href={detailHref}

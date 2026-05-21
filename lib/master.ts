@@ -68,6 +68,8 @@ export type MasterRow = {
    *  when jobType === 'rush'. Undefined for legacy rows imported before
    *  the field existed. */
   jobType?: JobType
+  /** 产品 — independent stack-on-top tag. Coexists with jobType. */
+  isProduct?: boolean
   /** Row-level boss pin (jobs.pinned_at). Legacy — kept for sub-sort
    *  recency within the rush bucket. Not rendered. */
   pinnedAt?: string

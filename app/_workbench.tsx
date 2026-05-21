@@ -182,7 +182,8 @@ export function StationWorkbench({
   // Optimistic overlay for jobType edits so the chip + stripe + the rush-
   // float sort all update in the same React tick as the click. Shared
   // hook with the master grid.
-  const { effectiveType, setType } = useOptimisticJobType(rows)
+  const { effectiveType, effectiveIsProduct, setType, setIsProduct } =
+    useOptimisticJobType(rows)
 
   // Pipeline: text → date → sort. Partition into the three tabs at the end
   // so each tab badge reflects the live filter. row.searchHaystack carries
@@ -310,7 +311,9 @@ export function StationWorkbench({
               showCustomer={showCustomer}
               canEditType={canEditType}
               jobType={effectiveType(row)}
+              isProduct={effectiveIsProduct(row)}
               onTypeChange={(next) => setType(row, next)}
+              onProductChange={(next) => setIsProduct(row, next)}
             />
           ))}
         </ul>
@@ -402,7 +405,9 @@ function WorkbenchRow({
   showCustomer,
   canEditType,
   jobType,
+  isProduct,
   onTypeChange,
+  onProductChange,
 }: {
   row: MasterRow
   index: number
@@ -412,7 +417,9 @@ function WorkbenchRow({
   showCustomer: boolean
   canEditType: boolean
   jobType?: JobType
+  isProduct: boolean
   onTypeChange: (next: JobType | null) => void
+  onProductChange: (next: boolean) => void
 }) {
   const effDue = row.effectiveDueDate
   const ds = dueState(effDue)
@@ -455,9 +462,11 @@ function WorkbenchRow({
               <div className="flex items-center gap-2 flex-nowrap">
                 <TypeChip
                   jobType={jobType}
+                  isProduct={isProduct}
                   jobNo={row.jobNo}
                   canEdit={canEditType && tab !== 'done'}
                   onChange={onTypeChange}
+                  onProductChange={onProductChange}
                 />
                 <span className="mono text-[14px] font-medium text-[var(--color-ink)] whitespace-nowrap">
                   <Highlight text={row.jobNo} q={q} />

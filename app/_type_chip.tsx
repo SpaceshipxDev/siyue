@@ -29,17 +29,23 @@ import { showToast } from './_toast'
 
 export function TypeChip({
   jobType,
+  isProduct,
   jobNo,
   canEdit,
   onChange,
+  onProductChange,
 }: {
   jobType?: JobType
+  isProduct?: boolean
   jobNo: string
   canEdit: boolean
   /** Called with the next jobType (or null to clear). Parent runs the
    *  mutate + optimistic overlay — keeps THIS component reusable across
    *  master grid, station workbench, and job detail. */
   onChange?: (next: JobType | null) => void
+  /** Called when the 产品 tag is toggled. Independent of onChange so a
+   *  job can carry both a duration bucket AND 产品. */
+  onProductChange?: (next: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLSpanElement>(null)
@@ -68,16 +74,36 @@ export function TypeChip({
     onChange?.(next)
   }
 
+  const onPickProduct = (next: boolean) => {
+    setOpen(false)
+    if (next === Boolean(isProduct)) return
+    onProductChange?.(next)
+  }
+
   if (!canEdit) {
-    if (!jobType) return null
+    if (!jobType && !isProduct) return null
     return (
-      <span
-        className="type-chip"
-        data-job-type={jobType}
-        aria-label={`类别 · ${JOB_TYPE_LABEL[jobType]}`}
-        title={JOB_TYPE_LABEL[jobType]}
-      >
-        {JOB_TYPE_LABEL[jobType]}
+      <span className="inline-flex items-center gap-1">
+        {jobType && (
+          <span
+            className="type-chip"
+            data-job-type={jobType}
+            aria-label={`类别 · ${JOB_TYPE_LABEL[jobType]}`}
+            title={JOB_TYPE_LABEL[jobType]}
+          >
+            {JOB_TYPE_LABEL[jobType]}
+          </span>
+        )}
+        {isProduct && (
+          <span
+            className="type-chip"
+            data-job-type="product"
+            aria-label="类别 · 产品"
+            title="产品"
+          >
+            产品
+          </span>
+        )}
       </span>
     )
   }
@@ -94,23 +120,45 @@ export function TypeChip({
     if (e.key === 'Enter' || e.key === ' ') toggle(e)
   }
 
+  const hasAnyTag = Boolean(jobType) || Boolean(isProduct)
+
   return (
-    <span ref={wrapRef} className="relative inline-flex">
-      {jobType ? (
-        <span
-          role="button"
-          tabIndex={0}
-          className="type-chip cursor-pointer select-none"
-          data-job-type={jobType}
-          onClick={toggle}
-          onKeyDown={onKey}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          aria-label={`${JOB_TYPE_LABEL[jobType]} · 点击修改类别`}
-          title={`${JOB_TYPE_LABEL[jobType]} · 点击修改`}
-        >
-          {JOB_TYPE_LABEL[jobType]}
-        </span>
+    <span ref={wrapRef} className="relative inline-flex items-center gap-1">
+      {hasAnyTag ? (
+        <>
+          {jobType && (
+            <span
+              role="button"
+              tabIndex={0}
+              className="type-chip cursor-pointer select-none"
+              data-job-type={jobType}
+              onClick={toggle}
+              onKeyDown={onKey}
+              aria-haspopup="menu"
+              aria-expanded={open}
+              aria-label={`${JOB_TYPE_LABEL[jobType]} · 点击修改类别`}
+              title={`${JOB_TYPE_LABEL[jobType]} · 点击修改`}
+            >
+              {JOB_TYPE_LABEL[jobType]}
+            </span>
+          )}
+          {isProduct && (
+            <span
+              role="button"
+              tabIndex={0}
+              className="type-chip cursor-pointer select-none"
+              data-job-type="product"
+              onClick={toggle}
+              onKeyDown={onKey}
+              aria-haspopup="menu"
+              aria-expanded={open}
+              aria-label="产品 · 点击修改类别"
+              title="产品 · 点击修改"
+            >
+              产品
+            </span>
+          )}
+        </>
       ) : (
         <span
           role="button"
@@ -128,7 +176,12 @@ export function TypeChip({
       )}
 
       {open && (
-        <TypePopover current={jobType ?? null} onPick={onPick} />
+        <TypePopover
+          current={jobType ?? null}
+          isProduct={Boolean(isProduct)}
+          onPick={onPick}
+          onPickProduct={onPickProduct}
+        />
       )}
     </span>
   )
@@ -136,13 +189,18 @@ export function TypeChip({
 
 function TypePopover({
   current,
+  isProduct,
   onPick,
+  onPickProduct,
 }: {
   current: JobType | null
+  isProduct: boolean
   onPick: (next: JobType | null) => void
+  onPickProduct: (next: boolean) => void
 }) {
   // Sorted with 加急 on top — it's the high-affordance action; everything
-  // else is a passive label. Then the duration ladder short → long.
+  // else is a passive label. Then the duration ladder short → long, then
+  // 产品 below the divider as an independent stack-on-top tag.
   return (
     <div
       role="menu"
@@ -182,13 +240,41 @@ function TypePopover({
       <div className="my-1 h-px bg-[var(--color-border)]" />
       <button
         type="button"
+        role="menuitemcheckbox"
+        aria-checked={isProduct}
+        onClick={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          onPickProduct(!isProduct)
+        }}
+        className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] transition-colors hover:bg-[var(--color-muted-bg)] ${
+          isProduct ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-2)]'
+        }`}
+      >
+        <span
+          className="inline-block h-2 w-2 rounded-full"
+          style={{ background: 'var(--color-type-product)' }}
+          aria-hidden="true"
+        />
+        <span className="flex-1">产品</span>
+        {isProduct && (
+          <span aria-hidden="true" className="text-[var(--color-ink-3)]">
+            ✓
+          </span>
+        )}
+      </button>
+      <div className="my-1 h-px bg-[var(--color-border)]" />
+      <button
+        type="button"
         role="menuitem"
         onClick={(e) => {
           e.preventDefault()
           e.stopPropagation()
-          onPick(null)
+          // 清除 wipes both — the user wanted "clear all tags", not just one.
+          if (current !== null) onPick(null)
+          if (isProduct) onPickProduct(false)
         }}
-        disabled={current === null}
+        disabled={current === null && !isProduct}
         className="flex w-full items-center px-2.5 py-1.5 text-left text-[12px] text-[var(--color-ink-3)] transition-colors hover:bg-[var(--color-muted-bg)] disabled:opacity-40 disabled:hover:bg-transparent"
       >
         清除
@@ -207,14 +293,19 @@ export function JobTypeEditor({
   jobId,
   jobNo,
   initialType,
+  initialIsProduct,
   canEdit,
 }: {
   jobId: string
   jobNo: string
   initialType?: JobType
+  initialIsProduct?: boolean
   canEdit: boolean
 }) {
   const [type, setLocalType] = useState<JobType | undefined>(initialType)
+  const [isProduct, setLocalIsProduct] = useState<boolean>(
+    Boolean(initialIsProduct),
+  )
 
   const onChange = (next: JobType | null) => {
     const prev = type
@@ -233,8 +324,30 @@ export function JobTypeEditor({
       })
   }
 
+  const onProductChange = (next: boolean) => {
+    const prev = isProduct
+    setLocalIsProduct(next)
+    mutate({ kind: 'setJobIsProduct', jobId, isProduct: next })
+      .then(() => {
+        showToast(
+          next ? `${jobNo} · 已标记为 产品` : `${jobNo} · 已取消 产品 标记`,
+        )
+      })
+      .catch(() => {
+        setLocalIsProduct(prev)
+        showToast('类别修改失败,请重试', 'neutral')
+      })
+  }
+
   return (
-    <TypeChip jobType={type} jobNo={jobNo} canEdit={canEdit} onChange={onChange} />
+    <TypeChip
+      jobType={type}
+      isProduct={isProduct}
+      jobNo={jobNo}
+      canEdit={canEdit}
+      onChange={onChange}
+      onProductChange={onProductChange}
+    />
   )
 }
 
@@ -244,7 +357,7 @@ export function JobTypeEditor({
 // chip + stripe + sort all update in the same React tick as the click.
 // --------------------------------------------------------------------------
 
-export function useOptimisticJobType<T extends { id: string; jobType?: JobType; jobNo: string }>(
+export function useOptimisticJobType<T extends { id: string; jobType?: JobType; isProduct?: boolean; jobNo: string }>(
   _rows: T[],
 ) {
   // Overlay map: per-jobId, the type the user JUST picked. `null` (explicit)
@@ -253,6 +366,8 @@ export function useOptimisticJobType<T extends { id: string; jobType?: JobType; 
   // as the prop catches up (overlay === server is a no-op), so dead entries
   // are harmless. Avoids the React-19 lint rule against setState-in-effect.
   const [overlay, setOverlay] = useState<Record<string, JobType | null>>({})
+  // Parallel overlay for the independent 产品 tag. Same fall-through rules.
+  const [productOverlay, setProductOverlay] = useState<Record<string, boolean>>({})
 
   const effectiveType = useCallback(
     (row: { id: string; jobType?: JobType }): JobType | undefined => {
@@ -265,6 +380,16 @@ export function useOptimisticJobType<T extends { id: string; jobType?: JobType; 
       return desired
     },
     [overlay],
+  )
+
+  const effectiveIsProduct = useCallback(
+    (row: { id: string; isProduct?: boolean }): boolean => {
+      if (!(row.id in productOverlay)) return Boolean(row.isProduct)
+      const desired = productOverlay[row.id]
+      if (desired === Boolean(row.isProduct)) return Boolean(row.isProduct)
+      return desired
+    },
+    [productOverlay],
   )
 
   const setType = useCallback(
@@ -291,5 +416,28 @@ export function useOptimisticJobType<T extends { id: string; jobType?: JobType; 
     [],
   )
 
-  return { effectiveType, setType }
+  const setIsProduct = useCallback(
+    (row: { id: string; jobNo: string }, next: boolean) => {
+      setProductOverlay((prev) => ({ ...prev, [row.id]: next }))
+      mutate({ kind: 'setJobIsProduct', jobId: row.id, isProduct: next })
+        .then(() => {
+          showToast(
+            next
+              ? `${row.jobNo} · 已标记为 产品`
+              : `${row.jobNo} · 已取消 产品 标记`,
+          )
+        })
+        .catch(() => {
+          setProductOverlay((prev) => {
+            const copy = { ...prev }
+            delete copy[row.id]
+            return copy
+          })
+          showToast('类别修改失败,请重试', 'neutral')
+        })
+    },
+    [],
+  )
+
+  return { effectiveType, effectiveIsProduct, setType, setIsProduct }
 }

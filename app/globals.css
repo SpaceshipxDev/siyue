@@ -39,6 +39,9 @@
   --color-type-short: #b8881c;
   --color-type-medium: #2c5e8c;
   --color-type-long: #9b988f;
+  /* 产品 — independent stack-on-top tag. Forest green so it reads as a
+     parallel signal, not another duration bucket. */
+  --color-type-product: #2f6b3d;
 }
 
 @theme inline {
@@ -186,6 +189,8 @@ html, body {
 .type-chip[data-job-type="short"]  { color: var(--color-type-short);  background: color-mix(in srgb, var(--color-type-short)  7%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-short)  28%, transparent); }
 .type-chip[data-job-type="medium"] { color: var(--color-type-medium); background: color-mix(in srgb, var(--color-type-medium) 7%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-medium) 28%, transparent); }
 .type-chip[data-job-type="long"]   { color: var(--color-type-long);   background: color-mix(in srgb, var(--color-type-long)   8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-long)   34%, transparent); }
+.type-chip[data-job-type="product"] { color: var(--color-type-product); background: color-mix(in srgb, var(--color-type-product) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-product) 34%, transparent); }
+.type-chip[data-job-type="product"]:hover { background: color-mix(in srgb, var(--color-type-product) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-product) 48%, transparent); }
 .type-chip[data-job-type="short"]:hover,
 .type-chip[data-job-type="medium"]:hover,
 .type-chip[data-job-type="long"]:hover {

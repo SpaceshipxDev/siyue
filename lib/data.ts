@@ -441,6 +441,10 @@ export type Job = {
   shipments: Shipment[]
   // Global classification — color + priority float. See JobType.
   jobType?: JobType
+  // 产品 — independent tag that coexists with jobType (a job can be both
+  // 加急 and 产品). Boolean rather than a JobType value so the duration/
+  // priority buckets stay mutually exclusive and 产品 stacks on top.
+  isProduct?: boolean
   // Legacy fields kept on the type for snapshot compatibility (the DB column
   // still exists; nothing in the UI reads them anymore). Will be dropped
   // once the rollout is verified.

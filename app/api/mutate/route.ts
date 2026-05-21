@@ -21,6 +21,7 @@ import {
   setComponentImage,
   setJobPin,
   setJobStagePin,
+  setJobIsProduct,
   setJobType,
   setMemberReturnedQty,
   setPartRoute,
@@ -509,6 +510,25 @@ async function dispatch(
       // Every list-rendering surface re-sorts off jobType — master grid
       // plus every station workbench. Page-scoped only, per the file's
       // "never use 'layout'" rule.
+      revalidatePath('/')
+      revalidatePath(`/jobs/${jobId}`)
+      for (const s of STAGES) {
+        revalidatePath(`/station/${encodeURIComponent(s)}`)
+      }
+      return Response.json(ok())
+    }
+
+    // Independent 产品 tag. Same auth as setJobType (商务 + 工程 head).
+    case 'setJobIsProduct': {
+      const jobId = body.jobId
+      const isProduct = body.isProduct
+      if (!isString(jobId) || typeof isProduct !== 'boolean')
+        return err('bad setJobIsProduct args')
+      const u = await requireUser()
+      if (!canManageOutsource(u)) {
+        return err('无权设置工单类别 (仅商务/工程可操作)', 403)
+      }
+      await setJobIsProduct(jobId, isProduct)
       revalidatePath('/')
       revalidatePath(`/jobs/${jobId}`)
       for (const s of STAGES) {
