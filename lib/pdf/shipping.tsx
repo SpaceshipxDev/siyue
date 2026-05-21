@@ -10,6 +10,7 @@ import { BRAND } from './../brand'
 import { COLOR, styles } from './styles'
 import { ensureFontsRegistered } from './fonts'
 import type { ImageSource } from './images'
+import { stripProcessMethodFromNotes } from './sanitize'
 
 ensureFontsRegistered()
 
@@ -82,7 +83,7 @@ export function ShippingDocPDF({
           <Field label="合同编号" value={job.contractNo || '—'} />
           <Field label="联系方式" value={customer?.phone || '—'} />
           <Field label="生产批次" value={job.batchNo || '—'} />
-          <Field full label="备注" value={job.notes || '—'} />
+          <Field full label="备注" value={stripProcessMethodFromNotes(job.notes) || '—'} />
         </View>
 
         {/* Table — rendered only after the shipping stage has been opened on at
@@ -133,7 +134,7 @@ export function ShippingDocPDF({
                       {c.name}
                     </Text>
                     <Text style={[styles.tdMuted, { width: COL.notes }]}>
-                      {c.notes ?? ''}
+                      {stripProcessMethodFromNotes(c.notes)}
                     </Text>
                   </View>
                 )

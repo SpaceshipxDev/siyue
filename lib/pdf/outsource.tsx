@@ -12,6 +12,7 @@ import { BRAND } from './../brand'
 import { styles } from './styles'
 import { ensureFontsRegistered } from './fonts'
 import type { ImageSource } from './images'
+import { stripProcessMethodFromNotes } from './sanitize'
 
 ensureFontsRegistered()
 
@@ -88,7 +89,7 @@ export function OutsourceDocPDF({
           <Field label="联系电话" value={recipientPhone} />
           <Field label="订单金额" value={formatCny(block.amountCny)} />
           <Field label="销售单号" value={jobNo} />
-          <Field full label="备注" value={block.notes ?? '—'} />
+          <Field full label="备注" value={stripProcessMethodFromNotes(block.notes) || '—'} />
         </View>
 
         <View style={styles.tableWrap}>
@@ -169,7 +170,7 @@ export function OutsourceDocPDF({
                   {lt != null ? formatCny(lt) : '—'}
                 </Text>
                 <Text style={[styles.tdMuted, { width: COL.notes }]}>
-                  {i === 0 ? (block.notes ?? '') : ''}
+                  {i === 0 ? stripProcessMethodFromNotes(block.notes) : ''}
                 </Text>
               </View>
             )
