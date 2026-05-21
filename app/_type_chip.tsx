@@ -83,7 +83,7 @@ export function TypeChip({
   if (!canEdit) {
     if (!jobType && !isProduct) return null
     return (
-      <span className="inline-flex items-center gap-1">
+      <span className="inline-flex flex-col items-start gap-1">
         {jobType && (
           <span
             className="type-chip"
@@ -123,7 +123,7 @@ export function TypeChip({
   const hasAnyTag = Boolean(jobType) || Boolean(isProduct)
 
   return (
-    <span ref={wrapRef} className="relative inline-flex items-center gap-1">
+    <span ref={wrapRef} className="relative inline-flex flex-col items-start gap-1">
       {hasAnyTag ? (
         <>
           {jobType && (
