@@ -14,6 +14,7 @@ import { PrintToolbar } from '@/app/_print'
 import {
   BlockMemberUnitPrice,
   ComponentQty,
+  ComponentText,
   NameCombobox,
   OutsourceBlockAmount,
   OutsourceBlockDate,
@@ -198,11 +199,12 @@ export default async function OutsourceDocPage(
                 <th style={{ width: 36 }}>序号</th>
                 <th style={{ width: 72 }}>产品图片</th>
                 <th>产品名称</th>
-                <th style={{ width: 96 }}>材料</th>
-                <th style={{ width: 72, textAlign: 'right' }}>采购数量</th>
-                <th style={{ width: 80, textAlign: 'right' }}>单价</th>
-                <th style={{ width: 90, textAlign: 'right' }}>总价</th>
-                <th style={{ width: 90 }}>备注</th>
+                <th style={{ width: 90 }}>料号</th>
+                <th style={{ width: 90 }}>材料</th>
+                <th style={{ width: 64, textAlign: 'right' }}>采购数量</th>
+                <th style={{ width: 72, textAlign: 'right' }}>单价</th>
+                <th style={{ width: 84, textAlign: 'right' }}>总价</th>
+                <th style={{ width: 84 }}>备注</th>
               </tr>
             </thead>
             <tbody>
@@ -231,6 +233,19 @@ export default async function OutsourceDocPage(
                       }
                     >
                       {m.name}
+                    </td>
+                    <td className="mono text-[var(--color-ink-2)]">
+                      {isOrphan ? (
+                        m.partNo ?? ''
+                      ) : (
+                        <ComponentText
+                          jobId={info.jobId}
+                          componentId={m.componentId}
+                          field="partNo"
+                          value={m.partNo}
+                          placeholder="—"
+                        />
+                      )}
                     </td>
                     <td className="text-[var(--color-ink-2)]">
                       {m.material ?? '—'}
@@ -273,7 +288,7 @@ export default async function OutsourceDocPage(
                 )
               })}
               <tr>
-                <td colSpan={4} className="label" style={{ textAlign: 'right' }}>
+                <td colSpan={5} className="label" style={{ textAlign: 'right' }}>
                   合计
                 </td>
                 <td className="mono font-semibold" style={{ textAlign: 'right' }}>

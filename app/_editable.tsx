@@ -462,7 +462,7 @@ export function JobNotesInline({
   )
 }
 
-type ComponentTextField = 'name' | 'material' | 'surfaceTreatment'
+type ComponentTextField = 'name' | 'material' | 'surfaceTreatment' | 'partNo'
 
 export function ComponentText({
   jobId,
@@ -488,7 +488,9 @@ export function ComponentText({
             ? { name: v }
             : field === 'material'
               ? { material: v.length === 0 ? null : v }
-              : { surfaceTreatment: v.length === 0 ? null : v }
+              : field === 'surfaceTreatment'
+                ? { surfaceTreatment: v.length === 0 ? null : v }
+                : { partNo: v.length === 0 ? null : v }
         await mutate({ kind: 'updateComponent', jobId, componentId, patch })
       }}
       className={className}
@@ -1053,7 +1055,7 @@ export function OutsourceBlockDate({
   )
 }
 
-type JobShippingField = 'createdBy' | 'contractNo' | 'batchNo'
+type JobShippingField = 'createdBy' | 'contractNo' | 'batchNo' | 'engineer'
 
 export function JobShippingText({
   jobId,
@@ -1080,7 +1082,9 @@ export function JobShippingText({
             ? { createdBy: next }
             : field === 'contractNo'
               ? { contractNo: next }
-              : { batchNo: next }
+              : field === 'batchNo'
+                ? { batchNo: next }
+                : { engineer: next }
         await mutate({ kind: 'updateJob', jobId, patch })
       }}
     />

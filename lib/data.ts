@@ -73,6 +73,10 @@ export type OutsourceBlockMember = {
   name: string
   qty: number
   material?: string
+  // Mirrors the parent component's 料号. Resolved at compose time so the
+  // 外协单 always reflects whatever number commerce typed on the job detail
+  // page — no denormalization in outsource_block_parts.
+  partNo?: string
   imageUrl?: string
   // Per-part return state. `returnedQty` is the running total of units back
   // from the vendor (0 = nothing back, qty = all back). `returnedAt` stamps
@@ -251,6 +255,9 @@ export type Component = {
   surfaceTreatment?: string
   notes?: string
   imageUrl?: string
+  // 料号 — vendor/customer part number. Manual entry only (never AI-extracted).
+  // Surfaced on the printed 出货单 / 外协单 when present.
+  partNo?: string
   // Per-line quote fields. Both stored independently — qty * unitPriceCny is
   // not enforced to equal lineTotalCny, since real 报价单s often line-discount,
   // round, or tax differently per item. Either may be undefined when the AI
@@ -419,6 +426,9 @@ export type Job = {
   createdBy?: string
   contractNo?: string
   batchNo?: string
+  // 工程师 — engineering owner of the job. AI-extracted on import when
+  // present in the source workbook, blank otherwise. Editable inline.
+  engineer?: string
   // ISO timestamp the job row was created. Used as the wait-timer anchor on
   // the first stage (工程) where there's no upstream finishedAt to fall back to.
   createdAt?: string

@@ -50,6 +50,7 @@ export function scrubJob(job: Job, scope: Scope): Job {
     amountCny: moneyOk ? job.amountCny : undefined,
     contractNo: customerOk ? job.contractNo : undefined,
     batchNo: customerOk ? job.batchNo : undefined,
+    engineer: customerOk ? job.engineer : undefined,
     createdBy: moneyOk ? job.createdBy : undefined,
     sourceFileUrl: moneyOk ? job.sourceFileUrl : undefined,
     components: job.components.map((c) => ({

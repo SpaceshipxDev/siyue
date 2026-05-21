@@ -15,6 +15,7 @@ import { BRAND } from '@/lib/brand'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { PrintToolbar } from '@/app/_print'
 import {
+  ComponentText,
   CustomerText,
   JobAmount,
   JobDueDate,
@@ -127,6 +128,16 @@ export default async function ShippingDocPage(
             }
           />
           <Field
+            label="工程师"
+            value={
+              <JobShippingText
+                jobId={job.id}
+                field="engineer"
+                value={job.engineer}
+              />
+            }
+          />
+          <Field
             label="联系人"
             value={
               <CustomerText
@@ -219,7 +230,15 @@ export default async function ShippingDocPage(
                     <td className="mono" style={{ textAlign: 'right' }}>
                       {qty}
                     </td>
-                    <td className="mono text-[var(--color-ink-2)]">{c.name}</td>
+                    <td className="mono text-[var(--color-ink-2)]">
+                      <ComponentText
+                        jobId={job.id}
+                        componentId={c.id}
+                        field="partNo"
+                        value={c.partNo}
+                        placeholder="—"
+                      />
+                    </td>
                     <td className="text-[var(--color-ink-2)]">{c.notes ?? ''}</td>
                   </tr>
                 ))}

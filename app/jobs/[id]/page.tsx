@@ -41,6 +41,7 @@ import {
   JobAmount,
   JobDueDate,
   JobNotes,
+  JobShippingText,
   JobText,
 } from '@/app/_editable'
 import { BlockRow, NewBlockForm } from '@/app/_routing'
@@ -350,6 +351,48 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           </div>
         </div>
 
+        {/* 工程师 / 合同号 — job-level metadata that prints on the 出货单.
+            工程师 is AI-extracted on import when present in the source file;
+            合同号 is always blank on import and commerce fills it in once the
+            customer assigns one. Hidden from pure production users since both
+            are customer-facing (gated through scrubJob → customerOk). */}
+        {showCustomer && (
+          <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <p className="label mb-2">工程师</p>
+              {canEditFields ? (
+                <JobShippingText
+                  jobId={job.id}
+                  field="engineer"
+                  value={job.engineer}
+                  className="text-[13px] text-[var(--color-ink)]"
+                  placeholder="—"
+                />
+              ) : (
+                <p className="text-[13px] text-[var(--color-ink)]">
+                  {job.engineer ?? '—'}
+                </p>
+              )}
+            </div>
+            <div>
+              <p className="label mb-2">合同号</p>
+              {canEditFields ? (
+                <JobShippingText
+                  jobId={job.id}
+                  field="contractNo"
+                  value={job.contractNo}
+                  className="mono text-[13px] text-[var(--color-ink)]"
+                  placeholder="—"
+                />
+              ) : (
+                <p className="mono text-[13px] text-[var(--color-ink)]">
+                  {job.contractNo ?? '—'}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* 工单备注 is the one field everyone owns — production heads add 催单 /
             shop-floor context, commerce reads + writes too. SourceFileRow is
             commerce-only (links to the original 报价单 PDF). */}
@@ -394,6 +437,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               <col style={{ width: 56 }} />
               <col style={{ width: 78 }} />
               <col style={{ width: 200 }} />
+              <col style={{ width: 120 }} />
               <col style={{ width: 70 }} />
               <col style={{ width: 130 }} />
               <col style={{ width: 180 }} />
@@ -435,6 +479,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 >
                   零件
                 </th>
+                <th className="px-4 py-3 label whitespace-nowrap">料号</th>
                 <th className="px-4 py-3 text-right label whitespace-nowrap">
                   数量
                 </th>
@@ -518,6 +563,22 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                             qty={returnedQtyByPart.get(c.id) ?? 0}
                             total={c.qty}
                           />
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3">
+                      {canEditFields ? (
+                        <ComponentText
+                          jobId={job.id}
+                          componentId={c.id}
+                          field="partNo"
+                          value={c.partNo}
+                          placeholder="—"
+                          className="mono text-[12px] text-[var(--color-ink-2)]"
+                        />
+                      ) : (
+                        <span className="mono text-[12px] text-[var(--color-ink-2)]">
+                          {c.partNo ?? ''}
                         </span>
                       )}
                     </td>

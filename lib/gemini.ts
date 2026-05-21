@@ -39,6 +39,7 @@ function buildSystem(): string {
 - amountCny (金额): 含税总价或合计金额，单位人民币元。如果只能找到分项金额，可求和；找不到留 null。
 - dueDate (交期): 格式 YYYY-MM-DD。如果只写"确认后 15 天内完成"等模糊描述，按今日 + 15 天估算。如果完全找不到，留 null。今日是 ${today()}。
 - notes (备注): 工单级备注，比如付款方式、特殊要求；零件级别的备注放到对应 part 内。
+- engineer (工程师): 工程负责人或对接工程师的姓名（中文/英文皆可）。常见于"工程师"、"项目工程师"、"对接工程师"、"项目负责人"等字段。只输出姓名，去掉职务前缀。找不到留 null。
 
 零件列表 (parts)：每行实际零件占一项，跳过表头/合计/付款方式/验收标准等说明行。
 - name (零件名称): 物料名称或零件名称那一列；尽量保留完整描述。
@@ -72,6 +73,7 @@ const SCHEMA = {
     amountCny: { type: Type.NUMBER, nullable: true },
     dueDate: { type: Type.STRING, nullable: true },
     notes: { type: Type.STRING, nullable: true },
+    engineer: { type: Type.STRING, nullable: true },
     parts: {
       type: Type.ARRAY,
       items: {
@@ -108,6 +110,7 @@ const SCHEMA = {
     'amountCny',
     'dueDate',
     'notes',
+    'engineer',
     'parts',
   ],
 }
@@ -119,6 +122,7 @@ type GeminiJobJson = {
   amountCny?: number | null
   dueDate?: string | null
   notes?: string | null
+  engineer?: string | null
   parts: {
     name: string
     qty: number
@@ -225,6 +229,7 @@ export async function extractJobFromXlsx(input: ExtractInput): Promise<Extracted
         : undefined,
     dueDate: clean(parsed.dueDate) ?? fallbackDueDate(),
     notes: clean(parsed.notes),
+    engineer: clean(parsed.engineer),
     sourceFile: input.fileName,
     components: (parsed.parts ?? []).map((p) => ({
       name: clean(p.name) ?? '未命名零件',

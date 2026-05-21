@@ -79,6 +79,7 @@ export function ShippingDocPDF({
           <Field label="送货日期" value={job.dueDate} />
           <Field label="客户名称" value={customerName || '—'} />
           <Field label="制单人" value={job.createdBy || '—'} />
+          <Field label="工程师" value={job.engineer || '—'} />
           <Field label="联系人" value={customer?.contact || '—'} />
           <Field label="合同编号" value={job.contractNo || '—'} />
           <Field label="联系方式" value={customer?.phone || '—'} />
@@ -131,7 +132,7 @@ export function ShippingDocPDF({
                       {qty}
                     </Text>
                     <Text style={[styles.tdMuted, { width: COL.partNo }]}>
-                      {c.name}
+                      {c.partNo ?? ''}
                     </Text>
                     <Text style={[styles.tdMuted, { width: COL.notes }]}>
                       {stripProcessMethodFromNotes(c.notes)}
