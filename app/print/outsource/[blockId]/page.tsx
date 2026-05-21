@@ -62,7 +62,7 @@ export default async function OutsourceDocPage(
           </p>
         </header>
 
-        <section className="grid grid-cols-2 gap-x-10 gap-y-2 py-4 text-[12px] border-b border-[var(--color-border)]">
+        <section className="grid grid-cols-2 gap-x-10 gap-y-3 py-5 text-[14px] font-medium border-b border-[var(--color-border)]">
           <Field
             label="外协单号"
             value={<span className="mono">{docNo}</span>}

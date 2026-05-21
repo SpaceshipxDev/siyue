@@ -28,14 +28,30 @@ export function ShippingComposerButton({
   shipments: Shipment[]
 }) {
   const [open, setOpen] = useState(false)
+  // Once every in-route part has been fully shipped there's nothing left to
+  // compose, but the user still legitimately needs to reprint the last
+  // 出货单 (customer lost it, mailroom asks for another copy, etc.). Skip the
+  // picker in that state and open the print page directly — same artifact,
+  // no new shipment row.
+  const reprintOnly =
+    shipments.length > 0 &&
+    components
+      .filter((c) => isStageInRoute(c, '出货'))
+      .every((c) => componentShippedTotal(c.id, shipments) >= c.qty)
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          if (reprintOnly) {
+            window.open(`/jobs/${jobId}/print/shipping`, '_blank', 'noopener')
+            return
+          }
+          setOpen(true)
+        }}
         className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-sm hover:opacity-80"
       >
-        制作出货单
+        {reprintOnly ? '重新打印出货单' : '制作出货单'}
       </button>
       {open && (
         <ShippingComposer
