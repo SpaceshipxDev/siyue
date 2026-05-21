@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   STAGES,
@@ -14,7 +14,6 @@ import {
 import {
   rowIsDoneAtStage,
   rowIsMineAtStage,
-  rowIsPinned,
   rowIsShipped,
   rowIsUpstreamOfStage,
   rowMostRecentFinishedAt,
@@ -26,13 +25,12 @@ import {
 import { DueCell, RollupCell, StageHeader } from './_ui'
 import { JobStageActionButton } from './_cell'
 import { JobNotesInline } from './_editable'
-import { PinStar } from './_pin_star'
 import { ReturnChip } from './_returns'
-import { mutate } from '@/lib/mutate'
-import { showToast } from './_toast'
+import { TypeChip, useOptimisticJobType } from './_type_chip'
 import { SearchInput } from './_search'
 import { usePersistentState } from './_persist'
 import { StickyHorizontalScrollbar } from './_sticky_hscroll'
+import type { JobType } from '@/lib/data'
 
 // Role mirrored locally so this client component doesn't import lib/auth
 // (which is server-only).
@@ -191,18 +189,13 @@ export function MasterSheet({
   const isProduction = role === 'production'
   const showMoney = role === 'commerce'
   const jobNoOnly = isJobNoOnlySearch(role, defaultStage)
-  // Row-level pin auth: commerce (boss) and 工程 head. Both share state —
-  // whatever 商务 stars, 工程 sees, and vice versa. The server enforces the
-  // same rule (canManageOutsource) in /api/mutate#pinJob.
-  const canPin = role === 'commerce' || defaultStage === '工程'
+  // Job-type edit auth: commerce + 工程 head. Workers see the stripe + chip
+  // read-only. Server enforces the same rule in /api/mutate#setJobType.
+  const canEditType = role === 'commerce' || defaultStage === '工程'
 
-  // Optimistic per-row pin overrides on the master grid. Keyed by jobId.
-  // Cleared in the reconciliation effect below once the server-pushed
-  // `jobs` prop catches up to the optimistic value — so the row stays
-  // at the top through the round-trip without flicker.
-  const [optimisticRowPins, setOptimisticRowPins] = useState<
-    Record<string, boolean>
-  >({})
+  // Optimistic overlay for jobType edits — chip + stripe + sort all update
+  // in the same React tick as the click. See useOptimisticJobType.
+  const { effectiveType, setType } = useOptimisticJobType(rows)
 
   // Ref handed to <StickyHorizontalScrollbar>: the grid is hundreds of rows
   // tall, so the native horizontal bar at the table's bottom is invisible
@@ -211,45 +204,6 @@ export function MasterSheet({
   // position.
   const tableScrollRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    setOptimisticRowPins((prev) => {
-      const next = { ...prev }
-      let changed = false
-      for (const r of rows) {
-        const serverPinned = rowIsPinned(r)
-        if (r.id in prev && prev[r.id] === serverPinned) {
-          delete next[r.id]
-          changed = true
-        }
-      }
-      return changed ? next : prev
-    })
-  }, [rows])
-
-  const effectiveRowPinned = useCallback(
-    (row: MasterRow): boolean => {
-      const o = optimisticRowPins[row.id]
-      return o === undefined ? rowIsPinned(row) : o
-    },
-    [optimisticRowPins],
-  )
-
-  const onRowPinToggle = useCallback(
-    (row: MasterRow, next: boolean) => {
-      setOptimisticRowPins((prev) => ({ ...prev, [row.id]: next }))
-      mutate({ kind: 'pinJob', jobId: row.id, pinned: next })
-        .then(() => {
-          showToast(
-            next ? `${row.jobNo} · 已置顶` : `${row.jobNo} · 已取消置顶`,
-          )
-        })
-        .catch(() => {
-          setOptimisticRowPins((prev) => ({ ...prev, [row.id]: !next }))
-          showToast('置顶失败,请重试', 'neutral')
-        })
-    },
-    [],
-  )
   // 工程 is the one stage that intentionally uses the flat master grid even
   // when it's the URL filter — page.tsx already skips StationWorkbench for it,
   // and we mirror that here so the mine/upstream/done partition + pagination
@@ -335,38 +289,36 @@ export function MasterSheet({
     const dateFiltered = sortedByMode.filter((r) =>
       rowMatchesDate(r, dateFilter, sortMode),
     )
-    // Float boss-pinned rows to the very top of the master grid. Uses the
-    // OPTIMISTIC pin state so the row jumps the moment the user clicks the
-    // star, not after the server round-trip. Within the pinned bucket,
-    // most recently starred is first (pinned_at desc, optimistic pins win
-    // since their pinnedAt is '' which sorts after — stable input order
-    // keeps the just-clicked row at the top).
-    const floatRowPinned = (arr: MasterRow[]) => {
-      const pinned: MasterRow[] = []
+    // Float 加急 rows to the very top — the single global priority signal.
+    // Uses the OPTIMISTIC type so the row jumps the moment the user picks
+    // 加急 from the chip popover. Within the rush bucket, most recently
+    // flagged is first (pinned_at desc, set by setJobType when promoting
+    // to rush). Stable input order keeps the just-clicked row at the top
+    // until the server echoes back.
+    const floatRush = (arr: MasterRow[]) => {
+      const rush: MasterRow[] = []
       const rest: MasterRow[] = []
       for (const r of arr) {
-        if (effectiveRowPinned(r)) pinned.push(r)
+        if (effectiveType(r) === 'rush') rush.push(r)
         else rest.push(r)
       }
-      pinned.sort((a, b) => {
+      rush.sort((a, b) => {
         const ta = a.pinnedAt ?? ''
         const tb = b.pinnedAt ?? ''
-        // Most recent first; entries without pinnedAt (just-optimistic) sit
-        // at the top because the input array order is preserved.
         return tb.localeCompare(ta)
       })
-      return [...pinned, ...rest]
+      return [...rush, ...rest]
     }
     if (!isStationView || !stageFilter) {
       return {
-        topRows: floatRowPinned(dateFiltered),
+        topRows: floatRush(dateFiltered),
         upstreamRows: [] as MasterRow[],
         doneRows: [] as MasterRow[],
       }
     }
     if (q.trim().length > 0) {
       return {
-        topRows: floatRowPinned(dateFiltered),
+        topRows: floatRush(dateFiltered),
         upstreamRows: [] as MasterRow[],
         doneRows: [] as MasterRow[],
       }
@@ -390,11 +342,11 @@ export function MasterSheet({
       )
       .slice(0, 20)
     return {
-      topRows: floatRowPinned(top),
-      upstreamRows: upstream,
+      topRows: floatRush(top),
+      upstreamRows: floatRush(upstream),
       doneRows: done,
     }
-  }, [sortedByMode, dateFilter, sortMode, isStationView, stageFilter, q, effectiveRowPinned])
+  }, [sortedByMode, dateFilter, sortMode, isStationView, stageFilter, q, effectiveType])
 
   const filteredCount = topRows.length + upstreamRows.length + doneRows.length
   const isFiltered = q.length > 0 || dateFilter.kind !== 'all'
@@ -453,9 +405,8 @@ export function MasterSheet({
       >
         <table className="sheet w-full text-left text-[13px]">
           <colgroup>
-            <col style={{ width: 30 }} />
             <col style={{ width: 56 }} />
-            <col style={{ width: 130 }} />
+            <col style={{ width: 230 }} />
             <col style={{ width: 220 }} />
             {showMoney && <col style={{ width: 120 }} />}
             <col style={{ width: 140 }} />
@@ -485,7 +436,6 @@ export function MasterSheet({
           </colgroup>
           <thead>
             <tr className="text-[var(--color-ink-2)]">
-              <th className="px-1 py-3" aria-label="置顶" />
               <th className="px-3 py-3 text-center label whitespace-nowrap">#</th>
               <th className="px-4 py-3 label whitespace-nowrap">工号</th>
               <th className="px-4 py-3 label whitespace-nowrap">
@@ -542,15 +492,15 @@ export function MasterSheet({
                 highlightStage={highlightStage}
                 highlightIsActionable={highlightIsActionable}
                 tier="mine"
-                canPin={canPin}
-                rowPinned={effectiveRowPinned(row)}
-                onRowPinToggle={onRowPinToggle}
+                canEditType={canEditType}
+                jobType={effectiveType(row)}
+                onTypeChange={(next) => setType(row, next)}
               />
             ))}
             {shouldPaginate && (showAll || hiddenTopCount > 0) && topRows.length > DEFAULT_PAGE_SIZE && (
               <tr>
                 <td
-                  colSpan={6 + STAGES.length + (showMoney ? 1 : 0)}
+                  colSpan={5 + STAGES.length + (showMoney ? 1 : 0)}
                   className="px-4 py-3 text-center border-t border-[var(--color-border)]"
                 >
                   <button
@@ -576,7 +526,7 @@ export function MasterSheet({
               <>
                 <tr aria-hidden="true">
                   <td
-                    colSpan={6 + STAGES.length + (showMoney ? 1 : 0)}
+                    colSpan={5 + STAGES.length + (showMoney ? 1 : 0)}
                     className="px-4 pt-8 pb-2"
                   >
                     <div className="flex items-baseline gap-3 border-t border-[var(--color-border)] pt-4">
@@ -600,9 +550,9 @@ export function MasterSheet({
                     highlightStage={highlightStage}
                     highlightIsActionable={highlightIsActionable}
                     tier="upstream"
-                    canPin={canPin}
-                    rowPinned={effectiveRowPinned(row)}
-                    onRowPinToggle={onRowPinToggle}
+                    canEditType={canEditType}
+                    jobType={effectiveType(row)}
+                    onTypeChange={(next) => setType(row, next)}
                   />
                 ))}
               </>
@@ -611,7 +561,7 @@ export function MasterSheet({
               <>
                 <tr aria-hidden="true">
                   <td
-                    colSpan={6 + STAGES.length + (showMoney ? 1 : 0)}
+                    colSpan={5 + STAGES.length + (showMoney ? 1 : 0)}
                     className="px-4 pt-8 pb-2"
                   >
                     <div className="flex items-baseline gap-3 border-t border-[var(--color-border)] pt-4">
@@ -635,9 +585,9 @@ export function MasterSheet({
                     highlightStage={highlightStage}
                     highlightIsActionable={highlightIsActionable}
                     tier="done"
-                    canPin={canPin}
-                    rowPinned={effectiveRowPinned(row)}
-                    onRowPinToggle={onRowPinToggle}
+                    canEditType={canEditType}
+                    jobType={effectiveType(row)}
+                    onTypeChange={(next) => setType(row, next)}
                   />
                 ))}
               </>
@@ -746,9 +696,9 @@ function JobRow({
   highlightStage,
   highlightIsActionable,
   tier,
-  canPin,
-  rowPinned,
-  onRowPinToggle,
+  canEditType,
+  jobType,
+  onTypeChange,
 }: {
   row: MasterRow
   index: number
@@ -765,12 +715,13 @@ function JobRow({
    *   'upstream' — opacity-50, "incoming"
    *   'done'     — opacity-40, "recently finished, no longer demanding" */
   tier: 'mine' | 'upstream' | 'done'
-  /** Commerce/工程 can toggle the row-level boss pin. Other roles see a
-   * filled star when pinned, nothing when not (hover-reveal disabled). */
-  canPin: boolean
-  /** Row-level boss-pin state (server + optimistic overlay from parent). */
-  rowPinned: boolean
-  onRowPinToggle: (row: MasterRow, next: boolean) => void
+  /** Commerce/工程 can edit the job's classification (短期/中期/长期/加急).
+   *  Other roles see the chip + stripe read-only. */
+  canEditType: boolean
+  /** Effective job type after the optimistic overlay. Drives stripe color
+   *  + chip label + rush-first sort (sort is done by parent). */
+  jobType?: JobType
+  onTypeChange: (next: JobType | null) => void
 }) {
   // The head's own column is NEVER a navigation Link — clicks here are
   // stage-action gestures. Three flavors:
@@ -811,39 +762,34 @@ function JobRow({
       }}
       className={`group/row align-middle ${rowOpacity}`}
     >
-      <td className="px-0.5 py-3 align-middle text-center">
-        {(canPin || rowPinned) && (
-          <span className="inline-flex">
-            <PinStar
-              pinned={rowPinned}
-              canPin={canPin}
-              size={15}
-              label={
-                rowPinned
-                  ? `取消置顶 ${row.jobNo}`
-                  : canPin
-                    ? `置顶 ${row.jobNo}`
-                    : `${row.jobNo} 已置顶`
-              }
-              onToggle={(next) => onRowPinToggle(row, next)}
-            />
-          </span>
-        )}
-      </td>
       <td className="px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]">
         {String(index + 1).padStart(2, '0')}
       </td>
       <td className="px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Link
-            href={detailHref}
-            className="mono text-[13px] font-medium text-[var(--color-ink)] hover:underline underline-offset-4 decoration-[var(--color-ink-3)]"
-          >
-            <Highlight text={row.jobNo} q={q} />
-          </Link>
+        {/* Type chip BEFORE 工号 — square-ish tonal block, carries the
+            color signal that the old left stripe used to. The full 工号
+            never wraps (`whitespace-nowrap` + reserved column width);
+            secondary badges (外协 / 退货) flow to a second row below
+            via `flex-wrap` if the row gets too dense. */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-nowrap">
+            <TypeChip
+              jobType={jobType}
+              jobNo={row.jobNo}
+              canEdit={canEditType}
+              onChange={onTypeChange}
+            />
+            <Link
+              href={detailHref}
+              className="mono text-[13px] font-medium text-[var(--color-ink)] hover:underline underline-offset-4 decoration-[var(--color-ink-3)] whitespace-nowrap"
+            >
+              <Highlight text={row.jobNo} q={q} />
+            </Link>
+          </div>
           {row.hasOpenOutsource && (
             <span
-              className="mono text-[10px] tracking-wider px-1.5 py-px rounded-sm border border-[var(--color-info)] text-[var(--color-info)] leading-tight"
+              className="row-badge"
+              data-tone="info"
               title="此工单有零件正在外协"
               aria-label="此工单有外协"
             >

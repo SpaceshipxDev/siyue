@@ -25,6 +25,20 @@
    * even at thumbnail scale on the wall TV. */
   --color-pin: #facc15;
   --color-pin-stroke: #b58705;
+
+  /* Job-type signals. Tonal palette — saturated text + a very soft wash,
+   * iOS / macOS chip style. 加急 is RED (not the boss's old yellow): it
+   * shares the urgency vocabulary with --color-overdue so a row that's
+   * both 加急 AND overdue reads doubly hot, while the duration tags
+   * stay cool and recede.
+   *   加急 / rush    — overdue red. Loudest of the four; reinforces 交期 cues.
+   *   短期 / short   — amber. "Soon, but not on fire."
+   *   中期 / medium  — steel blue. Calm, mid-horizon.
+   *   长期 / long    — warm grey. Recedes into the field. */
+  --color-type-rush: #b8341c;
+  --color-type-short: #b8881c;
+  --color-type-medium: #2c5e8c;
+  --color-type-long: #9b988f;
 }
 
 @theme inline {
@@ -120,6 +134,121 @@ html, body {
 @media print {
   .screen-only { display: none !important; }
   .print-only  { display: inline !important; }
+}
+
+/* Job-type tag. Tonal Apple-style chip — saturated text + a soft wash +
+ * a hairline border drawn with inset box-shadow (sub-pixel sharper than
+ * a 1px border at any DPR). Sits inline BEFORE the 工号 and IS the
+ * priority signal — no separate stripe, no filled blob.
+ *
+ * 加急 is RED. Slightly more saturated wash + tighter border than the
+ * three passive duration tags, so it carries the row's "escalated"
+ * weight without screaming. The duration tags recede into classification.
+ *
+ * Geometry: 4px corners (square-ish — matches the sheet's table cell
+ * geometry), 20px tall × 38px min-width (exactly large enough for two
+ * Chinese characters + breathing room). */
+.type-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  min-width: 38px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  white-space: nowrap;
+  background: transparent;
+  flex-shrink: 0;
+  /* No vertical metrics shift on hover — keep the row's baseline rock-steady. */
+  transition: background-color 140ms cubic-bezier(0.32, 0.72, 0.18, 1),
+              box-shadow     140ms cubic-bezier(0.32, 0.72, 0.18, 1);
+}
+
+/* 加急 — the loudest. ~12% wash, hairline border at ~40% saturation.
+ * Reads as "this is flagged" from across the room without filling the
+ * cell with red. */
+.type-chip[data-job-type="rush"] {
+  color: var(--color-type-rush);
+  background: color-mix(in srgb, var(--color-type-rush) 11%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-rush) 42%, transparent);
+}
+.type-chip[data-job-type="rush"]:hover {
+  background: color-mix(in srgb, var(--color-type-rush) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-rush) 55%, transparent);
+}
+
+/* Passive duration tags — more recessed. 7% wash, 28% border. Stays
+ * out of the way of the jobNo text it's labeling. */
+.type-chip[data-job-type="short"]  { color: var(--color-type-short);  background: color-mix(in srgb, var(--color-type-short)  7%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-short)  28%, transparent); }
+.type-chip[data-job-type="medium"] { color: var(--color-type-medium); background: color-mix(in srgb, var(--color-type-medium) 7%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-medium) 28%, transparent); }
+.type-chip[data-job-type="long"]   { color: var(--color-type-long);   background: color-mix(in srgb, var(--color-type-long)   8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-long)   34%, transparent); }
+.type-chip[data-job-type="short"]:hover,
+.type-chip[data-job-type="medium"]:hover,
+.type-chip[data-job-type="long"]:hover {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 45%, transparent);
+}
+
+/* Passive status badges on the row (外协 / 退货). Same geometry as the
+ * type chip so the row's chip lineup aligns on one baseline with no
+ * size jumps. Color tone differs — 外协 = info blue (informational),
+ * 退货 = overdue red (in-flight return is a time pressure signal). */
+.row-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  min-width: 38px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  white-space: nowrap;
+  background: transparent;
+  flex-shrink: 0;
+}
+.row-badge[data-tone="info"] {
+  color: var(--color-info);
+  background: color-mix(in srgb, var(--color-info) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-info) 28%, transparent);
+}
+.row-badge[data-tone="overdue"] {
+  color: var(--color-overdue);
+  background: color-mix(in srgb, var(--color-overdue) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-overdue) 38%, transparent);
+}
+
+/* Empty / 未分类. Same geometry, dashed hairline. Hidden until the row
+ * is hovered — the 300-row scan stays clean; the affordance is one
+ * pixel away once the user is on the row. */
+.type-chip-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  min-width: 38px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+  color: var(--color-ink-3);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--color-ink-4);
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 140ms cubic-bezier(0.32, 0.72, 0.18, 1);
+}
+.group\/row:hover .type-chip-empty,
+.type-chip-empty:focus-visible {
+  opacity: 1;
 }
 
 /* spreadsheet primitives */

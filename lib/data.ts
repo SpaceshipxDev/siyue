@@ -358,6 +358,49 @@ export type Shipment = {
   parts: ShipmentEntry[]
 }
 
+// Single global classification for every job. Drives BOTH the color
+// stripe/chip on the master + station rows AND the float-to-top sort.
+//
+//   'short'   短期  — ≤ 7 days to 交期 (auto-defaulted on import)
+//   'medium'  中期  — 8–30 days (auto-defaulted on import)
+//   'long'    长期  — > 30 days (auto-defaulted on import)
+//   'rush'    加急  — manual escalation. Floats to the top of EVERY view
+//                    (master grid + every station workbench). Replaces
+//                    the old jobs.pinned_at row-level pin.
+//
+// `undefined` is the legacy state (rows imported before this field
+// existed). The UI renders no stripe + no chip for these — clean.
+export type JobType = 'short' | 'medium' | 'long' | 'rush'
+
+export const JOB_TYPES: JobType[] = ['rush', 'short', 'medium', 'long']
+
+export const JOB_TYPE_LABEL: Record<JobType, string> = {
+  rush: '加急',
+  short: '短期',
+  medium: '中期',
+  long: '长期',
+}
+
+// Inferred default from due-date math. Manual override on import + job
+// detail. Never auto-promotes a row to 'rush' — escalation is always a
+// human gesture.
+export function inferJobTypeFromDueDate(
+  dueDate: string,
+  ref: string = new Date().toISOString().slice(0, 10),
+): JobType {
+  const days = daysBetween(ref, dueDate)
+  if (days <= 7) return 'short'
+  if (days <= 30) return 'medium'
+  return 'long'
+}
+
+function daysBetween(fromISO: string, toISO: string): number {
+  const a = Date.parse(fromISO + 'T00:00:00Z')
+  const b = Date.parse(toISO + 'T00:00:00Z')
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0
+  return Math.round((b - a) / 86_400_000)
+}
+
 export type Job = {
   id: string
   jobNo: string
@@ -386,16 +429,12 @@ export type Job = {
   // Audit log of every 出货单 printed for this job. Newest last. Empty (not
   // undefined) when nothing has shipped yet.
   shipments: Shipment[]
-  // Stages where the boss has pinned this job — surfaces at the top of that
-  // station's workbench, above the default 交期 sort. Per-station mark; a
-  // job can be pinned at 编程 and 操机 independently. Empty/undefined when
-  // nothing is pinned. See lib/data.ts#jobIsPinnedAtStage.
+  // Global classification — color + priority float. See JobType.
+  jobType?: JobType
+  // Legacy fields kept on the type for snapshot compatibility (the DB column
+  // still exists; nothing in the UI reads them anymore). Will be dropped
+  // once the rollout is verified.
   pinnedStages?: Stage[]
-  // Row-level boss pin. Set when 商务/工程 starred this whole row on the
-  // master grid — distinct from pinnedStages (which is per-station for the
-  // floor). Drives the float-to-top sort on the master grid only; station
-  // workbenches ignore it. ISO timestamp of the most recent pin so within
-  // the pinned bucket the most recent click rises to the top.
   pinnedAt?: string
   pinnedBy?: string
 }

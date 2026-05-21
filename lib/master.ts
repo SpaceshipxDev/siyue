@@ -7,7 +7,7 @@
 // The grid renders per (row, stage) cells; this module mirrors that shape
 // 1:1 so the page handler never iterates components in JS.
 
-import type { JobStatus, ReturnReason, Stage } from './data'
+import type { JobStatus, JobType, ReturnReason, Stage } from './data'
 import { STAGES, dueState } from './data'
 import { today } from './today'
 
@@ -64,7 +64,12 @@ export type MasterRow = {
   notes?: string
   status: JobStatus
   createdAt?: string
-  /** Row-level boss pin (jobs.pinned_at). */
+  /** Global classification — drives color stripe/chip AND float-to-top
+   *  when jobType === 'rush'. Undefined for legacy rows imported before
+   *  the field existed. */
+  jobType?: JobType
+  /** Row-level boss pin (jobs.pinned_at). Legacy — kept for sub-sort
+   *  recency within the rush bucket. Not rendered. */
   pinnedAt?: string
   /** Some part has an open outsource block on a non-出货 stage. */
   hasOpenOutsource: boolean
@@ -186,6 +191,12 @@ export function rowIsPinnedAtStage(row: MasterRow, stage: Stage): boolean {
 /** Row-level boss pin. Replaces lib/data.ts#jobIsPinned. */
 export function rowIsPinned(row: MasterRow): boolean {
   return Boolean(row.pinnedAt)
+}
+
+/** True when this row should float to the top of every view. The new
+ *  global priority signal — supersedes rowIsPinned/rowIsPinnedAtStage. */
+export function rowIsRush(row: MasterRow): boolean {
+  return row.jobType === 'rush'
 }
 
 /** Replaces lib/data.ts#jobTimerAtStage. MVP: only the in_progress branch.

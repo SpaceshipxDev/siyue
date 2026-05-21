@@ -56,6 +56,7 @@ import {
   ReturnedComponentChip,
 } from '@/app/_returns'
 import { ShippingComposerButton } from '@/app/_shipping'
+import { JobTypeEditor } from '@/app/_type_chip'
 import {
   ProcessCardButton,
   type StoredProcessCard,
@@ -262,20 +263,28 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           </div>
           <div className="col-span-1 md:col-span-2">
             <p className="label mb-2">工号</p>
-            {canEditFields ? (
-              <JobText
+            <div className="flex items-center gap-2">
+              {canEditFields ? (
+                <JobText
+                  jobId={job.id}
+                  field="jobNo"
+                  value={job.jobNo}
+                  mono
+                  className="text-[15px] text-[var(--color-ink)]"
+                  placeholder="工号"
+                />
+              ) : (
+                <p className="mono text-[15px] text-[var(--color-ink)]">
+                  {job.jobNo}
+                </p>
+              )}
+              <JobTypeEditor
                 jobId={job.id}
-                field="jobNo"
-                value={job.jobNo}
-                mono
-                className="text-[15px] text-[var(--color-ink)]"
-                placeholder="工号"
+                jobNo={job.jobNo}
+                initialType={job.jobType}
+                canEdit={canManageOutsource(user)}
               />
-            ) : (
-              <p className="mono text-[15px] text-[var(--color-ink)]">
-                {job.jobNo}
-              </p>
-            )}
+            </div>
           </div>
           {showMoney && (
             <div className="col-span-2 md:col-span-3">

@@ -21,6 +21,7 @@ import {
   setComponentImage,
   setJobPin,
   setJobStagePin,
+  setJobType,
   setMemberReturnedQty,
   setPartRoute,
   setStageDoneQty,
@@ -51,7 +52,8 @@ import {
   requireUser,
   type AuthUser,
 } from '@/lib/auth'
-import type { Stage } from '@/lib/data'
+import type { JobType, Stage } from '@/lib/data'
+import { JOB_TYPES, STAGES } from '@/lib/data'
 
 // Single JSON dispatcher for mutating writes. Every existing inline-edit
 // surface (job/component fields, stage cells, routing chips, outsource block
@@ -483,6 +485,35 @@ async function dispatch(
       }
       await setJobPin(jobId, pinned, u.name)
       revalidatePath('/')
+      return Response.json(ok())
+    }
+
+    // Sets the global classification (短期/中期/长期/加急) on a job. 'rush'
+    // is the global pin replacement — it floats the row to the top in every
+    // view. Auth mirrors the old pinJob: 商务 + 工程 head only.
+    case 'setJobType': {
+      const jobId = body.jobId
+      const jobType = body.jobType
+      if (!isString(jobId)) return err('bad setJobType args')
+      if (
+        jobType !== null &&
+        (!isString(jobType) || !JOB_TYPES.includes(jobType as JobType))
+      ) {
+        return err('bad setJobType args')
+      }
+      const u = await requireUser()
+      if (!canManageOutsource(u)) {
+        return err('无权设置工单类别 (仅商务/工程可操作)', 403)
+      }
+      await setJobType(jobId, jobType as JobType | null, u.name)
+      // Every list-rendering surface re-sorts off jobType — master grid
+      // plus every station workbench. Page-scoped only, per the file's
+      // "never use 'layout'" rule.
+      revalidatePath('/')
+      revalidatePath(`/jobs/${jobId}`)
+      for (const s of STAGES) {
+        revalidatePath(`/station/${encodeURIComponent(s)}`)
+      }
       return Response.json(ok())
     }
 

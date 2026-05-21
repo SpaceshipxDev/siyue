@@ -339,7 +339,8 @@ export function ReturnChip({
 }) {
   return (
     <span
-      className="inline-flex items-baseline gap-1 px-1.5 py-px rounded-sm border border-[var(--color-overdue)] text-[var(--color-overdue)] mono text-[10px] tracking-wider leading-tight"
+      className="row-badge"
+      data-tone="overdue"
       title={`退货中 · ${ret.reason}${ret.reasonText ? ` · ${ret.reasonText}` : ''} · 交期 ${ret.dueDate}`}
       aria-label={`此工单退货中,内部交期 ${ret.dueDate}`}
     >

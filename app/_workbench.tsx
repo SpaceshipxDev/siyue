@@ -1,18 +1,18 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   daysFromToday,
   dueState,
   jobIntakeDate,
   jobNoSortKey,
+  type JobType,
   type Stage,
 } from '@/lib/data'
 import {
   rowIsDownstreamOf,
   rowIsMineAtStage,
-  rowIsPinnedAtStage,
   rowIsUpstreamOfStage,
   rowMostRecentFinishedAt,
   rowStageCounts,
@@ -23,10 +23,8 @@ import {
 import { DueCell } from './_ui'
 import { JobStageActionButton } from './_cell'
 import { JobNotesInline } from './_editable'
-import { PinStar } from './_pin_star'
 import { ReturnChip } from './_returns'
-import { mutate } from '@/lib/mutate'
-import { showToast } from './_toast'
+import { TypeChip, useOptimisticJobType } from './_type_chip'
 import { SearchInput } from './_search'
 import { usePersistentState } from './_persist'
 
@@ -176,48 +174,15 @@ export function StationWorkbench({
 
   const showCustomer = role === 'commerce'
   const jobNoOnly = isJobNoOnlySearch(role, defaultStage)
-  // Pinning is the boss's daily 排产 surface. Commerce always; 工程 head
-  // also (they run the route + handoff for upstream stages so the pin is
-  // theirs to set too). Other production stations see the filled star
-  // when the boss has pinned a row but can't toggle it themselves.
-  const canPin = role === 'commerce' || defaultStage === '工程'
+  // Type-edit auth: commerce + 工程 head set the global classification.
+  // Other production stations see the chip + stripe read-only. Server
+  // enforces the same rule in /api/mutate#setJobType.
+  const canEditType = role === 'commerce' || defaultStage === '工程'
 
-  // Optimistic pin overrides keyed by jobId. When the user stars a row, we
-  // set this entry IMMEDIATELY (synchronously with the click) so the
-  // `floatPinned` re-sort below moves the row to the top in the same React
-  // tick — without this the row only jumps once the server round-trips and
-  // the page re-renders. Entries clear in the effect below as soon as the
-  // server-pushed `jobs` prop catches up to the optimistic value.
-  const [optimisticPins, setOptimisticPins] = useState<Record<string, boolean>>(
-    {},
-  )
-
-  useEffect(() => {
-    setOptimisticPins((prev) => {
-      const next = { ...prev }
-      let changed = false
-      for (const r of rows) {
-        const serverPinned = rowIsPinnedAtStage(r, stage)
-        if (r.id in prev && prev[r.id] === serverPinned) {
-          delete next[r.id]
-          changed = true
-        }
-      }
-      return changed ? next : prev
-    })
-  }, [rows, stage])
-
-  const effectivePinned = useCallback(
-    (row: MasterRow): boolean => {
-      const o = optimisticPins[row.id]
-      return o === undefined ? rowIsPinnedAtStage(row, stage) : o
-    },
-    [optimisticPins, stage],
-  )
-
-  const onPinChange = useCallback((jobId: string, next: boolean) => {
-    setOptimisticPins((prev) => ({ ...prev, [jobId]: next }))
-  }, [])
+  // Optimistic overlay for jobType edits so the chip + stripe + the rush-
+  // float sort all update in the same React tick as the click. Shared
+  // hook with the master grid.
+  const { effectiveType, setType } = useOptimisticJobType(rows)
 
   // Pipeline: text → date → sort. Partition into the three tabs at the end
   // so each tab badge reflects the live filter. row.searchHaystack carries
@@ -262,29 +227,29 @@ export function StationWorkbench({
         rowMostRecentFinishedAt(a, stage),
       ),
     )
-    // Pinned-first float for the actionable tiers (在此 + 上游). Stable
-    // sort: within pinned the existing order survives (due-date), within
-    // unpinned same — so unstarring a row drops it straight back to where
-    // it would otherwise sit. doneRows stays untouched; no point pinning
-    // work that's already moved past this station.
+    // 加急 rows float to the top of every actionable tier (在此 + 上游) —
+    // the same global priority signal as on the master grid. Stable sort
+    // within each bucket preserves the user's due-date / jobNo ordering.
+    // Done tier is untouched; no point reprioritizing work that already
+    // left this station.
     //
-    // Uses the OPTIMISTIC pin state so the row jumps to the top in the
-    // same tick as the user's click, before the server round-trip lands.
-    const floatPinned = (arr: MasterRow[]) => {
-      const pinned: MasterRow[] = []
+    // Uses the OPTIMISTIC type so the row jumps the moment the boss picks
+    // 加急 from the chip popover, before the server round-trip lands.
+    const floatRush = (arr: MasterRow[]) => {
+      const rush: MasterRow[] = []
       const rest: MasterRow[] = []
       for (const r of arr) {
-        if (effectivePinned(r)) pinned.push(r)
+        if (effectiveType(r) === 'rush') rush.push(r)
         else rest.push(r)
       }
-      return [...pinned, ...rest]
+      return [...rush, ...rest]
     }
     return {
-      mineRows: floatPinned(mine),
-      upstreamRows: floatPinned(upstream),
+      mineRows: floatRush(mine),
+      upstreamRows: floatRush(upstream),
       doneRows: downstream.slice(0, DONE_TAB_LIMIT),
     }
-  }, [matched, stage, effectivePinned])
+  }, [matched, stage, effectiveType])
 
   const isFiltered = q.length > 0 || dateFilter.kind !== 'all'
 
@@ -343,9 +308,9 @@ export function StationWorkbench({
               tab={tab}
               q={q}
               showCustomer={showCustomer}
-              canPin={canPin}
-              pinned={effectivePinned(row)}
-              onPinChange={onPinChange}
+              canEditType={canEditType}
+              jobType={effectiveType(row)}
+              onTypeChange={(next) => setType(row, next)}
             />
           ))}
         </ul>
@@ -435,9 +400,9 @@ function WorkbenchRow({
   tab,
   q,
   showCustomer,
-  canPin,
-  pinned,
-  onPinChange,
+  canEditType,
+  jobType,
+  onTypeChange,
 }: {
   row: MasterRow
   index: number
@@ -445,17 +410,17 @@ function WorkbenchRow({
   tab: Tab
   q: string
   showCustomer: boolean
-  canPin: boolean
-  pinned: boolean
-  onPinChange: (jobId: string, next: boolean) => void
+  canEditType: boolean
+  jobType?: JobType
+  onTypeChange: (next: JobType | null) => void
 }) {
   const effDue = row.effectiveDueDate
   const ds = dueState(effDue)
   const days = daysFromToday(effDue)
-  // Stripe stays purely for flow urgency (overdue / today). The pin's
-  // visual lives ENTIRELY in the filled star — no row tint, no extra
-  // stripe — so the pin reads as a deliberate management mark without
-  // shouting over the rest of the row.
+  // Row's left-edge stripe paints time pressure only (overdue/today).
+  // 加急 is carried by the chip — keeps the two signals visually
+  // independent so the worker reads "burning today" + "boss escalated"
+  // as two different facts on the same row.
   const stripeColor =
     ds === 'overdue'
       ? 'var(--color-overdue)'
@@ -464,49 +429,15 @@ function WorkbenchRow({
         : 'transparent'
   const detailHref = `/jobs/${row.id}`
 
-  // Star is rendered on every tab so the boss can pin from anywhere AND so
-  // workers can see a pin even on rows they normally couldn't (e.g. a job
-  // upstream that the boss has earmarked for this station). Hidden on the
-  // 已出货 / 下游 tab — no point pinning work that's already past.
-  const showStar = tab !== 'done'
-
   return (
     <li
-      className="flex flex-col"
+      className="group/row flex flex-col"
       style={{
         viewTransitionName: `row-${row.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
         borderLeft: `3px solid ${stripeColor}`,
       }}
     >
       <div className="flex items-stretch min-h-[80px]">
-        <div className="flex items-center justify-center pl-2 pr-1 w-[32px] shrink-0">
-          {showStar && (
-            <PinStar
-              pinned={pinned}
-              canPin={canPin}
-              label={
-                pinned
-                  ? `取消置顶 (${stage})`
-                  : canPin
-                    ? `置顶到 ${stage}`
-                    : `${stage} 已置顶`
-              }
-              onToggle={(next) => {
-                onPinChange(row.id, next)
-                mutate({ kind: 'pinJobStage', jobId: row.id, stage, pinned: next })
-                  .then(() => {
-                    showToast(
-                      next ? `${row.jobNo} · 已置顶` : `${row.jobNo} · 已取消置顶`,
-                    )
-                  })
-                  .catch(() => {
-                    onPinChange(row.id, !next)
-                    showToast('置顶失败,请重试', 'neutral')
-                  })
-              }}
-            />
-          )}
-        </div>
         <div className="flex items-center pl-1 pr-2 mono text-[11px] text-[var(--color-ink-4)] w-[40px] shrink-0 tabular-nums">
           {String(index + 1).padStart(2, '0')}
         </div>
@@ -515,14 +446,27 @@ function WorkbenchRow({
           href={detailHref}
           className="flex flex-1 min-w-0 items-center gap-5 px-2 py-3 hover:bg-[#f7f5ee] transition-colors"
         >
-          <div className="w-[150px] shrink-0">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="mono text-[14px] font-medium text-[var(--color-ink)]">
-                <Highlight text={row.jobNo} q={q} />
-              </span>
+          <div className="w-[230px] shrink-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Type chip BEFORE 工号 — same order as the master grid.
+                  Chip + jobNo stay glued on one line (`flex-nowrap`
+                  inner row); secondary badges (外协 / 退货) wrap to a
+                  second line if present. */}
+              <div className="flex items-center gap-2 flex-nowrap">
+                <TypeChip
+                  jobType={jobType}
+                  jobNo={row.jobNo}
+                  canEdit={canEditType && tab !== 'done'}
+                  onChange={onTypeChange}
+                />
+                <span className="mono text-[14px] font-medium text-[var(--color-ink)] whitespace-nowrap">
+                  <Highlight text={row.jobNo} q={q} />
+                </span>
+              </div>
               {row.hasOpenOutsource && (
                 <span
-                  className="mono text-[10px] tracking-wider px-1.5 py-px rounded-sm border border-[var(--color-info)] text-[var(--color-info)] leading-tight"
+                  className="row-badge"
+                  data-tone="info"
                   title="此工单有零件正在外协"
                 >
                   外协
