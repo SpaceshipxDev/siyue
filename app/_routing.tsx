@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useRef, useState, useTransition } from 'react'
+import { useEffect, useId, useRef, useState, useTransition } from 'react'
 import {
   OUTSOURCEABLE_STAGES,
   OUTSOURCE_ACTIVITIES,
@@ -151,6 +151,225 @@ function ActivityPicker({
         </option>
       ))}
     </select>
+  )
+}
+
+function SearchGlyph() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="7" cy="7" r="4.6" stroke="currentColor" strokeWidth="1.4" />
+      <line
+        x1="10.5"
+        y1="10.5"
+        x2="14"
+        y2="14"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function ChevronGlyph() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M4 6l4 4 4-4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function CheckGlyph() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M3.5 8.5l3 3 6-7"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// === Vendor picker ===
+//
+// The 外协厂 directory grows without bound — a native <select> turns into a
+// long scroll the moment there are more than a screen's worth, with no way to
+// jump to the one you mean. This is a searchable combobox: a clean trigger
+// showing the current pick, a popover with a type-to-filter search at the top
+// and a keyboard-navigable result list below (↑/↓ to move, ↵ to choose, esc to
+// close). Selection-only — the "+ 新增" toggle beside the field still owns
+// vendor creation — so on commit we just hand the chosen id back to the form.
+function VendorPicker({
+  vendors,
+  value,
+  onChange,
+  disabled,
+}: {
+  vendors: Vendor[]
+  value: string
+  onChange: (id: string) => void
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [activeIndex, setActiveIndex] = useState(0)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const listId = useId()
+
+  const selected = vendors.find((v) => v.id === value)
+  const q = query.trim().toLowerCase()
+  const filtered = q
+    ? vendors.filter((v) => v.name.toLowerCase().includes(q))
+    : vendors
+
+  // Close when a click lands outside the widget — same gesture as the ⋯ menu.
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  // Opening clears the query and points the highlight at the current pick;
+  // doing it here (rather than in an effect reacting to `open`) keeps state
+  // updates out of render-time effects.
+  const openPicker = () => {
+    setQuery('')
+    const idx = vendors.findIndex((v) => v.id === value)
+    setActiveIndex(idx < 0 ? 0 : idx)
+    setOpen(true)
+  }
+
+  // Focus the search field once open so you can just start typing.
+  useEffect(() => {
+    if (!open) return
+    const t = requestAnimationFrame(() => inputRef.current?.focus())
+    return () => cancelAnimationFrame(t)
+  }, [open])
+
+  // Keep the highlighted row in view as you arrow through a filtered list.
+  useEffect(() => {
+    if (!open) return
+    listRef.current
+      ?.querySelector<HTMLElement>(`[data-idx="${activeIndex}"]`)
+      ?.scrollIntoView({ block: 'nearest' })
+  }, [activeIndex, open])
+
+  const choose = (id: string) => {
+    onChange(id)
+    setOpen(false)
+  }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => (open ? setOpen(false) : openPicker())}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={`${fieldStyles()} w-full flex items-center justify-between gap-2 text-left ${open ? 'border-[var(--color-ink)]' : ''}`}
+      >
+        <span
+          className={`flex-1 min-w-0 truncate ${selected ? '' : 'text-[var(--color-ink-3)]'}`}
+        >
+          {selected ? selected.name : '选择外协厂…'}
+        </span>
+        <span
+          className={`shrink-0 text-[var(--color-ink-3)] transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+        >
+          <ChevronGlyph />
+        </span>
+      </button>
+
+      {open ? (
+        <div className="absolute left-0 right-0 z-20 mt-1 rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg overflow-hidden">
+          <div className="flex items-center gap-2 px-2.5 py-2 border-b border-[var(--color-border)] text-[var(--color-ink-3)]">
+            <SearchGlyph />
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value)
+                setActiveIndex(0)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setActiveIndex((i) => Math.min(i + 1, filtered.length - 1))
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setActiveIndex((i) => Math.max(i - 1, 0))
+                } else if (e.key === 'Enter') {
+                  e.preventDefault()
+                  const pick = filtered[activeIndex]
+                  if (pick) choose(pick.id)
+                } else if (e.key === 'Escape') {
+                  e.preventDefault()
+                  setOpen(false)
+                }
+              }}
+              placeholder={`搜索 ${vendors.length} 家外协厂…`}
+              autoComplete="off"
+              spellCheck={false}
+              className="flex-1 min-w-0 bg-transparent text-[13px] text-[var(--color-ink)] placeholder:text-[var(--color-ink-3)] focus:outline-none"
+            />
+          </div>
+          <div
+            ref={listRef}
+            role="listbox"
+            id={listId}
+            className="max-h-[200px] overflow-auto py-1"
+          >
+            {filtered.length === 0 ? (
+              <p className="px-2.5 py-2 text-[12px] text-[var(--color-ink-3)]">
+                无匹配的外协厂
+              </p>
+            ) : (
+              filtered.map((v, i) => {
+                const isActive = i === activeIndex
+                const isSelected = v.id === value
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    data-idx={i}
+                    onMouseEnter={() => setActiveIndex(i)}
+                    onClick={() => choose(v.id)}
+                    className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-left text-[13px] text-[var(--color-ink)] ${isActive ? 'bg-[var(--color-active-bg)]' : ''}`}
+                  >
+                    <span className="flex-1 min-w-0 truncate">{v.name}</span>
+                    {isSelected ? (
+                      <span className="shrink-0 text-[var(--color-ink)]">
+                        <CheckGlyph />
+                      </span>
+                    ) : null}
+                  </button>
+                )
+              })
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -388,18 +607,12 @@ export function NewBlockForm({
             ) : null}
           </div>
           {vendorMode === 'select' ? (
-            <select
-              className={fieldStyles()}
+            <VendorPicker
+              vendors={vendors}
               value={vendorId}
-              onChange={(e) => setVendorId(e.target.value)}
+              onChange={setVendorId}
               disabled={pending}
-            >
-              {vendors.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                </option>
-              ))}
-            </select>
+            />
           ) : (
             <div className="flex flex-col gap-1.5">
               <input
