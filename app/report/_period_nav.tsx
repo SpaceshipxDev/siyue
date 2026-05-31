@@ -76,7 +76,7 @@ export function PeriodNav({
   const readout = from === to ? dayLabel(from) : `${monthDay(from)} – ${monthDay(to)}`
 
   return (
-    <div className="mb-8 flex items-center justify-end gap-1 flex-wrap">
+    <div className="mb-8 flex items-center justify-start gap-1 flex-wrap">
       <Stepper href={buildHref(prevFrom, prevTo)} dir="prev" />
 
       <Calendar
@@ -208,7 +208,7 @@ function Calendar({
         <div
           role="dialog"
           aria-label="日期范围选择"
-          className="absolute right-0 top-[calc(100%+6px)] z-30 w-[280px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[0_8px_28px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04)]"
+          className="absolute left-0 top-[calc(100%+6px)] z-30 w-[280px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[0_8px_28px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04)]"
         >
           {/* Presets — fill the range in one tap. */}
           <div className="mb-3 flex items-center gap-1">
