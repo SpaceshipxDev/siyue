@@ -34,6 +34,9 @@ export type MasterCell = {
   latestFinishedAt?: string
   /** MM-DD display string of the most recent finish. */
   latestCompletedAt?: string
+  /** Name of whoever most recently clicked ✓ here (经手). Drives the master-grid
+   * hover attribution. Undefined when nothing here was finished by a person. */
+  latestBy?: string
   /** At least one pending in-house part has every prior in-route stage effectively done. */
   hasMinePending: boolean
   /** Some prior in-route stage on at least one part here is unfinished (pending/in_progress/open). */
@@ -104,6 +107,8 @@ export type RowRollup = {
   done: number
   total: number
   latestDate?: string
+  /** 经手 — name of the most recent finisher at this stage, for hover attribution. */
+  latestBy?: string
   outsourcedOpen: number
 }
 
@@ -115,12 +120,14 @@ export function rowRollupStage(row: MasterRow, stage: Stage): RowRollup {
   }
   const doneAggregate = cell.inHouseDone + cell.outsourcedClosed + cell.outsourcedOpen
   const latestDate = cell.latestCompletedAt
+  const latestBy = cell.latestBy
   if (doneAggregate === cell.total) {
     return {
       kind: 'done',
       done: doneAggregate,
       total: cell.total,
       latestDate,
+      latestBy,
       outsourcedOpen: cell.outsourcedOpen,
     }
   }
@@ -130,6 +137,7 @@ export function rowRollupStage(row: MasterRow, stage: Stage): RowRollup {
       done: 0,
       total: cell.total,
       latestDate,
+      latestBy,
       outsourcedOpen: cell.outsourcedOpen,
     }
   }
@@ -138,6 +146,7 @@ export function rowRollupStage(row: MasterRow, stage: Stage): RowRollup {
     done: doneAggregate,
     total: cell.total,
     latestDate,
+    latestBy,
     outsourcedOpen: cell.outsourcedOpen,
   }
 }

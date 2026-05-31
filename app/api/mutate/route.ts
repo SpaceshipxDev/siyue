@@ -34,6 +34,7 @@ import {
   updateCustomer,
   updateJob,
   updateOutsourceBlock,
+  updateShipmentFinance,
   updateVendor,
   upsertCustomerByName,
   type BlockPatch,
@@ -42,6 +43,7 @@ import {
   type CustomerPatch,
   type JobPatch,
   type NewBlockInput,
+  type ShipmentFinancePatch,
   type VendorPatch,
 } from '@/lib/db'
 import {
@@ -352,8 +354,8 @@ async function dispatch(
       const stage = body.stage
       if (!isString(jobId) || !isString(componentId) || !isStage(stage))
         return err('bad startStage args')
-      await requireOwnStage(stage)
-      await startStage(jobId, componentId, stage)
+      const u = await requireOwnStage(stage)
+      await startStage(jobId, componentId, stage, u.name)
       revalidateStage(jobId, stage)
       return Response.json(ok())
     }
@@ -406,8 +408,8 @@ async function dispatch(
       const stage = body.stage
       if (!isString(jobId) || !isStage(stage))
         return err('bad startJobStage args')
-      await requireOwnStage(stage)
-      await startJobStage(jobId, stage)
+      const u = await requireOwnStage(stage)
+      await startJobStage(jobId, stage, u.name)
       revalidateStage(jobId, stage)
       return Response.json(ok())
     }
@@ -876,6 +878,45 @@ async function dispatch(
       await requirePartRouteEditor()
       await markJobAsDraft(jobId)
       revalidateJob(jobId)
+      return Response.json(ok())
+    }
+
+    // === 财务 / 应收账款 (开票 + 回款) ===
+    case 'updateShipmentFinance': {
+      const shipmentId = body.shipmentId
+      const patch = body.patch
+      if (
+        !isString(shipmentId) ||
+        typeof patch !== 'object' ||
+        patch === null
+      )
+        return err('bad updateShipmentFinance args')
+      // Validate each field is string|null (text) or number|null (money/date
+      // are stored as text/numeric — dates arrive as YYYY-MM-DD strings).
+      const p = patch as Record<string, unknown>
+      const textFields = [
+        'contact',
+        'pendingFlag',
+        'invoiceNo',
+        'invoiceDate',
+        'paymentDate',
+      ]
+      const numFields = ['saleAmountCny', 'invoiceAmountCny', 'paymentAmountCny']
+      for (const f of textFields) {
+        if (f in p && p[f] !== null && !isString(p[f]))
+          return err(`bad ${f}`)
+      }
+      for (const f of numFields) {
+        if (f in p && p[f] !== null && typeof p[f] !== 'number')
+          return err(`bad ${f}`)
+      }
+      const u = await requireCommerce()
+      await updateShipmentFinance(
+        shipmentId,
+        patch as ShipmentFinancePatch,
+        u.name,
+      )
+      revalidatePath('/finance')
       return Response.json(ok())
     }
 

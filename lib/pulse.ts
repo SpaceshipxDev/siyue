@@ -51,7 +51,16 @@ type AnyRow = Record<string, unknown>
 function isSchemaLagError(e: unknown): boolean {
   if (!e || typeof e !== 'object') return false
   const code = (e as { code?: unknown }).code
-  return code === 'PGRST205' || code === '42703'
+  // PGRST205 — unknown table/view; 42703 — unknown column; PGRST202 — unknown
+  // RPC; 42883 — function does not exist. All mean "schema lags the code"
+  // (migration unapplied / partially applied) and degrade to empty instead
+  // of 500'ing the page on a fresh or mid-deploy DB.
+  return (
+    code === 'PGRST205' ||
+    code === '42703' ||
+    code === 'PGRST202' ||
+    code === '42883'
+  )
 }
 
 // One row per stage. Guarantees all 9 stages are present (the view itself
@@ -136,6 +145,130 @@ export async function getStationEvents(opts?: {
       partQty: Number(row.part_qty ?? 0),
       doneQty:
         row.done_qty == null ? undefined : Number(row.done_qty),
+    })
+  }
+  return out
+}
+
+// === 报功 (worker output) reads — see migration 0025_worker_output.sql ===
+
+// One worker's roll-up within a reporting window.
+export type WorkerOutputRow = {
+  actorName: string
+  /** 完成零件 — count of part-stage completions ("components flowed through"). */
+  finishes: number
+  /** 开始 — count of part-stages this worker started (clicked ▶) in the window. */
+  starts: number
+  /** 件 — total physical pieces across those completions. */
+  pieces: number
+  /** ¥ 经手 — throughput value (counted once per finished stage; not revenue). */
+  valueCny: number
+  /** Completions whose part had no price set — the ¥0 contributors. */
+  unpriced: number
+  /** Most recent event of either kind — drives the 最后活动 column. */
+  lastActiveTs?: string
+}
+
+export type WorkerEventKind = 'started' | 'finished'
+
+// One 开始/完成 event in a worker's timeline (the per-worker drill-down).
+// Carries the full component detail so the drill-down can render Excel-style
+// rows (photo + 料号 + 材料 + 表面处理), matching the components table.
+export type WorkerStageEvent = {
+  ts: string
+  kind: WorkerEventKind
+  stage: Stage
+  partName: string
+  partQty: number
+  valueCny: number
+  unpriced: boolean
+  jobId: string
+  jobNo: string
+  customer: string
+  partNo?: string
+  material?: string
+  surfaceTreatment?: string
+  /** Raw stored image URL — pass through proxiedStorageUrl() before rendering. */
+  imageUrl?: string
+}
+
+// Daily/weekly/monthly scoreboard: one row per worker, sorted by output.
+// Aggregation runs in Postgres (worker_output RPC), so a month-wide window
+// returns a handful of worker rows, not every finish event.
+export async function getWorkerOutput(window: {
+  from: string
+  to: string
+}): Promise<WorkerOutputRow[]> {
+  const r = await supabase.rpc('worker_output', {
+    p_from: window.from,
+    p_to: window.to,
+  })
+  if (r.error) {
+    if (isSchemaLagError(r.error)) return []
+    throw r.error
+  }
+  const out: WorkerOutputRow[] = []
+  for (const row of (r.data ?? []) as AnyRow[]) {
+    out.push({
+      actorName: (row.actor_name as string | null) ?? '—',
+      finishes: Number(row.finishes ?? 0),
+      starts: Number(row.starts ?? 0),
+      pieces: Number(row.pieces ?? 0),
+      valueCny: Number(row.value_cny ?? 0),
+      unpriced: Number(row.unpriced ?? 0),
+      lastActiveTs: (row.last_active as string | null) ?? undefined,
+    })
+  }
+  return out
+}
+
+// One worker's stage events (开始 + 完成) within a window, newest first.
+// Powers the 报功 drill-down. Bounded by `limit` so the read stays cheap.
+export async function getWorkerTimeline(opts: {
+  actorName: string
+  from: string
+  to: string
+  /** Restrict to one event kind — the 报功 "completed components" view passes
+   *  'finished' so the Excel rows are exactly the parts they finished. */
+  kind?: WorkerEventKind
+  limit?: number
+}): Promise<WorkerStageEvent[]> {
+  const limit = Math.max(1, Math.min(500, opts.limit ?? 200))
+  // worker_output excludes NULL-actor rows, so the scoreboard never links to
+  // an unattributed worker — a plain equality filter is all we need here.
+  let q = supabase
+    .from('worker_stage_events')
+    .select(
+      'ts, kind, stage, part_name, part_qty, value_cny, is_unpriced, job_id, job_no, customer, part_no, material, surface_treatment, image_url',
+    )
+    .eq('actor_name', opts.actorName)
+    .gte('ts', opts.from)
+    .lt('ts', opts.to)
+    .order('ts', { ascending: false })
+    .limit(limit)
+  if (opts.kind) q = q.eq('kind', opts.kind)
+  const r = await q
+  if (r.error) {
+    if (isSchemaLagError(r.error)) return []
+    throw r.error
+  }
+  const out: WorkerStageEvent[] = []
+  for (const row of (r.data ?? []) as AnyRow[]) {
+    out.push({
+      ts: row.ts as string,
+      kind: row.kind as WorkerEventKind,
+      stage: row.stage as Stage,
+      partName: (row.part_name as string | null) ?? '',
+      partQty: Number(row.part_qty ?? 0),
+      valueCny: Number(row.value_cny ?? 0),
+      unpriced: Boolean(row.is_unpriced),
+      jobId: row.job_id as string,
+      jobNo: (row.job_no as string | null) ?? '',
+      customer: (row.customer as string | null) ?? '',
+      partNo: (row.part_no as string | null) ?? undefined,
+      material: (row.material as string | null) ?? undefined,
+      surfaceTreatment: (row.surface_treatment as string | null) ?? undefined,
+      imageUrl: (row.image_url as string | null) ?? undefined,
     })
   }
   return out

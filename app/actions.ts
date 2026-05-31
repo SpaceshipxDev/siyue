@@ -103,8 +103,8 @@ export async function startStageAction(
   componentId: string,
   stage: Stage,
 ): Promise<void> {
-  await requireStage(stage)
-  await startStage(jobId, componentId, stage)
+  const u = await requireStage(stage)
+  await startStage(jobId, componentId, stage, u.name)
   revalidateStage(jobId, stage)
 }
 
@@ -167,8 +167,8 @@ export async function startJobStageAction(
   jobId: string,
   stage: Stage,
 ): Promise<void> {
-  await requireStage(stage)
-  await startJobStage(jobId, stage)
+  const u = await requireStage(stage)
+  await startJobStage(jobId, stage, u.name)
   revalidateStage(jobId, stage)
 }
 

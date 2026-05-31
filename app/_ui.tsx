@@ -8,7 +8,9 @@ import { LogoutButton } from './_logout'
 export type TabKey =
   | '商务'
   | '现场'
+  | '报功'
   | '月结'
+  | '财务'
   | '工单'
   | (typeof STAGES)[number]
   | '外协'
@@ -34,6 +36,7 @@ function tabsForRole(role: Role, defaultStage?: string): Tab[] {
       return [
         { key: '工程', label: '工程', href: '/' },
         { key: '现场', label: '现场', href: '/pulse' },
+        { key: '报功', label: '报功', href: '/report' },
         { key: '外协', label: '外协', href: '/station/outsource' },
         ...STAGES.filter((s) => s !== '工程').map((s) => ({
           key: s as TabKey,
@@ -48,7 +51,9 @@ function tabsForRole(role: Role, defaultStage?: string): Tab[] {
   return [
     { key: '商务', label: '商务', href: '/' },
     { key: '现场', label: '现场', href: '/pulse' },
+    { key: '报功', label: '报功', href: '/report' },
     { key: '月结', label: '月结', href: '/month' },
+    { key: '财务', label: '财务', href: '/finance' },
     { key: '外协', label: '外协', href: '/station/outsource' },
     ...STAGES.map((s) => ({
       key: s as TabKey,
@@ -281,7 +286,10 @@ export function RollupCell({ rollup }: { rollup: Rollup }) {
   }
   if (rollup.kind === 'partial') {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-1 leading-none relative">
+      <div
+        className="flex h-full flex-col items-center justify-center gap-1 leading-none relative"
+        title={rollupByHint(rollup)}
+      >
         <Pause size={9} className="text-[var(--color-warning)]" />
         <span className="mono text-[11px] text-[var(--color-warning)]">
           {rollup.done}/{rollup.total}
@@ -291,7 +299,10 @@ export function RollupCell({ rollup }: { rollup: Rollup }) {
     )
   }
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-0.5 leading-none relative">
+    <div
+      className="flex h-full flex-col items-center justify-center gap-0.5 leading-none relative"
+      title={rollupByHint(rollup)}
+    >
       <span className="text-[16px] leading-none font-semibold text-[var(--color-success)]">
         ✓
       </span>
@@ -303,6 +314,14 @@ export function RollupCell({ rollup }: { rollup: Rollup }) {
       {outsourced > 0 && <OutsourceCorner count={outsourced} />}
     </div>
   )
+}
+
+// 报功 hover hint for an aggregate master-grid cell: who most recently clicked
+// ✓ here (经手), plus the date. Returns undefined when no in-house finisher is
+// known — so the cell stays bare rather than showing an empty tooltip.
+function rollupByHint(rollup: Rollup): string | undefined {
+  if (!rollup.latestBy) return undefined
+  return `最近经手 ${rollup.latestBy}${rollup.latestDate ? ` · ${rollup.latestDate}` : ''}`
 }
 
 // Small "外" pip in the top-right of a stage cell when *some* parts at this
@@ -407,8 +426,18 @@ export function StageCell({
       </div>
     )
   }
+  // 报功 attribution: surface 经手人 on hover for the read-only twin too.
+  // The grid stays a bare ✓+date at rest; the name only appears on the
+  // native tooltip so the dense view never gains a column.
+  const attribution = state.by
+    ? `经手 ${state.by}${stageTimeHint(state.finishedAt)}`
+    : undefined
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-0.5 leading-none">
+    <div
+      className="flex h-full flex-col items-center justify-center gap-0.5 leading-none"
+      title={attribution}
+      aria-label={attribution}
+    >
       <span className="text-[16px] leading-none font-semibold text-[var(--color-success)]">
         ✓
       </span>
@@ -419,4 +448,20 @@ export function StageCell({
       )}
     </div>
   )
+}
+
+// " · HH:MM" in factory-local time for a finish-event ISO timestamp, or '' if
+// absent. Deterministic given the ISO string (fixed Asia/Shanghai zone), so
+// SSR and client agree. Shared by the read-only StageCell tooltip and the
+// editable cell's hover popover.
+export function stageTimeHint(finishedAt?: string): string {
+  if (!finishedAt) return ''
+  const d = new Date(finishedAt)
+  if (Number.isNaN(d.getTime())) return ''
+  const t = d.toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  return ` · ${t}`
 }

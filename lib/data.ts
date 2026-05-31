@@ -626,6 +626,8 @@ export type Rollup = {
   done: number
   total: number
   latestDate?: string
+  /** 经手 — name of the most recent finisher at this stage (master-grid hover). */
+  latestBy?: string
   /** Count of parts at this stage currently at a vendor (open outsource block).
    * Folded INTO `done` for the in-house worker's POV (nothing to do here),
    * but tracked separately so the UI can surface a 外协 indicator on the

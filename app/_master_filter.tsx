@@ -903,6 +903,8 @@ function JobRow({
                 inProgress={cnts.inProgress}
                 pending={cnts.pending}
                 done={cnts.done}
+                latestBy={rollup.latestBy}
+                latestDate={rollup.latestDate}
                 timer={timer}
                 subdued
               />

@@ -15,7 +15,10 @@ import { getUserById } from '@/lib/db'
 // actually been promoted to 商务 we re-issue the cookie and let them through
 // instead of locking them out until they log out manually.
 
-const PUBLIC_PATHS = ['/login']
+// /join is the public "Afterlight" creator waitlist landing — no session
+// required, and its server action (joinWaitlist) POSTs back to /join, so the
+// path must stay open to unauthenticated visitors.
+const PUBLIC_PATHS = ['/login', '/join']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only
@@ -24,7 +27,9 @@ const PUBLIC_PATHS = ['/login']
 // the page itself), so it does not need a forbidden-prefix entry here.
 const PRODUCTION_FORBIDDEN_PREFIXES = [
   '/month',
+  '/finance',
   '/pulse',
+  '/report',
   '/import',
   '/print',
   '/backend',
@@ -45,6 +50,10 @@ const ENGINEERING_ALLOWED_PREFIXES = [
   '/import',
   '/api/ingest',
   '/pulse',
+  // 报功 (worker output) — the 工程 head runs the floor, so they get the
+  // same person-axis read commerce does; the page hides ¥ from them via
+  // canSeeMoney, exactly like /pulse.
+  '/report',
 ]
 
 export async function proxy(request: NextRequest) {

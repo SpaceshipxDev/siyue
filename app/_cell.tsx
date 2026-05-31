@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import type { Stage, StageState } from '@/lib/data'
 import { STAGES } from '@/lib/data'
-import { Pause } from './_ui'
+import { Pause, stageTimeHint } from './_ui'
 import { mutate } from '@/lib/mutate'
 import { RowTimer } from './_row_timer'
 import { QtyEditor } from './_qty_editor'
@@ -228,13 +228,20 @@ export function StageCellButton({
       ) : null}
     </>
   )
+  // 报功 attribution surfaces on hover via the native title — a styled popover
+  // gets clipped by the cell/row overflow in every grid this renders in, so the
+  // title is the only thing that actually shows. `state.by` is server truth
+  // (optimistic finishes don't carry it yet); it fills in on the server echo.
+  const attribution = state.by
+    ? `经手 ${state.by}${stageTimeHint(state.finishedAt)}`
+    : undefined
   return (
     <button
       type="button"
       disabled={pending}
       onClick={onUndo}
-      title="点击撤销 · 退回到进行中"
-      aria-label={`${stage} · ${error ? '失败 · 重试' : '撤销完成'}`}
+      title={attribution ?? '点击撤销 · 退回到进行中'}
+      aria-label={`${stage} · ${error ? '失败 · 重试' : '撤销完成'}${attribution ? ` · ${attribution}` : ''}`}
       className={`flex h-full w-full flex-col items-center justify-center gap-0.5 ${padding} ${optimistic?.status === 'done' ? 'animate-cell-done' : ''} ${error ? 'bg-[var(--color-overdue-soft)]' : 'hover:bg-[#f1eee4]'} focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:opacity-60`}
     >
       {doneInner}
@@ -250,6 +257,8 @@ export function JobStageActionButton({
   inProgress,
   pending: pendingCount,
   done,
+  latestBy,
+  latestDate,
   timer,
   subdued = false,
 }: {
@@ -258,6 +267,10 @@ export function JobStageActionButton({
   inProgress: number
   pending: number
   done: number
+  /** 经手 — most recent finisher at this stage, for the done-cell hover hint. */
+  latestBy?: string
+  /** MM-DD of that finish, appended to the hover hint when present. */
+  latestDate?: string
   /** When provided, render the live elapsed-time chip beneath the action label.
    * Used on the station master board to give the head a one-glance read of
    * "how long has this been waiting / running on me." */
@@ -441,13 +454,16 @@ export function JobStageActionButton({
     </>
   )
   const hover = subdued ? '' : 'hover:bg-[#f1eee4]'
+  const attribution = latestBy
+    ? `最近经手 ${latestBy}${latestDate ? ` · ${latestDate}` : ''}`
+    : undefined
   return (
     <button
       type="button"
       disabled={transition}
       onClick={onUndo}
-      title="点击撤销 · 退回到进行中"
-      aria-label={`${stage} · ${error ? '失败 · 重试' : '撤销整单完成'}`}
+      title={attribution ?? '点击撤销 · 退回到进行中'}
+      aria-label={`${stage} · ${error ? '失败 · 重试' : '撤销整单完成'}${attribution ? ` · ${attribution}` : ''}`}
       className={`flex h-full w-full flex-col items-center justify-center gap-0.5 px-3 py-3 ${optimistic === 'done' ? 'animate-cell-done' : ''} ${error ? 'bg-[var(--color-overdue-soft)]' : hover} focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:opacity-60`}
     >
       {doneInner}
