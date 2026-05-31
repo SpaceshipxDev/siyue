@@ -184,9 +184,6 @@ export default async function ReportPage({
             date inputs need client JS, so the whole control is one client
             component driving state through the URL. */}
         <PeriodNav
-          gran={gran}
-          date={date}
-          rangeMode={rangeMode}
           from={bounds.from}
           to={bounds.to}
           worker={worker}

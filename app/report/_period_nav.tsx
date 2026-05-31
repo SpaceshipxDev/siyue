@@ -1,48 +1,40 @@
 'use client'
 
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { shiftDate, windowDateBounds, type Granularity } from '@/lib/today'
 
-// 报功 period control — one integrated bar, Apple-Calendar in spirit:
+// 报功 period control — one unified date-range picker, Apple-Calendar in spirit:
 //
-//   ┌ 日 周 月 ┐        ‹   5月26日 – 6月1日   ›        今天
+//   ‹   5月26日 – 6月1日   ›        今天        [📅 opens range calendar]
 //
-//   • Left  — an iOS-style segmented control picking the granularity.
-//   • Right — a period stepper. Its readout always spells out the exact span
-//     the granularity selects (day → "5月31日 周五", week → "5月26日 – 6月1日",
-//     month → "2026年5月"), so the two halves are visibly in sync. Tapping the
-//     readout opens the calendar to pick any single day, which drops into…
-//   • Range mode — "从 [date] → 到 [date] ✕", two freely-editable ends. Picking
-//     a granularity (or ✕) returns to a preset window.
+// Everything is a range. A single day is just from===to. "Week" / "month" are
+// not special modes with their own UI — they're presets that fill in a from→to
+// span, shown in the exact same readout as a hand-picked custom range.
 //
-// All state lives in the URL (?g / ?d / ?from / ?to / ?w) so it stays
-// refresh-stable and shareable, matching the rest of the page.
+//   • Readout button — opens a custom calendar popover. Navigating months there
+//     NEVER selects a date (the old native <input type=date> overlay used to
+//     auto-commit on month scroll — this fixes that). You pick a start day, then
+//     an end day; only the second click commits.
+//   • Presets (今天 / 本周 / 本月) inside the popover fill the range in one tap.
+//   • ‹ › steppers shift the whole range by its own length (a week range steps
+//     by a week, a day by a day).
+//
+// All state lives in the URL (?from / ?to / ?w / ?stage). A bare /report (or
+// from===to===today) is the clean default-to-today view.
 
-const GRANS: { key: Granularity; label: string }[] = [
-  { key: 'day', label: '日' },
-  { key: 'week', label: '周' },
-  { key: 'month', label: '月' },
-]
+const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日'] // Mon-first
 
 export function PeriodNav({
-  gran,
-  date,
-  rangeMode,
   from,
   to,
   worker,
   stage,
   todayStr,
 }: {
-  gran: Granularity
-  /** Anchor date for preset mode. */
-  date: string
-  /** Custom range active — segmented control is then unselected. */
-  rangeMode: boolean
-  /** Inclusive bounds of the active window (preset span or custom range). */
+  /** Inclusive start of the active window (YYYY-MM-DD, Shanghai local). */
   from: string
+  /** Inclusive end of the active window (YYYY-MM-DD, Shanghai local). */
   to: string
   worker?: string
   /** Active station filter (?stage=), preserved across date changes. */
@@ -51,27 +43,16 @@ export function PeriodNav({
   todayStr: string
 }) {
   const router = useRouter()
-  const startRef = useRef<HTMLInputElement>(null)
-  const endRef = useRef<HTMLInputElement>(null)
 
-  // Build a /report href. Presence of from+to selects custom-range mode;
-  // otherwise it's a granularity/anchor URL. `w` rides along so the worker
-  // drill-down survives navigation.
-  const buildHref = (next: {
-    g?: Granularity
-    d?: string
-    from?: string
-    to?: string
-  }): string => {
+  // Build a /report href for a from→to range. from===to===today collapses to
+  // the bare /report default so the home view stays clean and shareable.
+  const buildHref = (f: string, t: string): string => {
+    const lo = f <= t ? f : t
+    const hi = f <= t ? t : f
     const q = new URLSearchParams()
-    if (next.from && next.to) {
-      q.set('from', next.from)
-      q.set('to', next.to)
-    } else {
-      const g = next.g ?? 'day'
-      const d = next.d ?? todayStr
-      if (g !== 'day') q.set('g', g)
-      if (d !== todayStr) q.set('d', d)
+    if (!(lo === todayStr && hi === todayStr)) {
+      q.set('from', lo)
+      q.set('to', hi)
     }
     if (stage) q.set('stage', stage)
     if (worker) q.set('w', worker)
@@ -79,237 +60,380 @@ export function PeriodNav({
     return s ? `/report?${s}` : '/report'
   }
 
-  const openPicker = (ref: React.RefObject<HTMLInputElement | null>) => {
-    const el = ref.current
-    if (!el) return
-    if (typeof el.showPicker === 'function') {
-      try {
-        el.showPicker()
-      } catch {
-        el.focus()
-        el.click()
-      }
-    } else {
-      el.focus()
-      el.click()
-    }
-  }
+  const go = (f: string, t: string) => router.push(buildHref(f, t))
 
-  // Preset stepping. Disable ▸ once the next window starts after today —
-  // there's no output to report from a period that hasn't begun.
-  const prevDate = shiftDate(date, gran, -1)
-  const nextDate = shiftDate(date, gran, 1)
-  const nextDisabled = windowDateBounds(nextDate, gran).from > todayStr
+  // Range stepping — shift both ends by the range's own length. Disable ▸ once
+  // the next window would start after today (no output from a period that
+  // hasn't begun).
+  const len = daysBetween(from, to) + 1
+  const prevFrom = addDays(from, -len)
+  const prevTo = addDays(to, -len)
+  const nextFrom = addDays(from, len)
+  const nextTo = addDays(to, len)
+  const nextDisabled = nextFrom > todayStr
   const containsToday = from <= todayStr && todayStr <= to
 
-  // Tapping the preset readout picks a single day → enters range mode (from===to).
-  const onPresetPick = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = e.target.value
-    if (v) router.push(buildHref({ from: v, to: v }))
-  }
-
-  // Editing either end of an active range, with Apple-style forgiveness:
-  // a start past the end collapses to that day; an end before the start swaps.
-  const onStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = e.target.value
-    if (!v) return
-    if (v > to) router.push(buildHref({ from: v, to: v }))
-    else router.push(buildHref({ from: v, to }))
-  }
-  const onEndChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = e.target.value
-    if (!v) return
-    if (v < from) router.push(buildHref({ from: v, to: from }))
-    else router.push(buildHref({ from, to: v }))
-  }
-
-  const onClear = () => router.push(buildHref({ g: 'day', d: todayStr }))
-
-  const readout = formatReadout(rangeMode ? 'range' : gran, from, to)
+  const readout = from === to ? dayLabel(from) : `${monthDay(from)} – ${monthDay(to)}`
 
   return (
-    <div className="mb-8 flex items-center justify-between gap-4 flex-wrap">
-      {/* Granularity — iOS segmented control: a soft track with a raised
-          selected thumb. Unselected entirely while a custom range is active. */}
-      <nav
-        aria-label="周期"
-        className="inline-flex items-center rounded-[2px] bg-[var(--color-surface)] p-[3px]"
-      >
-        {GRANS.map((g) => {
-          const active = !rangeMode && g.key === gran
-          return (
-            <Link
-              key={g.key}
-              // Leaving a range anchors on its start, so 日/周/月 reframes the
-              // span you were looking at rather than jumping home.
-              href={buildHref({ g: g.key, d: rangeMode ? from : date })}
-              aria-current={active ? 'page' : undefined}
-              className={`px-4 py-1 text-[13px] rounded-[2px] transition-all duration-150 ${
-                active
-                  ? 'bg-[var(--color-bg)] text-[var(--color-ink)] font-medium shadow-[0_1px_2px_rgba(0,0,0,0.08),0_0_0_0.5px_rgba(0,0,0,0.05)]'
-                  : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
-              }`}
-            >
-              {g.label}
-            </Link>
-          )
-        })}
-      </nav>
+    <div className="mb-8 flex items-center justify-end gap-1 flex-wrap">
+      <Stepper href={buildHref(prevFrom, prevTo)} dir="prev" />
 
-      {!rangeMode ? (
-        <div className="flex items-center gap-1">
-          <Stepper href={buildHref({ g: gran, d: prevDate })} dir="prev" />
+      <Calendar
+        from={from}
+        to={to}
+        todayStr={todayStr}
+        readout={readout}
+        onPick={go}
+      />
 
-          {/* Readout doubles as the calendar trigger; the native picker is an
-              invisible overlay so it pops up right at the date text. */}
-          <span className="relative inline-flex">
-            <button
-              type="button"
-              onClick={() => openPicker(startRef)}
-              aria-label="选择日期"
-              className="group inline-flex items-center justify-center gap-1.5 min-w-[136px] px-2.5 py-1 rounded-[2px] text-[14px] font-medium tabular-nums text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface)]"
-            >
-              <span className="text-[var(--color-ink-4)] transition-colors group-hover:text-[var(--color-ink-2)]">
-                <CalendarIcon />
-              </span>
-              {readout}
-            </button>
-            <input
-              ref={startRef}
-              type="date"
-              value={from}
-              onChange={onPresetPick}
-              className="absolute inset-0 opacity-0 pointer-events-none"
-              tabIndex={-1}
-              aria-hidden="true"
-            />
-          </span>
+      <Stepper
+        href={buildHref(nextFrom, nextTo)}
+        dir="next"
+        disabled={nextDisabled}
+      />
 
-          <Stepper href={buildHref({ g: gran, d: nextDate })} dir="next" disabled={nextDisabled} />
-
-          {!containsToday && (
-            <Link
-              href={buildHref({ g: gran, d: todayStr })}
-              className="ml-1.5 px-2.5 py-1 rounded-[2px] text-[12px] tracking-wide text-[var(--color-ink-3)] hover:text-[var(--color-ink)] hover:bg-[var(--color-surface)] transition-colors"
-            >
-              今天
-            </Link>
-          )}
-        </div>
-      ) : (
-        <span className="inline-flex items-baseline gap-x-2.5 gap-y-1 flex-wrap text-[13px]">
-          <span className="translate-y-[1px] text-[var(--color-ink-4)]" aria-hidden="true">
-            <CalendarIcon />
-          </span>
-          <span className="text-[var(--color-ink-3)]">从</span>
-          <DateLabel
-            value={from}
-            inputRef={startRef}
-            max={to}
-            onClick={() => openPicker(startRef)}
-            onChange={onStartChange}
-          />
-          <span className="text-[var(--color-ink-3)]" aria-hidden="true">
-            →
-          </span>
-          <span className="text-[var(--color-ink-3)]">到</span>
-          <DateLabel
-            value={to}
-            inputRef={endRef}
-            min={from}
-            onClick={() => openPicker(endRef)}
-            onChange={onEndChange}
-          />
-          <button
-            type="button"
-            onClick={onClear}
-            aria-label="清除日期范围，回到今天"
-            className="ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-[2px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
-          >
-            <ClearIcon />
-          </button>
-        </span>
+      {!containsToday && (
+        <Link
+          href={buildHref(todayStr, todayStr)}
+          className="ml-1.5 px-2.5 py-1 rounded-[2px] text-[12px] tracking-wide text-[var(--color-ink-3)] hover:text-[var(--color-ink)] hover:bg-[var(--color-surface)] transition-colors"
+        >
+          今天
+        </Link>
       )}
     </div>
   )
 }
 
-// Adaptive period readout. day → "5月31日 周五", week/range-span → "M月D日 –
-// M月D日", month → "Y年M月", single-day range → the day form.
-function formatReadout(mode: Granularity | 'range', from: string, to: string): string {
-  if (mode === 'month') {
-    const [y, m] = from.split('-')
-    return `${parseInt(y, 10)}年${parseInt(m, 10)}月`
+// ---------------------------------------------------------------------------
+// Calendar — a readout button that opens a custom range-picker popover. The
+// whole point of rolling our own (vs <input type=date>): navigating months
+// must NOT commit a selection. Only clicking days does.
+// ---------------------------------------------------------------------------
+function Calendar({
+  from,
+  to,
+  todayStr,
+  readout,
+  onPick,
+}: {
+  from: string
+  to: string
+  todayStr: string
+  readout: string
+  onPick: (from: string, to: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  // View month (year + 0-based month) the grid is showing.
+  const [view, setView] = useState(() => monthOf(to))
+  // First click of a range lands here; the second click commits. null = idle.
+  const [anchor, setAnchor] = useState<string | null>(null)
+  // Hovered day, for live range preview while picking the second end.
+  const [hover, setHover] = useState<string | null>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  // Open fresh: show the month of the current range end, clear any half-pick.
+  const openCal = () => {
+    setView(monthOf(to))
+    setAnchor(null)
+    setHover(null)
+    setOpen(true)
   }
-  if (mode === 'day') return dayLabel(from)
-  if (mode === 'week') return `${monthDay(from)} – ${monthDay(to)}`
-  // custom range
-  return from === to ? dayLabel(from) : `${monthDay(from)} – ${monthDay(to)}`
+  const close = () => {
+    setOpen(false)
+    setAnchor(null)
+    setHover(null)
+  }
+
+  // Dismiss on outside click / Escape.
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) close()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close()
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const commit = (f: string, t: string) => {
+    close()
+    onPick(f, t)
+  }
+
+  const onDayClick = (day: string) => {
+    if (day > todayStr) return // future — no output to report
+    if (anchor === null) {
+      setAnchor(day) // first end; wait for the second
+    } else {
+      commit(anchor, day) // second end → commit (buildHref orders them)
+    }
+  }
+
+  // The span to highlight: mid-pick it's anchor↔hover (live preview); otherwise
+  // the committed from→to range.
+  const [selLo, selHi] =
+    anchor !== null
+      ? order(anchor, hover ?? anchor)
+      : [from, to]
+
+  const grid = monthGrid(view.y, view.m)
+  // Don't let the view wander past the current month — there's no future
+  // output, so the next-month arrow is dead once you're on today's month.
+  const viewYM = `${view.y}-${pad(view.m + 1)}`
+  const canNextMonth = viewYM < todayStr.slice(0, 7)
+
+  return (
+    <div ref={rootRef} className="relative inline-flex">
+      <button
+        type="button"
+        onClick={() => (open ? close() : openCal())}
+        aria-label="选择日期范围"
+        aria-expanded={open}
+        className="group inline-flex items-center justify-center gap-1.5 min-w-[136px] px-2.5 py-1 rounded-[2px] text-[14px] font-medium tabular-nums text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface)]"
+      >
+        <span className="text-[var(--color-ink-4)] transition-colors group-hover:text-[var(--color-ink-2)]">
+          <CalendarIcon />
+        </span>
+        {readout}
+      </button>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label="日期范围选择"
+          className="absolute right-0 top-[calc(100%+6px)] z-30 w-[280px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[0_8px_28px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04)]"
+        >
+          {/* Presets — fill the range in one tap. */}
+          <div className="mb-3 flex items-center gap-1">
+            <Preset label="今天" onClick={() => commit(todayStr, todayStr)} />
+            <Preset
+              label="本周"
+              onClick={() => {
+                const [a, b] = weekOf(todayStr)
+                commit(a, b)
+              }}
+            />
+            <Preset
+              label="本月"
+              onClick={() => {
+                const [a, b] = monthBounds(todayStr)
+                commit(a, b)
+              }}
+            />
+          </div>
+
+          {/* Month header — these arrows ONLY change the view, never select. */}
+          <div className="mb-2 flex items-center justify-between px-1">
+            <MonthArrow
+              dir="prev"
+              onClick={() => setView(shiftMonth(view, -1))}
+            />
+            <span className="text-[13px] font-medium tabular-nums text-[var(--color-ink)]">
+              {view.y}年{view.m + 1}月
+            </span>
+            <MonthArrow
+              dir="next"
+              onClick={() => setView(shiftMonth(view, 1))}
+              disabled={!canNextMonth}
+            />
+          </div>
+
+          {/* Weekday header */}
+          <div className="grid grid-cols-7 mb-1">
+            {WEEKDAYS.map((w) => (
+              <span
+                key={w}
+                className="text-center text-[11px] text-[var(--color-ink-4)] py-1"
+              >
+                {w}
+              </span>
+            ))}
+          </div>
+
+          {/* Day grid */}
+          <div className="grid grid-cols-7 gap-y-0.5" onMouseLeave={() => setHover(null)}>
+            {grid.map((day) => {
+              const inMonth = monthOf(day).m === view.m
+              const isFuture = day > todayStr
+              const isToday = day === todayStr
+              const inSel = day >= selLo && day <= selHi
+              const isLo = day === selLo
+              const isHi = day === selHi
+              const isEnd = isLo || isHi
+
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  disabled={isFuture}
+                  onClick={() => onDayClick(day)}
+                  onMouseEnter={() => anchor !== null && setHover(day)}
+                  className={[
+                    'relative h-8 text-[13px] tabular-nums transition-colors',
+                    'flex items-center justify-center',
+                    // range middle wash (square, edge-to-edge feel)
+                    inSel && !isEnd ? 'bg-[var(--color-active-bg)]' : '',
+                    inSel && isLo ? 'rounded-l-[2px]' : '',
+                    inSel && isHi ? 'rounded-r-[2px]' : '',
+                    isEnd ? 'rounded-[2px] bg-[var(--color-ink)] text-[var(--color-bg)] font-medium' : '',
+                    !inSel && !isFuture ? 'rounded-[2px] hover:bg-[var(--color-surface)] hover:shadow-[inset_0_0_0_1px_var(--color-border)]' : '',
+                    isFuture ? 'text-[var(--color-ink-4)] cursor-not-allowed' : '',
+                    !inMonth && !inSel && !isFuture ? 'text-[var(--color-ink-4)]' : '',
+                    inMonth && !inSel && !isFuture ? 'text-[var(--color-ink-2)]' : '',
+                  ].join(' ')}
+                >
+                  {parseInt(day.slice(8), 10)}
+                  {isToday && !isEnd && (
+                    <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 h-[3px] w-[3px] rounded-full bg-[var(--color-ink-3)]" />
+                  )}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Hint line — tells the user where they are in the two-click pick. */}
+          <p className="mt-2.5 px-1 text-[11px] text-[var(--color-ink-3)]">
+            {anchor === null
+              ? '选择开始日期'
+              : `从 ${monthDay(selLo)} 起，选择结束日期`}
+          </p>
+        </div>
+      )}
+    </div>
+  )
 }
 
-function monthDay(ymd: string): string {
-  const [, m, d] = ymd.split('-')
+function Preset({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex-1 px-2 py-1 rounded-[2px] text-[12px] text-[var(--color-ink-2)] bg-[var(--color-bg)] hover:bg-[var(--color-active-bg)] hover:text-[var(--color-ink)] transition-colors"
+    >
+      {label}
+    </button>
+  )
+}
+
+function MonthArrow({
+  dir,
+  onClick,
+  disabled,
+}: {
+  dir: 'prev' | 'next'
+  onClick: () => void
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={dir === 'prev' ? '上个月' : '下个月'}
+      className="inline-flex h-7 w-7 items-center justify-center rounded-[2px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] hover:bg-[var(--color-bg)] disabled:text-[var(--color-ink-4)] disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+    >
+      <Chevron dir={dir} />
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Date helpers — all pure calendar math on 'YYYY-MM-DD' strings via Date.UTC,
+// so there's no timezone drift (we never convert to/from local instants here).
+// ---------------------------------------------------------------------------
+
+function pad(n: number): string {
+  return String(n).padStart(2, '0')
+}
+
+function ymd(y: number, monthZeroBased: number, d: number): string {
+  // Date.UTC normalizes over/underflow (d=0 → last day of prev month, etc.).
+  return new Date(Date.UTC(y, monthZeroBased, d)).toISOString().slice(0, 10)
+}
+
+function parseYMD(s: string): [number, number, number] {
+  const [y, m, d] = s.split('-').map(Number)
+  return [y, m, d]
+}
+
+function addDays(s: string, n: number): string {
+  const [y, m, d] = parseYMD(s)
+  return ymd(y, m - 1, d + n)
+}
+
+function daysBetween(a: string, b: string): number {
+  const [ay, am, ad] = parseYMD(a)
+  const [by, bm, bd] = parseYMD(b)
+  return Math.round(
+    (Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86_400_000,
+  )
+}
+
+function order(a: string, b: string): [string, string] {
+  return a <= b ? [a, b] : [b, a]
+}
+
+function monthOf(s: string): { y: number; m: number } {
+  const [y, m] = parseYMD(s)
+  return { y, m: m - 1 }
+}
+
+function shiftMonth(v: { y: number; m: number }, delta: number): { y: number; m: number } {
+  const t = ymd(v.y, v.m + delta, 1)
+  return monthOf(t)
+}
+
+// Mon..Sun ISO week containing `date`.
+function weekOf(date: string): [string, string] {
+  const [y, m, d] = parseYMD(date)
+  const wd = new Date(Date.UTC(y, m - 1, d)).getUTCDay() // 0=Sun..6=Sat
+  const mondayOffset = (wd + 6) % 7
+  return [addDays(date, -mondayOffset), addDays(date, 6 - mondayOffset)]
+}
+
+// 1st..last day of the calendar month containing `date`.
+function monthBounds(date: string): [string, string] {
+  const [y, m] = parseYMD(date)
+  return [ymd(y, m - 1, 1), ymd(y, m, 0)]
+}
+
+// 42 day-cells (6 weeks, Mon-first) spanning the given month — the standard
+// calendar grid with leading/trailing days from neighbouring months.
+function monthGrid(y: number, monthZeroBased: number): string[] {
+  const firstWd = new Date(Date.UTC(y, monthZeroBased, 1)).getUTCDay()
+  const lead = (firstWd + 6) % 7 // days before the 1st to reach Monday
+  const out: string[] = []
+  for (let i = 0; i < 42; i++) {
+    out.push(ymd(y, monthZeroBased, 1 - lead + i))
+  }
+  return out
+}
+
+function monthDay(ymdStr: string): string {
+  const [, m, d] = ymdStr.split('-')
   return `${parseInt(m, 10)}月${parseInt(d, 10)}日`
 }
 
-function dayLabel(ymd: string): string {
-  const [, m, d] = ymd.split('-')
-  const wd = new Date(`${ymd}T12:00:00+08:00`).toLocaleDateString('zh-CN', {
+function dayLabel(ymdStr: string): string {
+  const [, m, d] = ymdStr.split('-')
+  const wd = new Date(`${ymdStr}T12:00:00+08:00`).toLocaleDateString('zh-CN', {
     timeZone: 'Asia/Shanghai',
     weekday: 'short',
   })
   return `${parseInt(m, 10)}月${parseInt(d, 10)}日 ${wd}`
 }
 
-// A clickable date label hiding a native <input type="date"> behind it, so the
-// native picker pops up at the label's location. Same pattern as the jobs
-// master filter — the visible text is the formatted M月D日.
-function DateLabel({
-  value,
-  inputRef,
-  min,
-  max,
-  onClick,
-  onChange,
-}: {
-  value: string
-  inputRef: React.RefObject<HTMLInputElement | null>
-  min?: string
-  max?: string
-  onClick: () => void
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
-}) {
-  return (
-    <span className="relative inline-flex items-baseline">
-      <button
-        type="button"
-        onClick={onClick}
-        className="inline-flex items-baseline gap-0.5 mono font-medium text-[var(--color-ink)] transition-colors hover:opacity-70"
-      >
-        <span>{monthDay(value)}</span>
-        <span
-          className="text-[var(--color-ink-4)] text-[9px] translate-y-[-2px]"
-          aria-hidden="true"
-        >
-          ▼
-        </span>
-      </button>
-      <input
-        ref={inputRef}
-        type="date"
-        value={value}
-        min={min}
-        max={max}
-        onChange={onChange}
-        className="absolute inset-0 opacity-0 pointer-events-none"
-        tabIndex={-1}
-        aria-hidden="true"
-      />
-    </span>
-  )
-}
+// ---------------------------------------------------------------------------
+// Chrome
+// ---------------------------------------------------------------------------
 
-// Chevron stepper for prev/next period — a quiet, tappable icon button.
 function Stepper({
   href,
   dir,
@@ -369,14 +493,6 @@ function CalendarIcon() {
       <line x1="1.5" y1="5.5" x2="12.5" y2="5.5" stroke="currentColor" strokeWidth="1.2" />
       <line x1="4.5" y1="1" x2="4.5" y2="3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
       <line x1="9.5" y1="1" x2="9.5" y2="3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function ClearIcon() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-      <path d="M3 3 L9 9 M9 3 L3 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   )
 }
