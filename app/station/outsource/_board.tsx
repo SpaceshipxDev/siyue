@@ -75,7 +75,7 @@ export function OutsourceBoard({
   const matchCount = openF.length + archivedF.length
 
   return (
-    <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">
+    <main className="w-full px-4 md:px-10 py-6 md:py-10 flex-1">
       <div className="mb-8">
         <p className="label mb-1">外协台</p>
         <h2 className="text-[28px] font-semibold tracking-tight text-[var(--color-ink)]">

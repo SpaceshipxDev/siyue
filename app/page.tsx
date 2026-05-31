@@ -196,7 +196,7 @@ export default async function MasterBoard(
         }
       />
 
-      <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">
+      <main className="w-full px-4 md:px-10 py-6 md:py-10 flex-1">
         {showOverviewChrome && (
           <div className="mb-6 flex items-baseline justify-between">
             <div>
@@ -276,7 +276,7 @@ export default async function MasterBoard(
       </main>
 
       <footer className="border-t border-[var(--color-border)] bg-[var(--color-surface)]">
-        <div className="mx-auto max-w-[1500px] px-4 md:px-10 py-4 flex items-baseline justify-between text-[var(--color-ink-3)]">
+        <div className="px-4 md:px-10 py-4 flex items-baseline justify-between text-[var(--color-ink-3)]">
           <span className="label">越侬模型 · 思跃 MES v0.1</span>
           <span className="label">基准日 {today()}</span>
         </div>

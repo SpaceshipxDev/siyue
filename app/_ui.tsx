@@ -94,7 +94,7 @@ export function TopBar({
       : '/'
   return (
     <header className="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-      <div className="mx-auto max-w-[1500px] px-4 md:px-10 flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-8 py-3 md:py-0 md:h-[68px]">
+      <div className="px-4 md:px-10 flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-8 py-3 md:py-0 md:h-[68px]">
         <div className="flex items-baseline gap-3 md:gap-6 flex-wrap">
           <Link
             href={homeHref}
@@ -120,7 +120,7 @@ export function TopBar({
       </div>
       {tabs.length > 0 && (
         <nav className="border-t border-[var(--color-border)] bg-[var(--color-bg)]">
-          <div className="mx-auto max-w-[1500px] px-4 md:px-10 flex items-stretch overflow-x-auto no-scrollbar">
+          <div className="px-4 md:px-10 flex items-stretch overflow-x-auto no-scrollbar">
             {tabs.map((tab) => {
               const active = tab.key === currentTab
               return (

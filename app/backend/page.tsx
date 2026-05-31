@@ -71,7 +71,7 @@ export default function BackendPage() {
   return (
     <div className="flex-1 flex flex-col">
       <header className="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-        <div className="mx-auto max-w-[1500px] px-4 md:px-10 py-5 flex items-baseline justify-between gap-8">
+        <div className="px-4 md:px-10 py-5 flex items-baseline justify-between gap-8">
           <div className="flex items-baseline gap-6">
             <Link
               href="/"
@@ -92,7 +92,7 @@ export default function BackendPage() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">
+      <main className="w-full px-4 md:px-10 py-6 md:py-10 flex-1">
         <div className="mb-6">
           <p className="label mb-1">文件解析</p>
           <h2 className="text-[28px] font-semibold tracking-tight text-[var(--color-ink)]">
@@ -270,7 +270,7 @@ export default function BackendPage() {
       </main>
 
       <footer className="border-t border-[var(--color-border)] bg-[var(--color-surface)]">
-        <div className="mx-auto max-w-[1500px] px-4 md:px-10 py-4 flex items-baseline justify-between text-[var(--color-ink-3)]">
+        <div className="px-4 md:px-10 py-4 flex items-baseline justify-between text-[var(--color-ink-3)]">
           <span className="label">越侬模型 · 思跃 MES · 后端 v0.1</span>
           <Link href="/" className="label hover:text-[var(--color-ink)]">
             ← 返回看板
