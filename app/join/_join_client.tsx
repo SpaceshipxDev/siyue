@@ -411,7 +411,7 @@ function FormNav({
         <span className="al-progress-text">
           {step + 1} / {total}
         </span>
-        <div className="flex overflow-hidden rounded-[9px] border border-[var(--al-line)]">
+        <div className="flex overflow-hidden rounded-[2px] border border-[var(--al-line)]">
           <button
             type="button"
             className="al-nav"

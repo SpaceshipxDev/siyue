@@ -90,7 +90,7 @@ export function MatchedComponentsStrip({
         <li key={c.id} className="leading-tight">
           <Link
             href={`/jobs/${job.id}#c-${c.id}`}
-            className="inline-flex items-baseline gap-1.5 max-w-full hover:bg-[#f7f5ee] -mx-1 px-1 rounded-sm transition-colors"
+            className="inline-flex items-baseline gap-1.5 max-w-full hover:bg-[#f7f5ee] -mx-1 px-1 rounded-[2px] transition-colors"
           >
             <span className="text-[var(--color-ink-3)] text-[11px]">↳</span>
             <span className="text-[12px] text-[var(--color-ink)] truncate">
@@ -129,7 +129,7 @@ function ComponentStageBadge({
   const eff = effectiveStageState(component, stage)
   if (eff.kind === 'outsourced') {
     return (
-      <span className="mono text-[10px] tracking-wider px-1 rounded-sm border border-[var(--color-info)] text-[var(--color-info)] shrink-0">
+      <span className="mono text-[10px] tracking-wider px-1 rounded-[2px] border border-[var(--color-info)] text-[var(--color-info)] shrink-0">
         外协
       </span>
     )
@@ -191,7 +191,7 @@ export function SearchInput({
           type="button"
           onClick={() => setQ('')}
           aria-label="清除搜索"
-          className="absolute right-0 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded-full text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
+          className="absolute right-0 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded-[2px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
         >
           <ClearIcon />
         </button>

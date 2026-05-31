@@ -175,9 +175,9 @@ function ParsingPanel({
   elapsed: number
 }) {
   return (
-    <section className="rounded-sm border border-[var(--color-warning)] bg-[var(--color-warning-soft)] px-8 py-12">
+    <section className="rounded-[2px] border border-[var(--color-warning)] bg-[var(--color-warning-soft)] px-8 py-12">
       <div className="flex items-center gap-3 mb-4">
-        <span className="inline-block h-2 w-2 rounded-full bg-[var(--color-warning)] animate-pulse" />
+        <span className="inline-block h-2 w-2 rounded-[2px] bg-[var(--color-warning)] animate-pulse" />
         <p className="label text-[var(--color-warning)]">AI 解析中</p>
         <span className="ml-auto label text-[var(--color-ink-3)] mono">
           {elapsed}s / {TIMEOUT_SECONDS}s
@@ -225,7 +225,7 @@ function StuckPanel({
   onManual: () => void
 }) {
   return (
-    <section className="rounded-sm border border-[var(--color-warning)] bg-[var(--color-warning-soft)] px-8 py-10">
+    <section className="rounded-[2px] border border-[var(--color-warning)] bg-[var(--color-warning-soft)] px-8 py-10">
       <p className="label text-[var(--color-warning)] mb-3">解析未完成</p>
       <h2 className="text-[20px] font-semibold tracking-tight text-[var(--color-ink)] mb-3">
         AI 解析超过 {TIMEOUT_SECONDS} 秒仍未返回
@@ -272,7 +272,7 @@ function FailedPanel({
   onManual: () => void
 }) {
   return (
-    <section className="rounded-sm border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] px-8 py-10">
+    <section className="rounded-[2px] border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] px-8 py-10">
       <p className="label text-[var(--color-overdue)] mb-3">解析失败</p>
       <h2 className="text-[20px] font-semibold tracking-tight text-[var(--color-ink)] mb-3">
         AI 未能提取这份文件
@@ -331,7 +331,7 @@ function DuplicatePanel({
   }
 
   return (
-    <section className="rounded-sm border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-8 py-10">
+    <section className="rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-8 py-10">
       <p className="label text-[var(--color-ink-3)] mb-3">导入已暂停 · 工号冲突</p>
       <h2 className="text-[20px] font-semibold tracking-tight text-[var(--color-ink)] mb-2">
         工号 <span className="mono">{conflict.jobNo}</span> 已存在
@@ -361,7 +361,7 @@ function DuplicatePanel({
       <div className="mt-8 flex flex-wrap items-center gap-3">
         <Link
           href={`/jobs/${conflict.id}`}
-          className="inline-flex items-center gap-2 rounded-sm border border-[var(--color-ink)] bg-[var(--color-ink)] px-4 py-2 text-[13px] font-medium text-[var(--color-bg)] transition hover:brightness-110"
+          className="inline-flex items-center gap-2 rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-ink)] px-4 py-2 text-[13px] font-medium text-[var(--color-bg)] transition hover:brightness-110"
         >
           打开已存在工单 →
         </Link>
@@ -369,7 +369,7 @@ function DuplicatePanel({
           type="button"
           onClick={handleDiscard}
           disabled={discarding}
-          className="inline-flex items-center gap-2 rounded-sm border border-[var(--color-border-strong)] bg-[var(--color-bg)] px-4 py-2 text-[13px] font-medium text-[var(--color-ink-2)] transition hover:text-[var(--color-overdue)] hover:border-[var(--color-overdue)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-bg)] px-4 py-2 text-[13px] font-medium text-[var(--color-ink-2)] transition hover:text-[var(--color-overdue)] hover:border-[var(--color-overdue)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {discarding ? '丢弃中…' : '丢弃此次上传'}
         </button>
@@ -406,7 +406,7 @@ function RecoveryActions({
         onClick={onRetry}
         disabled={busy || !hasSourceFile}
         title={hasSourceFile ? undefined : '没有源文件可重试'}
-        className="inline-flex items-center gap-2 rounded-sm border border-[var(--color-ink)] bg-[var(--color-ink)] px-4 py-2 text-[13px] font-medium text-[var(--color-bg)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex items-center gap-2 rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-ink)] px-4 py-2 text-[13px] font-medium text-[var(--color-bg)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {retrying ? '重试中…' : '重试解析'}
       </button>
@@ -414,7 +414,7 @@ function RecoveryActions({
         type="button"
         onClick={onManual}
         disabled={busy}
-        className="inline-flex items-center gap-2 rounded-sm border border-[var(--color-border-strong)] bg-[var(--color-bg)] px-4 py-2 text-[13px] font-medium text-[var(--color-ink)] transition hover:bg-[var(--color-active-bg)] disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex items-center gap-2 rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-bg)] px-4 py-2 text-[13px] font-medium text-[var(--color-ink)] transition hover:bg-[var(--color-active-bg)] disabled:cursor-not-allowed disabled:opacity-60"
       >
         {manualLoading ? '切换中…' : '手动填写'}
       </button>

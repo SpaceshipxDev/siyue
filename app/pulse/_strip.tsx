@@ -55,7 +55,7 @@ export function StationStrip({
   return (
     <nav
       aria-label="工段筛选"
-      className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-px bg-[var(--color-border)] border border-[var(--color-border)] rounded-md overflow-hidden mb-12"
+      className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-px bg-[var(--color-border)] border border-[var(--color-border)] rounded-[2px] overflow-hidden mb-12"
     >
       {wip.map((row) => {
         const isActive = active === row.stage

@@ -1,9 +1,10 @@
 import { dueState, formatCny, formatMinutes, type Stage } from '@/lib/data'
 import { rowIsMineAtStage, type MasterRow } from '@/lib/master'
 
-// One band of metrics. No card, no border, no chrome — just the digits and a
-// small label below. Sits at the top of the station view so the head's eye
-// lands on the totals before the table.
+// A compact station-context strip, sitting just under the personal 今日产出
+// card. Deliberately quiet — small inline label+value pairs, urgency shown by
+// color rather than size — so it reads as the station's "needs attention" line
+// beneath the hero, not as a second big-number band competing with it.
 //
 // In scan order:
 //   在此    : jobs that are MINE at this station — strict definition that
@@ -41,12 +42,13 @@ export function StationSummary({
   }
 
   const showWip = typeof wipCny === 'number'
-  const gridCols = showWip
-    ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-5'
-    : 'grid-cols-2 sm:grid-cols-4'
 
+  // A quiet, compact strip — not a hero band. The personal 今日产出 card now
+  // owns the big-number role above; this is the station's context line beneath
+  // it, so urgency is carried by COLOR (overdue red / due-today amber), not by
+  // size. Reads label-then-value, matching the TopBar attention pills.
   return (
-    <section className={`mb-12 mt-2 grid ${gridCols} gap-y-8 gap-x-6 border-b border-[var(--color-border)] pb-10`}>
+    <section className="mb-8 flex flex-wrap items-baseline gap-x-8 gap-y-2.5 border-b border-[var(--color-border)] pb-6">
       <Metric label="在此" value={here} />
       <Metric label="今日" value={dueToday} tone={dueToday > 0 ? 'warning' : 'mute'} />
       <Metric label="逾期" value={overdue} tone={overdue > 0 ? 'overdue' : 'mute'} />
@@ -83,13 +85,13 @@ function Metric({
           ? 'text-[var(--color-ink-3)]'
           : 'text-[var(--color-ink)]'
   return (
-    <div className="flex flex-col gap-2 leading-none">
+    <span className="inline-flex items-baseline gap-2">
+      <span className="label text-[var(--color-ink-3)]">{label}</span>
       <span
-        className={`text-[44px] md:text-[56px] font-semibold tracking-tight tabular-nums ${color} ${mono ? 'mono' : ''}`}
+        className={`text-[20px] md:text-[22px] font-semibold tracking-tight tabular-nums leading-none ${color} ${mono ? 'mono' : ''}`}
       >
         {value}
       </span>
-      <span className="label text-[var(--color-ink-3)]">{label}</span>
-    </div>
+    </span>
   )
 }

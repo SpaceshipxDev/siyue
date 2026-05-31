@@ -74,7 +74,7 @@ export function ProcessCardButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-ink)] text-[var(--color-ink)] rounded-sm hover:bg-[var(--color-ink)] hover:text-[var(--color-surface)] transition-colors"
+        className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-ink)] text-[var(--color-ink)] rounded-[2px] hover:bg-[var(--color-ink)] hover:text-[var(--color-surface)] transition-colors"
       >
         {hasCard ? '工艺卡' : '制造工艺卡'}
       </button>
@@ -266,7 +266,7 @@ function ProcessCardModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-[760px] bg-[var(--color-surface)] rounded-sm shadow-2xl border border-[var(--color-border-strong)]"
+        className="w-full max-w-[760px] bg-[var(--color-surface)] rounded-[2px] shadow-2xl border border-[var(--color-border-strong)]"
       >
         <header className="flex items-baseline justify-between px-10 pt-8 pb-2">
           <div>
@@ -397,7 +397,7 @@ function StagingTray({
           onDragLeave={() => setDrag(false)}
           onDrop={handleDrop}
           onClick={() => inputRef.current?.click()}
-          className={`flex min-h-[260px] cursor-pointer flex-col items-center justify-center rounded-sm border border-dashed transition-colors ${
+          className={`flex min-h-[260px] cursor-pointer flex-col items-center justify-center rounded-[2px] border border-dashed transition-colors ${
             drag
               ? 'border-[var(--color-ink)] bg-[var(--color-active-bg)]'
               : 'border-[var(--color-border-strong)] bg-[var(--color-muted-bg)] hover:border-[var(--color-ink)]'
@@ -418,7 +418,7 @@ function StagingTray({
           }}
           onDragLeave={() => setDrag(false)}
           onDrop={handleDrop}
-          className={`rounded-sm border transition-colors ${
+          className={`rounded-[2px] border transition-colors ${
             drag
               ? 'border-[var(--color-ink)] bg-[var(--color-active-bg)]'
               : 'border-[var(--color-border-strong)] bg-[var(--color-muted-bg)]'
@@ -480,7 +480,7 @@ function StagingTray({
           type="button"
           disabled={empty}
           onClick={onSubmit}
-          className="rounded-sm border border-[var(--color-ink)] bg-[var(--color-ink)] px-4 py-1.5 text-[12px] tracking-wider text-[var(--color-surface)] transition-colors hover:bg-[var(--color-surface)] hover:text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-ink)] px-4 py-1.5 text-[12px] tracking-wider text-[var(--color-surface)] transition-colors hover:bg-[var(--color-surface)] hover:text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-40"
         >
           开始生成
         </button>
@@ -739,7 +739,7 @@ function CardEditor({
         onChange={(e) => onChange({ ...draft, summary: e.target.value })}
         rows={2}
         placeholder="工单整体说明…"
-        className="w-full resize-none rounded-sm border border-transparent bg-[var(--color-muted-bg)] px-3 py-2 text-[15px] leading-relaxed text-[var(--color-ink)] placeholder:text-[var(--color-ink-3)] focus:border-[var(--color-ink)] focus:bg-transparent focus:outline-none"
+        className="w-full resize-none rounded-[2px] border border-transparent bg-[var(--color-muted-bg)] px-3 py-2 text-[15px] leading-relaxed text-[var(--color-ink)] placeholder:text-[var(--color-ink-3)] focus:border-[var(--color-ink)] focus:bg-transparent focus:outline-none"
       />
 
       <div className="mt-6">
@@ -758,7 +758,7 @@ function CardEditor({
               value={current.name}
               onChange={(e) => updateComponent(safeActive, { name: e.target.value })}
               placeholder="零件名"
-              className="rounded-sm border border-transparent bg-[var(--color-muted-bg)] px-2 py-1 text-[14px] font-medium text-[var(--color-ink)] placeholder:text-[var(--color-ink-3)] focus:border-[var(--color-ink)] focus:bg-transparent focus:outline-none"
+              className="rounded-[2px] border border-transparent bg-[var(--color-muted-bg)] px-2 py-1 text-[14px] font-medium text-[var(--color-ink)] placeholder:text-[var(--color-ink-3)] focus:border-[var(--color-ink)] focus:bg-transparent focus:outline-none"
             />
           </div>
           <textarea
@@ -770,7 +770,7 @@ function CardEditor({
             }
             rows={2}
             placeholder="这件零件的一句话要点（可空）…"
-            className="mt-2 w-full resize-none rounded-sm border border-transparent bg-[var(--color-muted-bg)] px-3 py-2 text-[13.5px] leading-relaxed text-[var(--color-ink-2)] placeholder:text-[var(--color-ink-3)] focus:border-[var(--color-ink)] focus:bg-transparent focus:outline-none"
+            className="mt-2 w-full resize-none rounded-[2px] border border-transparent bg-[var(--color-muted-bg)] px-3 py-2 text-[13.5px] leading-relaxed text-[var(--color-ink-2)] placeholder:text-[var(--color-ink-3)] focus:border-[var(--color-ink)] focus:bg-transparent focus:outline-none"
           />
 
           <div className="mt-6 space-y-7">
@@ -828,7 +828,7 @@ function CardEditor({
         <button
           type="button"
           onClick={onSave}
-          className="rounded-sm border border-[var(--color-ink)] bg-[var(--color-ink)] px-4 py-1.5 text-[var(--color-surface)] hover:bg-[var(--color-surface)] hover:text-[var(--color-ink)]"
+          className="rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-ink)] px-4 py-1.5 text-[var(--color-surface)] hover:bg-[var(--color-surface)] hover:text-[var(--color-ink)]"
         >
           保存
         </button>
@@ -955,7 +955,7 @@ function EditableRow({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="flex-1 rounded-sm border border-transparent bg-transparent px-2 py-1 text-[13.5px] leading-relaxed placeholder:text-[var(--color-ink-3)] hover:border-[var(--color-border)] focus:border-[var(--color-ink)] focus:outline-none"
+        className="flex-1 rounded-[2px] border border-transparent bg-transparent px-2 py-1 text-[13.5px] leading-relaxed placeholder:text-[var(--color-ink-3)] hover:border-[var(--color-border)] focus:border-[var(--color-ink)] focus:outline-none"
         style={{ color }}
       />
       <button

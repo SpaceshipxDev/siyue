@@ -115,7 +115,7 @@ export default function PlaygroundPage() {
 
       <section className="mb-4">
         {doc ? (
-          <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm">
+          <div className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-[var(--color-ink-3)] shrink-0">📄</span>
@@ -150,14 +150,14 @@ export default function PlaygroundPage() {
               {showJson ? '隐藏' : '查看'} 发送给模型的 JSON
             </button>
             {showJson && (
-              <pre className="mt-2 max-h-72 overflow-auto rounded bg-[var(--color-muted-bg)] p-2 text-[11px] leading-snug font-mono">
+              <pre className="mt-2 max-h-72 overflow-auto rounded-[2px] bg-[var(--color-muted-bg)] p-2 text-[11px] leading-snug font-mono">
                 {previewJson}
               </pre>
             )}
           </div>
         ) : (
           <label
-            className={`flex items-center justify-center rounded-md border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-6 text-sm text-[var(--color-ink-2)] cursor-pointer hover:bg-[var(--color-muted-bg)] transition ${
+            className={`flex items-center justify-center rounded-[2px] border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-6 text-sm text-[var(--color-ink-2)] cursor-pointer hover:bg-[var(--color-muted-bg)] transition ${
               busy === 'parsing' ? 'opacity-50 pointer-events-none' : ''
             }`}
           >
@@ -183,7 +183,7 @@ export default function PlaygroundPage() {
         {history.map((t, i) => (
           <div
             key={i}
-            className={`rounded-md px-3 py-2 text-sm whitespace-pre-wrap leading-relaxed ${
+            className={`rounded-[2px] px-3 py-2 text-sm whitespace-pre-wrap leading-relaxed ${
               t.role === 'user'
                 ? 'bg-[var(--color-active-bg)] text-[var(--color-ink)] self-end max-w-[80%]'
                 : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-ink)] self-start max-w-[90%]'
@@ -196,7 +196,7 @@ export default function PlaygroundPage() {
           <div className="self-start text-xs text-[var(--color-ink-3)] px-3 py-2">思考中…</div>
         )}
         {error && (
-          <div className="self-stretch rounded-md border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] text-[var(--color-overdue)] px-3 py-2 text-xs">
+          <div className="self-stretch rounded-[2px] border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] text-[var(--color-overdue)] px-3 py-2 text-xs">
             {error}
           </div>
         )}
@@ -214,12 +214,12 @@ export default function PlaygroundPage() {
           onChange={(e) => setInput(e.target.value)}
           placeholder={doc ? '问点什么…' : '请先上传 xlsx'}
           disabled={!doc || busy !== 'idle'}
-          className="flex-1 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50"
+          className="flex-1 rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50"
         />
         <button
           type="submit"
           disabled={!doc || busy !== 'idle' || !input.trim()}
-          className="rounded-md bg-[var(--color-ink)] text-[var(--color-bg)] px-4 py-2 text-sm disabled:opacity-30 disabled:cursor-not-allowed"
+          className="rounded-[2px] bg-[var(--color-ink)] text-[var(--color-bg)] px-4 py-2 text-sm disabled:opacity-30 disabled:cursor-not-allowed"
         >
           发送
         </button>

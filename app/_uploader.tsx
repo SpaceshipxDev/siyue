@@ -128,7 +128,7 @@ export function MasterUploader() {
   const parsing = items.filter((i) => i.status === 'parsing').length
 
   return (
-    <section className="mb-8 rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]">
+    <section className="mb-8 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
       <div className="grid grid-cols-12 gap-0">
         <div
           onDragOver={(e) => {
@@ -226,5 +226,5 @@ function StatusDot({ status }: { status: ItemStatus }) {
       : status === 'done'
         ? 'bg-[var(--color-success)]'
         : 'bg-[var(--color-overdue)]'
-  return <span className={`inline-block h-1.5 w-1.5 rounded-full ${color}`} />
+  return <span className={`inline-block h-1.5 w-1.5 rounded-[2px] ${color}`} />
 }

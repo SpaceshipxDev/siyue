@@ -36,7 +36,8 @@ function tabsForRole(role: Role, defaultStage?: string): Tab[] {
       return [
         { key: '工程', label: '工程', href: '/' },
         { key: '现场', label: '现场', href: '/pulse' },
-        { key: '报功', label: '报功', href: '/report' },
+        // 报功 deliberately omitted — the per-person merit scoreboard is a 商务
+        // read only; 工程 head doesn't see it (gate: requireReportViewer).
         { key: '外协', label: '外协', href: '/station/outsource' },
         ...STAGES.filter((s) => s !== '工程').map((s) => ({
           key: s as TabKey,
@@ -213,7 +214,7 @@ export function Pill({
   }
   return (
     <span
-      className={`inline-flex items-baseline gap-1.5 rounded-full border px-2.5 py-[3px] text-[10px] tracking-[0.14em] uppercase ${styles[tone]}`}
+      className={`inline-flex items-baseline gap-1.5 rounded-[2px] border px-2.5 py-[3px] text-[10px] tracking-[0.14em] uppercase ${styles[tone]}`}
     >
       <span>{label}</span>
       <span className="mono text-[12px] tracking-normal font-medium">

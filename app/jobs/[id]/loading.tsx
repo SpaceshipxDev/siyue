@@ -43,7 +43,7 @@ export default function JobDetailLoading() {
           <Bar w={120} h={16} />
           <Bar w={200} h={10} />
         </div>
-        <div className="rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
+        <div className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
           {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={i}
@@ -51,7 +51,7 @@ export default function JobDetailLoading() {
             >
               <Bar w={24} h={12} />
               <div
-                className="rounded-sm bg-[var(--color-muted-bg)]"
+                className="rounded-[2px] bg-[var(--color-muted-bg)]"
                 style={{ width: 56, height: 56 }}
               />
               <Bar w={160} h={14} />
@@ -69,7 +69,7 @@ export default function JobDetailLoading() {
 function Bar({ w, h }: { w: number; h: number }) {
   return (
     <div
-      className="rounded-sm bg-[var(--color-muted-bg)]"
+      className="rounded-[2px] bg-[var(--color-muted-bg)]"
       style={{ width: w, height: h }}
     />
   )

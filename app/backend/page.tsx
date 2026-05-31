@@ -111,7 +111,7 @@ export default function BackendPage() {
           onDragLeave={() => setDrag(false)}
           onDrop={onDrop}
           onClick={() => inputRef.current?.click()}
-          className={`group cursor-pointer rounded-sm border-2 border-dashed bg-[var(--color-surface)] px-10 py-14 text-center transition-colors ${
+          className={`group cursor-pointer rounded-[2px] border-2 border-dashed bg-[var(--color-surface)] px-10 py-14 text-center transition-colors ${
             drag
               ? 'border-[var(--color-ink)] bg-[var(--color-active-bg)]'
               : 'border-[var(--color-border-strong)] hover:border-[var(--color-ink-3)]'
@@ -145,7 +145,7 @@ export default function BackendPage() {
                 清空
               </button>
             </div>
-            <div className="rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]">
+            <div className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
               {/* file tabs */}
               <div className="flex flex-wrap border-b border-[var(--color-border)]">
                 {results.map((r, i) => {
@@ -227,7 +227,7 @@ export default function BackendPage() {
                         {(current.size / 1024).toFixed(1)} KB
                       </span>
                     </span>
-                    <div className="ml-auto flex items-center gap-1 rounded-full border border-[var(--color-border-strong)] bg-[var(--color-bg)] p-0.5">
+                    <div className="ml-auto flex items-center gap-1 rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-bg)] p-0.5">
                       <ToggleBtn
                         active={view === 'json'}
                         onClick={() => setView('json')}
@@ -294,7 +294,7 @@ function ToggleBtn({
     <button
       type="button"
       onClick={onClick}
-      className={`label rounded-full px-3 py-1 cursor-pointer transition-colors ${
+      className={`label rounded-[2px] px-3 py-1 cursor-pointer transition-colors ${
         active
           ? 'bg-[var(--color-surface)] text-[var(--color-ink)] shadow-[0_0_0_1px_var(--color-border-strong)]'
           : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'

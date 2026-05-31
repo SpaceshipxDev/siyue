@@ -95,7 +95,7 @@ export function OutsourceBoard({
       </div>
 
       {searching && matchCount === 0 ? (
-        <div className="rounded-sm border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)] py-16 text-center">
+        <div className="rounded-[2px] border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)] py-16 text-center">
           <p className="label mb-2">无匹配</p>
           <p className="text-[13px] text-[var(--color-ink-3)]">
             没有外协匹配 “{q.trim()}” — 试试计划单号、供应商名称，或料号
@@ -195,7 +195,7 @@ function Section({
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-sm border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)] py-12 text-center">
+      <div className="rounded-[2px] border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)] py-12 text-center">
         <p className="label mb-2">{title}</p>
         <p className="text-[13px] text-[var(--color-ink-3)]">{empty}</p>
       </div>
@@ -348,7 +348,7 @@ function VendorGroup({
           <Pill tone="info" label="金额" value={formatCny(group.total)} />
         </div>
       </div>
-      <div className="rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] px-2">
+      <div className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2">
         {group.rows.map((r) => (
           <BlockRow
             key={r.block.id}

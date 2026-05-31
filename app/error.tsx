@@ -42,7 +42,7 @@ export default function GlobalError({
           <button
             type="button"
             onClick={reset}
-            className="px-5 py-2 text-[13px] tracking-wider rounded-sm bg-[var(--color-ink)] text-[var(--color-surface)] hover:opacity-80"
+            className="px-5 py-2 text-[13px] tracking-wider rounded-[2px] bg-[var(--color-ink)] text-[var(--color-surface)] hover:opacity-80"
           >
             重试
           </button>
@@ -51,7 +51,7 @@ export default function GlobalError({
             onClick={() => {
               if (typeof window !== 'undefined') window.location.reload()
             }}
-            className="px-5 py-2 text-[13px] tracking-wider rounded-sm border border-[var(--color-border-strong)] text-[var(--color-ink-2)] hover:text-[var(--color-ink)] hover:border-[var(--color-ink)]"
+            className="px-5 py-2 text-[13px] tracking-wider rounded-[2px] border border-[var(--color-border-strong)] text-[var(--color-ink-2)] hover:text-[var(--color-ink)] hover:border-[var(--color-ink)]"
           >
             刷新页面
           </button>

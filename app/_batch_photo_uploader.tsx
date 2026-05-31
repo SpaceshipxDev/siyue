@@ -285,7 +285,7 @@ export function BatchPhotoUploader({
   if (components.length === 0) return null
 
   return (
-    <div className="rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]">
+    <div className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
       <div
         onDragOver={(e) => {
           e.preventDefault()
@@ -380,7 +380,7 @@ export function BatchPhotoUploader({
                 type="button"
                 onClick={apply}
                 disabled={busy || stats.matched === 0}
-                className="px-4 py-1.5 text-[12px] tracking-wider rounded-sm bg-[var(--color-ink)] text-[var(--color-surface)] hover:opacity-80 disabled:opacity-50"
+                className="px-4 py-1.5 text-[12px] tracking-wider rounded-[2px] bg-[var(--color-ink)] text-[var(--color-surface)] hover:opacity-80 disabled:opacity-50"
               >
                 {busy ? '上传中…' : `应用 ${stats.matched}`}
               </button>
@@ -414,7 +414,7 @@ function StagedCard({
   const matched = item.match.kind === 'matched' ? item.match : null
   return (
     <div
-      className={`flex w-44 flex-col rounded-sm border bg-[var(--color-surface)] ${
+      className={`flex w-44 flex-col rounded-[2px] border bg-[var(--color-surface)] ${
         error
           ? 'border-[var(--color-overdue)]'
           : matched
@@ -422,7 +422,7 @@ function StagedCard({
             : 'border-dashed border-[var(--color-border-strong)]'
       }`}
     >
-      <div className="relative h-24 w-full overflow-hidden rounded-t-sm bg-[var(--color-muted-bg)]">
+      <div className="relative h-24 w-full overflow-hidden rounded-t-[2px] bg-[var(--color-muted-bg)]">
         {/* Local object URL — next/image isn't appropriate for blob: sources. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -436,7 +436,7 @@ function StagedCard({
           disabled={disabled}
           aria-label="移除"
           title="移除"
-          className="absolute right-1 top-1 inline-flex h-5 w-5 items-center justify-center rounded-sm bg-[var(--color-surface)]/90 text-[var(--color-ink-2)] hover:bg-[var(--color-surface)] hover:text-[var(--color-overdue)] disabled:opacity-50"
+          className="absolute right-1 top-1 inline-flex h-5 w-5 items-center justify-center rounded-[2px] bg-[var(--color-surface)]/90 text-[var(--color-ink-2)] hover:bg-[var(--color-surface)] hover:text-[var(--color-overdue)] disabled:opacity-50"
         >
           ×
         </button>
@@ -469,7 +469,7 @@ function StagedCard({
             disabled={disabled}
             value=""
             onChange={(e) => onPick(e.target.value)}
-            className="w-full rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] px-1 py-1 text-[12px] text-[var(--color-ink)] disabled:opacity-50"
+            className="w-full rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-1 py-1 text-[12px] text-[var(--color-ink)] disabled:opacity-50"
           >
             <option value="">未匹配 · 选择零件</option>
             {components.map((c) => (

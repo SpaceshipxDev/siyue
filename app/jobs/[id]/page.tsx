@@ -431,7 +431,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
 
         <ComponentsScrollArea
           myStage={myStage}
-          className="overflow-x-auto rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]"
+          className="overflow-x-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]"
         >
           <table className="sheet w-full text-left text-[13px]">
             <colgroup>
@@ -740,7 +740,7 @@ async function AsyncProcessCardButton({
 
 function ProcessCardButtonFallback() {
   return (
-    <span className="px-3 py-1.5 text-[12px] tracking-wider rounded-sm border border-[var(--color-border)] text-[var(--color-ink-3)]">
+    <span className="px-3 py-1.5 text-[12px] tracking-wider rounded-[2px] border border-[var(--color-border)] text-[var(--color-ink-3)]">
       工艺卡 …
     </span>
   )

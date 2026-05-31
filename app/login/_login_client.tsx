@@ -131,7 +131,7 @@ function UserGrid({
           <button
             type="button"
             onClick={onManage}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-sm border border-[var(--color-border-strong)] bg-transparent text-[13px] tracking-wider text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] hover:bg-[var(--color-surface)] transition-colors"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-[2px] border border-[var(--color-border-strong)] bg-transparent text-[13px] tracking-wider text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] hover:bg-[var(--color-surface)] transition-colors"
             aria-label="管理员工"
           >
             <KeyIcon />
@@ -179,7 +179,7 @@ function UserTile({
     <button
       type="button"
       onClick={() => onPick(user)}
-      className={`w-full flex flex-col items-start gap-1 rounded-sm border bg-[var(--color-surface)] px-5 py-5 text-left transition-colors ${
+      className={`w-full flex flex-col items-start gap-1 rounded-[2px] border bg-[var(--color-surface)] px-5 py-5 text-left transition-colors ${
         isBoss
           ? 'border-[var(--color-ink)] hover:opacity-80'
           : 'border-[var(--color-border)] hover:border-[var(--color-ink)]'
@@ -258,7 +258,7 @@ function Keypad({
             return (
               <span
                 key={i}
-                className={`block h-4 w-4 rounded-full border-2 ${
+                className={`block h-4 w-4 rounded-[2px] border-2 ${
                   filled
                     ? 'border-[var(--color-ink)] bg-[var(--color-ink)]'
                     : 'border-[var(--color-border-strong)] bg-transparent'
@@ -323,7 +323,7 @@ function KeyButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`h-16 rounded-sm text-[24px] mono font-medium transition-colors disabled:opacity-50 ${
+      className={`h-16 rounded-[2px] text-[24px] mono font-medium transition-colors disabled:opacity-50 ${
         ghost
           ? 'text-[var(--color-ink-2)] hover:bg-[var(--color-bg)]'
           : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-ink)] hover:border-[var(--color-ink)]'

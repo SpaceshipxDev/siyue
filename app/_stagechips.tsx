@@ -147,11 +147,11 @@ export function StageChips({
               key={stage}
               title={title}
               aria-pressed={handledInHouse}
-              className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5"
+              className="inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5"
             >
               <span
                 aria-hidden="true"
-                className={`block h-[7px] w-[7px] rounded-[1px] border ${boxCls}`}
+                className={`block h-[7px] w-[7px] rounded-[2px] border ${boxCls}`}
               />
               <span className={`text-[11px] tracking-wider ${textCls}`}>
                 {stage}
@@ -168,11 +168,11 @@ export function StageChips({
             onClick={() => onToggle(stage)}
             title={title}
             aria-pressed={handledInHouse}
-            className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] ${hoverCls}`}
+            className={`inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] ${hoverCls}`}
           >
             <span
               aria-hidden="true"
-              className={`block h-[7px] w-[7px] rounded-[1px] border transition-colors ${boxCls}`}
+              className={`block h-[7px] w-[7px] rounded-[2px] border transition-colors ${boxCls}`}
             />
             <span className={`text-[11px] tracking-wider transition-colors ${textCls}`}>
               {stage}
@@ -183,7 +183,7 @@ export function StageChips({
       {error ? (
         <span
           role="alert"
-          className="ml-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm bg-[var(--color-overdue-soft)] text-[12px] font-medium text-[var(--color-overdue)] tracking-wide"
+          className="ml-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[2px] bg-[var(--color-overdue-soft)] text-[12px] font-medium text-[var(--color-overdue)] tracking-wide"
         >
           <span aria-hidden="true">!</span>
           {error}
@@ -224,7 +224,7 @@ function ConfirmDialog({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-[400px] max-w-[92vw] bg-[var(--color-surface)] border border-[var(--color-ink)] rounded-sm p-6 shadow-xl"
+        className="w-[400px] max-w-[92vw] bg-[var(--color-surface)] border border-[var(--color-ink)] rounded-[2px] p-6 shadow-xl"
       >
         <p className="label text-[var(--color-warning)] mb-2">确认关闭工段</p>
         <h3 className="text-[16px] font-semibold tracking-tight text-[var(--color-ink)] mb-3">
@@ -247,7 +247,7 @@ function ConfirmDialog({
             type="button"
             onClick={onCancel}
             disabled={pending}
-            className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border)] text-[var(--color-ink-2)] hover:bg-[#f1eee4] rounded-sm disabled:opacity-60"
+            className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border)] text-[var(--color-ink-2)] hover:bg-[#f1eee4] rounded-[2px] disabled:opacity-60"
           >
             取消
           </button>
@@ -255,7 +255,7 @@ function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={pending}
-            className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-overdue)] text-[var(--color-surface)] rounded-sm hover:opacity-80 disabled:opacity-60"
+            className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-overdue)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80 disabled:opacity-60"
           >
             确认关闭
           </button>

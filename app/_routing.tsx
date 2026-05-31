@@ -32,7 +32,7 @@ import {
 } from './_editable'
 
 function fieldStyles(): string {
-  return 'bg-transparent border border-[var(--color-border)] rounded-sm px-2 py-1 text-[13px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50'
+  return 'bg-transparent border border-[var(--color-border)] rounded-[2px] px-2 py-1 text-[13px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50'
 }
 
 export type ComponentOption = {
@@ -75,7 +75,7 @@ function StageRange({
     else onChange(from, next)
   }
   const baseSelectCls =
-    'bg-transparent border border-[var(--color-border)] rounded-sm px-2 py-1 text-[13px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50 mono'
+    'bg-transparent border border-[var(--color-border)] rounded-[2px] px-2 py-1 text-[13px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50 mono'
   return (
     <span className="inline-flex items-center gap-2">
       <span className="label text-[var(--color-ink-3)]">从</span>
@@ -140,7 +140,7 @@ function ActivityPicker({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
-      className="bg-transparent border border-[var(--color-border)] rounded-sm px-3 py-2 text-[15px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50 w-full"
+      className="bg-transparent border border-[var(--color-border)] rounded-[2px] px-3 py-2 text-[15px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50 w-full"
     >
       <option value="" disabled>
         选择工序…
@@ -298,7 +298,7 @@ function VendorPicker({
       </button>
 
       {open ? (
-        <div className="absolute left-0 right-0 z-20 mt-1 rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg overflow-hidden">
+        <div className="absolute left-0 right-0 z-20 mt-1 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg overflow-hidden">
           <div className="flex items-center gap-2 px-2.5 py-2 border-b border-[var(--color-border)] text-[var(--color-ink-3)]">
             <SearchGlyph />
             <input
@@ -521,7 +521,7 @@ export function NewBlockForm({
   }
 
   return (
-    <div className="rounded-sm border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)] p-4">
+    <div className="rounded-[2px] border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)] p-4">
       <div className="flex items-baseline justify-between mb-4">
         <p className="label">新增外协 · 送出</p>
       </div>
@@ -542,7 +542,7 @@ export function NewBlockForm({
       <div className="grid grid-cols-2 md:grid-cols-12 gap-3">
         <div className="col-span-2 md:col-span-3 flex flex-col gap-1">
           <span className="label">零件 · 多选 + 单价</span>
-          <div className="flex flex-col gap-1 max-h-[180px] overflow-auto border border-[var(--color-border)] rounded-sm bg-[var(--color-surface)] px-2 py-1.5">
+          <div className="flex flex-col gap-1 max-h-[180px] overflow-auto border border-[var(--color-border)] rounded-[2px] bg-[var(--color-surface)] px-2 py-1.5">
             {available.map((c) => {
               const isSelected = selected.has(c.id)
               return (
@@ -578,7 +578,7 @@ export function NewBlockForm({
                     disabled={pending || !isSelected}
                     placeholder="单价"
                     title="每件单价 · 可留空"
-                    className="mono text-[12px] w-[68px] text-right px-1 py-0.5 rounded-sm bg-transparent border border-[var(--color-border)] focus:border-[var(--color-ink)] focus:outline-none disabled:opacity-40"
+                    className="mono text-[12px] w-[68px] text-right px-1 py-0.5 rounded-[2px] bg-transparent border border-[var(--color-border)] focus:border-[var(--color-ink)] focus:outline-none disabled:opacity-40"
                   />
                 </div>
               )
@@ -689,7 +689,7 @@ export function NewBlockForm({
             type="button"
             disabled={!valid || pending}
             onClick={submit}
-            className="px-4 py-1.5 text-[13px] tracking-wider rounded-sm bg-[var(--color-ink)] text-[var(--color-surface)] hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-4 py-1.5 text-[13px] tracking-wider rounded-[2px] bg-[var(--color-ink)] text-[var(--color-surface)] hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             送出 · 生成外协单
           </button>
@@ -966,7 +966,7 @@ export function BlockRow({
       {/* Status dot — colored bullet hung in the gutter. */}
       <span
         aria-hidden
-        className="absolute left-1 top-[19px] inline-block h-[7px] w-[7px] rounded-full"
+        className="absolute left-1 top-[19px] inline-block h-[7px] w-[7px] rounded-[2px]"
         style={{ backgroundColor: dotColor }}
       />
 
@@ -1024,7 +1024,7 @@ export function BlockRow({
               onClick={() => setTrayOpen((v) => !v)}
               aria-expanded={trayOpen}
               title="展开收件明细 · 可调整数量与日期"
-              className={`px-3 py-1 text-[12px] tracking-wider rounded-sm hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed ${
+              className={`px-3 py-1 text-[12px] tracking-wider rounded-[2px] hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed ${
                 trayOpen
                   ? 'bg-[var(--color-ink)] text-[var(--color-surface)]'
                   : 'bg-[var(--color-success)] text-[var(--color-surface)]'
@@ -1129,7 +1129,7 @@ export function BlockRow({
               return (
                 <li
                   key={m.componentId}
-                  className={`flex items-baseline gap-2 text-[12px] group ${armed ? 'bg-[color-mix(in_srgb,var(--color-overdue)_8%,transparent)] rounded-sm -mx-1 px-1' : ''}`}
+                  className={`flex items-baseline gap-2 text-[12px] group ${armed ? 'bg-[color-mix(in_srgb,var(--color-overdue)_8%,transparent)] rounded-[2px] -mx-1 px-1' : ''}`}
                 >
                   <span className="text-[var(--color-ink)] truncate basis-[140px] grow">{m.name}</span>
                   <span className="mono text-[11px] text-[var(--color-ink-3)] shrink-0">
@@ -1165,7 +1165,7 @@ export function BlockRow({
                       onClick={() => unreturn(m.componentId)}
                       disabled={pending}
                       title="撤销回厂"
-                      className="text-[12px] leading-none text-[var(--color-success)] hover:text-[var(--color-overdue)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-sm px-0.5"
+                      className="text-[12px] leading-none text-[var(--color-success)] hover:text-[var(--color-overdue)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-[2px] px-0.5"
                     >
                       ↺
                     </button>
@@ -1178,7 +1178,7 @@ export function BlockRow({
             return (
               <li
                 key={m.componentId}
-                className={`flex items-baseline gap-2 text-[12px] group ${armed ? 'bg-[color-mix(in_srgb,var(--color-overdue)_8%,transparent)] rounded-sm -mx-1 px-1' : ''}`}
+                className={`flex items-baseline gap-2 text-[12px] group ${armed ? 'bg-[color-mix(in_srgb,var(--color-overdue)_8%,transparent)] rounded-[2px] -mx-1 px-1' : ''}`}
               >
                 <span className="text-[var(--color-ink-2)] truncate basis-[140px] grow">{m.name}</span>
                 <span className="mono text-[11px] text-[var(--color-ink-3)] shrink-0">
@@ -1217,7 +1217,7 @@ export function BlockRow({
               <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
-                className="label text-[var(--color-ink-3)] hover:text-[var(--color-ink)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-sm px-0.5"
+                className="label text-[var(--color-ink-3)] hover:text-[var(--color-ink)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-[2px] px-0.5"
                 aria-expanded={expanded}
               >
                 {expanded
@@ -1232,7 +1232,7 @@ export function BlockRow({
 
       {/* Receive tray — only renders when 收件 is in dropdown mode AND open. */}
       {!closed && trayOpen && pendingMembers.length > 0 ? (
-        <div className="mt-3 rounded-sm border border-[var(--color-border)] bg-[var(--color-active-bg)] p-3">
+        <div className="mt-3 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-active-bg)] p-3">
           <p className="label mb-2 text-[var(--color-ink-3)]">
             本批次收件 · 修改数量则记录部分回厂
           </p>
@@ -1260,7 +1260,7 @@ export function BlockRow({
                     disabled={pending}
                     aria-label={`${m.name} 本次回件数`}
                     title={`本次回件数 (剩 ${remaining})`}
-                    className={`mono text-[12px] w-[44px] text-right px-1 py-0.5 rounded-sm bg-transparent border ${
+                    className={`mono text-[12px] w-[44px] text-right px-1 py-0.5 rounded-[2px] bg-transparent border ${
                       draftValid
                         ? 'border-[var(--color-border)] focus:border-[var(--color-ink)]'
                         : 'border-[var(--color-overdue)]'
@@ -1292,7 +1292,7 @@ export function BlockRow({
               type="button"
               disabled={pending || batchTotal <= 0}
               onClick={submitReceive}
-              className="px-3 py-1 text-[12px] tracking-wider bg-[var(--color-success)] text-[var(--color-surface)] rounded-sm hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-3 py-1 text-[12px] tracking-wider bg-[var(--color-success)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               确认 <span className="ml-1 mono">{batchTotal} 件</span>
             </button>
@@ -1337,7 +1337,7 @@ export function BlockRow({
             onClick={() => unreturn(fullyReturnedMembers[0].componentId)}
             disabled={pending}
             title="撤销回厂"
-            className="text-[12px] leading-none hover:text-[var(--color-overdue)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-sm px-0.5"
+            className="text-[12px] leading-none hover:text-[var(--color-overdue)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-[2px] px-0.5"
           >
             ↺
           </button>
@@ -1378,7 +1378,7 @@ function MemberRemoveButton({
         disabled={pending}
         title="从此外协单移除该零件"
         aria-label="移除零件"
-        className="ml-1 text-[12px] leading-none text-[var(--color-ink-4)] opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-[var(--color-overdue)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-sm px-0.5 transition-opacity disabled:opacity-30"
+        className="ml-1 text-[12px] leading-none text-[var(--color-ink-4)] opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-[var(--color-overdue)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-[2px] px-0.5 transition-opacity disabled:opacity-30"
       >
         ✕
       </button>
@@ -1393,7 +1393,7 @@ function MemberRemoveButton({
         type="button"
         onClick={onConfirm}
         disabled={pending}
-        className="text-[var(--color-overdue)] hover:opacity-70 focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-sm px-0.5 disabled:opacity-40"
+        className="text-[var(--color-overdue)] hover:opacity-70 focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-[2px] px-0.5 disabled:opacity-40"
       >
         撤销
       </button>
@@ -1401,7 +1401,7 @@ function MemberRemoveButton({
         type="button"
         onClick={onCancel}
         disabled={pending}
-        className="text-[var(--color-ink-3)] hover:text-[var(--color-ink)] focus:outline-none rounded-sm px-0.5"
+        className="text-[var(--color-ink-3)] hover:text-[var(--color-ink)] focus:outline-none rounded-[2px] px-0.5"
       >
         取消
       </button>
@@ -1446,14 +1446,14 @@ function BlockKebab({
         aria-haspopup="menu"
         aria-expanded={open}
         title="更多"
-        className="px-1.5 py-0.5 text-[16px] leading-none text-[var(--color-ink-3)] hover:text-[var(--color-ink)] rounded-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:opacity-40"
+        className="px-1.5 py-0.5 text-[16px] leading-none text-[var(--color-ink-3)] hover:text-[var(--color-ink)] rounded-[2px] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:opacity-40"
       >
         ⋯
       </button>
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 z-10 mt-1 min-w-[160px] rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg py-1 text-[12px]"
+          className="absolute right-0 z-10 mt-1 min-w-[160px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg py-1 text-[12px]"
         >
           <a
             href={`/print/outsource/${blockId}`}

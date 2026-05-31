@@ -204,7 +204,7 @@ function TypePopover({
   return (
     <div
       role="menu"
-      className="absolute top-full left-0 z-30 mt-1.5 min-w-[120px] rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-[0_8px_28px_rgba(20,19,15,0.12)]"
+      className="absolute top-full left-0 z-30 mt-1.5 min-w-[120px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-[0_8px_28px_rgba(20,19,15,0.12)]"
       onMouseDown={(e) => e.stopPropagation()}
     >
       {JOB_TYPES.map((t) => (
@@ -225,7 +225,7 @@ function TypePopover({
           }`}
         >
           <span
-            className="inline-block h-2 w-2 rounded-full"
+            className="inline-block h-2 w-2 rounded-[2px]"
             style={{ background: `var(--color-type-${t})` }}
             aria-hidden="true"
           />
@@ -252,7 +252,7 @@ function TypePopover({
         }`}
       >
         <span
-          className="inline-block h-2 w-2 rounded-full"
+          className="inline-block h-2 w-2 rounded-[2px]"
           style={{ background: 'var(--color-type-product)' }}
           aria-hidden="true"
         />

@@ -28,7 +28,7 @@ export function DeleteJobButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] tracking-wider text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] rounded-sm transition-colors"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] tracking-wider text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] rounded-[2px] transition-colors"
         title={`删除工单 ${jobNo}`}
       >
         <svg
@@ -107,7 +107,7 @@ function DeleteConfirmDialog({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-[460px] bg-[var(--color-surface)] border border-[var(--color-ink)] rounded-sm shadow-xl"
+        className="w-full max-w-[460px] bg-[var(--color-surface)] border border-[var(--color-ink)] rounded-[2px] shadow-xl"
       >
         <header className="px-7 pt-7 pb-5">
           <p className="label text-[var(--color-overdue)] mb-2">永久删除</p>
@@ -155,7 +155,7 @@ function DeleteConfirmDialog({
             type="button"
             onClick={onCancel}
             disabled={pending}
-            className="px-4 py-1.5 text-[12px] tracking-wider border border-[var(--color-border)] text-[var(--color-ink-2)] hover:bg-[#f1eee4] rounded-sm disabled:opacity-60"
+            className="px-4 py-1.5 text-[12px] tracking-wider border border-[var(--color-border)] text-[var(--color-ink-2)] hover:bg-[#f1eee4] rounded-[2px] disabled:opacity-60"
           >
             取消
           </button>
@@ -164,7 +164,7 @@ function DeleteConfirmDialog({
             onClick={onConfirm}
             disabled={pending}
             autoFocus
-            className="px-4 py-1.5 text-[12px] tracking-wider bg-[var(--color-overdue)] text-[var(--color-surface)] rounded-sm hover:opacity-85 disabled:opacity-60"
+            className="px-4 py-1.5 text-[12px] tracking-wider bg-[var(--color-overdue)] text-[var(--color-surface)] rounded-[2px] hover:opacity-85 disabled:opacity-60"
           >
             {pending ? '删除中…' : '删除工单'}
           </button>

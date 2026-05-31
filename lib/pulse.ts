@@ -2,6 +2,7 @@ import 'server-only'
 import type { Stage } from './data'
 import { STAGES } from './data'
 import { supabase } from './supabase'
+import { today, shanghaiWindow } from './today'
 
 // Read shapes for the /pulse (现场) surface. Hits the views from
 // migration 0019_pulse_views.sql — nothing here computes; the SQL does.
@@ -195,13 +196,20 @@ export type WorkerStageEvent = {
 // Daily/weekly/monthly scoreboard: one row per worker, sorted by output.
 // Aggregation runs in Postgres (worker_output RPC), so a month-wide window
 // returns a handful of worker rows, not every finish event.
-export async function getWorkerOutput(window: {
-  from: string
-  to: string
-}): Promise<WorkerOutputRow[]> {
+export async function getWorkerOutput(
+  window: {
+    from: string
+    to: string
+  },
+  // Optional station filter. Undefined = the global, all-stages scoreboard
+  // (报功's original behaviour); a stage re-scopes counts + value to that one
+  // station. Resolves to the worker_output() p_stage param (migration 0039).
+  stage?: Stage,
+): Promise<WorkerOutputRow[]> {
   const r = await supabase.rpc('worker_output', {
     p_from: window.from,
     p_to: window.to,
+    p_stage: stage ?? null,
   })
   if (r.error) {
     if (isSchemaLagError(r.error)) return []
@@ -231,6 +239,9 @@ export async function getWorkerTimeline(opts: {
   /** Restrict to one event kind — the 报功 "completed components" view passes
    *  'finished' so the Excel rows are exactly the parts they finished. */
   kind?: WorkerEventKind
+  /** Restrict to one station — the per-station 报功 cut filters the drill-down
+   *  to the parts this worker finished *at that stage*. */
+  stage?: Stage
   limit?: number
 }): Promise<WorkerStageEvent[]> {
   const limit = Math.max(1, Math.min(500, opts.limit ?? 200))
@@ -247,6 +258,7 @@ export async function getWorkerTimeline(opts: {
     .order('ts', { ascending: false })
     .limit(limit)
   if (opts.kind) q = q.eq('kind', opts.kind)
+  if (opts.stage) q = q.eq('stage', opts.stage)
   const r = await q
   if (r.error) {
     if (isSchemaLagError(r.error)) return []
@@ -272,6 +284,54 @@ export async function getWorkerTimeline(opts: {
     })
   }
   return out
+}
+
+// Today's 报功 scoreboard for one station — the station-axis cut of
+// worker_output(): one row per worker, ranked by finishes, counting only their
+// work *at this stage*, over the factory-local current day. Powers the
+// per-station 报功 block embedded on the dashboard station tab; the full ranged
+// view (any date range, drill-downs) lives at /report?stage=<stage>.
+export async function getStationOutput(stage: Stage): Promise<WorkerOutputRow[]> {
+  const window = shanghaiWindow(today(), 'day')
+  return getWorkerOutput(window, stage)
+}
+
+// One worker's own numbers — today + this ISO week — for the personal "今日
+// 产出" headline a floor worker sees the moment they land on their home view.
+// Two worker_output() reads (factory-local day + week), each filtered down to
+// this actor's row. Deliberately ALL-stages (no p_stage): it's "everything you
+// pushed through today," not just your home station, so a worker who pitched in
+// elsewhere still sees their full contribution.
+export type WorkerSelfStats = {
+  /** 完成零件 today — count of part-stage completions. */
+  todayFinishes: number
+  /** Physical pieces across today's completions. */
+  todayPieces: number
+  /** ¥ 经手 today — value that flowed through their hands. */
+  todayValueCny: number
+  /** Today's completions whose part had no price set (the ¥0 contributors). */
+  todayUnpriced: number
+  /** 完成零件 this week (Mon–Sun). */
+  weekFinishes: number
+  weekPieces: number
+}
+
+export async function getWorkerSelfStats(actorName: string): Promise<WorkerSelfStats> {
+  const t = today()
+  const [dayRows, weekRows] = await Promise.all([
+    getWorkerOutput(shanghaiWindow(t, 'day')),
+    getWorkerOutput(shanghaiWindow(t, 'week')),
+  ])
+  const d = dayRows.find((r) => r.actorName === actorName)
+  const w = weekRows.find((r) => r.actorName === actorName)
+  return {
+    todayFinishes: d?.finishes ?? 0,
+    todayPieces: d?.pieces ?? 0,
+    todayValueCny: d?.valueCny ?? 0,
+    todayUnpriced: d?.unpriced ?? 0,
+    weekFinishes: w?.finishes ?? 0,
+    weekPieces: w?.pieces ?? 0,
+  }
 }
 
 // Formatter for event timestamps. Mirrors the floor-friendly compact form:

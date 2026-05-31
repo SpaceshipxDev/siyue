@@ -497,7 +497,7 @@ export function JobAssignSelect({
         })
         e.currentTarget.value = ''
       }}
-      className="text-[12px] tracking-wider text-[var(--color-ink-2)] bg-transparent border border-[var(--color-border)] rounded-sm px-2 py-1 hover:border-[var(--color-ink-3)] focus:outline-none focus:border-[var(--color-ink)] cursor-pointer disabled:opacity-40"
+      className="text-[12px] tracking-wider text-[var(--color-ink-2)] bg-transparent border border-[var(--color-border)] rounded-[2px] px-2 py-1 hover:border-[var(--color-ink-3)] focus:outline-none focus:border-[var(--color-ink)] cursor-pointer disabled:opacity-40"
       title="移交整单至其他工段"
     >
       <option value="">移交至 →</option>
@@ -539,7 +539,7 @@ export function AssignSelect({
         })
         e.currentTarget.value = ''
       }}
-      className="text-[12px] tracking-wider text-[var(--color-ink-2)] bg-transparent border border-[var(--color-border)] rounded-sm px-2 py-1 hover:border-[var(--color-ink-3)] focus:outline-none focus:border-[var(--color-ink)] cursor-pointer disabled:opacity-40"
+      className="text-[12px] tracking-wider text-[var(--color-ink-2)] bg-transparent border border-[var(--color-border)] rounded-[2px] px-2 py-1 hover:border-[var(--color-ink-3)] focus:outline-none focus:border-[var(--color-ink)] cursor-pointer disabled:opacity-40"
       title="移交至其他工段"
     >
       <option value="">移交至 →</option>

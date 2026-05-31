@@ -11,14 +11,14 @@ export function PrintToolbar({ pdfHref }: { pdfHref: string }) {
         href={pdfHref}
         target="_blank"
         rel="noopener"
-        className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-sm hover:opacity-80"
+        className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80"
       >
         打印 / 下载 PDF
       </a>
       <button
         type="button"
         onClick={() => window.close()}
-        className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border-strong)] text-[var(--color-ink-2)] rounded-sm hover:text-[var(--color-ink)]"
+        className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border-strong)] text-[var(--color-ink-2)] rounded-[2px] hover:text-[var(--color-ink)]"
       >
         关闭
       </button>

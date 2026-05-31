@@ -29,7 +29,7 @@ export function OpenReturnButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-ink)] text-[var(--color-ink)] rounded-sm hover:bg-[var(--color-ink)] hover:text-[var(--color-surface)] transition-colors"
+        className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-ink)] text-[var(--color-ink)] rounded-[2px] hover:bg-[var(--color-ink)] hover:text-[var(--color-surface)] transition-colors"
       >
         开退货
       </button>
@@ -154,7 +154,7 @@ export function ReturnComposer({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-[640px] max-h-[90vh] flex flex-col bg-[var(--color-surface)] border border-[var(--color-ink)] rounded-sm shadow-xl"
+        className="w-full max-w-[640px] max-h-[90vh] flex flex-col bg-[var(--color-surface)] border border-[var(--color-ink)] rounded-[2px] shadow-xl"
       >
         <header className="px-6 py-5 border-b border-[var(--color-border)]">
           <p className="label text-[var(--color-ink-3)] mb-1">退货 · {jobNo}</p>
@@ -265,7 +265,7 @@ export function ReturnComposer({
               type="button"
               onClick={onClose}
               disabled={pending}
-              className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border)] text-[var(--color-ink-2)] hover:bg-[#f1eee4] rounded-sm disabled:opacity-60"
+              className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border)] text-[var(--color-ink-2)] hover:bg-[#f1eee4] rounded-[2px] disabled:opacity-60"
             >
               取消
             </button>
@@ -273,7 +273,7 @@ export function ReturnComposer({
               type="button"
               onClick={submit}
               disabled={pending || selectedCount === 0}
-              className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-sm hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {pending ? '提交中…' : '开退货'}
             </button>
@@ -303,7 +303,7 @@ export function ActiveReturnBadge({
     })
   }
   return (
-    <div className="inline-flex items-center gap-3 px-3 py-1.5 border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] rounded-sm">
+    <div className="inline-flex items-center gap-3 px-3 py-1.5 border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] rounded-[2px]">
       <span className="label text-[var(--color-overdue)]">退货中</span>
       <span className="text-[12px] text-[var(--color-ink)]">{ret.reason}</span>
       {ret.reasonText && (
@@ -362,7 +362,7 @@ export function ReturnedComponentChip({
   const partial = qty < total
   return (
     <span
-      className="inline-flex items-baseline gap-1 px-1.5 py-px rounded-sm border border-[var(--color-overdue)] text-[var(--color-overdue)] mono text-[10px] tracking-wider leading-tight"
+      className="inline-flex items-baseline gap-1 px-1.5 py-px rounded-[2px] border border-[var(--color-overdue)] text-[var(--color-overdue)] mono text-[10px] tracking-wider leading-tight"
       title={`此零件退货 ${qty} / ${total} 件${partial ? ' · 部分退货' : ' · 全部退货'}`}
       aria-label={`此零件退货 ${qty} 件,共 ${total} 件`}
     >

@@ -27,7 +27,7 @@ import { showToast } from '@/app/_toast'
 // survivability profile of the existing /api/job-status poller.
 
 const baseInputClass =
-  'block w-full bg-transparent border-0 outline-none rounded-sm px-1 -mx-1 py-0.5 transition-[background-color,box-shadow] duration-150 hover:bg-[var(--color-active-bg)] hover:shadow-[inset_0_-1px_0_var(--color-border-strong)] focus:bg-[var(--color-active-bg)] focus:shadow-[inset_0_-1px_0_var(--color-ink)]'
+  'block w-full bg-transparent border-0 outline-none rounded-[2px] px-1 -mx-1 py-0.5 transition-[background-color,box-shadow] duration-150 hover:bg-[var(--color-active-bg)] hover:shadow-[inset_0_-1px_0_var(--color-border-strong)] focus:bg-[var(--color-active-bg)] focus:shadow-[inset_0_-1px_0_var(--color-ink)]'
 
 function useDraft<T>(value: T) {
   const [draft, setDraft] = useState<T>(value)

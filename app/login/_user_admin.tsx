@@ -54,7 +54,7 @@ function NewUserForm({ stages }: { stages: readonly string[] }) {
           })
         }
         id="new-user-form"
-        className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end border border-[var(--color-border)] bg-[var(--color-surface)] p-5 rounded-sm"
+        className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end border border-[var(--color-border)] bg-[var(--color-surface)] p-5 rounded-[2px]"
       >
         <Field label="姓名" className="md:col-span-3">
           <input
@@ -113,7 +113,7 @@ function NewUserForm({ stages }: { stages: readonly string[] }) {
           <button
             type="submit"
             disabled={pending}
-            className="w-full px-3 py-2 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-sm hover:opacity-80 disabled:opacity-60"
+            className="w-full px-3 py-2 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80 disabled:opacity-60"
           >
             {pending ? '创建中…' : '创建'}
           </button>
@@ -151,7 +151,7 @@ function UserList({ users, bossId }: { users: AppUser[]; bossId: string }) {
       <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)] mb-3">
         员工
       </h2>
-      <div className="border border-[var(--color-border)] bg-[var(--color-surface)] rounded-sm">
+      <div className="border border-[var(--color-border)] bg-[var(--color-surface)] rounded-[2px]">
         <table className="sheet w-full text-left text-[13px]">
           <colgroup>
             <col style={{ width: 220 }} />

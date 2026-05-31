@@ -10,7 +10,7 @@ import { proxiedStorageUrl } from '@/lib/storage-url'
 // place rather than nudging neighboring elements.
 
 const ICON_BTN =
-  'shrink-0 inline-flex items-center justify-center h-7 w-7 rounded-sm transition-colors'
+  'shrink-0 inline-flex items-center justify-center h-7 w-7 rounded-[2px] transition-colors'
 
 export function SourceFileRow({
   jobId,
@@ -73,7 +73,7 @@ export function SourceFileRow({
       }}
       onDragLeave={() => setDrag(false)}
       onDrop={onDrop}
-      className={`flex items-center gap-3 px-4 h-12 rounded-sm border transition-colors ${
+      className={`flex items-center gap-3 px-4 h-12 rounded-[2px] border transition-colors ${
         drag
           ? 'border-[var(--color-ink)] bg-[var(--color-active-bg)]'
           : 'border-[var(--color-border)] bg-[var(--color-surface)]'

@@ -22,7 +22,7 @@ import {
 
 // Reuses the app's inline-edit vocabulary: the shared baseInputClass (the same
 // transparent / underline-on-focus field used everywhere in _editable), the
-// bottom-border SearchInput, underline-active text toggles, and a rounded-sm
+// bottom-border SearchInput, underline-active text toggles, and a rounded-[2px]
 // bordered table surface — matching the master board exactly. Commits go
 // through /api/mutate (kind 'updateShipmentFinance').
 
@@ -31,7 +31,7 @@ const FILTERS: FinanceFilter[] = ['all', 'uninvoiced', 'unpaid', 'overdue']
 // Identical to _editable.tsx's baseInputClass so finance fields read the same
 // as every other editable cell in the product.
 const baseInputClass =
-  'block w-full bg-transparent border-0 outline-none rounded-sm px-1 -mx-1 py-0.5 transition-[background-color,box-shadow] duration-150 hover:bg-[var(--color-active-bg)] hover:shadow-[inset_0_-1px_0_var(--color-border-strong)] focus:bg-[var(--color-active-bg)] focus:shadow-[inset_0_-1px_0_var(--color-ink)]'
+  'block w-full bg-transparent border-0 outline-none rounded-[2px] px-1 -mx-1 py-0.5 transition-[background-color,box-shadow] duration-150 hover:bg-[var(--color-active-bg)] hover:shadow-[inset_0_-1px_0_var(--color-border-strong)] focus:bg-[var(--color-active-bg)] focus:shadow-[inset_0_-1px_0_var(--color-ink)]'
 
 // State as colored text (the app's idiom — see DueCell), not a pill or dot.
 const STATUS_TEXT: Record<FinanceStatus, string> = {
@@ -172,7 +172,7 @@ function InlineDate({
     <button
       type="button"
       onClick={() => setEditing(true)}
-      className={`block w-full text-left rounded-sm px-1 -mx-1 py-0.5 mono text-[13px] transition-colors hover:bg-[var(--color-active-bg)] ${
+      className={`block w-full text-left rounded-[2px] px-1 -mx-1 py-0.5 mono text-[13px] transition-colors hover:bg-[var(--color-active-bg)] ${
         pending ? 'opacity-60' : ''
       } ${value ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-4)]'}`}
     >
@@ -286,7 +286,7 @@ export function FinanceLedger({
       </div>
 
       {/* Ledger surface */}
-      <div className="overflow-x-auto rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="overflow-x-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-[var(--color-border)]">

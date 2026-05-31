@@ -9,16 +9,17 @@ import { today } from '@/lib/today'
 import { getMasterRows, getStageFlowMinutes } from '@/lib/db'
 import { requireUser, canSeeMoney } from '@/lib/auth'
 import { scrubMasterRow } from '@/lib/dto'
-import { getStationWip } from '@/lib/pulse'
+import { getStationWip, getWorkerSelfStats } from '@/lib/pulse'
 import { Pill, TopBar, type TabKey } from './_ui'
+import { MyToday } from './_my_today'
 import { MasterUploader } from './_uploader'
 import { InboxList } from './_inbox_list'
 import { MasterSheet } from './_master_filter'
 import { StationSummary } from './_station_summary'
 import {
-  StationActivityAsync,
-  StationActivityFallback,
-} from './_station_activity'
+  StationReportAsync,
+  StationReportFallback,
+} from './_station_report'
 import { StationWorkbench } from './_workbench'
 
 export const dynamic = 'force-dynamic'
@@ -31,6 +32,12 @@ export default async function MasterBoard(
   // 工程 head sees the holistic master view (same UI as commerce) minus
   // customer + money. They land at bare /, never auto-pinned to ?stage=工程.
   const isEngineering = isProduction && user.defaultStage === '工程'
+  // Every production user — anyone who ticks stages — gets the personal 今日
+  // 产出 headline on their home view; only 商务 don't. Note most of the floor
+  // carries defaultStage='工程' (broad-access workers, not just the planning
+  // head), so this deliberately includes them — gating on a single station
+  // would hide the headline from the bulk of the people it's for.
+  const showMyToday = isProduction
 
   // Workers land on `/?stage=<their-stage>` via the post-login proxy redirect
   // so the URL itself encodes the filter — refresh-stable and shareable.
@@ -53,9 +60,12 @@ export default async function MasterBoard(
   // job-detail page (/jobs/[id]) which still loads a single-job snapshot.
   const useMasterSheet = !stageFilter || stageFilter === '工程'
 
-  const [rawRows, stageFlowMinutes] = await Promise.all([
+  const [rawRows, stageFlowMinutes, selfStats] = await Promise.all([
     getMasterRows(),
     getStageFlowMinutes(),
+    // The worker's own today/this-week numbers — fetched alongside the board so
+    // the headline paints in the same shot. Only production users get a row.
+    showMyToday ? getWorkerSelfStats(user.name) : Promise.resolve(null),
   ])
 
   const rows = isProduction ? rawRows.map((r) => scrubMasterRow(r, user)) : rawRows
@@ -197,6 +207,10 @@ export default async function MasterBoard(
       />
 
       <main className="w-full px-4 md:px-10 py-6 md:py-10 flex-1">
+        {selfStats && (
+          <MyToday name={user.name} stats={selfStats} todayStr={today()} />
+        )}
+
         {showOverviewChrome && (
           <div className="mb-6 flex items-baseline justify-between">
             <div>
@@ -207,7 +221,7 @@ export default async function MasterBoard(
                 全部工单
               </h2>
               <p className="mt-1 text-[13px] text-[var(--color-ink-2)]">
-                点击任意单元格进入工单 · 点击工段表头进入工段台
+                点击任意单元格进入工单 · 点击工段表头漏斗按状态筛选
               </p>
             </div>
             <p className="label">{sorted.length} 个工单</p>
@@ -267,8 +281,11 @@ export default async function MasterBoard(
         )}
 
         {showBossStationExtras && summaryStage && (
-          <Suspense fallback={<StationActivityFallback stage={summaryStage} />}>
-            <StationActivityAsync stage={summaryStage} />
+          <Suspense fallback={<StationReportFallback stage={summaryStage} />}>
+            <StationReportAsync
+              stage={summaryStage}
+              showMoney={canSeeMoney(user)}
+            />
           </Suspense>
         )}
 

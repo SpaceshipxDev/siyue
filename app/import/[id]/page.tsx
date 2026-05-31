@@ -78,7 +78,7 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
           </span>
         </div>
 
-        <div className="mb-6 rounded-sm border border-[var(--color-warning)] bg-[var(--color-warning-soft)] px-4 py-3 text-[12px] text-[var(--color-ink)]">
+        <div className="mb-6 rounded-[2px] border border-[var(--color-warning)] bg-[var(--color-warning-soft)] px-4 py-3 text-[12px] text-[var(--color-ink)]">
           AI 已自动抽取以下内容 · 请逐项核对、补全图片，确认后才会进入看板。
         </div>
 
@@ -181,7 +181,7 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
           </div>
         ) : null}
 
-        <div className="overflow-x-auto rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <div className="overflow-x-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
           <table className="sheet w-full text-left text-[13px]">
             <colgroup>
               <col style={{ width: 56 }} />

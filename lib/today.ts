@@ -50,6 +50,47 @@ export function shanghaiWindow(
   }
 }
 
+// [from, to) UTC instants spanning a custom inclusive local-day range —
+// startDate..endDate, both 'YYYY-MM-DD' in Shanghai local time. `to` is the
+// exclusive midnight after endDate, so endDate's full day is covered. Powers
+// the 报功 page's "从 [date] → 到 [date]" custom range. Caller guarantees
+// start <= end (the picker swaps them otherwise).
+export function shanghaiRangeWindow(
+  startDate: string,
+  endDate: string,
+): { from: string; to: string } {
+  const [y1, m1, d1] = startDate.split('-').map(Number)
+  const [y2, m2, d2] = endDate.split('-').map(Number)
+  return { from: shInstant(y1, m1 - 1, d1), to: shInstant(y2, m2 - 1, d2 + 1) }
+}
+
+// Inclusive local-day [from, to] YMD bounds for the day/week/month window
+// containing `date` — the 'YYYY-MM-DD' mirror of shanghaiWindow (which returns
+// UTC instants). Lets the 报功 period nav show the exact span the granularity
+// toggle selects, so the readout stays in sync with 日/周/月.
+export function windowDateBounds(
+  date: string,
+  gran: Granularity,
+): { from: string; to: string } {
+  const [y, m, d] = date.split('-').map(Number)
+  const mz = m - 1
+  if (gran === 'day') return { from: date, to: date }
+  // day 0 of the next month normalizes to the last day of this month.
+  if (gran === 'month') return { from: utcYMD(y, mz, 1), to: utcYMD(y, mz + 1, 0) }
+  // week: Monday..Sunday. getUTCDay() is 0=Sun..6=Sat.
+  const wd = new Date(Date.UTC(y, mz, d)).getUTCDay()
+  const mondayOffset = (wd + 6) % 7
+  return {
+    from: utcYMD(y, mz, d - mondayOffset),
+    to: utcYMD(y, mz, d - mondayOffset + 6),
+  }
+}
+
+// 'YYYY-MM-DD' for the given Y/M/D, with Date.UTC over/underflow normalization.
+function utcYMD(y: number, monthZeroBased: number, d: number): string {
+  return new Date(Date.UTC(y, monthZeroBased, d)).toISOString().slice(0, 10)
+}
+
 // Step the anchor date forward/back by one unit of the granularity. Returns a
 // 'YYYY-MM-DD' string. Used by the 报功 page's ◂ ▸ period nav.
 export function shiftDate(date: string, gran: Granularity, delta: number): string {

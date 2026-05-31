@@ -49,7 +49,7 @@ export function ShippingComposerButton({
           }
           setOpen(true)
         }}
-        className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-sm hover:opacity-80"
+        className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80"
       >
         {reprintOnly ? '重新打印出货单' : '制作出货单'}
       </button>
@@ -234,7 +234,7 @@ export function ShippingComposer({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-[560px] max-h-[88vh] flex flex-col bg-[var(--color-surface)] border border-[var(--color-ink)] rounded-sm shadow-xl"
+        className="w-full max-w-[560px] max-h-[88vh] flex flex-col bg-[var(--color-surface)] border border-[var(--color-ink)] rounded-[2px] shadow-xl"
       >
         <header className="px-6 py-5 border-b border-[var(--color-border)] flex items-baseline justify-between gap-4">
           <div className="min-w-0">
@@ -360,7 +360,7 @@ export function ShippingComposer({
               type="button"
               onClick={onClose}
               disabled={pending}
-              className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border)] text-[var(--color-ink-2)] hover:bg-[#f1eee4] rounded-sm disabled:opacity-60"
+              className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border)] text-[var(--color-ink-2)] hover:bg-[#f1eee4] rounded-[2px] disabled:opacity-60"
             >
               取消
             </button>
@@ -368,7 +368,7 @@ export function ShippingComposer({
               type="button"
               onClick={submit}
               disabled={pending || batchQty === 0}
-              className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-sm hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {pending ? '生成中…' : '打印出货单'}
             </button>

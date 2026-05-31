@@ -183,7 +183,7 @@ function FeedFallback() {
         <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
           最新动态
         </h2>
-        <span className="siyue-shimmer h-3 w-6 rounded-sm inline-block" />
+        <span className="siyue-shimmer h-3 w-6 rounded-[2px] inline-block" />
       </div>
       <ul className="divide-y divide-[var(--color-border)]" aria-busy="true">
         {Array.from({ length: 8 }).map((_, i) => (
@@ -191,10 +191,10 @@ function FeedFallback() {
             key={i}
             className="grid grid-cols-[88px_64px_92px_1fr] items-center gap-x-4 py-3"
           >
-            <span className="siyue-shimmer h-3 w-14 rounded-sm" />
-            <span className="siyue-shimmer h-4 w-12 rounded-sm" />
-            <span className="siyue-shimmer h-3 w-16 rounded-sm" />
-            <span className="siyue-shimmer h-3 w-3/4 rounded-sm" />
+            <span className="siyue-shimmer h-3 w-14 rounded-[2px]" />
+            <span className="siyue-shimmer h-4 w-12 rounded-[2px]" />
+            <span className="siyue-shimmer h-3 w-16 rounded-[2px]" />
+            <span className="siyue-shimmer h-3 w-3/4 rounded-[2px]" />
           </li>
         ))}
       </ul>
@@ -208,12 +208,12 @@ function EventRow({ ev, now }: { ev: StationEvent; now: Date }) {
   // Each row stays a single height-line across the viewport so the eye can
   // scan the left edge for "what changed when" without scanning text.
   return (
-    <li className="grid grid-cols-[88px_64px_92px_1fr] items-center gap-x-4 py-3 hover:bg-[var(--color-surface)] -mx-3 px-3 rounded-sm">
+    <li className="grid grid-cols-[88px_64px_92px_1fr] items-center gap-x-4 py-3 hover:bg-[var(--color-surface)] -mx-3 px-3 rounded-[2px]">
       <span className="label tabular-nums text-[var(--color-ink-3)]">
         {formatEventTs(ev.ts, now)}
       </span>
       <span
-        className={`inline-flex justify-center text-[11px] tracking-wider px-2 py-0.5 rounded-sm ${
+        className={`inline-flex justify-center text-[11px] tracking-wider px-2 py-0.5 rounded-[2px] ${
           isFinish
             ? 'bg-[var(--color-success-soft)] text-[var(--color-success)]'
             : 'bg-[var(--color-info-soft)] text-[var(--color-info)]'

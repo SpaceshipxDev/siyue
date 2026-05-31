@@ -123,7 +123,7 @@ export function ComponentImageUploader({
     return (
       <div
         style={{ width: px, height: px }}
-        className="relative overflow-hidden rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]"
+        className="relative overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]"
       >
         {effectiveUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -159,7 +159,7 @@ export function ComponentImageUploader({
         onClick={() => inputRef.current?.click()}
         title={effectiveUrl ? '点击更换 / 拖拽图片' : '点击或拖拽图片上传'}
         style={{ width: px, height: px }}
-        className={`relative cursor-pointer overflow-hidden rounded-sm border transition-colors ${
+        className={`relative cursor-pointer overflow-hidden rounded-[2px] border transition-colors ${
           drag
             ? 'border-[var(--color-ink)] bg-[var(--color-active-bg)]'
             : effectiveUrl

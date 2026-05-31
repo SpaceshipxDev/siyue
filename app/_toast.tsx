@@ -65,7 +65,7 @@ export function ToastHost() {
     >
       <div
         key={toast.id}
-        className={`siyue-toast pointer-events-auto inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[13px] font-medium shadow-[0_10px_30px_-12px_rgba(0,0,0,0.25)] ring-1 backdrop-blur ${accent}`}
+        className={`siyue-toast pointer-events-auto inline-flex items-center gap-2 rounded-[2px] px-3.5 py-1.5 text-[13px] font-medium shadow-[0_10px_30px_-12px_rgba(0,0,0,0.25)] ring-1 backdrop-blur ${accent}`}
         role="status"
       >
         {toast.tone === 'success' && (

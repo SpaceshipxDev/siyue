@@ -299,7 +299,7 @@ export function StationWorkbench({
       {tabRows.length === 0 ? (
         <EmptyState tab={tab} stage={stage} isFiltered={isFiltered} q={q} />
       ) : (
-        <ul className="rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] divide-y divide-[var(--color-border)] overflow-hidden">
+        <ul className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] divide-y divide-[var(--color-border)] overflow-hidden">
           {tabRows.map((row, i) => (
             <WorkbenchRow
               key={row.id}
@@ -348,7 +348,7 @@ function TabBar({
     },
   ]
   return (
-    <div className="mb-5 grid grid-cols-3 border border-[var(--color-border)] bg-[var(--color-surface)] rounded-sm overflow-hidden">
+    <div className="mb-5 grid grid-cols-3 border border-[var(--color-border)] bg-[var(--color-surface)] rounded-[2px] overflow-hidden">
       {tabs.map((t) => {
         const isActive = t.key === active
         return (
@@ -636,7 +636,7 @@ function EmptyState({
   }
   const { title, sub } = lines[tab]
   return (
-    <div className="rounded-sm border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)] px-6 py-16 text-center">
+    <div className="rounded-[2px] border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)] px-6 py-16 text-center">
       <p className="text-[14px] text-[var(--color-ink-2)]">
         {isFiltered && q ? `未找到 “${q}”` : title}
       </p>
@@ -801,7 +801,7 @@ function SortBar({
             type="button"
             onClick={onCollapse}
             aria-label="清除并收起日期筛选"
-            className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
+            className="inline-flex h-4 w-4 items-center justify-center rounded-[2px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
           >
             <ClearIcon />
           </button>

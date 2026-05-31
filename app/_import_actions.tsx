@@ -49,7 +49,7 @@ export function ConfirmImportButton({ jobId }: { jobId: string }) {
   return (
     <div className="inline-flex flex-col items-end gap-2"><div className="inline-flex items-center gap-2 flex-wrap justify-end">
       {open && (
-        <div className="inline-flex items-center gap-1.5 rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5">
+        <div className="inline-flex items-center gap-1.5 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5">
           <span className="label text-[var(--color-ink-3)] mr-1">发往</span>
           {STAGES.map((s) => {
             const isSelected = selected === s
@@ -59,7 +59,7 @@ export function ConfirmImportButton({ jobId }: { jobId: string }) {
                 type="button"
                 disabled={pending}
                 onClick={() => setSelected(isSelected ? undefined : s)}
-                className={`px-2 py-1 text-[12px] tracking-wider rounded-sm transition-colors disabled:opacity-50 ${
+                className={`px-2 py-1 text-[12px] tracking-wider rounded-[2px] transition-colors disabled:opacity-50 ${
                   isSelected
                     ? 'bg-[var(--color-ink)] text-[var(--color-surface)]'
                     : 'text-[var(--color-ink-2)] hover:bg-[var(--color-muted-bg)] hover:text-[var(--color-ink)]'
@@ -87,7 +87,7 @@ export function ConfirmImportButton({ jobId }: { jobId: string }) {
           type="button"
           disabled={pending}
           onClick={() => setOpen(true)}
-          className="px-3 py-2 text-[12px] tracking-wider border border-[var(--color-border-strong)] text-[var(--color-ink-2)] rounded-sm hover:text-[var(--color-ink)] hover:border-[var(--color-ink)] disabled:opacity-50"
+          className="px-3 py-2 text-[12px] tracking-wider border border-[var(--color-border-strong)] text-[var(--color-ink-2)] rounded-[2px] hover:text-[var(--color-ink)] hover:border-[var(--color-ink)] disabled:opacity-50"
         >
           → 发往工段
         </button>
@@ -96,7 +96,7 @@ export function ConfirmImportButton({ jobId }: { jobId: string }) {
         type="button"
         disabled={pending}
         onClick={submit}
-        className="px-4 py-2 text-[13px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-sm hover:opacity-80 disabled:opacity-50"
+        className="px-4 py-2 text-[13px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80 disabled:opacity-50"
       >
         {pending
           ? '导入中…'
@@ -106,7 +106,7 @@ export function ConfirmImportButton({ jobId }: { jobId: string }) {
       </button>
       </div>
       {conflict ? (
-        <div className="inline-flex items-center gap-2 rounded-sm border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] px-3 py-2 text-[12px] text-[var(--color-ink)]">
+        <div className="inline-flex items-center gap-2 rounded-[2px] border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] px-3 py-2 text-[12px] text-[var(--color-ink)]">
           <span>
             工号 <span className="mono text-[var(--color-ink)]">{conflict.jobNo}</span>{' '}
             已存在
@@ -144,7 +144,7 @@ export function AddComponentButton({ jobId }: { jobId: string }) {
           router.refresh()
         })
       }
-      className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border-strong)] text-[var(--color-ink-2)] rounded-sm hover:text-[var(--color-ink)] hover:border-[var(--color-ink)] disabled:opacity-50"
+      className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border-strong)] text-[var(--color-ink-2)] rounded-[2px] hover:text-[var(--color-ink)] hover:border-[var(--color-ink)] disabled:opacity-50"
     >
       + 添加零件
     </button>

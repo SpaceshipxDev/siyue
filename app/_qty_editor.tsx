@@ -58,7 +58,7 @@ export function QtyEditor({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-[320px] max-w-[92vw] bg-[var(--color-surface)] border border-[var(--color-ink)] rounded-sm p-6 shadow-xl"
+        className="w-[320px] max-w-[92vw] bg-[var(--color-surface)] border border-[var(--color-ink)] rounded-[2px] p-6 shadow-xl"
       >
         <p className="label text-[var(--color-ink-3)] mb-1">{stage} · 完成数量</p>
         <h3 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)] mb-6 truncate">
@@ -71,7 +71,7 @@ export function QtyEditor({
             onClick={dec}
             disabled={pending || value <= 0}
             aria-label="减一"
-            className="h-9 w-9 flex items-center justify-center rounded-sm border border-[var(--color-border-strong)] text-[18px] text-[var(--color-ink-2)] hover:bg-[#f1eee4] disabled:opacity-30 disabled:cursor-not-allowed"
+            className="h-9 w-9 flex items-center justify-center rounded-[2px] border border-[var(--color-border-strong)] text-[18px] text-[var(--color-ink-2)] hover:bg-[#f1eee4] disabled:opacity-30 disabled:cursor-not-allowed"
           >
             −
           </button>
@@ -99,7 +99,7 @@ export function QtyEditor({
             onClick={inc}
             disabled={pending || value >= totalQty}
             aria-label="加一"
-            className="h-9 w-9 flex items-center justify-center rounded-sm border border-[var(--color-border-strong)] text-[18px] text-[var(--color-ink-2)] hover:bg-[#f1eee4] disabled:opacity-30 disabled:cursor-not-allowed"
+            className="h-9 w-9 flex items-center justify-center rounded-[2px] border border-[var(--color-border-strong)] text-[18px] text-[var(--color-ink-2)] hover:bg-[#f1eee4] disabled:opacity-30 disabled:cursor-not-allowed"
           >
             +
           </button>
@@ -113,7 +113,7 @@ export function QtyEditor({
             type="button"
             onClick={onCancel}
             disabled={pending}
-            className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border)] text-[var(--color-ink-2)] hover:bg-[#f1eee4] rounded-sm disabled:opacity-60"
+            className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border)] text-[var(--color-ink-2)] hover:bg-[#f1eee4] rounded-[2px] disabled:opacity-60"
           >
             取消
           </button>
@@ -121,7 +121,7 @@ export function QtyEditor({
             type="button"
             onClick={save}
             disabled={pending || unchanged}
-            className={`px-3 py-1.5 text-[12px] tracking-wider rounded-sm disabled:opacity-40 disabled:cursor-not-allowed ${
+            className={`px-3 py-1.5 text-[12px] tracking-wider rounded-[2px] disabled:opacity-40 disabled:cursor-not-allowed ${
               willFinish
                 ? 'bg-[var(--color-ink)] text-[var(--color-surface)] hover:opacity-80'
                 : 'bg-[var(--color-warning-soft)] text-[var(--color-warning)] hover:brightness-95'

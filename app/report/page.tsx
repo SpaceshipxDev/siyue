@@ -1,12 +1,15 @@
 import Link from 'next/link'
-import { formatCny } from '@/lib/data'
-import { canSeeMoney, requirePulseViewer } from '@/lib/auth'
+import { formatCny, STAGES, type Stage } from '@/lib/data'
+import { canSeeMoney, requireReportViewer } from '@/lib/auth'
 import {
   today,
   shanghaiWindow,
-  shiftDate,
+  shanghaiRangeWindow,
+  windowDateBounds,
   type Granularity,
 } from '@/lib/today'
+import { PeriodNav } from './_period_nav'
+import { StationFilter } from './_station_filter'
 import {
   formatEventTs,
   getWorkerOutput,
@@ -31,38 +34,71 @@ export const dynamic = 'force-dynamic'
 // 0025) — no new instrumentation, no extra clicks. The numbers come from the
 // ✓ the floor has been clicking since day one.
 //
-// State is all in the URL — refresh-stable, shareable, no client JS:
+// State is all in the URL — refresh-stable, shareable:
 //   ?g=day|week|month   reporting granularity (default day)
 //   ?d=YYYY-MM-DD        anchor date in factory-local time (default today)
+//   ?from / ?to         custom inclusive day range; when both present they
+//                       override g/d (the picker's custom-range mode)
 //   ?w=<name>            drill into one worker's timeline
-
-const GRANS: { key: Granularity; label: string }[] = [
-  { key: 'day', label: '日' },
-  { key: 'week', label: '周' },
-  { key: 'month', label: '月' },
-]
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 export default async function ReportPage({
   searchParams,
 }: {
-  searchParams: Promise<{ g?: string; d?: string; w?: string }>
+  searchParams: Promise<{
+    g?: string
+    d?: string
+    from?: string
+    to?: string
+    w?: string
+    stage?: string
+  }>
 }) {
-  const user = await requirePulseViewer()
+  const user = await requireReportViewer()
   // ¥经手 follows the same money split as everywhere else: 商务 see it, the
   // 工程 head (production) sees the same scoreboard with the count headline
   // standing in. One boolean drives both the column and the totals.
   const showMoney = canSeeMoney(user)
 
+  const todayStr = today()
   const sp = await searchParams
   const gran: Granularity =
     sp?.g === 'week' || sp?.g === 'month' ? sp.g : 'day'
-  const date = typeof sp?.d === 'string' && ISO_DATE.test(sp.d) ? sp.d : today()
+  const date = typeof sp?.d === 'string' && ISO_DATE.test(sp.d) ? sp.d : todayStr
   const worker = typeof sp?.w === 'string' && sp.w.length > 0 ? sp.w : undefined
 
-  const window = shanghaiWindow(date, gran)
-  const rows = await getWorkerOutput(window)
+  // Station axis — re-cuts the whole scoreboard to one station's output.
+  // Mirrors the dashboard's station tabs; an unknown value falls back to the
+  // all-stages view. (工程 is in STAGES so the boss can audit the planning
+  // desk too, even though it isn't a floor station.)
+  const stage: Stage | undefined =
+    typeof sp?.stage === 'string' &&
+    (STAGES as readonly string[]).includes(sp.stage)
+      ? (sp.stage as Stage)
+      : undefined
+
+  // A custom range (both bounds valid ISO) overrides granularity. Swap if
+  // reversed so the window math always gets start <= end.
+  const rawFrom =
+    typeof sp?.from === 'string' && ISO_DATE.test(sp.from) ? sp.from : undefined
+  const rawTo =
+    typeof sp?.to === 'string' && ISO_DATE.test(sp.to) ? sp.to : undefined
+  const rangeMode = Boolean(rawFrom && rawTo)
+  const cFrom = rangeMode ? (rawFrom! <= rawTo! ? rawFrom! : rawTo!) : undefined
+  const cTo = rangeMode ? (rawFrom! <= rawTo! ? rawTo! : rawFrom!) : undefined
+
+  const window =
+    rangeMode && cFrom && cTo
+      ? shanghaiRangeWindow(cFrom, cTo)
+      : shanghaiWindow(date, gran)
+  const rows = await getWorkerOutput(window, stage)
+
+  // Inclusive 从–到 bounds of whatever's active — the custom range, or the
+  // day/week/month span the granularity implies. Drives the nav's readout so
+  // it always shows the exact dates being reported on.
+  const bounds =
+    rangeMode && cFrom && cTo ? { from: cFrom, to: cTo } : windowDateBounds(date, gran)
 
   const totalFinishes = rows.reduce((s, r) => s + r.finishes, 0)
   const totalStarts = rows.reduce((s, r) => s + r.starts, 0)
@@ -73,18 +109,25 @@ export default async function ReportPage({
         actorName: worker,
         ...window,
         kind: 'finished',
+        stage,
         limit: 200,
       })
     : null
 
-  // Build a same-page href preserving the params we aren't changing.
-  const hrefWith = (next: { g?: Granularity; d?: string; w?: string | null }) => {
+  // Build a same-page href preserving the active period (granularity OR custom
+  // range) — only the worker drill-down toggles via this helper.
+  const hrefWith = (next: { w?: string | null; stage?: Stage | null }) => {
     const q = new URLSearchParams()
-    const g = next.g ?? gran
-    const d = next.d ?? date
     const w = next.w === null ? undefined : next.w ?? worker
-    if (g !== 'day') q.set('g', g)
-    if (d !== today()) q.set('d', d)
+    const st = next.stage === null ? undefined : next.stage ?? stage
+    if (rangeMode && cFrom && cTo) {
+      q.set('from', cFrom)
+      q.set('to', cTo)
+    } else {
+      if (gran !== 'day') q.set('g', gran)
+      if (date !== todayStr) q.set('d', date)
+    }
+    if (st) q.set('stage', st)
     if (w) q.set('w', w)
     const s = q.toString()
     return s ? `/report?${s}` : '/report'
@@ -104,10 +147,12 @@ export default async function ReportPage({
         <header className="mb-8 md:mb-10 flex flex-col gap-6 md:flex-row md:items-baseline md:justify-between">
           <div>
             <h1 className="text-[28px] md:text-[34px] font-semibold tracking-tight text-[var(--color-ink)]">
-              {periodLabel(date, gran)}
+              {rangeMode && cFrom && cTo
+                ? rangeLabel(cFrom, cTo)
+                : periodLabel(date, gran)}
             </h1>
             <p className="text-[12px] md:text-[13px] text-[var(--color-ink-3)] mt-1">
-              生产工段 · 完成零件经手
+              {stage ?? '生产工段'} · 完成零件经手
             </p>
           </div>
           <div className="flex items-baseline gap-8">
@@ -127,48 +172,27 @@ export default async function ReportPage({
           </div>
         </header>
 
-        {/* Granularity toggle + period stepper. Plain links — refresh-stable,
-            no client state needed for a boss report that's read, not poked. */}
-        <div className="mb-8 flex items-center justify-between gap-4">
-          <nav
-            aria-label="周期"
-            className="inline-flex rounded-md border border-[var(--color-border)] overflow-hidden"
-          >
-            {GRANS.map((g) => {
-              const active = g.key === gran
-              return (
-                <Link
-                  key={g.key}
-                  href={hrefWith({ g: g.key })}
-                  aria-current={active ? 'true' : undefined}
-                  className={`px-4 py-1.5 text-[13px] tracking-wider transition-colors ${
-                    active
-                      ? 'bg-[var(--color-ink)] text-[var(--color-bg)]'
-                      : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)] hover:bg-[var(--color-surface)]'
-                  }`}
-                >
-                  {g.label}
-                </Link>
-              )
-            })}
-          </nav>
-          <div className="flex items-center gap-1">
-            <Stepper href={hrefWith({ d: shiftDate(date, gran, -1) })} dir="prev" />
-            {date !== today() && (
-              <Link
-                href={hrefWith({ d: today() })}
-                className="label px-3 py-1.5 text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
-              >
-                今天
-              </Link>
-            )}
-            <Stepper
-              href={hrefWith({ d: shiftDate(date, gran, 1) })}
-              dir="next"
-              disabled={shiftDate(date, gran, 1) > today() && gran === 'day'}
-            />
-          </div>
-        </div>
+        {/* Station axis — re-cuts the scoreboard to one station. Switching
+            station drops the drilled worker (w), whose output is scoped
+            elsewhere now. Server-rendered chips, no client JS. */}
+        <StationFilter
+          current={stage}
+          hrefFor={(s) => hrefWith({ stage: s, w: null })}
+        />
+
+        {/* 日/周/月 toggle + period navigator + custom-range picker. Native
+            date inputs need client JS, so the whole control is one client
+            component driving state through the URL. */}
+        <PeriodNav
+          gran={gran}
+          date={date}
+          rangeMode={rangeMode}
+          from={bounds.from}
+          to={bounds.to}
+          worker={worker}
+          stage={stage}
+          todayStr={todayStr}
+        />
 
         <Scoreboard
           rows={rows}
@@ -335,7 +359,7 @@ function WorkerTimeline({
           此周期暂无完成零件
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-md border border-[var(--color-border)] bg-[var(--color-bg)]">
+        <div className="overflow-x-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)]">
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="border-b border-[var(--color-border)]">
@@ -364,7 +388,7 @@ function WorkerTimeline({
                     className="border-b border-[var(--color-border)] last:border-0 align-middle hover:bg-[var(--color-surface)]"
                   >
                     <td className="px-3 py-2">
-                      <div className="h-11 w-11 overflow-hidden rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]">
+                      <div className="h-11 w-11 overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
                         {src ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -397,7 +421,7 @@ function WorkerTimeline({
                       {e.surfaceTreatment ?? ''}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">
-                      <span className="inline-flex text-[11px] tracking-wider px-2 py-0.5 rounded-sm bg-[var(--color-success-soft)] text-[var(--color-success)]">
+                      <span className="inline-flex text-[11px] tracking-wider px-2 py-0.5 rounded-[2px] bg-[var(--color-success-soft)] text-[var(--color-success)]">
                         {e.stage}
                       </span>
                     </td>
@@ -436,38 +460,6 @@ function WorkerTimeline({
   )
 }
 
-function Stepper({
-  href,
-  dir,
-  disabled = false,
-}: {
-  href: string
-  dir: 'prev' | 'next'
-  disabled?: boolean
-}) {
-  const glyph = dir === 'prev' ? '◂' : '▸'
-  const label = dir === 'prev' ? '上一周期' : '下一周期'
-  if (disabled) {
-    return (
-      <span
-        aria-disabled="true"
-        className="px-3 py-1.5 text-[15px] text-[var(--color-ink-4)] cursor-not-allowed select-none"
-      >
-        {glyph}
-      </span>
-    )
-  }
-  return (
-    <Link
-      href={href}
-      aria-label={label}
-      className="px-3 py-1.5 text-[15px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] hover:bg-[var(--color-surface)] rounded-sm transition-colors"
-    >
-      {glyph}
-    </Link>
-  )
-}
-
 function Headline({
   label,
   value,
@@ -489,7 +481,7 @@ function Headline({
   )
 }
 
-// Period heading, e.g. "5月30日 周五" / "5月26日 – 6月1日" / "2026年5月".
+// Preset-period heading, e.g. "5月30日 周五" / "5月26日 – 6月1日" / "2026年5月".
 function periodLabel(date: string, gran: Granularity): string {
   const [y, m, d] = date.split('-').map(Number)
   if (gran === 'month') return `${y}年${m}月`
@@ -506,6 +498,13 @@ function periodLabel(date: string, gran: Granularity): string {
   // window.to is the exclusive next-Monday midnight; back off one day for Sun.
   const end = localYMD(new Date(new Date(win.to).getTime() - 86_400_000).toISOString())
   return `${fmtMD(start)} – ${fmtMD(end)}`
+}
+
+// Custom-range heading. A single day collapses to the same "M月D日 周五"
+// readout as the day view; a real span reads "M月D日 – M月D日".
+function rangeLabel(from: string, to: string): string {
+  if (from === to) return periodLabel(from, 'day')
+  return `${fmtMD(from)} – ${fmtMD(to)}`
 }
 
 function localYMD(iso: string): string {

@@ -29,7 +29,7 @@ export function InboxList({ inbox }: { inbox: InboxItem[] }) {
   const overflow = visible.length - COLLAPSED_COUNT
   const shown = expanded || overflow <= 0 ? visible : visible.slice(0, COLLAPSED_COUNT)
   return (
-    <section className="mb-8 rounded-sm border border-[var(--color-warning)] bg-[var(--color-warning-soft)]">
+    <section className="mb-8 rounded-[2px] border border-[var(--color-warning)] bg-[var(--color-warning-soft)]">
       <div className="flex items-baseline justify-between px-5 py-3 border-b border-[var(--color-warning)]">
         <p className="label text-[var(--color-ink)]">
           导入收件箱 · {visible.length}
@@ -145,7 +145,7 @@ function DeleteButton({
         })
       }}
       title="删除此条草稿 / 解析失败 / 卡住的条目"
-      className="flex items-center justify-center w-9 h-9 -my-1 rounded-sm text-[22px] leading-none text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] hover:bg-[#f5e6b8] disabled:opacity-50"
+      className="flex items-center justify-center w-9 h-9 -my-1 rounded-[2px] text-[22px] leading-none text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] hover:bg-[#f5e6b8] disabled:opacity-50"
     >
       {pending ? '…' : '×'}
     </button>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   STAGES,
@@ -22,7 +22,7 @@ import {
   rowTimerAtStage,
   type MasterRow,
 } from '@/lib/master'
-import { DueCell, RollupCell, StageHeader } from './_ui'
+import { DueCell, RollupCell } from './_ui'
 import { JobStageActionButton } from './_cell'
 import { JobNotesInline } from './_editable'
 import { ReturnChip } from './_returns'
@@ -67,6 +67,26 @@ type DateFilter =
 // Top-level scope filter on the master sheet. 在产 hides shipped jobs (the
 // daily-attention set); 已出货 surfaces them for finance / archive lookups.
 type ShipFilter = 'live' | 'shipped'
+
+// Per-column status filter (商务 / 工程 overview only). The viewer focuses ONE
+// 工段 column and narrows the rows to that station's rollup state:
+//   pending — 未开始 (no part started here)
+//   partial — 进行中 (some parts moving, not all done)
+//   done    — 已完成 (every routed part finished here)
+// 'all' keeps the column focused (header lit, live counts shown) without
+// narrowing — the natural "I picked a column, show me everything" rest state.
+// Mirrors lib/master#RowRollupKind minus 'na' (jobs that skip the stage are
+// never status-filterable and drop out of every non-'all' bucket).
+type StatusFilter = 'all' | 'pending' | 'partial' | 'done'
+
+// 工段 floor vocabulary. Order is the lifecycle order a job moves through, so
+// the segmented control reads left→right like the work actually flows.
+const STATUS_LABEL: Record<StatusFilter, string> = {
+  all: '全部',
+  pending: '未开始',
+  partial: '进行中',
+  done: '已完成',
+}
 
 function rowMatchesDate(r: MasterRow, f: DateFilter, mode: SortMode): boolean {
   if (f.kind === 'all') return true
@@ -185,6 +205,26 @@ export function MasterSheet({
     `${persistKey}:showAll`,
     false,
   )
+  // Per-column status filters (overview only) — Excel-style: each 工段 column
+  // carries its own independent filter, applied with AND across columns
+  // ("未开始 at 编程 AND 已完成 at 工程"). Persisted per view context. A column
+  // is "filtered" when its entry exists and isn't 'all'.
+  const [statusByStage, setStatusByStage] = usePersistentState<
+    Partial<Record<Stage, StatusFilter>>
+  >(`${persistKey}:statusByStage`, {})
+  const setStageStatus = (stage: Stage, next: StatusFilter) =>
+    setStatusByStage((prev) => {
+      const out = { ...prev }
+      if (next === 'all') delete out[stage]
+      else out[stage] = next
+      return out
+    })
+  const clearStageStatuses = () => setStatusByStage({})
+  // The columns with a live (non-'all') filter, in board order.
+  const activeFilterStages = useMemo(
+    () => STAGES.filter((s) => statusByStage[s] && statusByStage[s] !== 'all'),
+    [statusByStage],
+  )
 
   const isProduction = role === 'production'
   const showMoney = role === 'commerce'
@@ -265,6 +305,45 @@ export function MasterSheet({
     [matchedByText, sortMode],
   )
 
+  // Date narrowing is shared by the partition below AND the status-facet
+  // counts, so it's hoisted out of the partition memo. The status filter sits
+  // logically AFTER the date filter (you scope to "this week", then ask "what's
+  // not started this week"), so counts are computed over this set.
+  const dateFiltered = useMemo(
+    () => sortedByMode.filter((r) => rowMatchesDate(r, dateFilter, sortMode)),
+    [sortedByMode, dateFilter, sortMode],
+  )
+
+  // Faceted per-status counts for every 工段's header menu. Each column's
+  // counts are computed over the set that passes the date scope AND every
+  // OTHER column's active filter (but not its own) — so the numbers always
+  // read "how many land here given everything else I've already narrowed",
+  // exactly like Excel's filter dropdown. 'na' rows (job skips the stage) fall
+  // out of every bucket. Only built on the overview, where the menus live.
+  const statusCountsByStage = useMemo(() => {
+    if (!treatAsOverview) return null
+    const out = {} as Record<
+      Stage,
+      { pending: number; partial: number; done: number; total: number }
+    >
+    for (const s of STAGES) {
+      const others = activeFilterStages.filter((o) => o !== s)
+      let pending = 0
+      let partial = 0
+      let done = 0
+      for (const r of dateFiltered) {
+        if (!others.every((o) => rowRollupStage(r, o).kind === statusByStage[o]))
+          continue
+        const k = rowRollupStage(r, s).kind
+        if (k === 'pending') pending++
+        else if (k === 'partial') partial++
+        else if (k === 'done') done++
+      }
+      out[s] = { pending, partial, done, total: pending + partial + done }
+    }
+    return out
+  }, [treatAsOverview, dateFiltered, activeFilterStages, statusByStage])
+
   // Three-section split for the production station view:
   //   topRows      — jobs that are MINE: in_progress here, or pending here
   //                  with all prior in-route stages already done. These are
@@ -287,9 +366,6 @@ export function MasterSheet({
   // -finished) — those tiers are about flow signals, not the user's chosen
   // ordering, so the toggle only affects the actionable top tier.
   const { topRows, upstreamRows, doneRows } = useMemo(() => {
-    const dateFiltered = sortedByMode.filter((r) =>
-      rowMatchesDate(r, dateFilter, sortMode),
-    )
     // Float 加急 rows to the very top — the single global priority signal.
     // Uses the OPTIMISTIC type so the row jumps the moment the user picks
     // 加急 from the chip popover. Within the rush bucket, most recently
@@ -311,8 +387,18 @@ export function MasterSheet({
       return [...rush, ...rest]
     }
     if (!isStationView || !stageFilter) {
+      // Overview (商务 / 工程): a single flat list, narrowed by each filtered
+      // 工段 column with AND across columns. No active column → untouched.
+      const statusScoped =
+        activeFilterStages.length === 0
+          ? dateFiltered
+          : dateFiltered.filter((r) =>
+              activeFilterStages.every(
+                (s) => rowRollupStage(r, s).kind === statusByStage[s],
+              ),
+            )
       return {
-        topRows: floatRush(dateFiltered),
+        topRows: floatRush(statusScoped),
         upstreamRows: [] as MasterRow[],
         doneRows: [] as MasterRow[],
       }
@@ -347,10 +433,13 @@ export function MasterSheet({
       upstreamRows: floatRush(upstream),
       doneRows: done,
     }
-  }, [sortedByMode, dateFilter, sortMode, isStationView, stageFilter, q, effectiveType])
+  }, [dateFiltered, isStationView, stageFilter, q, effectiveType, activeFilterStages, statusByStage])
 
+  // Any column filter narrows the list — treat it like search/date so
+  // pagination lifts and the count chip + 清除 affordance show.
+  const statusActive = activeFilterStages.length > 0
   const filteredCount = topRows.length + upstreamRows.length + doneRows.length
-  const isFiltered = q.length > 0 || dateFilter.kind !== 'all'
+  const isFiltered = q.length > 0 || dateFilter.kind !== 'all' || statusActive
 
   // Pagination applies only on the commerce overview. Station views already
   // self-limit (mine + upstream≤20 + done≤20), and any active filter implies
@@ -402,7 +491,7 @@ export function MasterSheet({
 
       <div
         ref={tableScrollRef}
-        className="siyue-hscroll-hide-native overflow-x-auto rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]"
+        className="siyue-hscroll-hide-native overflow-x-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]"
       >
         <table className="sheet w-full text-left text-[13px]">
           <colgroup>
@@ -422,10 +511,18 @@ export function MasterSheet({
               // there's no per-cell action button — once cells become actionable
               // (station view OR 工程 holistic), the buttons paint their own
               // state and the wash would just mute them.
+              // Cool wash on a column with a live filter — deliberately
+              // distinct from the warm warning wash of the home/action column
+              // so the two signals never read as the same thing. Yields to the
+              // warning wash when both land on one column.
+              const isFilteredCol =
+                treatAsOverview && Boolean(statusByStage[s])
               const colBg =
                 isHighlighted && !highlightIsActionable
                   ? 'var(--color-warning-soft)'
-                  : undefined
+                  : isFilteredCol
+                    ? 'var(--color-info-soft)'
+                    : undefined
               return (
                 <col
                   key={s}
@@ -448,27 +545,56 @@ export function MasterSheet({
                 </th>
               )}
               <th className="px-4 py-3 label whitespace-nowrap">交期</th>
-              {STAGES.map((s) => {
+              {STAGES.map((s, si) => {
                 const isHighlighted = s === highlightStage
-                const cell = (
-                  <span
-                    className={
-                      isHighlighted
-                        ? 'block font-semibold text-[var(--color-ink)]'
-                        : 'block hover:opacity-60'
-                    }
-                  >
-                    <StageHeader name={s} />
-                  </span>
-                )
+                const colStatus = statusByStage[s]
+                const isFilteredCol = treatAsOverview && Boolean(colStatus)
+                // The stage name is a plain label — the column header doesn't
+                // navigate anywhere (the per-stage drill-down wasn't useful from
+                // the dashboard). All interaction lives in the filter funnel
+                // beside it.
                 return (
-                  <th key={s} className="px-2 py-3 text-center whitespace-nowrap">
-                    {isProduction ? (
-                      cell
-                    ) : (
-                      <Link href={`/station/${encodeURIComponent(s)}`}>
-                        {cell}
-                      </Link>
+                  <th
+                    key={s}
+                    // Override .sheet th { overflow:hidden } so the dropdown
+                    // isn't clipped. Header text never overflows, so visible is
+                    // safe here.
+                    style={{ overflow: 'visible' }}
+                    className="relative px-2 py-3 text-center whitespace-nowrap"
+                  >
+                    <span className="inline-flex items-center justify-center gap-1 text-[12px] font-medium tracking-wider text-[var(--color-ink)]">
+                      <span
+                        className={
+                          isHighlighted || isFilteredCol
+                            ? 'font-semibold text-[var(--color-ink)]'
+                            : undefined
+                        }
+                      >
+                        {s}
+                      </span>
+                      {treatAsOverview && (
+                        <HeaderFilter
+                          stage={s}
+                          value={colStatus ?? 'all'}
+                          counts={
+                            statusCountsByStage?.[s] ?? {
+                              pending: 0,
+                              partial: 0,
+                              done: 0,
+                              total: 0,
+                            }
+                          }
+                          align={si >= STAGES.length - 2 ? 'right' : 'left'}
+                          onChange={(next) => setStageStatus(s, next)}
+                        />
+                      )}
+                    </span>
+                    {/* Accent bar marks a column with a live filter. */}
+                    {isFilteredCol && (
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-x-2 bottom-[6px] h-[2px] rounded-[2px] bg-[var(--color-info)]"
+                      />
                     )}
                   </th>
                 )
@@ -611,7 +737,13 @@ export function MasterSheet({
                   : '无匹配工单'}
             </p>
             <p className="label mt-2 text-[var(--color-ink-3)]">
-              {q ? `未找到 “${q}”` : '该范围暂无工单'}
+              {q
+                ? `未找到 “${q}”`
+                : statusActive
+                  ? `${activeFilterStages
+                      .map((s) => `${s} · ${STATUS_LABEL[statusByStage[s]!]}`)
+                      .join(' / ')} 暂无工单`
+                  : '该范围暂无工单'}
             </p>
             {isFiltered && (
               <button
@@ -619,6 +751,7 @@ export function MasterSheet({
                 onClick={() => {
                   setQ('')
                   setDateFilter({ kind: 'all' })
+                  clearStageStatuses()
                 }}
                 className="label mt-4 text-[var(--color-ink)] hover:underline underline-offset-4 decoration-[var(--color-ink-3)]"
               >
@@ -691,6 +824,189 @@ function ShipFilterToggle({
         )
       })}
     </div>
+  )
+}
+
+// Excel-style per-column status filter. A small triangle sits beside each
+// 工段 header name; clicking it drops a menu to slice that column's rows by
+// state (全部 / 未开始 / 进行中 / 已完成) with live counts. Once a state is
+// picked the trigger becomes a filled funnel and the column lights up (accent
+// bar + cool wash). The header itself doesn't navigate — the funnel is the only
+// interactive target. Closes on outside-click / Esc.
+function HeaderFilter({
+  stage,
+  value,
+  counts,
+  align,
+  onChange,
+}: {
+  stage: Stage
+  value: StatusFilter
+  counts: { pending: number; partial: number; done: number; total: number }
+  align: 'left' | 'right'
+  onChange: (next: StatusFilter) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLSpanElement>(null)
+  const active = value !== 'all'
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const rows: { key: StatusFilter; tone: StatusTone; count: number }[] = [
+    { key: 'pending', tone: 'pending', count: counts.pending },
+    { key: 'partial', tone: 'warning', count: counts.partial },
+    { key: 'done', tone: 'success', count: counts.done },
+  ]
+
+  return (
+    <span ref={ref} className="relative inline-flex">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={`筛选 ${stage} 状态`}
+        title={`按状态筛选 · ${stage}`}
+        className={`inline-flex h-4 w-4 items-center justify-center rounded-[2px] transition-colors ${
+          active
+            ? 'text-[var(--color-info)]'
+            : open
+              ? 'text-[var(--color-ink)] bg-black/[0.06]'
+              : 'text-[var(--color-ink-4)] hover:text-[var(--color-ink-2)] hover:bg-black/[0.04]'
+        }`}
+      >
+        {active ? <FunnelIcon /> : <CaretIcon />}
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          aria-label={`${stage} 状态`}
+          className={`absolute top-[calc(100%+8px)] z-40 min-w-[148px] overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] py-1 text-left shadow-[0_10px_34px_-12px_rgba(20,19,15,0.28)] ${
+            align === 'right' ? 'right-0' : 'left-0'
+          }`}
+        >
+          <FilterMenuRow
+            label="全部"
+            count={counts.total}
+            active={value === 'all'}
+            onClick={() => {
+              onChange('all')
+              setOpen(false)
+            }}
+          />
+          <div className="my-1 h-px bg-[var(--color-border)]" />
+          {rows.map((r) => (
+            <FilterMenuRow
+              key={r.key}
+              label={STATUS_LABEL[r.key]}
+              count={r.count}
+              tone={r.tone}
+              active={value === r.key}
+              onClick={() => {
+                onChange(r.key)
+                setOpen(false)
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </span>
+  )
+}
+
+type StatusTone = 'pending' | 'warning' | 'success'
+
+const STATUS_TONE_VAR: Record<StatusTone, string> = {
+  pending: 'var(--color-ink-3)',
+  warning: 'var(--color-warning)',
+  success: 'var(--color-success)',
+}
+
+// One row in a column's filter menu: a tone dot, the label, and the live count
+// pinned right. Active row goes ink + semibold with a check.
+function FilterMenuRow({
+  label,
+  count,
+  tone,
+  active,
+  onClick,
+}: {
+  label: string
+  count: number
+  tone?: StatusTone
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={active}
+      onClick={onClick}
+      className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-[13px] normal-case tracking-normal transition-colors hover:bg-[var(--color-bg)] ${
+        active
+          ? 'font-semibold text-[var(--color-ink)]'
+          : 'text-[var(--color-ink-2)]'
+      }`}
+    >
+      <span
+        aria-hidden="true"
+        className="inline-block h-1.5 w-1.5 shrink-0 rounded-[2px]"
+        style={{ background: tone ? STATUS_TONE_VAR[tone] : 'var(--color-ink-4)' }}
+      />
+      <span className="flex-1 text-left">{label}</span>
+      <span
+        className={`mono text-[11px] tabular-nums ${
+          active ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-4)]'
+        }`}
+      >
+        {count}
+      </span>
+      <span
+        className={`w-2 text-[10px] ${active ? 'text-[var(--color-ink)]' : 'text-transparent'}`}
+        aria-hidden="true"
+      >
+        ✓
+      </span>
+    </button>
+  )
+}
+
+// Idle trigger — a quiet downward caret, the universal "open a filter here".
+function CaretIcon() {
+  return (
+    <svg width="9" height="9" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+      <path
+        d="M2 3.5 L5 6.5 L8 3.5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// Active trigger — a filled funnel, the spreadsheet "this column is filtered".
+function FunnelIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+      <path d="M1.5 2 H10.5 L7 6.2 V9.5 L5 10.5 V6.2 Z" />
+    </svg>
   )
 }
 
@@ -1107,7 +1423,7 @@ function SortBar({
             type="button"
             onClick={onCollapse}
             aria-label="清除并收起日期筛选"
-            className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
+            className="inline-flex h-4 w-4 items-center justify-center rounded-[2px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
           >
             <ClearIcon />
           </button>
