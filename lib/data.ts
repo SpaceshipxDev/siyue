@@ -405,7 +405,9 @@ export type ProcurementStatus = 'ordered' | 'arrived'
 
 export type Procurement = {
   id: string
-  item: string // 采购项 / 所需零件
+  item: string // 采购项 / 所需零件 (snapshot of the 物料 name at purchase time)
+  productId?: string // 物料库 reference (lib/db getProcurementProducts) — optional
+  link?: string // 链接 snapshot (淘宝 / 1688 / 京东) — clickable from the ledger
   qty?: number // 数量
   unitPriceCny?: number // 单价
   supplier?: string // 供应商
@@ -418,6 +420,36 @@ export type Procurement = {
   createdBy?: string
   createdAt: string
 }
+
+// 物料 — one reusable line in the 物料库 (procurement product catalog). The shop
+// saves the things it buys repeatedly here (the 淘宝/1688 链接, the shop, the
+// going price) so the next 采购 is pick-don't-retype. See
+// supabase/migrations/0043_procurement_products.sql.
+export type ProcurementProduct = {
+  id: string
+  name: string // 品名
+  category?: string // 类别
+  supplier?: string // 默认供应商 / 店铺
+  link?: string // 链接 (淘宝 / 1688 / 京东)
+  unitPriceCny?: number // 参考单价
+  notes?: string // 规格 / 型号
+  lastUsedAt?: string // bumped each time a 采购 picks it; drives picker sort
+  createdBy?: string
+  createdAt: string
+}
+
+// The 类别 a CNC shop actually sorts its buys into. Free text in the DB, but the
+// 新建物料 form offers these as one-tap presets so the catalog stays tidy.
+export const PROCUREMENT_CATEGORIES = [
+  '刀具',
+  '量具',
+  '夹具',
+  '原材料',
+  '标准件',
+  '耗材',
+  '外协',
+  '其他',
+] as const
 
 // Line total for a purchase: 数量 × 单价. Undefined when either side is
 // missing — a half-specified row shows '—' rather than a misleading ¥0.

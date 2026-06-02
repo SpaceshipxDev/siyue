@@ -1,6 +1,6 @@
 import { TopBar } from '@/app/_ui'
 import { requireUser } from '@/lib/auth'
-import { getProcurements } from '@/lib/db'
+import { getProcurements, getProcurementProducts } from '@/lib/db'
 import { today } from '@/lib/today'
 import { ProcurementBoard } from './_procurement'
 
@@ -13,7 +13,10 @@ export const dynamic = 'force-dynamic'
 // queue of what's in transit and what's landed.
 export default async function ProcurementPage() {
   const user = await requireUser()
-  const procurements = await getProcurements()
+  const [procurements, products] = await Promise.all([
+    getProcurements(),
+    getProcurementProducts(),
+  ])
 
   return (
     <div className="min-h-dvh bg-[var(--color-bg)]">
@@ -28,6 +31,7 @@ export default async function ProcurementPage() {
       <main className="px-4 md:px-10 py-8">
         <ProcurementBoard
           procurements={procurements}
+          products={products}
           currentUser={user.name}
           today={today()}
         />

@@ -8,10 +8,12 @@ import {
   createHandover,
   createOutsourceBlockAt,
   createProcurement,
+  createProcurementProduct,
   createReturn,
   createVendor,
   deleteHandover,
   deleteProcurement,
+  deleteProcurementProduct,
   deleteComponent,
   deleteOutsourceBlock,
   removeOutsourceBlockMember,
@@ -38,6 +40,7 @@ import {
   updateCustomer,
   updateHandover,
   updateProcurement,
+  updateProcurementProduct,
   updateJob,
   updateOutsourceBlock,
   updateShipmentFinance,
@@ -52,7 +55,9 @@ import {
   type NewBlockInput,
   type NewHandoverInput,
   type NewProcurementInput,
+  type NewProcurementProductInput,
   type ProcurementPatch,
+  type ProcurementProductPatch,
   type ShipmentFinancePatch,
   type VendorPatch,
 } from '@/lib/db'
@@ -204,6 +209,7 @@ function isValidProcurementInput(x: unknown): x is NewProcurementInput {
   if (!isOptNumber(o.qty) || !isOptNumber(o.unitPriceCny)) return false
   if (!isOptString(o.supplier) || !isOptString(o.notes)) return false
   if (!isOptString(o.expectedDate)) return false
+  if (!isOptString(o.productId) || !isOptString(o.link)) return false
   return true
 }
 
@@ -218,7 +224,7 @@ function isValidProcurementPatch(x: unknown): x is ProcurementPatch {
   )
     return false
   if (!isOptNumber(o.qty) || !isOptNumber(o.unitPriceCny)) return false
-  for (const f of ['supplier', 'expectedDate', 'arrivedDate', 'notes']) {
+  for (const f of ['supplier', 'expectedDate', 'arrivedDate', 'notes', 'link']) {
     if (!isOptString(o[f])) return false
   }
   if (
@@ -227,6 +233,33 @@ function isValidProcurementPatch(x: unknown): x is ProcurementPatch {
     o.status !== 'arrived'
   )
     return false
+  return true
+}
+
+function isValidProcurementProductInput(
+  x: unknown,
+): x is NewProcurementProductInput {
+  if (typeof x !== 'object' || x === null) return false
+  const o = x as Record<string, unknown>
+  if (!isString(o.name) || o.name.trim().length === 0) return false
+  if (!isOptNumber(o.unitPriceCny)) return false
+  for (const f of ['category', 'supplier', 'link', 'notes']) {
+    if (!isOptString(o[f])) return false
+  }
+  return true
+}
+
+function isValidProcurementProductPatch(
+  x: unknown,
+): x is ProcurementProductPatch {
+  if (typeof x !== 'object' || x === null) return false
+  const o = x as Record<string, unknown>
+  if (o.name !== undefined && (!isString(o.name) || o.name.trim().length === 0))
+    return false
+  if (!isOptNumber(o.unitPriceCny)) return false
+  for (const f of ['category', 'supplier', 'link', 'notes']) {
+    if (!isOptString(o[f])) return false
+  }
   return true
 }
 
@@ -1094,6 +1127,37 @@ async function dispatch(
       if (!isString(procurementId)) return err('bad deleteProcurement args')
       await requireUser()
       await deleteProcurement(procurementId)
+      revalidatePath('/procurement')
+      return Response.json(ok())
+    }
+
+    // === 物料库 (procurement product catalog) — anyone signed in can write ===
+    case 'createProcurementProduct': {
+      const input = body.input
+      if (!isValidProcurementProductInput(input))
+        return err('bad createProcurementProduct args')
+      const u = await requireUser()
+      const product = await createProcurementProduct(input, u.name)
+      revalidatePath('/procurement')
+      return Response.json(ok({ product }))
+    }
+
+    case 'updateProcurementProduct': {
+      const productId = body.productId
+      const patch = body.patch
+      if (!isString(productId) || !isValidProcurementProductPatch(patch))
+        return err('bad updateProcurementProduct args')
+      await requireUser()
+      await updateProcurementProduct(productId, patch)
+      revalidatePath('/procurement')
+      return Response.json(ok())
+    }
+
+    case 'deleteProcurementProduct': {
+      const productId = body.productId
+      if (!isString(productId)) return err('bad deleteProcurementProduct args')
+      await requireUser()
+      await deleteProcurementProduct(productId)
       revalidatePath('/procurement')
       return Response.json(ok())
     }

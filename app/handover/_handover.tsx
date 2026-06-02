@@ -4,54 +4,59 @@ import { useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
+import { STAGES } from '@/lib/data'
 import type { Handover } from '@/lib/data'
 
 type JobIndexEntry = { id: string; jobNo: string; product: string }
 
-// One editable line of the form. `key` is a stable client id for React only —
-// never sent to the server (item ids are minted server-side on replace).
-type DraftItem = {
-  key: string
-  orderNo: string
-  matter: string
-  owner: string
-  note: string
+// 交接 = one job, handed by one person, to a department and/or a specific
+// person, with a note. Read it as a sentence:
+//   「小明 交给 财务 小李 · 工号 240511 · 备注…」
+// No shift / 移交 / 接班 jargon — the 部门 is a chip you tap and the 谁 is a
+// name you pick.
+//
+// These are the departments a job can land on. Production stations (STAGES)
+// plus the cross-floor functions a job gets pushed to (商务 / 采购 / 财务 / 外协).
+const DEPARTMENTS = ['商务', ...STAGES, '采购', '财务', '外协'] as const
+
+// Storage (no DB migration): the whole destination — 部门 and/or 谁 — lives in
+// the single `receiver` column, encoded as `部门 ␁ 谁` (␁ = U+0001, never typed
+// by a human). A plain string with no separator is department-only, so legacy
+// records like receiver="财务" still decode correctly. The old `department`
+// column (which held the giver's own stage) is left untouched and ignored, so
+// it can never be misread as the recipient.
+const TARGET_SEP = String.fromCharCode(1) // U+0001 unit separator
+
+function encodeTarget(dept: string, person: string): string | undefined {
+  const d = dept.trim()
+  const p = person.trim()
+  if (!d && !p) return undefined
+  return p ? `${d}${TARGET_SEP}${p}` : d
 }
 
-let keySeq = 0
-function newKey(): string {
-  return `k${keySeq++}`
-}
-
-function emptyItem(): DraftItem {
-  return { key: newKey(), orderNo: '', matter: '', owner: '', note: '' }
-}
-
-type Draft = {
-  giver: string
-  department: string
-  date: string
-  reason: string
-  receiver: string
-  items: DraftItem[]
+function decodeTarget(receiver?: string): { dept: string; person: string } {
+  if (!receiver) return { dept: '', person: '' }
+  const i = receiver.indexOf(TARGET_SEP)
+  if (i === -1) return { dept: receiver, person: '' }
+  return { dept: receiver.slice(0, i), person: receiver.slice(i + 1) }
 }
 
 export function HandoverBoard({
   handovers,
   jobIndex,
+  people,
   currentUser,
-  department,
   today,
 }: {
   handovers: Handover[]
   jobIndex: JobIndexEntry[]
+  people: string[]
   currentUser: string
-  department: string
   today: string
 }) {
   const router = useRouter()
   const [q, setQ] = useState('')
-  // null = list view; 'new' = blank form; a Handover = editing that sheet.
+  // null = list view; 'new' = blank form; a Handover = editing that one.
   const [editing, setEditing] = useState<Handover | 'new' | null>(null)
 
   const jobByNo = useMemo(() => {
@@ -66,9 +71,9 @@ export function HandoverBoard({
     return handovers.filter((h) => {
       if (
         h.giver.toLowerCase().includes(query) ||
+        // receiver carries both 部门 and 谁 (separator-encoded); a raw
+        // substring match still finds either part.
         (h.receiver ?? '').toLowerCase().includes(query) ||
-        (h.department ?? '').toLowerCase().includes(query) ||
-        (h.reason ?? '').toLowerCase().includes(query) ||
         h.date.includes(query)
       )
         return true
@@ -76,7 +81,6 @@ export function HandoverBoard({
         (it) =>
           (it.orderNo ?? '').toLowerCase().includes(query) ||
           (it.matter ?? '').toLowerCase().includes(query) ||
-          (it.owner ?? '').toLowerCase().includes(query) ||
           (it.note ?? '').toLowerCase().includes(query),
       )
     })
@@ -87,7 +91,8 @@ export function HandoverBoard({
       <HandoverForm
         initial={editing === 'new' ? null : editing}
         jobIndex={jobIndex}
-        defaults={{ giver: currentUser, department, date: today }}
+        people={people}
+        defaults={{ giver: currentUser, date: today }}
         onDone={() => {
           setEditing(null)
           router.refresh()
@@ -98,12 +103,12 @@ export function HandoverBoard({
   }
 
   return (
-    <div className="max-w-4xl">
+    <div className="max-w-3xl">
       <div className="mb-6 flex items-center gap-4">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="搜索 · 交出人 / 承接人 / 单号 / 事项"
+          placeholder="搜索 · 交出人 / 部门 / 工号"
           className="w-full max-w-xs rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
         />
         <button
@@ -116,18 +121,22 @@ export function HandoverBoard({
       </div>
 
       {filtered.length === 0 ? (
-        <div className="rounded-[2px] border border-dashed border-[var(--color-border)] py-20 text-center">
+        <button
+          type="button"
+          onClick={() => (q ? undefined : setEditing('new'))}
+          className="block w-full rounded-[2px] border border-dashed border-[var(--color-border)] py-20 text-center"
+        >
           <p className="text-[13px] text-[var(--color-ink-3)]">
-            {q ? '没有匹配的交接单' : '尚无交接单'}
+            {q ? '没有匹配的交接' : '还没有交接'}
           </p>
           {!q && (
-            <p className="mt-1.5 text-[11px] text-[var(--color-ink-4)]">
-              交班 / 请假 / 休息前，把手头未完的工作交接清楚
+            <p className="mt-1.5 text-[12px] text-[var(--color-ink-4)]">
+              点这里，把一个工号交给一个部门
             </p>
           )}
-        </div>
+        </button>
       ) : (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
           {filtered.map((h) => (
             <HandoverCard
               key={h.id}
@@ -156,6 +165,7 @@ function HandoverCard({
 }) {
   const [pending, start] = useTransition()
   const [confirming, setConfirming] = useState(false)
+  const { dept, person } = decodeTarget(h.receiver)
 
   function del() {
     start(async () => {
@@ -165,37 +175,30 @@ function HandoverCard({
   }
 
   return (
-    <div className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
-      <div className="flex items-start justify-between gap-4 border-b border-[var(--color-border)] px-4 py-3">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-3">
-            <span className="flex items-baseline gap-1.5">
-              <span className="label text-[var(--color-ink-3)]">交班</span>
-              <span className="text-[14px] font-medium text-[var(--color-ink)]">
-                {h.giver || '—'}
-              </span>
+    <div className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-5 py-4">
+      <div className="flex items-start justify-between gap-4">
+        {/* The sentence: 交出人 交给 部门 谁. Every word spelled out — no arrows.
+            部门 is a chip; 谁 is a name. At least one is present. */}
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+          <span className="text-[18px] font-medium text-[var(--color-ink)]">
+            {h.giver || '—'}
+          </span>
+          <span className="text-[13px] text-[var(--color-ink-3)]">交给</span>
+          {dept && (
+            <span className="rounded-[2px] bg-[var(--color-ink)] px-2.5 py-1 text-[14px] font-medium text-[var(--color-surface)]">
+              {dept}
             </span>
-            <span className="text-[11px] text-[var(--color-ink-4)]">移交</span>
-            <span className="flex items-baseline gap-1.5">
-              <span className="label text-[var(--color-ink-3)]">接班</span>
-              <span
-                className={`text-[14px] font-medium ${
-                  h.receiver
-                    ? 'text-[var(--color-ink)]'
-                    : 'text-[var(--color-ink-4)]'
-                }`}
-              >
-                {h.receiver || '待承接'}
-              </span>
+          )}
+          {person && (
+            <span className="text-[16px] font-medium text-[var(--color-ink)]">
+              {person}
             </span>
-          </div>
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11px] text-[var(--color-ink-3)]">
-            <span className="mono">{h.date}</span>
-            {h.department && <span>· {h.department}</span>}
-            {h.reason && (
-              <span className="text-[var(--color-ink-2)]">· {h.reason}</span>
-            )}
-          </div>
+          )}
+          {!dept && !person && (
+            <span className="rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-2.5 py-1 text-[14px] text-[var(--color-ink-4)]">
+              未填
+            </span>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {confirming ? (
@@ -204,14 +207,14 @@ function HandoverCard({
                 type="button"
                 onClick={del}
                 disabled={pending}
-                className="rounded-[2px] px-2 py-1 text-[11px] font-medium text-[var(--color-overdue)] hover:bg-[var(--color-overdue-soft)] disabled:opacity-50"
+                className="rounded-[2px] px-2 py-1 text-[12px] font-medium text-[var(--color-overdue)] hover:bg-[var(--color-overdue-soft)] disabled:opacity-50"
               >
                 确认删除
               </button>
               <button
                 type="button"
                 onClick={() => setConfirming(false)}
-                className="rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+                className="rounded-[2px] px-2 py-1 text-[12px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
               >
                 取消
               </button>
@@ -221,14 +224,14 @@ function HandoverCard({
               <button
                 type="button"
                 onClick={onEdit}
-                className="rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+                className="rounded-[2px] px-2 py-1 text-[12px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
               >
                 编辑
               </button>
               <button
                 type="button"
                 onClick={() => setConfirming(true)}
-                className="rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-overdue)]"
+                className="rounded-[2px] px-2 py-1 text-[12px] text-[var(--color-ink-3)] hover:text-[var(--color-overdue)]"
               >
                 删除
               </button>
@@ -237,60 +240,47 @@ function HandoverCard({
         </div>
       </div>
 
-      {h.items.length === 0 ? (
-        <p className="px-4 py-3 text-[12px] text-[var(--color-ink-4)]">无事项</p>
-      ) : (
-        <table className="w-full border-collapse text-[13px]">
-          <thead>
-            <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-[var(--color-ink-3)]">
-              <th className="px-4 py-1.5 font-medium">单号</th>
-              <th className="px-4 py-1.5 font-medium">相关事宜</th>
-              <th className="w-24 px-4 py-1.5 font-medium">责任人</th>
-              <th className="px-4 py-1.5 font-medium">备注</th>
-            </tr>
-          </thead>
-          <tbody>
-            {h.items.map((it) => {
-              const linkedId =
-                it.jobId ?? (it.orderNo ? jobByNo.get(it.orderNo)?.id : undefined)
-              return (
-                <tr
-                  key={it.id}
-                  className="border-t border-[var(--color-border)] align-top"
-                >
-                  <td className="px-4 py-2">
-                    {it.orderNo ? (
-                      linkedId ? (
-                        <Link
-                          href={`/jobs/${linkedId}`}
-                          className="mono text-[12px] text-[var(--color-info)] hover:underline"
-                        >
-                          {it.orderNo}
-                        </Link>
-                      ) : (
-                        <span className="mono text-[12px] text-[var(--color-ink-2)]">
-                          {it.orderNo}
-                        </span>
-                      )
-                    ) : (
-                      <span className="text-[var(--color-ink-4)]">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-[var(--color-ink)]">
-                    {it.matter || <span className="text-[var(--color-ink-4)]">—</span>}
-                  </td>
-                  <td className="px-4 py-2 text-[var(--color-ink-2)]">
-                    {it.owner || <span className="text-[var(--color-ink-4)]">—</span>}
-                  </td>
-                  <td className="px-4 py-2 text-[var(--color-ink-2)]">
-                    {it.note || <span className="text-[var(--color-ink-4)]">—</span>}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      )}
+      {/* The job(s) being handed over, each on its own line: 工号 + 备注. */}
+      <div className="mt-3 flex flex-col gap-1.5">
+        {h.items.length === 0 ? (
+          <p className="text-[13px] text-[var(--color-ink-4)]">未填工号</p>
+        ) : (
+          h.items.map((it) => {
+            const linkedId =
+              it.jobId ?? (it.orderNo ? jobByNo.get(it.orderNo)?.id : undefined)
+            const note = [it.matter, it.note].filter(Boolean).join(' · ')
+            return (
+              <div key={it.id} className="flex flex-wrap items-baseline gap-x-2.5">
+                <span className="text-[12px] text-[var(--color-ink-3)]">工号</span>
+                {it.orderNo ? (
+                  linkedId ? (
+                    <Link
+                      href={`/jobs/${linkedId}`}
+                      className="mono text-[14px] text-[var(--color-info)] hover:underline"
+                    >
+                      {it.orderNo}
+                    </Link>
+                  ) : (
+                    <span className="mono text-[14px] text-[var(--color-ink)]">
+                      {it.orderNo}
+                    </span>
+                  )
+                ) : (
+                  <span className="text-[14px] text-[var(--color-ink-4)]">—</span>
+                )}
+                {note && (
+                  <span className="text-[13px] text-[var(--color-ink-2)]">
+                    <span className="text-[var(--color-ink-4)]">备注 </span>
+                    {note}
+                  </span>
+                )}
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      <p className="mono mt-3 text-[11px] text-[var(--color-ink-4)]">{h.date}</p>
     </div>
   )
 }
@@ -298,110 +288,85 @@ function HandoverCard({
 function HandoverForm({
   initial,
   jobIndex,
+  people,
   defaults,
   onDone,
   onCancel,
 }: {
   initial: Handover | null
   jobIndex: JobIndexEntry[]
-  defaults: { giver: string; department: string; date: string }
+  people: string[]
+  defaults: { giver: string; date: string }
   onDone: () => void
   onCancel: () => void
 }) {
-  const [draft, setDraft] = useState<Draft>(() => {
-    if (initial) {
-      return {
-        giver: initial.giver,
-        department: initial.department ?? '',
-        date: initial.date,
-        reason: initial.reason ?? '',
-        receiver: initial.receiver ?? '',
-        items: [
-          ...initial.items.map((it) => ({
-            key: newKey(),
-            orderNo: it.orderNo ?? '',
-            matter: it.matter ?? '',
-            owner: it.owner ?? '',
-            note: it.note ?? '',
-          })),
-          emptyItem(),
-        ],
-      }
-    }
-    return {
-      giver: defaults.giver,
-      department: defaults.department,
-      date: defaults.date,
-      reason: '',
-      receiver: '',
-      items: [emptyItem()],
-    }
-  })
+  // The new model is one job per 交接, so the form edits a single job + note.
+  // Legacy multi-item sheets collapse to their first item on edit.
+  const first = initial?.items[0]
+  const initialTarget = decodeTarget(initial?.receiver)
+  const [giver, setGiver] = useState(initial?.giver ?? defaults.giver)
+  // receiver(dept) = 部门 chip, person = 谁. Both ride in the receiver column
+  // (separator-encoded on save). See storage note above.
+  const [receiver, setReceiver] = useState(initialTarget.dept)
+  const [person, setPerson] = useState(initialTarget.person)
+  const [orderNo, setOrderNo] = useState(first?.orderNo ?? '')
+  const [note, setNote] = useState(
+    [first?.matter, first?.note].filter(Boolean).join(' · '),
+  )
   const [pending, start] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
-  function set<K extends keyof Draft>(k: K, v: Draft[K]) {
-    setDraft((d) => ({ ...d, [k]: v }))
-  }
-
-  function setItem(key: string, field: keyof DraftItem, value: string) {
-    setDraft((d) => {
-      const items = d.items.map((it) =>
-        it.key === key ? { ...it, [field]: value } : it,
-      )
-      // Auto-append a fresh trailing row when the last row gets any content,
-      // so the form always has an empty slot to type into.
-      const last = items[items.length - 1]
-      if (last && (last.orderNo || last.matter || last.owner || last.note)) {
-        items.push(emptyItem())
-      }
-      return { ...d, items }
-    })
-  }
-
-  function removeItem(key: string) {
-    setDraft((d) => {
-      const items = d.items.filter((it) => it.key !== key)
-      return { ...d, items: items.length ? items : [emptyItem()] }
-    })
-  }
+  const jobByNo = useMemo(() => {
+    const m = new Map<string, JobIndexEntry>()
+    for (const j of jobIndex) m.set(j.jobNo, j)
+    return m
+  }, [jobIndex])
+  const trimmedOrderNo = orderNo.trim()
+  const matchedProduct = trimmedOrderNo
+    ? jobByNo.get(trimmedOrderNo)?.product
+    : undefined
 
   function submit() {
-    if (!draft.giver.trim()) {
-      setError('请填写交出人')
+    if (!giver.trim()) {
+      setError('填一下交出人')
       return
     }
-    if (!draft.date.trim()) {
-      setError('请填写日期')
+    if (!receiver.trim() && !person.trim()) {
+      setError('选一个部门，或者填一下交给谁')
+      return
+    }
+    if (!orderNo.trim()) {
+      setError('填一下工号')
       return
     }
     setError(null)
-    const items = draft.items
-      .map((it) => ({
-        orderNo: it.orderNo.trim() || undefined,
-        matter: it.matter.trim() || undefined,
-        owner: it.owner.trim() || undefined,
-        note: it.note.trim() || undefined,
-      }))
-      .filter((it) => it.orderNo || it.matter || it.owner || it.note)
-    const input = {
-      giver: draft.giver.trim(),
-      department: draft.department.trim() || undefined,
-      date: draft.date.trim(),
-      reason: draft.reason.trim() || undefined,
-      receiver: draft.receiver.trim() || undefined,
-      items,
-    }
+    const target = encodeTarget(receiver, person)
+    const items = [{ orderNo: orderNo.trim(), note: note.trim() || undefined }]
     start(async () => {
       try {
         if (initial) {
+          // On edit, send null (not undefined) when the whole target is
+          // cleared so it actually clears instead of keeping the old value.
           await mutate({
             kind: 'updateHandover',
             handoverId: initial.id,
-            patch: input,
+            patch: {
+              giver: giver.trim(),
+              date: defaults.date,
+              receiver: target ?? null,
+              items,
+            },
           })
         } else {
-          await mutate({ kind: 'createHandover', input })
+          await mutate({
+            kind: 'createHandover',
+            input: {
+              giver: giver.trim(),
+              date: defaults.date,
+              receiver: target,
+              items,
+            },
+          })
         }
         onDone()
       } catch (e) {
@@ -411,10 +376,10 @@ function HandoverForm({
   }
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-xl">
       <div className="mb-6 flex items-baseline justify-between">
         <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
-          {initial ? '编辑交接单' : '新建交接单'}
+          {initial ? '编辑交接' : '新建交接'}
         </h2>
         <button
           type="button"
@@ -425,48 +390,17 @@ function HandoverForm({
         </button>
       </div>
 
-      <div className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <Field label="交出人">
-            <TextInput
-              value={draft.giver}
-              onChange={(v) => set('giver', v)}
-              placeholder="姓名"
-            />
-          </Field>
-          <Field label="部门">
-            <TextInput
-              value={draft.department}
-              onChange={(v) => set('department', v)}
-              placeholder="工段 / 部门"
-            />
-          </Field>
-          <Field label="日期">
-            <TextInput
-              value={draft.date}
-              onChange={(v) => set('date', v)}
-              placeholder="YYYY-MM-DD"
-              mono
-            />
-          </Field>
-          <Field label="交出原因">
-            <TextInput
-              value={draft.reason}
-              onChange={(v) => set('reason', v)}
-              placeholder="如 · 明日休息"
-            />
-          </Field>
-          <Field label="承接人">
-            <TextInput
-              value={draft.receiver}
-              onChange={(v) => set('receiver', v)}
-              placeholder="代班人 · 可留空"
-            />
-          </Field>
-        </div>
+      <div className="flex flex-col gap-6 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
+        <Field label="交出人" hint="谁交出去的">
+          <input
+            value={giver}
+            onChange={(e) => setGiver(e.target.value)}
+            placeholder="姓名"
+            className="w-full max-w-xs rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[15px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
+          />
+        </Field>
 
-        <div className="mt-6">
-          <p className="label mb-2">交接事项</p>
+        <Field label="工号" hint="交哪个工号">
           <datalist id="handover-jobnos">
             {jobIndex.slice(0, 1000).map((j) => (
               <option key={j.id} value={j.jobNo}>
@@ -474,79 +408,78 @@ function HandoverForm({
               </option>
             ))}
           </datalist>
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-[var(--color-ink-3)]">
-                <th className="w-44 pb-1.5 font-medium">单号</th>
-                <th className="pb-1.5 font-medium">相关事宜</th>
-                <th className="w-24 pb-1.5 font-medium">责任人</th>
-                <th className="pb-1.5 font-medium">备注</th>
-                <th className="w-8 pb-1.5" />
-              </tr>
-            </thead>
-            <tbody>
-              {draft.items.map((it) => (
-                <tr key={it.key} className="align-top">
-                  <td className="py-1 pr-2">
-                    <CellInput
-                      value={it.orderNo}
-                      onChange={(v) => setItem(it.key, 'orderNo', v)}
-                      placeholder="工号"
-                      list="handover-jobnos"
-                      mono
-                    />
-                  </td>
-                  <td className="py-1 pr-2">
-                    <CellInput
-                      value={it.matter}
-                      onChange={(v) => setItem(it.key, 'matter', v)}
-                      placeholder="未完事项 / 注意点"
-                    />
-                  </td>
-                  <td className="py-1 pr-2">
-                    <CellInput
-                      value={it.owner}
-                      onChange={(v) => setItem(it.key, 'owner', v)}
-                      placeholder="负责人"
-                    />
-                  </td>
-                  <td className="py-1 pr-2">
-                    <CellInput
-                      value={it.note}
-                      onChange={(v) => setItem(it.key, 'note', v)}
-                      placeholder="备注"
-                    />
-                  </td>
-                  <td className="py-1 text-center">
-                    {draft.items.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeItem(it.key)}
-                        className="text-[15px] leading-none text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
-                        aria-label="删除此行"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+          <input
+            value={orderNo}
+            onChange={(e) => setOrderNo(e.target.value)}
+            placeholder="工号"
+            list="handover-jobnos"
+            className="mono w-full max-w-xs rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[15px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
+          />
+          {matchedProduct && (
+            <p className="mt-1.5 text-[12px] text-[var(--color-ink-3)]">
+              {matchedProduct}
+            </p>
+          )}
+        </Field>
+
+        <Field label="交给哪个部门" hint="点一下 · 没有就跳过">
+          <div className="flex flex-wrap gap-2">
+            {DEPARTMENTS.map((d) => {
+              const on = receiver === d
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setReceiver(on ? '' : d)}
+                  className={`rounded-[2px] px-3.5 py-2 text-[14px] font-medium transition-colors ${
+                    on
+                      ? 'bg-[var(--color-ink)] text-[var(--color-surface)]'
+                      : 'border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-ink)]'
+                  }`}
+                >
+                  {d}
+                </button>
+              )
+            })}
+          </div>
+        </Field>
+
+        <Field label="交给谁" hint="具体的人 · 没有就跳过">
+          <datalist id="handover-people">
+            {people.map((p) => (
+              <option key={p} value={p} />
+            ))}
+          </datalist>
+          <input
+            value={person}
+            onChange={(e) => setPerson(e.target.value)}
+            placeholder="姓名"
+            list="handover-people"
+            className="w-full max-w-xs rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[15px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
+          />
+        </Field>
+
+        <Field label="备注" hint="选填">
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="要交代的事 · 可留空"
+            className="w-full rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[15px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
+          />
+        </Field>
 
         {error && (
-          <p className="mt-4 text-[12px] text-[var(--color-overdue)]">{error}</p>
+          <p className="text-[13px] text-[var(--color-overdue)]">{error}</p>
         )}
 
-        <div className="mt-6 flex items-center gap-3">
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={submit}
             disabled={pending}
-            className="rounded-[2px] bg-[var(--color-ink)] px-4 py-1.5 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
+            className="rounded-[2px] bg-[var(--color-ink)] px-5 py-2 text-[14px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
           >
-            {pending ? '保存中…' : '保存交接单'}
+            {pending ? '保存中…' : '保存'}
           </button>
           <button
             type="button"
@@ -563,64 +496,24 @@ function HandoverForm({
 
 function Field({
   label,
+  hint,
   children,
 }: {
   label: string
+  hint?: string
   children: React.ReactNode
 }) {
   return (
     <div>
-      <p className="label mb-1.5">{label}</p>
+      <div className="mb-2 flex items-baseline gap-2">
+        <span className="text-[14px] font-medium text-[var(--color-ink)]">
+          {label}
+        </span>
+        {hint && (
+          <span className="text-[12px] text-[var(--color-ink-4)]">{hint}</span>
+        )}
+      </div>
       {children}
     </div>
-  )
-}
-
-function TextInput({
-  value,
-  onChange,
-  placeholder,
-  mono,
-}: {
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-  mono?: boolean
-}) {
-  return (
-    <input
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      className={`w-full rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 py-1.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)] ${
-        mono ? 'mono' : ''
-      }`}
-    />
-  )
-}
-
-function CellInput({
-  value,
-  onChange,
-  placeholder,
-  list,
-  mono,
-}: {
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-  list?: string
-  mono?: boolean
-}) {
-  return (
-    <input
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      list={list}
-      className={`w-full rounded-[2px] border border-transparent bg-[var(--color-bg)] px-2 py-1.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)] ${
-        mono ? 'mono' : ''
-      }`}
-    />
   )
 }
