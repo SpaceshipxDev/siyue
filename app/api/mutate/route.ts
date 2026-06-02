@@ -24,6 +24,7 @@ import {
   prepareShipping,
   setBlockMembersReturnedQty,
   setBlockMemberUnitPrice,
+  setBlockMemberQty,
   setComponentImage,
   setJobPin,
   setJobStagePin,
@@ -982,6 +983,24 @@ async function dispatch(
         componentId,
         unitPriceCny as number | null,
       )
+      revalidateExternal(jobId as string | undefined)
+      revalidatePath(`/print/outsource/${blockId}`)
+      revalidatePath(`/print/outsource/${blockId}/pdf`)
+      revalidatePath(`/print/outsource/${blockId}/pdf/raw`)
+      return Response.json(ok())
+    }
+
+    case 'setBlockMemberQty': {
+      const blockId = body.blockId
+      const componentId = body.componentId
+      const qty = body.qty
+      const jobId = body.jobId
+      if (!isString(blockId) || !isString(componentId))
+        return err('bad setBlockMemberQty args')
+      if (qty !== null && typeof qty !== 'number') return err('bad qty')
+      if (jobId !== undefined && !isString(jobId)) return err('bad jobId')
+      await requireOutsourceManager()
+      await setBlockMemberQty(blockId, componentId, qty as number | null)
       revalidateExternal(jobId as string | undefined)
       revalidatePath(`/print/outsource/${blockId}`)
       revalidatePath(`/print/outsource/${blockId}/pdf`)

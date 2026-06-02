@@ -971,6 +971,77 @@ export function BlockMemberUnitPrice({
   )
 }
 
+// Per-member outsource quantity editor — how many units of this part go to the
+// vendor on this block. Always a positive integer (min 1); a blank or invalid
+// entry reverts to the last value rather than clearing. Mirrors
+// BlockMemberUnitPrice's commit-on-blur / Enter / Escape behavior.
+export function BlockMemberQty({
+  blockId,
+  componentId,
+  jobId,
+  value,
+  className,
+}: {
+  blockId: string
+  componentId: string
+  jobId?: string
+  value: number
+  className?: string
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  const initial = String(value)
+  const { draft, setDraft, setFocused, pending, safeStart } = useDraft(initial)
+
+  const commit = (next: string) => {
+    const trimmed = next.trim()
+    const n = Math.floor(Number(trimmed))
+    if (trimmed === '' || !Number.isFinite(n) || n < 1) {
+      setDraft(initial)
+      return
+    }
+    if (n === value) return
+    safeStart(
+      () =>
+        mutate({
+          kind: 'setBlockMemberQty',
+          blockId,
+          componentId,
+          qty: n,
+          jobId,
+        }),
+      initial,
+    )
+  }
+
+  return (
+    <input
+      ref={ref}
+      type="number"
+      inputMode="numeric"
+      min={1}
+      step={1}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false)
+        commit(draft)
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          ref.current?.blur()
+        } else if (e.key === 'Escape') {
+          setDraft(initial)
+          requestAnimationFrame(() => ref.current?.blur())
+        }
+      }}
+      title="外协数量 · 可改"
+      className={`${baseInputClass} mono ${pending ? 'opacity-60' : ''} ${className ?? ''}`}
+    />
+  )
+}
+
 // Multi-line notes editor for a block. Auto-grows. Empty input clears the
 // field back to null (so the "+ 添加备注…" hint reappears).
 export function OutsourceBlockNotes({

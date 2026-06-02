@@ -24,6 +24,7 @@ import type { Vendor as VendorRow } from '@/lib/data'
 
 import { today } from '@/lib/today'
 import {
+  BlockMemberQty,
   BlockMemberUnitPrice,
   NameCombobox,
   OutsourceBlockAmount,
@@ -417,6 +418,13 @@ export function NewBlockForm({
   const [unitPrices, setUnitPrices] = useState<Record<string, string>>({})
   const setUnitPriceFor = (id: string, v: string) =>
     setUnitPrices((prev) => ({ ...prev, [id]: v }))
+  // Per-component outsource quantity. Keyed by componentId, free-form text so
+  // an in-progress edit (empty field) doesn't snap. A blank or untouched entry
+  // means "send all" — submit falls back to the part's full qty. The input is
+  // seeded with the part qty (see qtyFor) so the common case is one glance.
+  const [qtys, setQtys] = useState<Record<string, string>>({})
+  const setQtyFor = (id: string, v: string) =>
+    setQtys((prev) => ({ ...prev, [id]: v }))
   const [sentDate, setSentDate] = useState(() => today())
   const [expectedReturn, setExpectedReturn] = useState(() => today())
   // Named activity is the primary thing — selected from the fixed list
@@ -476,6 +484,19 @@ export function NewBlockForm({
         const n = Number(raw)
         if (Number.isFinite(n) && n >= 0) unitPricesCny[cid] = n
       }
+      // Outsource quantity per selected component. Only send an explicit qty
+      // when the typed value differs from the part's full qty — leaving it at
+      // (or blanking it to) the part qty keeps the row NULL = "send all".
+      const qtysByComponent: Record<string, number> = {}
+      for (const cid of selected) {
+        const c = components.find((x) => x.id === cid)
+        const raw = qtys[cid]?.trim() ?? ''
+        if (raw === '') continue
+        const n = Math.floor(Number(raw))
+        if (!Number.isFinite(n) || n < 1) continue
+        if (c && n === c.qty) continue
+        qtysByComponent[cid] = n
+      }
       const r = await mutate<{ id: string | undefined }>({
         kind: 'createOutsourceBlock',
         jobId,
@@ -488,6 +509,7 @@ export function NewBlockForm({
           sentDate,
           expectedReturn,
           unitPricesCny,
+          qtysByComponent,
         },
       })
       const id = r.data.id
@@ -497,6 +519,7 @@ export function NewBlockForm({
       }
       setAmount('')
       setUnitPrices({})
+      setQtys({})
       setSelected(new Set())
       setActivity('')
       setStageFrom(OUTSOURCEABLE_STAGES[0])
@@ -541,7 +564,7 @@ export function NewBlockForm({
 
       <div className="grid grid-cols-2 md:grid-cols-12 gap-3">
         <div className="col-span-2 md:col-span-3 flex flex-col gap-1">
-          <span className="label">零件 · 多选 + 单价</span>
+          <span className="label">零件 · 数量 + 单价</span>
           <div className="flex flex-col gap-1 max-h-[180px] overflow-auto border border-[var(--color-border)] rounded-[2px] bg-[var(--color-surface)] px-2 py-1.5">
             {available.map((c) => {
               const isSelected = selected.has(c.id)
@@ -559,10 +582,26 @@ export function NewBlockForm({
                       className="accent-[var(--color-ink)]"
                     />
                     <span className="flex-1 truncate">{c.name}</span>
-                    <span className="mono text-[11px] text-[var(--color-ink-3)] shrink-0">
-                      {c.qty}件
-                    </span>
                   </label>
+                  {/* 外协数量 — defaults to the part's full qty; editable so the
+                      boss can send only some units. /{c.qty} shows the total
+                      for context. */}
+                  <span
+                    className={`mono text-[11px] shrink-0 inline-flex items-center gap-0.5 ${isSelected ? 'text-[var(--color-ink-3)]' : 'text-[var(--color-ink-4)]'}`}
+                  >
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      step={1}
+                      value={qtys[c.id] ?? String(c.qty)}
+                      onChange={(e) => setQtyFor(c.id, e.target.value)}
+                      disabled={pending || !isSelected}
+                      title={`外协数量 · 共 ${c.qty} 件`}
+                      className="mono text-[12px] w-[46px] text-right px-1 py-0.5 rounded-[2px] bg-transparent border border-[var(--color-border)] focus:border-[var(--color-ink)] focus:outline-none disabled:opacity-40"
+                    />
+                    <span className="shrink-0">/{c.qty}</span>
+                  </span>
                   <span
                     className={`mono text-[11px] shrink-0 ${isSelected ? 'text-[var(--color-ink-3)]' : 'text-[var(--color-ink-4)]'}`}
                   >
@@ -983,9 +1022,26 @@ export function BlockRow({
           >
             {headline}
           </span>
-          <span className="mono text-[12px] text-[var(--color-ink-3)] shrink-0">
-            × {totalQty}
-          </span>
+          {/* Outsource qty. Single-member blocks edit it right here — they
+              usually don't expand the member list, so this is the one reachable
+              handle. Multi-member blocks show the read-only sum and edit each
+              member's qty inside the list below. */}
+          {members.length === 1 ? (
+            <span className="mono text-[12px] text-[var(--color-ink-3)] shrink-0 inline-flex items-baseline gap-0.5">
+              <span>×</span>
+              <BlockMemberQty
+                blockId={block.id}
+                componentId={members[0].componentId}
+                jobId={jobId}
+                value={members[0].qty}
+                className="text-[12px] text-[var(--color-ink-3)] text-right [field-sizing:content] min-w-[2ch]"
+              />
+            </span>
+          ) : (
+            <span className="mono text-[12px] text-[var(--color-ink-3)] shrink-0">
+              × {totalQty}
+            </span>
+          )}
         </div>
         <span className="text-[var(--color-ink-3)] shrink-0">→</span>
         <div className="basis-[140px] shrink-0">
@@ -1181,9 +1237,22 @@ export function BlockRow({
                 className={`flex items-baseline gap-2 text-[12px] group ${armed ? 'bg-[color-mix(in_srgb,var(--color-overdue)_8%,transparent)] rounded-[2px] -mx-1 px-1' : ''}`}
               >
                 <span className="text-[var(--color-ink-2)] truncate basis-[140px] grow">{m.name}</span>
-                <span className="mono text-[11px] text-[var(--color-ink-3)] shrink-0">
-                  {m.qty}件
-                </span>
+                {members.length > 1 ? (
+                  <span className="mono text-[11px] text-[var(--color-ink-3)] shrink-0 inline-flex items-baseline gap-0.5">
+                    <BlockMemberQty
+                      blockId={block.id}
+                      componentId={m.componentId}
+                      jobId={jobId}
+                      value={m.qty}
+                      className="text-[11px] text-[var(--color-ink-3)] text-right [field-sizing:content] min-w-[2ch]"
+                    />
+                    <span>件</span>
+                  </span>
+                ) : (
+                  <span className="mono text-[11px] text-[var(--color-ink-3)] shrink-0">
+                    {m.qty}件
+                  </span>
+                )}
                 <span className="inline-flex items-baseline gap-0.5 shrink-0">
                   <span className="mono text-[11px] text-[var(--color-ink-3)]">¥</span>
                   <BlockMemberUnitPrice
