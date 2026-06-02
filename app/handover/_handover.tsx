@@ -168,13 +168,25 @@ function HandoverCard({
     <div className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
       <div className="flex items-start justify-between gap-4 border-b border-[var(--color-border)] px-4 py-3">
         <div className="flex flex-col gap-1">
-          <div className="flex items-baseline gap-2">
-            <span className="text-[14px] font-medium text-[var(--color-ink)]">
-              {h.giver || '—'}
+          <div className="flex items-center gap-3">
+            <span className="flex items-baseline gap-1.5">
+              <span className="label text-[var(--color-ink-3)]">交班</span>
+              <span className="text-[14px] font-medium text-[var(--color-ink)]">
+                {h.giver || '—'}
+              </span>
             </span>
-            <span className="text-[var(--color-ink-4)]">→</span>
-            <span className="text-[13px] text-[var(--color-ink)]">
-              {h.receiver || '待承接'}
+            <span className="text-[11px] text-[var(--color-ink-4)]">移交</span>
+            <span className="flex items-baseline gap-1.5">
+              <span className="label text-[var(--color-ink-3)]">接班</span>
+              <span
+                className={`text-[14px] font-medium ${
+                  h.receiver
+                    ? 'text-[var(--color-ink)]'
+                    : 'text-[var(--color-ink-4)]'
+                }`}
+              >
+                {h.receiver || '待承接'}
+              </span>
             </span>
           </div>
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11px] text-[var(--color-ink-3)]">
