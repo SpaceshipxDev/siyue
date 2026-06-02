@@ -514,6 +514,10 @@ export type Job = {
   product: string
   amountCny?: number
   dueDate: string
+  // 二次交期 — optional second delivery date. Purely informational: never
+  // feeds dueState/color/sort (those stay keyed off dueDate). Blank for every
+  // legacy job; the floor adds it by hand. See migration 0044.
+  secondaryDueDate?: string
   notes?: string
   status?: JobStatus
   sourceFile?: string

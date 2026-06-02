@@ -64,6 +64,9 @@ export type MasterRow = {
   dueDate: string
   /** dueDate, overridden by activeReturn.dueDate while a 退货 is open. */
   effectiveDueDate: string
+  /** 二次交期 — optional second delivery date. Display-only; never feeds
+   *  effectiveDueDate / color / sort. Blank for legacy rows. */
+  secondaryDueDate?: string
   notes?: string
   status: JobStatus
   createdAt?: string

@@ -16,6 +16,7 @@ import {
   ComponentUnitPrice,
   JobAmount,
   JobDueDate,
+  JobSecondaryDueDate,
   JobNotes,
   JobText,
 } from '@/app/_editable'
@@ -138,6 +139,12 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
             <JobDueDate
               jobId={job.id}
               value={job.dueDate}
+              className="text-[15px] text-[var(--color-ink)]"
+            />
+            <p className="label mb-2 mt-3">二次交期</p>
+            <JobSecondaryDueDate
+              jobId={job.id}
+              value={job.secondaryDueDate}
               className="text-[15px] text-[var(--color-ink)]"
             />
           </div>

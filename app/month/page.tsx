@@ -276,7 +276,12 @@ export default async function MonthSettlement({
                     className="border-t border-[var(--color-border)] hover:bg-[var(--color-surface)]"
                   >
                     <td className="py-3 pr-6 label tabular-nums w-[110px] text-[var(--color-ink-3)]">
-                      交 {j.dueDate.slice(5)}
+                      <div>交 {j.dueDate.slice(5)}</div>
+                      {j.secondaryDueDate && (
+                        <div className="text-[var(--color-ink-4)] mt-0.5">
+                          二 {j.secondaryDueDate.slice(5)}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 pr-6">
                       <Link

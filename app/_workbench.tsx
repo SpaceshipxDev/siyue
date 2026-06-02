@@ -506,7 +506,12 @@ function WorkbenchRow({
           </div>
 
           <div className="w-[110px] shrink-0">
-            <DueCell date={effDue} state={ds} daysOff={days} />
+            <DueCell
+              date={effDue}
+              state={ds}
+              daysOff={days}
+              secondaryDate={row.secondaryDueDate}
+            />
           </div>
         </Link>
 

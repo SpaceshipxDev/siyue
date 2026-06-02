@@ -160,10 +160,15 @@ export function DueCell({
   date,
   state,
   daysOff,
+  secondaryDate,
 }: {
   date: string
   state: DueState
   daysOff: number
+  // 二次交期 — rendered as a muted second line under the primary 交期 when
+  // present. Display-only: it carries no urgency tone (the primary date owns
+  // color/sort), so it stays ink-3 regardless of how far off it is.
+  secondaryDate?: string
 }) {
   const tone =
     state === 'overdue'
@@ -187,6 +192,14 @@ export function DueCell({
         {date}
       </span>
       <span className="label mt-0.5 whitespace-nowrap">{sub}</span>
+      {secondaryDate && (
+        <span
+          className="mono text-[11px] whitespace-nowrap text-[var(--color-ink-3)] mt-0.5"
+          title="二次交期"
+        >
+          二次 {secondaryDate}
+        </span>
+      )}
     </div>
   )
 }

@@ -339,6 +339,66 @@ export function JobDueDate({
   )
 }
 
+// 二次交期 — optional second delivery date. Mirrors JobDueDate's native
+// <input type="date"> so it reads identically to the primary 交期 field, but
+// allows clearing back to blank (commit empty → secondaryDueDate: null). Most
+// jobs have none, so an empty input shows the browser's date placeholder.
+export function JobSecondaryDueDate({
+  jobId,
+  value,
+  className,
+}: {
+  jobId: string
+  value: string | undefined
+  className?: string
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  const initial = value ?? ''
+  const { draft, setDraft, setFocused, pending, safeStart } = useDraft(initial)
+
+  const commit = (next: string) => {
+    if (next === initial) return
+    safeStart(
+      () =>
+        mutate({
+          kind: 'updateJob',
+          jobId,
+          patch: { secondaryDueDate: next === '' ? null : next },
+        }),
+      initial,
+    )
+  }
+
+  return (
+    <>
+      <input
+        ref={ref}
+        type="date"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false)
+          commit(draft)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            ref.current?.blur()
+          } else if (e.key === 'Escape') {
+            setDraft(initial)
+            requestAnimationFrame(() => ref.current?.blur())
+          }
+        }}
+        className={`${baseInputClass} mono screen-only ${pending ? 'opacity-60' : ''} ${className ?? ''}`}
+      />
+      <span className={`mono print-only ${className ?? ''}`}>
+        {draft || '—'}
+      </span>
+    </>
+  )
+}
+
 export function JobAmount({
   jobId,
   value,

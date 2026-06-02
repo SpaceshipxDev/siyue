@@ -41,6 +41,7 @@ import {
   ComponentUnitPrice,
   JobAmount,
   JobDueDate,
+  JobSecondaryDueDate,
   JobNotes,
   JobShippingText,
   JobText,
@@ -336,6 +337,21 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               )}
               <DueDelta state={ds} days={days} />
             </div>
+            {/* 二次交期 — optional second ship date, blank on most jobs. Lives
+                in the 交期 column so it reads as a continuation of the same
+                fact, never competing with the primary date's urgency delta. */}
+            <p className="label mb-1 mt-3">二次交期</p>
+            {canEditFields ? (
+              <JobSecondaryDueDate
+                jobId={job.id}
+                value={job.secondaryDueDate}
+                className="text-[15px] text-[var(--color-ink)]"
+              />
+            ) : (
+              <p className="mono text-[15px] text-[var(--color-ink)]">
+                {job.secondaryDueDate ?? '—'}
+              </p>
+            )}
           </div>
           <div className={showMoney ? 'col-span-2 md:col-span-3' : 'col-span-2 md:col-span-6'}>
             <p className="label mb-2">总进度</p>

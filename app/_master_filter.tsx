@@ -1226,7 +1226,12 @@ function JobRow({
         </td>
       )}
       <td className="px-4 py-3">
-        <DueCell date={effDue} state={ds} daysOff={days} />
+        <DueCell
+          date={effDue}
+          state={ds}
+          daysOff={days}
+          secondaryDate={row.secondaryDueDate}
+        />
       </td>
       {STAGES.map((stage) => {
         const isHighlighted = stage === highlightStage
