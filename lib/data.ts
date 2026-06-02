@@ -396,6 +396,41 @@ export type Handover = {
   items: HandoverItem[]
 }
 
+// 采购 — a single purchase. The standalone purchasing ledger anyone can write
+// to: pick the part you need, the price, who you're buying from, the date you
+// ordered, and the date it should come back. Lifecycle is two states —
+// 'ordered' (在途) until it shows up, then 'arrived'. Flat by design (one row
+// per purchase); see supabase/migrations/0042_procurement.sql.
+export type ProcurementStatus = 'ordered' | 'arrived'
+
+export type Procurement = {
+  id: string
+  item: string // 采购项 / 所需零件
+  qty?: number // 数量
+  unitPriceCny?: number // 单价
+  supplier?: string // 供应商
+  orderDate: string // 采购日期 (YYYY-MM-DD) — the date ordered from
+  expectedDate?: string // 预计到货 (YYYY-MM-DD) — when it should come back
+  status: ProcurementStatus
+  arrivedDate?: string // 实际到货 (YYYY-MM-DD)
+  buyer: string // 采购人
+  notes?: string // 备注
+  createdBy?: string
+  createdAt: string
+}
+
+// Line total for a purchase: 数量 × 单价. Undefined when either side is
+// missing — a half-specified row shows '—' rather than a misleading ¥0.
+export function procurementTotalCny(p: {
+  qty?: number
+  unitPriceCny?: number
+}): number | undefined {
+  if (typeof p.qty !== 'number' || typeof p.unitPriceCny !== 'number')
+    return undefined
+  if (!Number.isFinite(p.qty) || !Number.isFinite(p.unitPriceCny)) return undefined
+  return p.qty * p.unitPriceCny
+}
+
 // Single global classification for every job. Drives BOTH the color
 // stripe/chip on the master + station rows AND the float-to-top sort.
 //

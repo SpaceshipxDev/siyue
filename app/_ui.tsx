@@ -9,6 +9,7 @@ export type TabKey =
   | '商务'
   | '现场'
   | '交接'
+  | '采购'
   | '报功'
   | '月结'
   | '财务'
@@ -38,6 +39,7 @@ function tabsForRole(role: Role, defaultStage?: string): Tab[] {
         { key: '工程', label: '工程', href: '/' },
         { key: '现场', label: '现场', href: '/pulse' },
         { key: '交接', label: '交接', href: '/handover' },
+        { key: '采购', label: '采购', href: '/procurement' },
         // 报功 deliberately omitted — the per-person merit scoreboard is a 商务
         // read only; 工程 head doesn't see it (gate: requireReportViewer).
         { key: '外协', label: '外协', href: '/station/outsource' },
@@ -55,6 +57,7 @@ function tabsForRole(role: Role, defaultStage?: string): Tab[] {
     { key: '商务', label: '商务', href: '/' },
     { key: '现场', label: '现场', href: '/pulse' },
     { key: '交接', label: '交接', href: '/handover' },
+    { key: '采购', label: '采购', href: '/procurement' },
     { key: '报功', label: '报功', href: '/report' },
     { key: '月结', label: '月结', href: '/month' },
     { key: '财务', label: '财务', href: '/finance' },

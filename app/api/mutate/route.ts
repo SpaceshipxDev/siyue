@@ -7,9 +7,11 @@ import {
   closeReturn,
   createHandover,
   createOutsourceBlockAt,
+  createProcurement,
   createReturn,
   createVendor,
   deleteHandover,
+  deleteProcurement,
   deleteComponent,
   deleteOutsourceBlock,
   removeOutsourceBlockMember,
@@ -35,6 +37,7 @@ import {
   updateComponent,
   updateCustomer,
   updateHandover,
+  updateProcurement,
   updateJob,
   updateOutsourceBlock,
   updateShipmentFinance,
@@ -48,6 +51,8 @@ import {
   type JobPatch,
   type NewBlockInput,
   type NewHandoverInput,
+  type NewProcurementInput,
+  type ProcurementPatch,
   type ShipmentFinancePatch,
   type VendorPatch,
 } from '@/lib/db'
@@ -182,6 +187,47 @@ function isValidHandoverInput(x: unknown): x is NewHandoverInput {
       return false
   }
   return isValidHandoverItems(o.items)
+}
+
+function isOptNumber(x: unknown): boolean {
+  return x === undefined || x === null || typeof x === 'number'
+}
+function isOptString(x: unknown): boolean {
+  return x === undefined || x === null || typeof x === 'string'
+}
+
+function isValidProcurementInput(x: unknown): x is NewProcurementInput {
+  if (typeof x !== 'object' || x === null) return false
+  const o = x as Record<string, unknown>
+  if (!isString(o.item) || o.item.trim().length === 0) return false
+  if (!isString(o.orderDate) || o.orderDate.trim().length === 0) return false
+  if (!isOptNumber(o.qty) || !isOptNumber(o.unitPriceCny)) return false
+  if (!isOptString(o.supplier) || !isOptString(o.notes)) return false
+  if (!isOptString(o.expectedDate)) return false
+  return true
+}
+
+function isValidProcurementPatch(x: unknown): x is ProcurementPatch {
+  if (typeof x !== 'object' || x === null) return false
+  const o = x as Record<string, unknown>
+  if (o.item !== undefined && (!isString(o.item) || o.item.trim().length === 0))
+    return false
+  if (
+    o.orderDate !== undefined &&
+    (!isString(o.orderDate) || o.orderDate.trim().length === 0)
+  )
+    return false
+  if (!isOptNumber(o.qty) || !isOptNumber(o.unitPriceCny)) return false
+  for (const f of ['supplier', 'expectedDate', 'arrivedDate', 'notes']) {
+    if (!isOptString(o[f])) return false
+  }
+  if (
+    o.status !== undefined &&
+    o.status !== 'ordered' &&
+    o.status !== 'arrived'
+  )
+    return false
+  return true
 }
 
 type Body = Record<string, unknown> & { kind?: unknown }
@@ -1018,6 +1064,37 @@ async function dispatch(
       await requireUser()
       await deleteHandover(handoverId)
       revalidatePath('/handover')
+      return Response.json(ok())
+    }
+
+    // === 采购 (procurement ledger) — anyone signed in can write ===
+    case 'createProcurement': {
+      const input = body.input
+      if (!isValidProcurementInput(input))
+        return err('bad createProcurement args')
+      const u = await requireUser()
+      const id = await createProcurement(input, u.name)
+      revalidatePath('/procurement')
+      return Response.json(ok({ id }))
+    }
+
+    case 'updateProcurement': {
+      const procurementId = body.procurementId
+      const patch = body.patch
+      if (!isString(procurementId) || !isValidProcurementPatch(patch))
+        return err('bad updateProcurement args')
+      await requireUser()
+      await updateProcurement(procurementId, patch)
+      revalidatePath('/procurement')
+      return Response.json(ok())
+    }
+
+    case 'deleteProcurement': {
+      const procurementId = body.procurementId
+      if (!isString(procurementId)) return err('bad deleteProcurement args')
+      await requireUser()
+      await deleteProcurement(procurementId)
+      revalidatePath('/procurement')
       return Response.json(ok())
     }
 
