@@ -205,6 +205,10 @@ export function MasterSheet({
     `${persistKey}:showAll`,
     false,
   )
+  // 待外协 facet — 商务's "what's waiting on me to arrange outsourcing" view.
+  // Transient (not persisted): it's a momentary focus, not a saved preference,
+  // so a refresh returns to the full board. Overview only.
+  const [onlyPendingOutsource, setOnlyPendingOutsource] = useState(false)
   // Per-column status filters (overview only) — Excel-style: each 工段 column
   // carries its own independent filter, applied with AND across columns
   // ("未开始 at 编程 AND 已完成 at 工程"). Persisted per view context. A column
@@ -397,8 +401,11 @@ export function MasterSheet({
                 (s) => rowRollupStage(r, s).kind === statusByStage[s],
               ),
             )
+      const facetScoped = onlyPendingOutsource
+        ? statusScoped.filter((r) => r.needsOutsource && !r.hasOpenOutsource)
+        : statusScoped
       return {
-        topRows: floatRush(statusScoped),
+        topRows: floatRush(facetScoped),
         upstreamRows: [] as MasterRow[],
         doneRows: [] as MasterRow[],
       }
@@ -433,13 +440,25 @@ export function MasterSheet({
       upstreamRows: floatRush(upstream),
       doneRows: done,
     }
-  }, [dateFiltered, isStationView, stageFilter, q, effectiveType, activeFilterStages, statusByStage])
+  }, [dateFiltered, isStationView, stageFilter, q, effectiveType, activeFilterStages, statusByStage, onlyPendingOutsource])
+
+  // 待外协 count over the current date scope — drives the facet chip label and
+  // hides the chip entirely when nothing is waiting (clean board, no chrome).
+  const pendingOutsourceCount = useMemo(
+    () =>
+      dateFiltered.reduce(
+        (n, r) => (r.needsOutsource && !r.hasOpenOutsource ? n + 1 : n),
+        0,
+      ),
+    [dateFiltered],
+  )
 
   // Any column filter narrows the list — treat it like search/date so
   // pagination lifts and the count chip + 清除 affordance show.
   const statusActive = activeFilterStages.length > 0
   const filteredCount = topRows.length + upstreamRows.length + doneRows.length
-  const isFiltered = q.length > 0 || dateFilter.kind !== 'all' || statusActive
+  const isFiltered =
+    q.length > 0 || dateFilter.kind !== 'all' || statusActive || onlyPendingOutsource
 
   // Pagination applies only on the commerce overview. Station views already
   // self-limit (mine + upstream≤20 + done≤20), and any active filter implies
@@ -475,6 +494,24 @@ export function MasterSheet({
           dateFilter={dateFilter}
           setDateFilter={setDateFilter}
         />
+        {treatAsOverview && (pendingOutsourceCount > 0 || onlyPendingOutsource) && (
+          <button
+            type="button"
+            onClick={() => setOnlyPendingOutsource((v) => !v)}
+            aria-pressed={onlyPendingOutsource}
+            className={`inline-flex items-baseline gap-1.5 rounded-[2px] border px-2.5 py-[3px] text-[10px] tracking-[0.14em] uppercase transition-colors ${
+              onlyPendingOutsource
+                ? 'border-[var(--color-warning)]/40 bg-[var(--color-warning-soft)] text-[var(--color-warning)]'
+                : 'border-[var(--color-border)] text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)]'
+            }`}
+            title="只看工程已标记需外协、商务尚未安排的工单"
+          >
+            <span>待外协</span>
+            <span className="mono text-[12px] tracking-normal font-medium">
+              {pendingOutsourceCount}
+            </span>
+          </button>
+        )}
         <span className="ml-auto label text-[var(--color-ink-3)]">
           <span
             className={`mono mr-1 text-[12px] ${
@@ -1123,6 +1160,23 @@ function JobRow({
               aria-label="此工单有外协"
             >
               外协
+            </span>
+          )}
+          {/* 待外协 — 工程 flagged this job for outsourcing; 商务 hasn't made
+              the vendor block yet. Mutually exclusive with the 外协 chip above
+              (the flag is cleared when the block is created). */}
+          {!row.hasOpenOutsource && row.needsOutsource && (
+            <span
+              className="row-badge"
+              data-tone="warning"
+              title={
+                row.outsourceNote
+                  ? `待外协 · ${row.outsourceNote}`
+                  : '工程已标记需外协，待商务安排'
+              }
+              aria-label="待外协"
+            >
+              待外协
             </span>
           )}
           {row.activeReturn && <ReturnChip ret={row.activeReturn} />}

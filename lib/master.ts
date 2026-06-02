@@ -73,6 +73,12 @@ export type MasterRow = {
   jobType?: JobType
   /** 产品 — independent stack-on-top tag. Coexists with jobType. */
   isProduct?: boolean
+  /** 待外协 — 工程 flagged this job as needing outsourcing, before a vendor
+   *  block exists. Cleared once 商务 creates the block (→ hasOpenOutsource).
+   *  Drives the 待外协 row badge + the 商务 pending filter. */
+  needsOutsource?: boolean
+  /** Engineer's free-text spec for what needs outsourcing (tooltip + filter). */
+  outsourceNote?: string
   /** Row-level boss pin (jobs.pinned_at). Legacy — kept for sub-sort
    *  recency within the rush bucket. Not rendered. */
   pinnedAt?: string

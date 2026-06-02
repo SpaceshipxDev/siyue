@@ -4,12 +4,13 @@ export const STAGES = [
   '操机',
   '手工',
   '打磨',
-  '喷漆丝印',
+  '喷漆',
+  '丝印',
   '质量',
   '出货',
 ] as const
 
-export const SCHEMA_VERSION = 6
+export const SCHEMA_VERSION = 7
 
 export type Stage = (typeof STAGES)[number]
 
@@ -365,6 +366,36 @@ export type Shipment = {
   parts: ShipmentEntry[]
 }
 
+// 工作交接单 — a shift/absence handover sheet. Created when someone stops
+// working for a stretch (break, leave, day off) and hands their open work to
+// whoever covers. Mirrors the paper form one-to-one: a header plus N line
+// items. Deliberately NOT tied to a single job — one sheet spans every
+// pending matter the person is carrying, so items reference jobs loosely by
+// 单号 (orderNo) with an optional resolved jobId link.
+export type HandoverItem = {
+  id: string
+  // 单号 — free text. May match a real 工号; when it does, jobId is resolved
+  // so the row can link to /jobs/[id]. Kept as text too so non-order matters
+  // ("交班前清点刀具") still record cleanly.
+  orderNo?: string
+  jobId?: string
+  matter?: string // 相关事宜
+  owner?: string // 责任人
+  note?: string // 备注
+}
+
+export type Handover = {
+  id: string
+  giver: string // 交出人
+  department?: string // 部门
+  date: string // 日期 (YYYY-MM-DD)
+  reason?: string // 交出原因
+  receiver?: string // 承接人
+  createdBy?: string
+  createdAt: string
+  items: HandoverItem[]
+}
+
 // Single global classification for every job. Drives BOTH the color
 // stripe/chip on the master + station rows AND the float-to-top sort.
 //
@@ -445,6 +476,16 @@ export type Job = {
   // 加急 and 产品). Boolean rather than a JobType value so the duration/
   // priority buckets stay mutually exclusive and 产品 stacks on top.
   isProduct?: boolean
+  // 外协预警 (待外协) — 工程's upstream "this needs outsourcing" intent,
+  // recorded before any vendor block (outsourceBlocks) exists. The missing
+  // first stage of the outsourcing lifecycle; 商务 reads it as a pending
+  // action. Cleared the moment 商务 creates the first block (→ 外协中). See
+  // jobOutsourceState. outsourceNote is the engineer's free-text spec ("D20
+  // 腰部零件 需外发CNC"); flaggedBy/At stamp who raised it and when.
+  needsOutsource?: boolean
+  outsourceNote?: string
+  outsourceFlaggedBy?: string
+  outsourceFlaggedAt?: string
   // Legacy fields kept on the type for snapshot compatibility (the DB column
   // still exists; nothing in the UI reads them anymore). Will be dropped
   // once the rollout is verified.
@@ -664,7 +705,7 @@ export function canStartStage(component: Component, stage: Stage): boolean {
 export function rollupStage(job: Job, stage: Stage): Rollup {
   // Parts where the stage isn't in the route are n/a — excluded from the
   // denominator, so a "no paint" part doesn't show as eternally pending in
-  // the 喷漆丝印 column.
+  // the 喷漆 column.
   const effs = job.components
     .filter((c) => isStageInRoute(c, stage))
     .map((c) => effectiveStageState(c, stage))
@@ -715,6 +756,33 @@ export function jobHasOpenOutsource(job: Job): boolean {
     }
   }
   return false
+}
+
+// True iff this job has any outsource block at all (open OR fully returned).
+// Used to distinguish the engineer's pending 待外协 flag (no block yet) from a
+// job that has already entered the operational outsourcing flow.
+export function jobHasAnyOutsourceBlock(job: Job): boolean {
+  for (const c of job.components) {
+    if ((c.outsourceBlocks?.length ?? 0) > 0) return true
+  }
+  return false
+}
+
+export type OutsourceState = '待外协' | '外协中' | '已回'
+
+// The job's position in the outsourcing lifecycle, or null when outsourcing
+// doesn't apply to it. This is the single source of truth the boss circled:
+// 工程 flags 待外协 → 商务 makes a vendor block (外协中) → vendor returns (已回).
+//   待外协 — engineer flagged, no vendor block yet (商务's todo).
+//   外协中 — at least one part still at a vendor.
+//   已回   — had outsourcing, everything is back.
+// Open block wins over the flag so a stale needsOutsource never masks live
+// vendor state; in practice createOutsourceBlockAt clears the flag anyway.
+export function jobOutsourceState(job: Job): OutsourceState | null {
+  if (jobHasOpenOutsource(job)) return '外协中'
+  if (jobHasAnyOutsourceBlock(job)) return '已回'
+  if (job.needsOutsource) return '待外协'
+  return null
 }
 
 export type DueState = 'overdue' | 'today' | 'soon' | 'normal'

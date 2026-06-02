@@ -13,6 +13,7 @@ import {
   jobExternalSpend,
   jobIsShipped,
   jobMargin,
+  jobOutsourceState,
   jobReturnedQtyByPart,
   vendorById,
   type Job,
@@ -45,6 +46,7 @@ import {
   JobText,
 } from '@/app/_editable'
 import { BlockRow, NewBlockForm } from '@/app/_routing'
+import { OutsourceFlag } from '@/app/_outsource_flag'
 import { ExternalBadge } from '@/app/_externalbadge'
 import { ComponentImageUploader } from '@/app/_image_uploader'
 import { StageChips } from '@/app/_stagechips'
@@ -415,6 +417,20 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             />
           )}
         </div>
+
+        {/* 外协预警 — 工程's upstream "needs outsourcing" flag. Visible to the
+            outsource managers (商务 + 工程 head); raising it surfaces the job on
+            the 商务 master grid as 待外协 with no message sent. */}
+        {canManageOutsource(user) && (
+          <div className="mb-6 max-w-md">
+            <OutsourceFlag
+              jobId={job.id}
+              state={jobOutsourceState(job)}
+              initialNeeds={Boolean(job.needsOutsource)}
+              initialNote={job.outsourceNote}
+            />
+          </div>
+        )}
 
         <div className="mb-3 flex items-baseline justify-between">
           <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">

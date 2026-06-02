@@ -5,9 +5,11 @@ import {
   assignJobToStage,
   assignToStage,
   closeReturn,
+  createHandover,
   createOutsourceBlockAt,
   createReturn,
   createVendor,
+  deleteHandover,
   deleteComponent,
   deleteOutsourceBlock,
   removeOutsourceBlockMember,
@@ -32,6 +34,7 @@ import {
   undoStage,
   updateComponent,
   updateCustomer,
+  updateHandover,
   updateJob,
   updateOutsourceBlock,
   updateShipmentFinance,
@@ -41,8 +44,10 @@ import {
   type ComponentPatch,
   type CreateReturnInput,
   type CustomerPatch,
+  type HandoverPatch,
   type JobPatch,
   type NewBlockInput,
+  type NewHandoverInput,
   type ShipmentFinancePatch,
   type VendorPatch,
 } from '@/lib/db'
@@ -148,10 +153,35 @@ function isString(x: unknown): x is string {
 }
 
 function isStage(x: unknown): x is Stage {
-  return (
-    isString(x) &&
-    ['工程', '编程', '操机', '手工', '打磨', '喷漆丝印', '质量', '出货'].includes(x)
-  )
+  // Derive from the canonical STAGES list rather than a parallel literal — the
+  // 喷漆丝印 → 喷漆/丝印 split (migration 0040) showed how a hand-copied stage
+  // list silently drifts out of sync with lib/data.ts.
+  return isString(x) && (STAGES as readonly string[]).includes(x)
+}
+
+function isValidHandoverItems(x: unknown): x is NewHandoverInput['items'] {
+  if (!Array.isArray(x)) return false
+  return x.every((it) => {
+    if (typeof it !== 'object' || it === null) return false
+    const o = it as Record<string, unknown>
+    for (const f of ['orderNo', 'jobId', 'matter', 'owner', 'note']) {
+      if (o[f] !== undefined && o[f] !== null && typeof o[f] !== 'string')
+        return false
+    }
+    return true
+  })
+}
+
+function isValidHandoverInput(x: unknown): x is NewHandoverInput {
+  if (typeof x !== 'object' || x === null) return false
+  const o = x as Record<string, unknown>
+  if (!isString(o.giver) || o.giver.trim().length === 0) return false
+  if (!isString(o.date) || o.date.trim().length === 0) return false
+  for (const f of ['department', 'reason', 'receiver']) {
+    if (o[f] !== undefined && o[f] !== null && typeof o[f] !== 'string')
+      return false
+  }
+  return isValidHandoverItems(o.items)
 }
 
 type Body = Record<string, unknown> & { kind?: unknown }
@@ -272,6 +302,42 @@ async function dispatch(
       await requireUser()
       await updateJob(jobId, { notes: notes as string | null })
       revalidateJob(jobId)
+      return Response.json(ok())
+    }
+
+    // 外协预警 (待外协) — 工程 raises the heads-up that this job needs
+    // outsourcing, before any vendor block exists. needs=true stamps the flag
+    // + note + who/when; needs=false clears it. 商务 reads it as a pending
+    // action on the master grid; createOutsourceBlockAt clears it on its own
+    // once the block is made. Auth: the outsource managers (商务 + 工程 head).
+    case 'setJobOutsourceFlag': {
+      const jobId = body.jobId
+      const needs = body.needs
+      const note = body.note
+      if (!isString(jobId) || typeof needs !== 'boolean')
+        return err('bad setJobOutsourceFlag args')
+      if (note !== undefined && note !== null && !isString(note))
+        return err('bad note')
+      const u = await requireOutsourceManager()
+      const patch: JobPatch = needs
+        ? {
+            needsOutsource: true,
+            // null (note explicitly emptied) clears it; undefined (note not
+            // sent) leaves the existing note untouched.
+            outsourceNote:
+              note === undefined ? undefined : (note as string | null),
+            outsourceFlaggedBy: u.name,
+            outsourceFlaggedAt: new Date().toISOString(),
+          }
+        : {
+            needsOutsource: false,
+            outsourceNote: null,
+            outsourceFlaggedBy: null,
+            outsourceFlaggedAt: null,
+          }
+      await updateJob(jobId, patch)
+      revalidateJob(jobId)
+      revalidatePath('/station/outsource')
       return Response.json(ok())
     }
 
@@ -917,6 +983,41 @@ async function dispatch(
         u.name,
       )
       revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    // === 工作交接单 (handover sheets) ===
+    case 'createHandover': {
+      const input = body.input
+      if (!isValidHandoverInput(input))
+        return err('bad createHandover args')
+      const u = await requireUser()
+      const id = await createHandover(input, u.name)
+      revalidatePath('/handover')
+      return Response.json(ok({ id }))
+    }
+
+    case 'updateHandover': {
+      const handoverId = body.handoverId
+      const patch = body.patch
+      if (!isString(handoverId) || typeof patch !== 'object' || patch === null)
+        return err('bad updateHandover args')
+      // items, when present, must be a well-formed array.
+      const items = (patch as { items?: unknown }).items
+      if (items !== undefined && !isValidHandoverItems(items))
+        return err('bad updateHandover items')
+      await requireUser()
+      await updateHandover(handoverId, patch as HandoverPatch)
+      revalidatePath('/handover')
+      return Response.json(ok())
+    }
+
+    case 'deleteHandover': {
+      const handoverId = body.handoverId
+      if (!isString(handoverId)) return err('bad deleteHandover args')
+      await requireUser()
+      await deleteHandover(handoverId)
+      revalidatePath('/handover')
       return Response.json(ok())
     }
 

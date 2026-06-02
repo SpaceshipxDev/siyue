@@ -30,6 +30,7 @@ const PRODUCTION_FORBIDDEN_PREFIXES = [
   '/finance',
   '/pulse',
   '/report',
+  '/handover',
   '/import',
   '/print',
   '/backend',
@@ -54,6 +55,9 @@ const ENGINEERING_ALLOWED_PREFIXES = [
   // same person-axis read commerce does; the page hides ¥ from them via
   // canSeeMoney, exactly like /pulse.
   '/report',
+  // 工作交接单 — the 工程 head runs the floor and needs the unified handover
+  // board (same gate as /pulse: commerce + 工程 head only).
+  '/handover',
 ]
 
 export async function proxy(request: NextRequest) {
@@ -132,8 +136,13 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Skip _next, static assets, favicon. Everything else (including API
-    // routes) flows through.
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|gif|webp|avif|ico)$).*)',
+    // Skip _next, static assets, favicon, and the client-side STEP engine.
+    // The OpenCascade WASM engine + its worker (occt.worker.js /
+    // occt-import-js.js / .wasm) are static /public assets fetched by a Web
+    // Worker. They carry no data and must never be auth-gated — otherwise a
+    // missing/expired cookie makes the worker fetch the /login HTML instead of
+    // the WASM, and STEP parsing dies. Everything else (including API routes)
+    // flows through.
+    '/((?!_next/static|_next/image|favicon\\.ico|occt\\.worker\\.js|occt-import-js\\.(?:js|wasm)|.*\\.(?:png|jpg|jpeg|svg|gif|webp|avif|ico)$).*)',
   ],
 }
