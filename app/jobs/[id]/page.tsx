@@ -9,6 +9,7 @@ import {
   formatCny,
   formatShipmentLog,
   isBlockClosed,
+  isBlockingVerdict,
   jobComponentsTotal,
   jobExternalSpend,
   jobIsShipped,
@@ -590,6 +591,18 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           外协中
                         </span>
                       )}
+                      {/* 检验 blocking verdict — the part is held at inspection.
+                          Mirrors the red cell so the tag reads off the 零件
+                          column without scrolling right to the 检验 column. */}
+                      {c.stages['检验'] &&
+                        c.stages['检验'].status !== 'done' &&
+                        isBlockingVerdict(c.stages['检验'].verdict) && (
+                          <span className="block mt-1">
+                            <span className="inline-flex items-center rounded-[2px] border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-[var(--color-overdue)]">
+                              检验 · {c.stages['检验'].verdict}
+                            </span>
+                          </span>
+                        )}
                       {returnedQtyByPart.has(c.id) && (
                         <span className="block mt-1">
                           <ReturnedComponentChip
