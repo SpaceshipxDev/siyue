@@ -8,6 +8,7 @@ import {
 } from '@/lib/data'
 import { StageCell } from './_ui'
 import { StageCellButton } from './_cell'
+import { InspectionCell } from './_inspection_cell'
 
 function fmtDate(d: string | undefined): string | undefined {
   if (!d) return undefined
@@ -119,6 +120,23 @@ export function EffectiveStageCell({
           </span>
         ) : null}
       </div>
+    )
+  }
+
+  // 检验 swaps the ▶/⏸/✓ pair for the verdict cell (重做/返修/外修/OK +
+  // 检验照片). Read-only viewers still get the cell — the modal opens in
+  // view mode so any station can SEE the verdict and photos.
+  if (stage === '检验') {
+    return (
+      <InspectionCell
+        jobId={jobId}
+        componentId={component.id}
+        componentName={component.name}
+        state={rawState}
+        canStart={canStartStage(component, stage)}
+        photos={component.inspectionPhotos}
+        readOnly={!interactive}
+      />
     )
   }
 

@@ -2,6 +2,7 @@ export const STAGES = [
   '工程',
   '编程',
   '操机',
+  '检验',
   '手工',
   '打磨',
   '喷漆',
@@ -10,7 +11,7 @@ export const STAGES = [
   '出货',
 ] as const
 
-export const SCHEMA_VERSION = 7
+export const SCHEMA_VERSION = 8
 
 export type Stage = (typeof STAGES)[number]
 
@@ -31,6 +32,18 @@ export const OUTSOURCEABLE_STAGES: Stage[] = PRODUCTION_STAGES.filter(
 
 export type StageStatus = 'pending' | 'in_progress' | 'done'
 
+// 检验 verdicts — the inspector's four buttons. OK finishes the stage and the
+// part flows to 手工; the other three are BLOCKING: the part stays at 检验
+// with a red tag until someone eventually clicks OK. Stored as the literal
+// Chinese strings (same convention as stage names / OUTSOURCE_ACTIVITIES).
+export type Verdict = '重做' | '返修' | '外修' | 'OK'
+export const VERDICTS: Verdict[] = ['重做', '返修', '外修', 'OK']
+export const BLOCKING_VERDICTS: Verdict[] = ['重做', '返修', '外修']
+
+export function isBlockingVerdict(v: Verdict | undefined): v is Verdict {
+  return v !== undefined && v !== 'OK'
+}
+
 export type StageState = {
   status: StageStatus
   // MM-DD display string stamped at finish — kept for the historic "✓ 04-25"
@@ -50,6 +63,13 @@ export type StageState = {
   // once the count reaches qty — we never persist a 'done' row with a
   // doneQty < qty (the finish path clears it).
   doneQty?: number
+  // 检验-only: the inspector's latest verdict on this part. A blocking
+  // verdict (重做/返修/外修) holds the part at 检验 (status stays
+  // in_progress) and paints the red tag; 'OK' rides along with the normal
+  // done transition. Other stages never set these.
+  verdict?: Verdict
+  verdictAt?: string
+  verdictBy?: string
 }
 
 export type VendorId = string
@@ -270,6 +290,19 @@ export type Component = {
   // never counted in the rollup. 出货 is always present.
   stages: Partial<Record<Stage, StageState>>
   outsourceBlocks?: OutsourceBlock[]
+  // 检验照片 — photos uploaded at the inspection station (part_photos table).
+  // Deliberately separate from imageUrl, which is the reference image that
+  // prints on 外协单 / 出货单 and must never be clobbered by defect shots.
+  // Newest last. Undefined ⇒ not loaded in this view (lists); [] ⇒ loaded,
+  // none yet (job detail).
+  inspectionPhotos?: PartPhoto[]
+}
+
+export type PartPhoto = {
+  id: string
+  url: string
+  createdBy?: string
+  createdAt: string
 }
 
 // Best-effort line subtotal: prefer the explicitly-quoted lineTotalCny;
@@ -1350,10 +1383,13 @@ export function stageRangeLabel(stages: Stage[]): string {
 export function isFullStageCoverage(stages: Stage[]): boolean {
   // Match the current default (OUTSOURCEABLE_STAGES — excludes 工程 and 出货)
   // plus the older PRODUCTION_STAGES and STAGES shapes still in legacy data.
+  // The literal 7 covers blocks authored before 检验 existed (when
+  // OUTSOURCEABLE was 7 stages) so legacy 全程 blocks keep their label.
   return (
     stages.length === OUTSOURCEABLE_STAGES.length ||
     stages.length === PRODUCTION_STAGES.length ||
-    stages.length === STAGES.length
+    stages.length === STAGES.length ||
+    stages.length === 7
   )
 }
 

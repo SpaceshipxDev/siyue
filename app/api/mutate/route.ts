@@ -18,6 +18,7 @@ import {
   deleteProcurementProduct,
   deleteComponent,
   deleteOutsourceBlock,
+  deletePartPhoto,
   removeOutsourceBlockMember,
   finishJobStage,
   finishStage,
@@ -30,6 +31,7 @@ import {
   setComponentImage,
   setJobPin,
   setJobStagePin,
+  setInspectionVerdict,
   setJobIsProduct,
   setJobType,
   setMemberReturnedQty,
@@ -77,8 +79,9 @@ import {
   requireUser,
   type AuthUser,
 } from '@/lib/auth'
-import type { JobType, Stage } from '@/lib/data'
-import { JOB_TYPES, STAGES } from '@/lib/data'
+import type { JobType, Stage, Verdict } from '@/lib/data'
+import { JOB_TYPES, STAGES, VERDICTS } from '@/lib/data'
+import { removeInspectionPhotoObject } from '@/lib/inspection-photo'
 
 // Single JSON dispatcher for mutating writes. Every existing inline-edit
 // surface (job/component fields, stage cells, routing chips, outsource block
@@ -174,6 +177,11 @@ function isStage(x: unknown): x is Stage {
   // 喷漆丝印 → 喷漆/丝印 split (migration 0040) showed how a hand-copied stage
   // list silently drifts out of sync with lib/data.ts.
   return isString(x) && (STAGES as readonly string[]).includes(x)
+}
+
+function isVerdict(x: unknown): x is Verdict {
+  // Same derive-don't-copy rule as isStage.
+  return isString(x) && (VERDICTS as readonly string[]).includes(x)
 }
 
 function isValidHandoverItems(x: unknown): x is NewHandoverInput['items'] {
@@ -581,6 +589,36 @@ async function dispatch(
       const u = await requireOwnStage(stage)
       await setStageDoneQty(jobId, componentId, stage, qty, u.name)
       revalidateStage(jobId, stage)
+      return Response.json(ok())
+    }
+
+    // 检验 verdict — the inspector's four buttons (重做/返修/外修/OK). OK
+    // finishes the stage like a normal ✓; the rest hold the part at 检验
+    // with a red tag. Clicking a verdict IS the inspection — no prior ▶.
+    case 'setInspectionVerdict': {
+      const jobId = body.jobId
+      const componentId = body.componentId
+      const verdict = body.verdict
+      if (!isString(jobId) || !isString(componentId) || !isVerdict(verdict))
+        return err('bad setInspectionVerdict args')
+      const u = await requireOwnStage('检验')
+      await setInspectionVerdict(jobId, componentId, verdict, u.name)
+      revalidateStage(jobId, '检验')
+      return Response.json(ok())
+    }
+
+    // 检验照片 removal. Upload goes through /api/upload-inspection-photo
+    // (multipart); deletion is a normal JSON mutation. Row first (source of
+    // truth), then best-effort storage object removal.
+    case 'deletePartPhoto': {
+      const jobId = body.jobId
+      const photoId = body.photoId
+      if (!isString(jobId) || !isString(photoId))
+        return err('bad deletePartPhoto args')
+      await requireOwnStage('检验')
+      const url = await deletePartPhoto(jobId, photoId)
+      if (url) await removeInspectionPhotoObject(url)
+      revalidatePath(`/jobs/${jobId}`)
       return Response.json(ok())
     }
 

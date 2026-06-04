@@ -1190,6 +1190,16 @@ function JobRow({
               待外协
             </span>
           )}
+          {row.hasOpenInspectionVerdict && (
+            <span
+              className="row-badge"
+              data-tone="overdue"
+              title="此工单有零件检验未过 (重做/返修/外修)"
+              aria-label="检验异常"
+            >
+              检验异常
+            </span>
+          )}
           {row.activeReturn && <ReturnChip ret={row.activeReturn} />}
         </div>
       </td>

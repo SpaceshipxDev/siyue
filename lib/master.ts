@@ -87,6 +87,9 @@ export type MasterRow = {
   pinnedAt?: string
   /** Some part has an open outsource block on a non-出货 stage. */
   hasOpenOutsource: boolean
+  /** Some part is held at 检验 with a blocking verdict (重做/返修/外修).
+   *  Drives the red 检验异常 row badge on the workbench + master grid. */
+  hasOpenInspectionVerdict?: boolean
   /** Sum of distinct outsource block amounts attached to this job's parts. */
   externalSpendCny: number
   /** Margin = amountCny - externalSpendCny, or undefined if amountCny is null. */
