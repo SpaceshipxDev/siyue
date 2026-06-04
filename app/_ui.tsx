@@ -7,6 +7,7 @@ import { LogoutButton } from './_logout'
 
 export type TabKey =
   | '商务'
+  | '重点'
   | '现场'
   | '交接'
   | '采购'
@@ -37,6 +38,7 @@ function tabsForRole(role: Role, defaultStage?: string): Tab[] {
       // the same way commerce can.
       return [
         { key: '工程', label: '工程', href: '/' },
+        { key: '重点', label: '重点', href: '/daily' },
         { key: '现场', label: '现场', href: '/pulse' },
         { key: '交接', label: '交接', href: '/handover' },
         { key: '采购', label: '采购', href: '/procurement' },
@@ -55,6 +57,7 @@ function tabsForRole(role: Role, defaultStage?: string): Tab[] {
   }
   return [
     { key: '商务', label: '商务', href: '/' },
+    { key: '重点', label: '重点', href: '/daily' },
     { key: '现场', label: '现场', href: '/pulse' },
     { key: '交接', label: '交接', href: '/handover' },
     { key: '采购', label: '采购', href: '/procurement' },

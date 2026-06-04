@@ -5,12 +5,14 @@ import {
   assignJobToStage,
   assignToStage,
   closeReturn,
+  createDailyFocusItem,
   createHandover,
   createOutsourceBlockAt,
   createProcurement,
   createProcurementProduct,
   createReturn,
   createVendor,
+  deleteDailyFocusItem,
   deleteHandover,
   deleteProcurement,
   deleteProcurementProduct,
@@ -39,6 +41,7 @@ import {
   undoStage,
   updateComponent,
   updateCustomer,
+  updateDailyFocusItem,
   updateHandover,
   updateProcurement,
   updateProcurementProduct,
@@ -51,9 +54,11 @@ import {
   type ComponentPatch,
   type CreateReturnInput,
   type CustomerPatch,
+  type DailyFocusPatch,
   type HandoverPatch,
   type JobPatch,
   type NewBlockInput,
+  type NewDailyFocusInput,
   type NewHandoverInput,
   type NewProcurementInput,
   type NewProcurementProductInput,
@@ -64,6 +69,7 @@ import {
 } from '@/lib/db'
 import {
   canManageOutsource,
+  canSeeFactoryPulse,
   currentUser,
   requireCommerce,
   requireOutsourceManager,
@@ -259,6 +265,36 @@ function isValidProcurementProductPatch(
     return false
   if (!isOptNumber(o.unitPriceCny)) return false
   for (const f of ['category', 'supplier', 'link', 'notes']) {
+    if (!isOptString(o[f])) return false
+  }
+  return true
+}
+
+function isValidDailyFocusInput(x: unknown): x is NewDailyFocusInput {
+  if (typeof x !== 'object' || x === null) return false
+  const o = x as Record<string, unknown>
+  if (!isString(o.day) || !/^\d{4}-\d{2}-\d{2}$/.test(o.day)) return false
+  if (!isString(o.jobNoText)) return false
+  if (!isOptString(o.jobId) || !isOptNumber(o.position)) return false
+  for (const f of ['productText', 'dueText', 'feedback']) {
+    if (!isOptString(o[f])) return false
+  }
+  // A row must carry SOMETHING — 单号 may be blank (note-only Excel lines)
+  // but a fully empty row is a no-op the client should never send.
+  const hasContent =
+    o.jobNoText.trim().length > 0 ||
+    ['productText', 'dueText', 'feedback'].some(
+      (f) => typeof o[f] === 'string' && (o[f] as string).trim().length > 0,
+    )
+  return hasContent
+}
+
+function isValidDailyFocusPatch(x: unknown): x is DailyFocusPatch {
+  if (typeof x !== 'object' || x === null) return false
+  const o = x as Record<string, unknown>
+  if (o.jobNoText !== undefined && !isString(o.jobNoText)) return false
+  if (!isOptNumber(o.position)) return false
+  for (const f of ['jobId', 'productText', 'dueText', 'feedback']) {
     if (!isOptString(o[f])) return false
   }
   return true
@@ -1178,6 +1214,40 @@ async function dispatch(
       await requireUser()
       await deleteProcurementProduct(productId)
       revalidatePath('/procurement')
+      return Response.json(ok())
+    }
+
+    // === 重点 (daily focus list) — same gate as the /daily page (现场 view:
+    // commerce + 工程 head). Floor workers neither see nor write it. ===
+    case 'createDailyFocus': {
+      const input = body.input
+      if (!isValidDailyFocusInput(input)) return err('bad createDailyFocus args')
+      const u = await requireUser()
+      if (!canSeeFactoryPulse(u)) return err('forbidden', 403)
+      const id = await createDailyFocusItem(input, u.name)
+      revalidatePath('/daily')
+      return Response.json(ok({ id }))
+    }
+
+    case 'updateDailyFocus': {
+      const itemId = body.itemId
+      const patch = body.patch
+      if (!isString(itemId) || !isValidDailyFocusPatch(patch))
+        return err('bad updateDailyFocus args')
+      const u = await requireUser()
+      if (!canSeeFactoryPulse(u)) return err('forbidden', 403)
+      await updateDailyFocusItem(itemId, patch)
+      revalidatePath('/daily')
+      return Response.json(ok())
+    }
+
+    case 'deleteDailyFocus': {
+      const itemId = body.itemId
+      if (!isString(itemId)) return err('bad deleteDailyFocus args')
+      const u = await requireUser()
+      if (!canSeeFactoryPulse(u)) return err('forbidden', 403)
+      await deleteDailyFocusItem(itemId)
+      revalidatePath('/daily')
       return Response.json(ok())
     }
 

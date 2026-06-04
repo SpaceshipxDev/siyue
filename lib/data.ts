@@ -451,6 +451,24 @@ export const PROCUREMENT_CATEGORIES = [
   '其他',
 ] as const
 
+// 重点 — one row on a day's hand-curated focus list. The platform version of
+// the "today's important jobs" Excel. Only the human facts are stored (which
+// job, the 反馈 note); 交期 / 外协 / 客户 / 产品 are joined live from the
+// master read at render time so they can never go stale. See
+// supabase/migrations/0046_daily_focus.sql.
+export type DailyFocusItem = {
+  id: string
+  day: string // YYYY-MM-DD — which day's list
+  jobId?: string // linked job; undefined for free-text rows
+  jobNoText: string // 单号 as typed (display text when unlinked; may be '')
+  productText?: string // 产品 override — Excel-cell text; undefined ⇒ live join
+  dueText?: string // 交期 override — Excel-cell text; undefined ⇒ live join
+  feedback?: string // 反馈
+  position: number // order within the day (fractional — supports insert/move)
+  createdBy?: string
+  createdAt: string
+}
+
 // Line total for a purchase: 数量 × 单价. Undefined when either side is
 // missing — a half-specified row shows '—' rather than a misleading ¥0.
 export function procurementTotalCny(p: {

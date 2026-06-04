@@ -6,8 +6,8 @@ import {
   type Stage,
 } from '@/lib/data'
 import { today } from '@/lib/today'
-import { getMasterRows, getStageFlowMinutes } from '@/lib/db'
-import { requireUser, canSeeMoney } from '@/lib/auth'
+import { getDailyFocusItems, getMasterRows, getStageFlowMinutes } from '@/lib/db'
+import { requireUser, canSeeFactoryPulse, canSeeMoney } from '@/lib/auth'
 import { scrubMasterRow } from '@/lib/dto'
 import { getStationWip, getWorkerSelfStats } from '@/lib/pulse'
 import { Pill, TopBar, type TabKey } from './_ui'
@@ -15,6 +15,7 @@ import { MyToday } from './_my_today'
 import { MasterUploader } from './_uploader'
 import { InboxList } from './_inbox_list'
 import { MasterSheet } from './_master_filter'
+import { DailyFocusStrip, type FocusStripRow } from './_focus_strip'
 import { StationSummary } from './_station_summary'
 import {
   StationReportAsync,
@@ -60,15 +61,38 @@ export default async function MasterBoard(
   // job-detail page (/jobs/[id]) which still loads a single-job snapshot.
   const useMasterSheet = !stageFilter || stageFilter === '工程'
 
-  const [rawRows, stageFlowMinutes, selfStats] = await Promise.all([
+  const [rawRows, stageFlowMinutes, selfStats, focusItems] = await Promise.all([
     getMasterRows(),
     getStageFlowMinutes(),
     // The worker's own today/this-week numbers — fetched alongside the board so
     // the headline paints in the same shot. Only production users get a row.
     showMyToday ? getWorkerSelfStats(user.name) : Promise.resolve(null),
+    // 今日重点 — the boss's daily must-do list, mirrored onto every view.
+    getDailyFocusItems(today()),
   ])
 
   const rows = isProduction ? rawRows.map((r) => scrubMasterRow(r, user)) : rawRows
+
+  // Join today's focus rows against the (scrubbed) master read so the strip
+  // shows live jobNo / product / due state. Free-text rows pass through
+  // unlinked. Same list for everyone — boss and floor read identical state.
+  const rowById = new Map(rows.map((r) => [r.id, r]))
+  const focusRows: FocusStripRow[] = focusItems.map((it) => {
+    const job = it.jobId ? rowById.get(it.jobId) : undefined
+    return {
+      id: it.id,
+      jobId: job?.id,
+      jobNo: job?.jobNo ?? it.jobNoText,
+      // Board-local 产品/交期 overrides win over the live join — the strip
+      // broadcasts exactly what the curator typed on /daily.
+      product: it.productText ?? job?.product,
+      dueDate: it.dueText ?? job?.effectiveDueDate,
+      feedback: it.feedback,
+      isShipped: job?.isShipped,
+    }
+  })
+  const [, fm, fd] = today().split('-')
+  const focusDayLabel = `${parseInt(fm, 10)}月${parseInt(fd, 10)}日`
 
   // 工程 head runs imports too, so they get the same draft/parsing inbox
   // commerce sees. Pure-floor production users (焊接, 喷塑, etc.) still
@@ -210,6 +234,16 @@ export default async function MasterBoard(
         {selfStats && (
           <MyToday name={user.name} stats={selfStats} todayStr={today()} />
         )}
+
+        {/* 今日重点 — rendered on EVERY view of this page (商务 overview,
+            工程 holistic, every worker's ?stage= station view) so the whole
+            floor reads the same daily list without a WeChat blast. */}
+        <DailyFocusStrip
+          rows={focusRows}
+          dayLabel={focusDayLabel}
+          canManage={canSeeFactoryPulse(user)}
+        />
+
 
         {showOverviewChrome && (
           <div className="mb-6 flex items-baseline justify-between">
