@@ -28,6 +28,7 @@ import { JobNotesInline } from './_editable'
 import { ReturnChip } from './_returns'
 import { TypeChip, useOptimisticJobType } from './_type_chip'
 import { SearchInput } from './_search'
+import { ExportExcelButton } from './_export_excel'
 import { usePersistentState } from './_persist'
 import { StickyHorizontalScrollbar } from './_sticky_hscroll'
 import type { JobType } from '@/lib/data'
@@ -512,17 +513,27 @@ export function MasterSheet({
             </span>
           </button>
         )}
-        <span className="ml-auto label text-[var(--color-ink-3)]">
-          <span
-            className={`mono mr-1 text-[12px] ${
-              isFiltered
-                ? 'text-[var(--color-ink)] font-medium'
-                : 'text-[var(--color-ink-2)]'
-            }`}
-          >
-            {filteredCount}
+        <span className="ml-auto inline-flex items-baseline gap-4">
+          <span className="label text-[var(--color-ink-3)]">
+            <span
+              className={`mono mr-1 text-[12px] ${
+                isFiltered
+                  ? 'text-[var(--color-ink)] font-medium'
+                  : 'text-[var(--color-ink-2)]'
+              }`}
+            >
+              {filteredCount}
+            </span>
+            {isFiltered ? `/ ${scopedRows.length}` : ''}
           </span>
-          {isFiltered ? `/ ${scopedRows.length}` : ''}
+          {/* 导出 — downloads exactly the rows the table is showing (search +
+              date + 在产/已出货 + column status filters all applied). Sits
+              beside the count so "导出 N 个" reads as one unit. */}
+          <ExportExcelButton
+            rows={[...topRows, ...upstreamRows, ...doneRows]}
+            showMoney={showMoney}
+            showCustomer={!isProduction}
+          />
         </span>
       </div>
 
