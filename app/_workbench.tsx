@@ -490,6 +490,19 @@ function WorkbenchRow({
                   检验异常
                 </span>
               )}
+              {row.drawingChangeOpen && (
+                <span
+                  className="row-badge"
+                  data-tone="overdue"
+                  title={
+                    row.drawingChangeNote
+                      ? `图纸变更 · ${row.drawingChangeNote}`
+                      : '客户已修改图纸,请核对最新图纸后再加工'
+                  }
+                >
+                  图纸变更
+                </span>
+              )}
               {row.activeReturn && <ReturnChip ret={row.activeReturn} />}
             </div>
           </div>

@@ -465,6 +465,41 @@ async function dispatch(
       return Response.json(ok())
     }
 
+    // 图纸变更报警 — the customer revised drawings mid-production. open=true
+    // stamps the alarm + note + who/when; open=false clears it (图纸已确认).
+    // Inform-only: stations keep working — the alarm headlines the job detail
+    // page and badges every row until cleared. Auth: same group that manages
+    // 外协 / 退货 (商务 + 工程 head).
+    case 'setDrawingChange': {
+      const jobId = body.jobId
+      const open = body.open
+      const note = body.note
+      if (!isString(jobId) || typeof open !== 'boolean')
+        return err('bad setDrawingChange args')
+      if (note !== undefined && note !== null && !isString(note))
+        return err('bad note')
+      const u = await requireOutsourceManager()
+      const patch: JobPatch = open
+        ? {
+            drawingChangeOpen: true,
+            // null (note explicitly emptied) clears it; undefined (note not
+            // sent) leaves the existing note untouched.
+            drawingChangeNote:
+              note === undefined ? undefined : (note as string | null),
+            drawingChangeBy: u.name,
+            drawingChangeAt: new Date().toISOString(),
+          }
+        : {
+            drawingChangeOpen: false,
+            drawingChangeNote: null,
+            drawingChangeBy: null,
+            drawingChangeAt: null,
+          }
+      await updateJob(jobId, patch)
+      revalidateJob(jobId)
+      return Response.json(ok())
+    }
+
     // === Component-level edits ===
     case 'updateComponent': {
       const jobId = body.jobId

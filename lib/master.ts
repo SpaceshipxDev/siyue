@@ -82,6 +82,13 @@ export type MasterRow = {
   needsOutsource?: boolean
   /** Engineer's free-text spec for what needs outsourcing (tooltip + filter). */
   outsourceNote?: string
+  /** 图纸变更 — live drawing-change alarm: the customer revised drawings
+   *  mid-production. Drives the overdue row badge + the master-board alarm
+   *  facet (which only renders while ≥1 alarm is live). Cleared by 商务/工程
+   *  head once new drawings are confirmed distributed. */
+  drawingChangeOpen?: boolean
+  /** What changed / which parts — written by whoever raised the alarm. */
+  drawingChangeNote?: string
   /** Row-level boss pin (jobs.pinned_at). Legacy — kept for sub-sort
    *  recency within the rush bucket. Not rendered. */
   pinnedAt?: string

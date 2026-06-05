@@ -608,6 +608,15 @@ export type Job = {
   outsourceNote?: string
   outsourceFlaggedBy?: string
   outsourceFlaggedAt?: string
+  // 图纸变更报警 — the customer revised drawings mid-production. The one true
+  // alarm in the system: raised by 商务/工程 head with a note (what changed,
+  // which parts), headlines the job detail page + rows everywhere, cleared by
+  // the same group once new drawings are confirmed distributed. Inform-only:
+  // stations keep working. Single live alarm; clearing wipes the fields.
+  drawingChangeOpen?: boolean
+  drawingChangeNote?: string
+  drawingChangeBy?: string
+  drawingChangeAt?: string
   // Legacy fields kept on the type for snapshot compatibility (the DB column
   // still exists; nothing in the UI reads them anymore). Will be dropped
   // once the rollout is verified.

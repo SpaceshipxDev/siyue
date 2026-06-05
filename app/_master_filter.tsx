@@ -210,6 +210,10 @@ export function MasterSheet({
   // Transient (not persisted): it's a momentary focus, not a saved preference,
   // so a refresh returns to the full board. Overview only.
   const [onlyPendingOutsource, setOnlyPendingOutsource] = useState(false)
+  // 图纸变更 facet — the live drawing-change alarms. Same transient semantics
+  // as 待外协; the chip itself only renders while ≥1 alarm is open, so the
+  // board carries zero extra chrome on normal days.
+  const [onlyDrawingChange, setOnlyDrawingChange] = useState(false)
   // Per-column status filters (overview only) — Excel-style: each 工段 column
   // carries its own independent filter, applied with AND across columns
   // ("未开始 at 编程 AND 已完成 at 工程"). Persisted per view context. A column
@@ -405,8 +409,11 @@ export function MasterSheet({
       const facetScoped = onlyPendingOutsource
         ? statusScoped.filter((r) => r.needsOutsource && !r.hasOpenOutsource)
         : statusScoped
+      const alarmScoped = onlyDrawingChange
+        ? facetScoped.filter((r) => r.drawingChangeOpen)
+        : facetScoped
       return {
-        topRows: floatRush(facetScoped),
+        topRows: floatRush(alarmScoped),
         upstreamRows: [] as MasterRow[],
         doneRows: [] as MasterRow[],
       }
@@ -441,7 +448,7 @@ export function MasterSheet({
       upstreamRows: floatRush(upstream),
       doneRows: done,
     }
-  }, [dateFiltered, isStationView, stageFilter, q, effectiveType, activeFilterStages, statusByStage, onlyPendingOutsource])
+  }, [dateFiltered, isStationView, stageFilter, q, effectiveType, activeFilterStages, statusByStage, onlyPendingOutsource, onlyDrawingChange])
 
   // 待外协 count over the current date scope — drives the facet chip label and
   // hides the chip entirely when nothing is waiting (clean board, no chrome).
@@ -454,12 +461,24 @@ export function MasterSheet({
     [dateFiltered],
   )
 
+  // 图纸变更 count — live drawing-change alarms. Same hide-at-zero contract
+  // as 待外协: the chip is the boss's alarm list, and on normal days the
+  // board shows no trace of the feature at all.
+  const drawingChangeCount = useMemo(
+    () => dateFiltered.reduce((n, r) => (r.drawingChangeOpen ? n + 1 : n), 0),
+    [dateFiltered],
+  )
+
   // Any column filter narrows the list — treat it like search/date so
   // pagination lifts and the count chip + 清除 affordance show.
   const statusActive = activeFilterStages.length > 0
   const filteredCount = topRows.length + upstreamRows.length + doneRows.length
   const isFiltered =
-    q.length > 0 || dateFilter.kind !== 'all' || statusActive || onlyPendingOutsource
+    q.length > 0 ||
+    dateFilter.kind !== 'all' ||
+    statusActive ||
+    onlyPendingOutsource ||
+    onlyDrawingChange
 
   // Pagination applies only on the commerce overview. Station views already
   // self-limit (mine + upstream≤20 + done≤20), and any active filter implies
@@ -510,6 +529,27 @@ export function MasterSheet({
             <span>待外协</span>
             <span className="mono text-[12px] tracking-normal font-medium">
               {pendingOutsourceCount}
+            </span>
+          </button>
+        )}
+        {/* 图纸变更 alarm facet — exists only while ≥1 alarm is live, so the
+            board carries zero chrome on normal days. Overdue tone: this is
+            the one true alarm, a notch louder than the 待外协 todo. */}
+        {treatAsOverview && (drawingChangeCount > 0 || onlyDrawingChange) && (
+          <button
+            type="button"
+            onClick={() => setOnlyDrawingChange((v) => !v)}
+            aria-pressed={onlyDrawingChange}
+            className={`inline-flex items-baseline gap-1.5 rounded-[2px] border px-2.5 py-[3px] text-[10px] tracking-[0.14em] uppercase transition-colors ${
+              onlyDrawingChange
+                ? 'border-[var(--color-overdue)]/40 bg-[var(--color-overdue-soft)] text-[var(--color-overdue)]'
+                : 'border-[var(--color-border)] text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)]'
+            }`}
+            title="只看客户已修改图纸、报警未解除的工单"
+          >
+            <span>图纸变更</span>
+            <span className="mono text-[12px] tracking-normal font-medium">
+              {drawingChangeCount}
             </span>
           </button>
         )}
@@ -1198,6 +1238,22 @@ function JobRow({
               aria-label="检验异常"
             >
               检验异常
+            </span>
+          )}
+          {/* 图纸变更 — live drawing-change alarm; the headline lives on the
+              job-detail banner, this is the row-level pointer to it. */}
+          {row.drawingChangeOpen && (
+            <span
+              className="row-badge"
+              data-tone="overdue"
+              title={
+                row.drawingChangeNote
+                  ? `图纸变更 · ${row.drawingChangeNote}`
+                  : '客户已修改图纸,请核对最新图纸后再加工'
+              }
+              aria-label="图纸变更"
+            >
+              图纸变更
             </span>
           )}
           {row.activeReturn && <ReturnChip ret={row.activeReturn} />}

@@ -60,6 +60,10 @@ import {
   OpenReturnButton,
   ReturnedComponentChip,
 } from '@/app/_returns'
+import {
+  DrawingChangeBanner,
+  DrawingChangeButton,
+} from '@/app/_drawing_change'
 import { ShippingComposerButton } from '@/app/_shipping'
 import { JobTypeEditor } from '@/app/_type_chip'
 import {
@@ -107,12 +111,32 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   const ds = dueState(job.dueDate)
   const days = daysFromToday(job.dueDate)
 
+  // Per-component returned-qty lookup for the active return. Empty map when
+  // no return is open, so the badge naturally disappears once 关闭 is hit.
+  const returnedQtyByPart = jobReturnedQtyByPart(job)
+
+  // 退货中 — the carried sheet shows ONLY the returned parts. Everything else
+  // already shipped, and re-rendering it is pure scan tax for the floor: the
+  // rework round-trip is about the named parts alone. Original row ordinals
+  // are kept so "03" still matches the full sheet / source workbook. Falls
+  // back to the full list if the return names no resolvable part (defensive
+  // — createReturn enforces ≥1). Reverts automatically when 关闭 is hit.
+  const returnScoped =
+    Boolean(job.activeReturn) &&
+    job.components.some((c) => returnedQtyByPart.has(c.id))
+  const componentRows = job.components
+    .map((c, i) => ({ c, i }))
+    .filter(({ c }) => !returnScoped || returnedQtyByPart.has(c.id))
+  const hiddenCount = job.components.length - componentRows.length
+
   // Denominator counts only stages that actually apply to each part — a part
   // routed through 5 stages contributes 5, not 9. Otherwise 100% would be
-  // unreachable for any job whose parts skip stages.
+  // unreachable for any job whose parts skip stages. While a 退货 is open the
+  // denominator scopes to the returned parts, so 总进度 tracks the rework
+  // (0% → 100%) instead of sitting at ~95% on the already-shipped rest.
   let totalCells = 0
   let doneCells = 0
-  for (const c of job.components) {
+  for (const { c } of componentRows) {
     for (const s of STAGES) {
       const eff = effectiveStageState(c, s, vendors)
       if (eff.kind === 'na') continue
@@ -126,16 +150,14 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   const margin = jobMargin(job)
   const componentsTotal = jobComponentsTotal(job)
 
-  const componentOptions = job.components.map((c) => ({
+  // New-outsource-block picker. Scoped the same way: while a return is open,
+  // only the returned parts are sendable — the rest are at the customer.
+  const componentOptions = componentRows.map(({ c }) => ({
     id: c.id,
     name: c.name,
     qty: c.qty,
     hasAnyBlock: (c.outsourceBlocks ?? []).length > 0,
   }))
-
-  // Per-component returned-qty lookup for the active return. Empty map when
-  // no return is open, so the badge naturally disappears once 关闭 is hit.
-  const returnedQtyByPart = jobReturnedQtyByPart(job)
 
   // A block now spans N components — dedupe by block.id so the per-job list
   // shows one row per shipment with all members.
@@ -169,9 +191,26 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
 
       <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">
         <ComponentAnchorScroller />
+        {/* 图纸变更报警 — headlines the page while open. The floor opens this
+            page at every station; the alarm has to be the first thing read. */}
+        {job.drawingChangeOpen && (
+          <DrawingChangeBanner
+            jobId={job.id}
+            note={job.drawingChangeNote}
+            by={job.drawingChangeBy}
+            at={job.drawingChangeAt}
+            canEdit={canManageOutsource(user)}
+          />
+        )}
         <div className="mb-6 flex items-center justify-between gap-3">
           <BackButton fallback={backFallback} />
           <div className="flex items-center gap-3 flex-wrap justify-end">
+            {/* 图纸变更 raise affordance — quiet outline button; while an
+                alarm is open the banner above owns the state (single live
+                alarm per job, re-raising is meaningless). */}
+            {!job.drawingChangeOpen && canManageOutsource(user) && (
+              <DrawingChangeButton jobId={job.id} jobNo={job.jobNo} />
+            )}
             {job.activeReturn ? (
               <ActiveReturnBadge
                 ret={job.activeReturn}
@@ -450,9 +489,16 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
         )}
 
         <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
-            零件进度
-          </h2>
+          <div className="flex items-baseline gap-3">
+            <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
+              零件进度
+            </h2>
+            {returnScoped && hiddenCount > 0 && (
+              <span className="label text-[var(--color-overdue)]">
+                退货中 · 仅显示退回零件 · 其余 {hiddenCount} 件已出货,已隐藏
+              </span>
+            )}
+          </div>
           <p className="label">
             {!isProduction || canEditFields
               ? '点 ▶ 起步 · 点 ● 收件 · 60 秒内可撤销 · 外协见下'
@@ -548,7 +594,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               </tr>
             </thead>
             <tbody>
-              {job.components.map((c, i) => (
+              {componentRows.map(({ c, i }) => (
                 <tr key={c.id} id={`c-${c.id}`} className="align-middle">
                     <td
                       className="sticky-col px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]"
