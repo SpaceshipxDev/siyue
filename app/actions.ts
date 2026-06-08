@@ -20,7 +20,7 @@
 // When adding a new mutation: prefer adding a `kind` to the dispatcher.
 
 import { revalidatePath } from 'next/cache'
-import type { Stage } from '@/lib/data'
+import type { Stage, JobStatus } from '@/lib/data'
 import type { Customer, Vendor } from '@/lib/data'
 import {
   appendComponent,
@@ -312,7 +312,10 @@ export async function setPartRouteAction(
 
 export type ConfirmJobResult =
   | { ok: true }
-  | { ok: false; conflict: { id: string; jobNo: string; customer: string } }
+  | {
+      ok: false
+      conflict: { id: string; jobNo: string; customer: string; status: JobStatus }
+    }
   | { ok: false; error: string }
 
 export async function confirmJobAction(

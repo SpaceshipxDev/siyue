@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import {
   STAGES,
   componentShipmentEntries,
@@ -86,6 +86,10 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // slowest of three queries.
   const [rawJob, rawVendors] = await Promise.all([getJob(id), getVendors()])
   if (!rawJob) notFound()
+  // Only `ready` jobs live on the production board. A draft/parsing/failed job
+  // reached here via a stale link or a 工号-conflict button — send it to the
+  // import review screen, the mirror of /import/[id]'s `ready → /jobs` bounce.
+  if (rawJob.status !== 'ready') redirect(`/import/${rawJob.id}`)
 
   const isProduction = user.role === 'production'
   // 出货 production users get customer-flavored visibility (customer name +

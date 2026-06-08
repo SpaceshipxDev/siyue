@@ -30,7 +30,7 @@ import {
 import { ParsingPoller } from '@/app/_import_status'
 import { SourceFileRow } from '@/app/_source_file'
 import { StageChips } from '@/app/_stagechips'
-import type { Component } from '@/lib/data'
+import type { Component, JobStatus } from '@/lib/data'
 
 export const dynamic = 'force-dynamic'
 
@@ -374,7 +374,7 @@ function ParsingScreen({
   hasSourceFile: boolean
   failed: boolean
   error?: string
-  conflict: { id: string; jobNo: string; customer: string } | null
+  conflict: { id: string; jobNo: string; customer: string; status: JobStatus } | null
   user: AuthUser
 }) {
   return (

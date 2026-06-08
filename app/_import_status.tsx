@@ -5,6 +5,7 @@ import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { deleteJobAction } from './actions'
 import { mutate } from '@/lib/mutate'
+import type { JobStatus } from '@/lib/data'
 
 // 1.5s matches the typical Gemini Flash Lite latency for a small xlsx —
 // short enough that the redirect to /draft feels instant.
@@ -29,7 +30,7 @@ export function ParsingPoller({
   error?: string
   // Set only when failed === true and parse_error encoded a 工号 collision.
   // Renders the dedicated duplicate panel instead of the generic failure UI.
-  conflict?: { id: string; jobNo: string; customer: string } | null
+  conflict?: { id: string; jobNo: string; customer: string; status: JobStatus } | null
   hasSourceFile: boolean
 }) {
   const router = useRouter()
@@ -312,7 +313,7 @@ function DuplicatePanel({
 }: {
   jobId: string
   sourceFile?: string
-  conflict: { id: string; jobNo: string; customer: string }
+  conflict: { id: string; jobNo: string; customer: string; status: JobStatus }
 }) {
   const router = useRouter()
   const [discarding, startDiscard] = useTransition()
@@ -334,10 +335,13 @@ function DuplicatePanel({
     <section className="rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-8 py-10">
       <p className="label text-[var(--color-ink-3)] mb-3">导入已暂停 · 工号冲突</p>
       <h2 className="text-[20px] font-semibold tracking-tight text-[var(--color-ink)] mb-2">
-        工号 <span className="mono">{conflict.jobNo}</span> 已存在
+        工号 <span className="mono">{conflict.jobNo}</span>{' '}
+        {conflict.status === 'draft' ? '已有未确认草稿' : '已存在'}
       </h2>
       <p className="text-[13px] text-[var(--color-ink-2)] leading-relaxed">
-        系统中已有一份相同工号的工单。
+        {conflict.status === 'draft'
+          ? '之前导入过这个工号但还没确认（仍是草稿，未进入看板）。'
+          : '系统中已有一份相同工号的工单。'}
         {sourceFile ? (
           <>
             {' '}本次上传的源文件
@@ -360,10 +364,14 @@ function DuplicatePanel({
 
       <div className="mt-8 flex flex-wrap items-center gap-3">
         <Link
-          href={`/jobs/${conflict.id}`}
+          href={
+            conflict.status === 'draft'
+              ? `/import/${conflict.id}`
+              : `/jobs/${conflict.id}`
+          }
           className="inline-flex items-center gap-2 rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-ink)] px-4 py-2 text-[13px] font-medium text-[var(--color-bg)] transition hover:brightness-110"
         >
-          打开已存在工单 →
+          {conflict.status === 'draft' ? '打开草稿继续 →' : '打开已存在工单 →'}
         </Link>
         <button
           type="button"

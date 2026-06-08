@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { STAGES, type Stage } from '@/lib/data'
+import { STAGES, type Stage, type JobStatus } from '@/lib/data'
 import { confirmJobAction } from './actions'
 import { mutate } from '@/lib/mutate'
 
@@ -25,7 +25,7 @@ export function ConfirmImportButton({ jobId }: { jobId: string }) {
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<Stage | undefined>(undefined)
   const [conflict, setConflict] = useState<
-    { id: string; jobNo: string; customer: string } | null
+    { id: string; jobNo: string; customer: string; status: JobStatus } | null
   >(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -109,16 +109,20 @@ export function ConfirmImportButton({ jobId }: { jobId: string }) {
         <div className="inline-flex items-center gap-2 rounded-[2px] border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] px-3 py-2 text-[12px] text-[var(--color-ink)]">
           <span>
             工号 <span className="mono text-[var(--color-ink)]">{conflict.jobNo}</span>{' '}
-            已存在
+            {conflict.status === 'draft' ? '已有未确认草稿' : '已存在'}
             {conflict.customer ? (
               <span className="text-[var(--color-ink-2)]"> · {conflict.customer}</span>
             ) : null}
           </span>
           <Link
-            href={`/jobs/${conflict.id}`}
+            href={
+              conflict.status === 'draft'
+                ? `/import/${conflict.id}`
+                : `/jobs/${conflict.id}`
+            }
             className="underline underline-offset-2 text-[var(--color-ink)] hover:opacity-70"
           >
-            打开已存在工单 →
+            {conflict.status === 'draft' ? '打开草稿 →' : '打开已存在工单 →'}
           </Link>
         </div>
       ) : error ? (
