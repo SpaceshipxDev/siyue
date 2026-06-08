@@ -59,6 +59,9 @@ export type MasterRow = {
   jobNo: string
   customer: string
   product: string
+  /** 工程师 — AI-extracted engineer name. Customer-facing PII (scrubbed for
+   *  production scopes). Drives the commerce/boss dashboard subtext. */
+  engineer?: string
   amountCny?: number
   /** Original contract dueDate from the jobs row. Use `effectiveDueDate` for sort/color. */
   dueDate: string

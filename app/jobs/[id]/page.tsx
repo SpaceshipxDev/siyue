@@ -293,13 +293,16 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]"
                   placeholder="客户"
                 />
+                {/* 工程师 sits under the customer name as the customer-side
+                    identifier commerce/boss care about. 产品 moves to the
+                    metadata grid below (still editable). */}
                 <div className="mt-1">
-                  <JobText
+                  <JobShippingText
                     jobId={job.id}
-                    field="product"
-                    value={job.product}
+                    field="engineer"
+                    value={job.engineer}
                     className="text-[14px] text-[var(--color-ink-2)]"
-                    placeholder="产品"
+                    placeholder="工程师"
                   />
                 </div>
               </>
@@ -410,27 +413,43 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           </div>
         </div>
 
-        {/* 工程师 / 合同号 — job-level metadata that prints on the 出货单.
-            工程师 is AI-extracted on import when present in the source file;
-            合同号 is always blank on import and commerce fills it in once the
-            customer assigns one. Hidden from pure production users since both
-            are customer-facing (gated through scrubJob → customerOk). */}
+        {/* Metadata row — left cell is 工程师 (出货) or 产品 (commerce), right
+            cell is 合同号. 工程师 is AI-extracted on import when present in the
+            source file; 合同号 is always blank on import and commerce fills it in
+            once the customer assigns one. Hidden from pure production users since
+            all of these are customer-facing (gated through scrubJob → customerOk). */}
         {showCustomer && (
           <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <p className="label mb-2">工程师</p>
-              {canEditFields ? (
-                <JobShippingText
-                  jobId={job.id}
-                  field="engineer"
-                  value={job.engineer}
-                  className="text-[13px] text-[var(--color-ink)]"
-                  placeholder="—"
-                />
+              {/* 出货 (production w/ customer view) keeps 工程师 here — they read
+                  the same header as commerce (客户 + 产品) so engineer belongs in
+                  this metadata row for them. Commerce/boss moved 工程师 up under
+                  the customer name, so they edit 产品 here instead. */}
+              {isProduction ? (
+                <>
+                  <p className="label mb-2">工程师</p>
+                  <p className="text-[13px] text-[var(--color-ink)]">
+                    {job.engineer ?? '—'}
+                  </p>
+                </>
               ) : (
-                <p className="text-[13px] text-[var(--color-ink)]">
-                  {job.engineer ?? '—'}
-                </p>
+                <>
+                  <p className="label mb-2">产品</p>
+                  {canEditFields ? (
+                    <JobText
+                      jobId={job.id}
+                      field="product"
+                      value={job.product}
+                      multiline
+                      className="text-[13px] text-[var(--color-ink)]"
+                      placeholder="产品"
+                    />
+                  ) : (
+                    <p className="text-[13px] text-[var(--color-ink)]">
+                      {job.product}
+                    </p>
+                  )}
+                </>
               )}
             </div>
             <div>

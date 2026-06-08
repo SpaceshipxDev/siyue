@@ -66,7 +66,15 @@ export default async function OutsourceDocPage(
         <section className="grid grid-cols-2 gap-x-10 gap-y-3 py-5 text-[14px] font-medium border-b border-[var(--color-border)]">
           <Field
             label="外协单号"
-            value={<span className="mono">{docNo}</span>}
+            value={
+              <OutsourceBlockText
+                blockId={info.block.id}
+                jobId={info.jobId}
+                field="docNo"
+                value={docNo}
+                className="mono"
+              />
+            }
           />
           <Field
             label="供应商"

@@ -94,6 +94,9 @@ export function scrubMasterRow(row: MasterRow, scope: Scope): MasterRow {
   return {
     ...row,
     customer: customerOk ? row.customer : '',
+    // 工程师 is customer-facing PII — strip it for production scopes (they
+    // render 产品 in the grid, not the engineer).
+    engineer: customerOk ? row.engineer : undefined,
     amountCny: moneyOk ? row.amountCny : undefined,
     externalSpendCny: moneyOk ? row.externalSpendCny : 0,
     marginCny: moneyOk ? row.marginCny : undefined,

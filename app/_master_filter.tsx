@@ -625,7 +625,7 @@ export function MasterSheet({
               <th className="px-3 py-3 text-center label whitespace-nowrap">#</th>
               <th className="px-4 py-3 label whitespace-nowrap">工号</th>
               <th className="px-4 py-3 label whitespace-nowrap">
-                {isProduction ? '产品' : '客户 / 产品'}
+                {isProduction ? '产品' : '客户 / 工程师'}
               </th>
               {showMoney && (
                 <th className="px-4 py-3 text-right label whitespace-nowrap">
@@ -1266,6 +1266,8 @@ function JobRow({
               <Highlight text={row.customer} q={q} />
             </span>
           )}
+          {/* Production sees 产品 (the part they actually make); commerce/boss
+              see 工程师 as the customer-side identifier under the customer name. */}
           <span
             className={
               isProduction
@@ -1273,7 +1275,7 @@ function JobRow({
                 : 'label mt-0.5 normal-case tracking-normal text-[11px] text-[var(--color-ink-3)]'
             }
           >
-            <Highlight text={row.product} q={q} />
+            <Highlight text={isProduction ? row.product : row.engineer || '—'} q={q} />
           </span>
           {/* MatchedComponentsStrip dropped on the lite shape — components
               are not loaded on the master read. Job-detail still shows them. */}

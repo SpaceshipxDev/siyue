@@ -844,6 +844,7 @@ type BlockTextField =
   | 'recipientContactName'
   | 'recipientContactPhone'
   | 'notes'
+  | 'docNo'
 
 export function OutsourceBlockText({
   blockId,
@@ -876,7 +877,9 @@ export function OutsourceBlockText({
                 ? { recipientContactName: next }
                 : field === 'recipientContactPhone'
                   ? { recipientContactPhone: next }
-                  : { notes: next }
+                  : field === 'docNo'
+                    ? { docNo: next }
+                    : { notes: next }
         await mutate({
           kind: 'updateOutsourceBlock',
           blockId,
