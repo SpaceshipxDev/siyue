@@ -334,6 +334,8 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 jobNo={job.jobNo}
                 initialType={job.jobType}
                 initialIsProduct={job.isProduct}
+                initialPaused={Boolean(job.pausedAt)}
+                initialPauseReason={job.pauseReason}
                 canEdit={canManageOutsource(user)}
               />
             </div>

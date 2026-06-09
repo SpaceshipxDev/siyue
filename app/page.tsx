@@ -113,9 +113,12 @@ export default async function MasterBoard(
   )
   // 在产 / 逾期 / 今日 pills are "needs attention" signals — shipped jobs
   // (every in-route part done at 出货) are off the floor, so they don't
-  // count even if their dueDate is in the past. Mirrors the MasterSheet
-  // 进行中 / 已出货 split (see _master_filter.tsx liveCount).
-  const inProgress = sorted.filter((r) => !r.isShipped)
+  // count even if their dueDate is in the past. Paused (暂停) jobs are
+  // deliberately on hold, so they're carved out into their own pill and don't
+  // skew 在产 / 逾期 / 今日. Mirrors the MasterSheet 在产 / 暂停 / 已出货 split
+  // (see _master_filter.tsx liveCount).
+  const inProgress = sorted.filter((r) => !r.isShipped && !r.pausedAt)
+  const pausedCount = sorted.filter((r) => !r.isShipped && r.pausedAt).length
   const overdue = inProgress.filter(
     (r) => dueState(r.effectiveDueDate) === 'overdue',
   ).length
@@ -216,12 +219,14 @@ export default async function MasterBoard(
               <Pill tone="overdue" label="逾期" value={overdue} />
               <Pill tone="warning" label="今日" value={dueToday} />
               <Pill tone="neutral" label="在产" value={inProgress.length} />
+              <Pill tone="neutral" label="暂停" value={pausedCount} />
             </div>
           ) : isProduction ? null : (
             <div className="flex items-center gap-2">
               <Pill tone="overdue" label="逾期" value={overdue} />
               <Pill tone="warning" label="今日" value={dueToday} />
               <Pill tone="neutral" label="在产" value={inProgress.length} />
+              <Pill tone="neutral" label="暂停" value={pausedCount} />
               <Pill tone="info" label="总额" value={formatCny(totalAmount)} />
               <Pill tone="info" label="外发" value={formatCny(totalExternal)} />
               <Pill tone="success" label="毛利" value={formatCny(totalMargin)} />

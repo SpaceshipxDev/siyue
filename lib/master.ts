@@ -79,6 +79,12 @@ export type MasterRow = {
   jobType?: JobType
   /** 产品 — independent stack-on-top tag. Coexists with jobType. */
   isProduct?: boolean
+  /** 暂停 — job deliberately blocked / on hold. Independent of jobType +
+   *  isProduct. Truthy ⇒ carved out of 在产 into the 暂停 column. Doubles as
+   *  the "blocked since" timestamp. Undefined ⇒ flowing. See migration 0050. */
+  pausedAt?: string
+  /** Optional free-text reason a job was paused (tooltip / detail display). */
+  pauseReason?: string
   /** 待外协 — 工程 flagged this job as needing outsourcing, before a vendor
    *  block exists. Cleared once 商务 creates the block (→ hasOpenOutsource).
    *  Drives the 待外协 row badge + the 商务 pending filter. */
@@ -262,6 +268,12 @@ export function rowEffectiveDueDate(row: MasterRow): string {
 /** True when shipping is fully closed out. */
 export function rowIsShipped(row: MasterRow): boolean {
   return row.isShipped
+}
+
+/** True when the job is deliberately on hold (暂停). Independent of isShipped;
+ *  the 在产 / 暂停 / 已出货 split treats 暂停 as a slice of not-yet-shipped. */
+export function rowIsPaused(row: MasterRow): boolean {
+  return Boolean(row.pausedAt)
 }
 
 /** Computes effectiveDueDate from a dueDate + activeReturn — mirrors lib/data.ts. */

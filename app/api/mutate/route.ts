@@ -33,6 +33,7 @@ import {
   setJobStagePin,
   setInspectionVerdict,
   setJobIsProduct,
+  setJobPaused,
   setJobType,
   setMemberReturnedQty,
   setPartRoute,
@@ -786,6 +787,32 @@ async function dispatch(
         return err('无权设置工单类别 (仅商务/工程可操作)', 403)
       }
       await setJobIsProduct(jobId, isProduct)
+      revalidatePath('/')
+      revalidatePath(`/jobs/${jobId}`)
+      for (const s of STAGES) {
+        revalidatePath(`/station/${encodeURIComponent(s)}`)
+      }
+      return Response.json(ok())
+    }
+
+    // 暂停 (on-hold) toggle. Independent of setJobType — a job can be 加急 AND
+    // 暂停. Unlike setJobType this is OPEN TO ANYONE LOGGED IN: any station can
+    // flag a blocker, not just 商务/工程. Reason is optional free text.
+    case 'setJobPaused': {
+      const jobId = body.jobId
+      const paused = body.paused
+      const reason = body.reason
+      if (!isString(jobId) || typeof paused !== 'boolean')
+        return err('bad setJobPaused args')
+      if (reason != null && !isString(reason))
+        return err('bad setJobPaused args')
+      const u = await requireUser()
+      await setJobPaused(
+        jobId,
+        paused,
+        (reason as string | undefined) ?? null,
+        u.name,
+      )
       revalidatePath('/')
       revalidatePath(`/jobs/${jobId}`)
       for (const s of STAGES) {

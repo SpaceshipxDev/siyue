@@ -42,6 +42,9 @@
   /* 产品 — independent stack-on-top tag. Forest green so it reads as a
      parallel signal, not another duration bucket. */
   --color-type-product: #2f6b3d;
+  /* 暂停 — independent on-hold flag. Burnt amber reads as "stopped / caution"
+     and stays distinct from rush red, short's yellow-amber, and product green. */
+  --color-type-paused: #bf6a1a;
 }
 
 @theme inline {
@@ -191,6 +194,17 @@ html, body {
 .type-chip[data-job-type="long"]   { color: var(--color-type-long);   background: color-mix(in srgb, var(--color-type-long)   8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-long)   34%, transparent); }
 .type-chip[data-job-type="product"] { color: var(--color-type-product); background: color-mix(in srgb, var(--color-type-product) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-product) 34%, transparent); }
 .type-chip[data-job-type="product"]:hover { background: color-mix(in srgb, var(--color-type-product) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-product) 48%, transparent); }
+
+/* 暂停 — filled like 加急 (a blocked job is loud, you want to see it), in amber. */
+.type-chip[data-job-type="paused"] {
+  color: var(--color-type-paused);
+  background: color-mix(in srgb, var(--color-type-paused) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-paused) 44%, transparent);
+}
+.type-chip[data-job-type="paused"]:hover {
+  background: color-mix(in srgb, var(--color-type-paused) 17%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-paused) 56%, transparent);
+}
 .type-chip[data-job-type="short"]:hover,
 .type-chip[data-job-type="medium"]:hover,
 .type-chip[data-job-type="long"]:hover {

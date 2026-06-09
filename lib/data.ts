@@ -598,6 +598,16 @@ export type Job = {
   // 加急 and 产品). Boolean rather than a JobType value so the duration/
   // priority buckets stay mutually exclusive and 产品 stacks on top.
   isProduct?: boolean
+  // 暂停 — independent "this job is blocked / on hold" flag. Coexists with
+  // jobType AND isProduct (a job can be 加急 and 暂停 at once), so it's its
+  // own field, not a JobType value. pausedAt doubles as the flag (undefined
+  // ⇒ actively flowing) and the "blocked since" anchor; pauseReason is the
+  // optional free-text why; pausedBy stamps who paused it. Carves the job
+  // out of 在产 into the 暂停 column without touching the 已出货 split. See
+  // migration 0050 + jobIsPaused.
+  pausedAt?: string
+  pauseReason?: string
+  pausedBy?: string
   // 外协预警 (待外协) — 工程's upstream "this needs outsourcing" intent,
   // recorded before any vendor block (outsourceBlocks) exists. The missing
   // first stage of the outsourcing lifecycle; 商务 reads it as a pending
@@ -623,6 +633,13 @@ export type Job = {
   pinnedStages?: Stage[]
   pinnedAt?: string
   pinnedBy?: string
+}
+
+// True when the job is deliberately on hold (暂停). pausedAt is both the flag
+// and the "blocked since" anchor — undefined/empty ⇒ the job is flowing. A
+// paused job is still not 已出货; it's carved out of 在产 into its own column.
+export function jobIsPaused(job: { pausedAt?: string }): boolean {
+  return Boolean(job.pausedAt)
 }
 
 // True when the boss has starred this job for prioritization at this station.

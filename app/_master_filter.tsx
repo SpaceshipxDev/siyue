@@ -67,7 +67,7 @@ type DateFilter =
 
 // Top-level scope filter on the master sheet. 在产 hides shipped jobs (the
 // daily-attention set); 已出货 surfaces them for finance / archive lookups.
-type ShipFilter = 'live' | 'shipped'
+type ShipFilter = 'live' | 'paused' | 'shipped'
 
 // Per-column status filter (商务 / 工程 overview only). The viewer focuses ONE
 // 工段 column and narrows the rows to that station's rollup state:
@@ -244,8 +244,14 @@ export function MasterSheet({
 
   // Optimistic overlay for jobType edits — chip + stripe + sort all update
   // in the same React tick as the click. See useOptimisticJobType.
-  const { effectiveType, effectiveIsProduct, setType, setIsProduct } =
-    useOptimisticJobType(rows)
+  const {
+    effectiveType,
+    effectiveIsProduct,
+    effectiveIsPaused,
+    setType,
+    setIsProduct,
+    setPaused,
+  } = useOptimisticJobType(rows)
 
   // Ref handed to <StickyHorizontalScrollbar>: the grid is hundreds of rows
   // tall, so the native horizontal bar at the table's bottom is invisible
@@ -268,18 +274,32 @@ export function MasterSheet({
   // Counts on the segmented control: total rows in each scope BEFORE search /
   // sort / date narrowing. Apple-style segmented controls show stable counts;
   // the down-stream count chip already reflects the live filter.
-  const liveCount = useMemo(
-    () => rows.reduce((n, r) => (rowIsShipped(r) ? n : n + 1), 0),
-    [rows],
-  )
-  const shippedCount = rows.length - liveCount
+  // Three mutually-exclusive buckets that sum to rows.length:
+  //   已出货 — shipping fully closed out (off the floor).
+  //   暂停   — NOT shipped AND on hold (carved out of 在产).
+  //   在产   — NOT shipped AND flowing (everything else).
+  // 暂停 wins over 在产 for any not-yet-shipped job; shipped always wins (a
+  // shipped job is done regardless of a stale pause flag). Uses the optimistic
+  // overlay so the counts move in the same tick the chip is toggled.
+  const { liveCount, pausedCount, shippedCount } = useMemo(() => {
+    let live = 0
+    let paused = 0
+    let shipped = 0
+    for (const r of rows) {
+      if (rowIsShipped(r)) shipped++
+      else if (effectiveIsPaused(r)) paused++
+      else live++
+    }
+    return { liveCount: live, pausedCount: paused, shippedCount: shipped }
+  }, [rows, effectiveIsPaused])
 
   const scopedRows = useMemo(() => {
     if (!showShipTabs) return rows
-    return shipFilter === 'live'
-      ? rows.filter((r) => !rowIsShipped(r))
-      : rows.filter((r) => rowIsShipped(r))
-  }, [rows, showShipTabs, shipFilter])
+    if (shipFilter === 'shipped') return rows.filter((r) => rowIsShipped(r))
+    if (shipFilter === 'paused')
+      return rows.filter((r) => !rowIsShipped(r) && effectiveIsPaused(r))
+    return rows.filter((r) => !rowIsShipped(r) && !effectiveIsPaused(r))
+  }, [rows, showShipTabs, shipFilter, effectiveIsPaused])
   // Highlight the user's home station for production; otherwise highlight the
   // URL stage (so commerce navigating to a station sees the same emphasis).
   const highlightStage: Stage | undefined = defaultStage ?? stageFilter
@@ -498,6 +518,7 @@ export function MasterSheet({
           active={shipFilter}
           onChange={setShipFilter}
           liveCount={liveCount}
+          pausedCount={pausedCount}
           shippedCount={shippedCount}
         />
       )}
@@ -710,8 +731,11 @@ export function MasterSheet({
                 canEditType={canEditType}
                 jobType={effectiveType(row)}
                 isProduct={effectiveIsProduct(row)}
+                paused={effectiveIsPaused(row)}
+                pauseReason={row.pauseReason}
                 onTypeChange={(next) => setType(row, next)}
                 onProductChange={(next) => setIsProduct(row, next)}
+                onPauseChange={(next, reason) => setPaused(row, next, reason)}
               />
             ))}
             {shouldPaginate && (showAll || hiddenTopCount > 0) && topRows.length > DEFAULT_PAGE_SIZE && (
@@ -770,8 +794,11 @@ export function MasterSheet({
                     canEditType={canEditType}
                     jobType={effectiveType(row)}
                     isProduct={effectiveIsProduct(row)}
+                    paused={effectiveIsPaused(row)}
+                    pauseReason={row.pauseReason}
                     onTypeChange={(next) => setType(row, next)}
                     onProductChange={(next) => setIsProduct(row, next)}
+                    onPauseChange={(next, reason) => setPaused(row, next, reason)}
                   />
                 ))}
               </>
@@ -807,8 +834,11 @@ export function MasterSheet({
                     canEditType={canEditType}
                     jobType={effectiveType(row)}
                     isProduct={effectiveIsProduct(row)}
+                    paused={effectiveIsPaused(row)}
+                    pauseReason={row.pauseReason}
                     onTypeChange={(next) => setType(row, next)}
                     onProductChange={(next) => setIsProduct(row, next)}
+                    onPauseChange={(next, reason) => setPaused(row, next, reason)}
                   />
                 ))}
               </>
@@ -868,15 +898,18 @@ function ShipFilterToggle({
   active,
   onChange,
   liveCount,
+  pausedCount,
   shippedCount,
 }: {
   active: ShipFilter
   onChange: (s: ShipFilter) => void
   liveCount: number
+  pausedCount: number
   shippedCount: number
 }) {
   const segments: { key: ShipFilter; label: string; count: number }[] = [
     { key: 'live', label: '在产', count: liveCount },
+    { key: 'paused', label: '暂停', count: pausedCount },
     { key: 'shipped', label: '已出货', count: shippedCount },
   ]
   return (
@@ -1110,8 +1143,11 @@ function JobRow({
   canEditType,
   jobType,
   isProduct,
+  paused,
+  pauseReason,
   onTypeChange,
   onProductChange,
+  onPauseChange,
 }: {
   row: MasterRow
   index: number
@@ -1135,8 +1171,12 @@ function JobRow({
    *  + chip label + rush-first sort (sort is done by parent). */
   jobType?: JobType
   isProduct: boolean
+  /** 暂停 — effective (post-overlay) on-hold flag + its reason. */
+  paused: boolean
+  pauseReason?: string
   onTypeChange: (next: JobType | null) => void
   onProductChange: (next: boolean) => void
+  onPauseChange: (next: boolean, reason?: string) => void
 }) {
   // The head's own column is NEVER a navigation Link — clicks here are
   // stage-action gestures. Three flavors:
@@ -1191,10 +1231,14 @@ function JobRow({
             <TypeChip
               jobType={jobType}
               isProduct={isProduct}
+              paused={paused}
+              pauseReason={pauseReason}
               jobNo={row.jobNo}
               canEdit={canEditType}
+              canPause
               onChange={onTypeChange}
               onProductChange={onProductChange}
+              onPauseChange={onPauseChange}
             />
             <Link
               href={detailHref}
