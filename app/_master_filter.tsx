@@ -909,8 +909,8 @@ function ShipFilterToggle({
 }) {
   const segments: { key: ShipFilter; label: string; count: number }[] = [
     { key: 'live', label: '在产', count: liveCount },
-    { key: 'paused', label: '暂停', count: pausedCount },
     { key: 'shipped', label: '已出货', count: shippedCount },
+    { key: 'paused', label: '暂停/取消', count: pausedCount },
   ]
   return (
     <div role="tablist" aria-label="工单范围" className="mb-6 flex items-baseline gap-x-7">

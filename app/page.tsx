@@ -219,14 +219,14 @@ export default async function MasterBoard(
               <Pill tone="overdue" label="逾期" value={overdue} />
               <Pill tone="warning" label="今日" value={dueToday} />
               <Pill tone="neutral" label="在产" value={inProgress.length} />
-              <Pill tone="neutral" label="暂停" value={pausedCount} />
+              <Pill tone="neutral" label="暂停/取消" value={pausedCount} />
             </div>
           ) : isProduction ? null : (
             <div className="flex items-center gap-2">
               <Pill tone="overdue" label="逾期" value={overdue} />
               <Pill tone="warning" label="今日" value={dueToday} />
               <Pill tone="neutral" label="在产" value={inProgress.length} />
-              <Pill tone="neutral" label="暂停" value={pausedCount} />
+              <Pill tone="neutral" label="暂停/取消" value={pausedCount} />
               <Pill tone="info" label="总额" value={formatCny(totalAmount)} />
               <Pill tone="info" label="外发" value={formatCny(totalExternal)} />
               <Pill tone="success" label="毛利" value={formatCny(totalMargin)} />
