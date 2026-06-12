@@ -686,8 +686,25 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         c.stages['检验'].status !== 'done' &&
                         isBlockingVerdict(c.stages['检验'].verdict) && (
                           <span className="block mt-1">
-                            <span className="inline-flex items-center rounded-[2px] border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-[var(--color-overdue)]">
+                            <span
+                              className="inline-flex items-center rounded-[2px] border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-[var(--color-overdue)]"
+                              title={[
+                                c.stages['检验'].verdictReason
+                                  ? `不良原因 · ${c.stages['检验'].verdictReason}`
+                                  : null,
+                                c.stages['检验'].verdictOwner
+                                  ? `责任人 · ${c.stages['检验'].verdictOwner}`
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join('  ')}
+                            >
                               检验 · {c.stages['检验'].verdict}
+                              {c.stages['检验'].verdictReason ? (
+                                <span className="ml-1 font-normal normal-case max-w-[120px] truncate">
+                                  {c.stages['检验'].verdictReason}
+                                </span>
+                              ) : null}
                             </span>
                           </span>
                         )}
@@ -699,6 +716,17 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           />
                         </span>
                       )}
+                      {/* 出厂检验报告 — the 质量 step's standard template.
+                          One faint link per part; the report page itself
+                          gates editing. */}
+                      <a
+                        href={`/jobs/${job.id}/print/inspection/${encodeURIComponent(c.id)}`}
+                        target="_blank"
+                        rel="noopener"
+                        className="block mt-0.5 text-[10px] tracking-wider text-[var(--color-ink-4)] hover:text-[var(--color-ink)] transition-colors"
+                      >
+                        检验报告 ↗
+                      </a>
                     </td>
                     <td className="px-3 py-3">
                       {canEditFields ? (

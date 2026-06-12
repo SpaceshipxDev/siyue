@@ -36,6 +36,7 @@ import {
   setJobPin,
   setJobStagePin,
   setInspectionVerdict,
+  setInspectionVerdictDetail,
   setOutsourceBlockStages,
   setJobIsProduct,
   setJobPaused,
@@ -59,6 +60,7 @@ import {
   updateShipmentFinance,
   updateVendor,
   upsertCustomerByName,
+  upsertInspectionReport,
   type BlockPatch,
   type ComponentPatch,
   type CreateReturnInput,
@@ -93,6 +95,7 @@ import {
 import type { JobType, Stage, Verdict } from '@/lib/data'
 import { JOB_TYPES, STAGES, VERDICTS } from '@/lib/data'
 import { isExpenseCategory } from '@/lib/expenses'
+import { isDimRow, type InspectionReportPatch } from '@/lib/inspection-report'
 import { removeInspectionPhotoObject } from '@/lib/inspection-photo'
 
 // Single JSON dispatcher for mutating writes. Every existing inline-edit
@@ -682,6 +685,29 @@ async function dispatch(
         return err('bad setInspectionVerdict args')
       const u = await requireOwnStage('检验')
       await setInspectionVerdict(jobId, componentId, verdict, u.name)
+      revalidateStage(jobId, '检验')
+      return Response.json(ok())
+    }
+
+    // 不良原因 / 责任人 on the 检验 verdict — commits on blur from the
+    // inspection modal, independent of the verdict click.
+    case 'setInspectionVerdictDetail': {
+      const jobId = body.jobId
+      const componentId = body.componentId
+      const reason = body.reason
+      const owner = body.owner
+      if (!isString(jobId) || !isString(componentId)) {
+        return err('bad setInspectionVerdictDetail args')
+      }
+      if (reason !== undefined && reason !== null && !isString(reason))
+        return err('bad reason')
+      if (owner !== undefined && owner !== null && !isString(owner))
+        return err('bad owner')
+      await requireOwnStage('检验')
+      await setInspectionVerdictDetail(jobId, componentId, {
+        reason: reason as string | null | undefined,
+        owner: owner as string | null | undefined,
+      })
       revalidateStage(jobId, '检验')
       return Response.json(ok())
     }
@@ -1413,6 +1439,66 @@ async function dispatch(
       await requireUser()
       await deleteProcurementProduct(productId)
       revalidatePath('/procurement')
+      return Response.json(ok())
+    }
+
+    // === 出厂检验报告 — whole-document upsert from the editable print page.
+    // 质量/检验 stations fill it; 工程 + commerce can correct it.
+    case 'upsertInspectionReport': {
+      const jobId = body.jobId
+      const componentId = body.componentId
+      const patch = body.patch
+      if (
+        !isString(jobId) ||
+        !isString(componentId) ||
+        typeof patch !== 'object' ||
+        patch === null
+      )
+        return err('bad upsertInspectionReport args')
+      const p = patch as Record<string, unknown>
+      if (p.dims !== undefined && (!Array.isArray(p.dims) || !p.dims.every(isDimRow) || p.dims.length > 60))
+        return err('bad dims')
+      if (
+        p.processChecks !== undefined &&
+        (!Array.isArray(p.processChecks) || !p.processChecks.every(isString))
+      )
+        return err('bad processChecks')
+      for (const f of ['performance', 'appearance', 'packaging']) {
+        const v = p[f]
+        if (v === undefined) continue
+        if (typeof v !== 'object' || v === null) return err(`bad ${f}`)
+        for (const val of Object.values(v as Record<string, unknown>)) {
+          if (typeof val !== 'string') return err(`bad ${f}`)
+        }
+      }
+      for (const f of [
+        'reportNo',
+        'inspectMethod',
+        'disposition',
+        'customerPlan',
+        'finalVerdict',
+        'evaluation',
+        'confirmer',
+        'inspector',
+        'approver',
+        'inspectedAt',
+      ]) {
+        if (!isOptString(p[f])) return err(`bad ${f}`)
+      }
+      const u = await requireUser()
+      const allowed =
+        u.role === 'commerce' ||
+        u.defaultStage === '工程' ||
+        u.defaultStage === '检验' ||
+        u.defaultStage === '质量'
+      if (!allowed) return err('forbidden', 403)
+      await upsertInspectionReport(
+        jobId,
+        componentId,
+        patch as InspectionReportPatch,
+        u.name,
+      )
+      revalidatePath(`/jobs/${jobId}/print/inspection/${componentId}`)
       return Response.json(ok())
     }
 

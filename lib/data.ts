@@ -70,6 +70,11 @@ export type StageState = {
   verdict?: Verdict
   verdictAt?: string
   verdictBy?: string
+  // 不良原因 / 责任人 — free text the inspector attaches to a blocking
+  // verdict (migration 0052). OK never clears them: the record of why the
+  // part bounced survives the release.
+  verdictReason?: string
+  verdictOwner?: string
 }
 
 export type VendorId = string

@@ -64,9 +64,16 @@ export function InspectionCell({
     setOptimistic(
       verdict === 'OK'
         ? { status: 'done', completedAt: undefined, verdict: 'OK' }
-        : { status: 'in_progress', verdict },
+        : {
+            status: 'in_progress',
+            verdict,
+            verdictReason: state.verdictReason,
+            verdictOwner: state.verdictOwner,
+          },
     )
-    setOpen(false)
+    // A blocking verdict keeps the modal open — the inspector records
+    // 不良原因/责任人 right there. OK releases the part and closes.
+    if (verdict === 'OK') setOpen(false)
     start(async () => {
       try {
         await mutate({ kind: 'setInspectionVerdict', jobId, componentId, verdict })
@@ -284,14 +291,23 @@ function InspectionModal({
             {readOnly ? (
               <div className="mb-5 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2.5">
                 {isBlockingVerdict(state.verdict) ? (
-                  <span className="text-[13px] font-semibold text-[var(--color-overdue)]">
-                    {state.verdict}
-                    {state.verdictBy ? (
-                      <span className="label ml-2 font-normal text-[var(--color-ink-3)]">
-                        {state.verdictBy}
-                      </span>
+                  <>
+                    <span className="text-[13px] font-semibold text-[var(--color-overdue)]">
+                      {state.verdict}
+                      {state.verdictBy ? (
+                        <span className="label ml-2 font-normal text-[var(--color-ink-3)]">
+                          {state.verdictBy}
+                        </span>
+                      ) : null}
+                    </span>
+                    {state.verdictReason || state.verdictOwner ? (
+                      <p className="mt-1 text-[12px] text-[var(--color-ink-2)]">
+                        {state.verdictReason ? `不良原因 · ${state.verdictReason}` : null}
+                        {state.verdictReason && state.verdictOwner ? ' · ' : null}
+                        {state.verdictOwner ? `责任人 · ${state.verdictOwner}` : null}
+                      </p>
                     ) : null}
-                  </span>
+                  </>
                 ) : (
                   <span className="text-[13px] text-[var(--color-ink-2)]">待检</span>
                 )}
@@ -328,10 +344,18 @@ function InspectionModal({
               </div>
             )}
             {isBlockingVerdict(state.verdict) && !readOnly ? (
-              <p className="label -mt-3 mb-5 text-[var(--color-ink-3)]">
-                {state.verdict} 中 · 处理好后点 OK 放行
-                {state.verdictBy ? ` · ${state.verdictBy}` : ''}
-              </p>
+              <>
+                <p className="label -mt-3 mb-3 text-[var(--color-ink-3)]">
+                  {state.verdict} 中 · 处理好后点 OK 放行
+                  {state.verdictBy ? ` · ${state.verdictBy}` : ''}
+                </p>
+                <VerdictDetail
+                  jobId={jobId}
+                  componentId={componentId}
+                  reason={state.verdictReason}
+                  owner={state.verdictOwner}
+                />
+              </>
             ) : null}
           </>
         )}
@@ -353,6 +377,71 @@ function InspectionModal({
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// 不良原因 + 责任人 — two blur-committed inputs under the blocking-verdict
+// hint. Independent of the verdict click (the verdict already saved); a
+// pre-0052 DB silently drops the write server-side.
+function VerdictDetail({
+  jobId,
+  componentId,
+  reason,
+  owner,
+}: {
+  jobId: string
+  componentId: string
+  reason?: string
+  owner?: string
+}) {
+  const [reasonDraft, setReasonDraft] = useState(reason ?? '')
+  const [ownerDraft, setOwnerDraft] = useState(owner ?? '')
+  const [, start] = useTransition()
+
+  const commit = (field: 'reason' | 'owner', value: string) => {
+    const prev = field === 'reason' ? (reason ?? '') : (owner ?? '')
+    if (value.trim() === prev.trim()) return
+    start(async () => {
+      try {
+        await mutate({
+          kind: 'setInspectionVerdictDetail',
+          jobId,
+          componentId,
+          [field]: value.trim() === '' ? null : value.trim(),
+        })
+      } catch {
+        if (field === 'reason') setReasonDraft(prev)
+        else setOwnerDraft(prev)
+      }
+    })
+  }
+
+  const cls =
+    'w-full rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 py-1.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]'
+
+  return (
+    <div className="mb-5 grid grid-cols-2 gap-3">
+      <label className="block">
+        <span className="label block mb-1">不良原因</span>
+        <input
+          value={reasonDraft}
+          onChange={(e) => setReasonDraft(e.target.value)}
+          onBlur={(e) => commit('reason', e.target.value)}
+          placeholder="尺寸超差 / 划伤 …"
+          className={cls}
+        />
+      </label>
+      <label className="block">
+        <span className="label block mb-1">责任人</span>
+        <input
+          value={ownerDraft}
+          onChange={(e) => setOwnerDraft(e.target.value)}
+          onBlur={(e) => commit('owner', e.target.value)}
+          placeholder="姓名 / 工位"
+          className={cls}
+        />
+      </label>
     </div>
   )
 }
