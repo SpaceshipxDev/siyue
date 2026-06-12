@@ -1,7 +1,7 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { BOSS_USER_ID, verifyUserPin } from '@/lib/db'
+import { isAdminUser, verifyUserPin } from '@/lib/db'
 import { createSession, deleteSession } from '@/lib/session'
 import { landingPathFor } from '@/lib/auth'
 
@@ -88,16 +88,16 @@ export async function logoutAction(): Promise<void> {
   redirect('/login')
 }
 
-// Admin entry from /login → 管理员工. Strictly authenticates the single 老板
-// account by id (BOSS_USER_ID); any other user is rejected even if they
-// share commerce role. On success the cookie is set and we land back on
-// /login?admin=1 — the boss stays on the login screen until they hit
-// 完成 (logoutAction).
+// Admin entry from /login → 管理员工. Authenticates an account with 老板-level
+// authority by id (isAdminUser — the bootstrap 老板 or a promoted owner like
+// Harry); any other user is rejected even if they share commerce role. On
+// success the cookie is set and we land back on /login?admin=1 — the admin
+// stays on the login screen until they hit 完成 (logoutAction).
 export async function loginAdminAction(
   userId: string,
   pin: string,
 ): Promise<LoginResult> {
-  if (userId !== BOSS_USER_ID) return { ok: false, error: '仅老板可管理员工' }
+  if (!isAdminUser(userId)) return { ok: false, error: '仅老板可管理员工' }
   if (!pin) return { ok: false, error: '请输入 PIN' }
   if (!/^\d{4}$/.test(pin)) return { ok: false, error: 'PIN 必须为 4 位数字' }
 

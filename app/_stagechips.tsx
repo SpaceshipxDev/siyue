@@ -1,13 +1,21 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type CSSProperties,
+  type ReactNode,
+} from 'react'
+import { createPortal } from 'react-dom'
 import { STAGES, partRoute, type Component, type Stage } from '@/lib/data'
 import { mutate } from '@/lib/mutate'
 import type { SetPartRouteResult } from '@/lib/db'
 
-// 出货 is always in the route — every part eventually ships, so the chip is
-// shown lit and non-interactive. Outsource-covered chips are also locked
-// (the block owns those stages, the chip widget can't take them out).
+// 出货 is always in the route — every part eventually ships, so the row is
+// shown lit and non-interactive. Outsource-covered stages are also locked
+// (the block owns those stages, the picker can't take them out).
 const ALWAYS_ON: ReadonlySet<Stage> = new Set<Stage>(['出货'])
 
 type ConflictDialogState = {
@@ -15,10 +23,11 @@ type ConflictDialogState = {
   removing: { stage: Stage; status: 'in_progress' | 'done' }[]
 }
 
-// Editorial typography-only routing strip. No pills, no fills — active stages
-// are ink, inactive are dimmed with a strike, outsource locks lift to warning.
-// Matches the rest of the sheet aesthetic (everything else here is letters
-// and lines, not colored tags).
+// Collapsed-by-default route widget. The cell shows one line — the route the
+// part actually takes, stages joined by arrows — instead of ten wrapping
+// toggle chips. Clicking expands an anchored picker (portal + fixed, so the
+// overflow-x-auto table container can't clip it) where each stage is a row
+// toggle. Same optimistic-write semantics as the old chip strip.
 export function StageChips({
   jobId,
   component,
@@ -34,6 +43,8 @@ export function StageChips({
   const [confirmState, setConfirmState] = useState<ConflictDialogState | null>(
     null,
   )
+  const [anchor, setAnchor] = useState<DOMRect | null>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   const lockedByOutsource = new Set<Stage>()
   for (const b of component.outsourceBlocks ?? []) {
@@ -104,82 +115,50 @@ export function StageChips({
     void apply(next, false)
   }
 
+  const summary = (
+    <RouteSummary route={currentRoute} lockedByOutsource={lockedByOutsource} />
+  )
+
+  if (readOnly) {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-x-1 leading-snug">
+        {summary}
+      </span>
+    )
+  }
+
   return (
-    <span className="inline-flex flex-wrap items-center gap-x-1 gap-y-0.5 leading-none -ml-1">
-      {STAGES.map((stage) => {
-        const inRoute = currentRoute.has(stage)
-        const isOutsource = lockedByOutsource.has(stage)
-        const isAlwaysOn = ALWAYS_ON.has(stage)
-        const isLocked = isAlwaysOn || isOutsource
-
-        // Two states only — the cells above already carry status color/icon.
-        // The chip widget's job is purely "do we touch this stage in-house?":
-        //   filled black  = yes (in route AND not outsourced, OR 出货)
-        //   hollow        = no  (skipped OR vendor handles it)
-        const handledInHouse = inRoute && !isOutsource
-        const boxCls = handledInHouse
-          ? 'bg-[var(--color-ink)] border-[var(--color-ink)]'
-          : 'bg-transparent border-[var(--color-ink-4)]'
-        const textCls = handledInHouse
-          ? 'text-[var(--color-ink)] font-medium'
-          : 'text-[var(--color-ink-3)]'
-
-        const interactive = !readOnly && !pending && !isLocked
-        const hoverCls = interactive
-          ? 'hover:bg-[#f1eee4] cursor-pointer'
-          : 'cursor-default'
-
-        const title = isAlwaysOn
-          ? `${stage} · 必经`
-          : isOutsource
-            ? `${stage} · 已外协`
-            : readOnly
-              ? inRoute
-                ? `${stage} · 经过`
-                : `${stage} · 不经过`
-              : !inRoute
-                ? `${stage} · 不经过 · 点击启用`
-                : `${stage} · 经过 · 点击跳过`
-
-        if (readOnly) {
-          return (
-            <span
-              key={stage}
-              title={title}
-              aria-pressed={handledInHouse}
-              className="inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5"
-            >
-              <span
-                aria-hidden="true"
-                className={`block h-[7px] w-[7px] rounded-[2px] border ${boxCls}`}
-              />
-              <span className={`text-[11px] tracking-wider ${textCls}`}>
-                {stage}
-              </span>
-            </span>
+    <span className="inline-flex flex-wrap items-center leading-snug -ml-1.5">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() =>
+          setAnchor(
+            anchor
+              ? null
+              : (triggerRef.current?.getBoundingClientRect() ?? null),
           )
         }
+        aria-expanded={anchor !== null}
+        aria-haspopup="dialog"
+        title="点击选择工序"
+        className="group inline-flex flex-wrap items-center gap-x-1 rounded-[2px] px-1.5 py-1 text-left transition-colors hover:bg-[var(--color-active-bg)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)]"
+      >
+        {summary}
+        <Chevron open={anchor !== null} />
+      </button>
 
-        return (
-          <button
-            key={stage}
-            type="button"
-            disabled={pending || isLocked}
-            onClick={() => onToggle(stage)}
-            title={title}
-            aria-pressed={handledInHouse}
-            className={`inline-flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] ${hoverCls}`}
-          >
-            <span
-              aria-hidden="true"
-              className={`block h-[7px] w-[7px] rounded-[2px] border transition-colors ${boxCls}`}
-            />
-            <span className={`text-[11px] tracking-wider transition-colors ${textCls}`}>
-              {stage}
-            </span>
-          </button>
-        )
-      })}
+      {anchor ? (
+        <RoutePicker
+          anchor={anchor}
+          route={currentRoute}
+          lockedByOutsource={lockedByOutsource}
+          pending={pending}
+          onToggle={onToggle}
+          onClose={() => setAnchor(null)}
+        />
+      ) : null}
+
       {error ? (
         <span
           role="alert"
@@ -201,6 +180,240 @@ export function StageChips({
         />
       ) : null}
     </span>
+  )
+}
+
+// The collapsed line. The table cells hosting this run ~80px wide, so
+// enumerating a long route wraps into the exact vertical stack this widget
+// exists to kill — instead the line says the *shortest true thing*:
+//   · full default route        → 全部工段
+//   · a few stages pruned       → 跳过 编程·操机   (the delta from default)
+//   · short route (≤4 stages)   → 工程·检验·出货   (just list it)
+//   · anything in between       → 6 道工序
+// The full route always lives in the hover title and one click away in the
+// picker. Outsourced stages add a warning-toned 外协 suffix.
+function routeTitle(inRoute: Stage[], lockedByOutsource: Set<Stage>): string {
+  if (inRoute.length === 0) return '未设工序'
+  return inRoute
+    .map((s) => (lockedByOutsource.has(s) ? `${s}(外协)` : s))
+    .join(' → ')
+}
+
+function RouteSummary({
+  route,
+  lockedByOutsource,
+}: {
+  route: Set<Stage>
+  lockedByOutsource: Set<Stage>
+}) {
+  const inRoute = STAGES.filter((s) => route.has(s))
+  const skipped = STAGES.filter((s) => !route.has(s))
+  const outsourced = inRoute.filter((s) => lockedByOutsource.has(s))
+  const title = routeTitle(inRoute, lockedByOutsource)
+
+  let main: ReactNode
+  if (inRoute.length === 0) {
+    main = <span className="text-[var(--color-ink-3)]">未设工序</span>
+  } else if (skipped.length === 0) {
+    main = <span className="whitespace-nowrap">全部工段</span>
+  } else if (skipped.length <= 3 && inRoute.length > 4) {
+    main = (
+      <>
+        <span className="text-[var(--color-ink-4)]">跳过 </span>
+        <span className="text-[var(--color-ink-2)] line-through decoration-[var(--color-ink-4)]">
+          {skipped.join('·')}
+        </span>
+      </>
+    )
+  } else if (inRoute.length <= 4) {
+    main = <span>{inRoute.join('·')}</span>
+  } else {
+    main = (
+      <span className="whitespace-nowrap">
+        <span className="mono tabular-nums">{inRoute.length}</span> 道工序
+      </span>
+    )
+  }
+
+  return (
+    <span
+      title={title}
+      className="text-[12px] tracking-wider leading-[1.5] text-[var(--color-ink)]"
+    >
+      {main}
+      {outsourced.length > 0 ? (
+        <span className="ml-1 text-[11px] text-[var(--color-warning)] whitespace-nowrap">
+          外协{outsourced.length > 2 ? ` ${outsourced.length}` : ` ${outsourced.join('·')}`}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
+// Expanded picker — one row per stage, in route order, toggled with a single
+// click (writes are optimistic, same as the old chips). Locked rows say why
+// instead of disabling silently. Rendered into <body> with fixed positioning
+// so the table's scroll container can't clip it; flips above the trigger when
+// there's no room below.
+const PICKER_W = 224
+const PICKER_EST_H = 36 + STAGES.length * 32 + 44 // header + rows + footer
+
+function RoutePicker({
+  anchor,
+  route,
+  lockedByOutsource,
+  pending,
+  onToggle,
+  onClose,
+}: {
+  anchor: DOMRect
+  route: Set<Stage>
+  lockedByOutsource: Set<Stage>
+  pending: boolean
+  onToggle: (stage: Stage) => void
+  onClose: () => void
+}) {
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // Dismiss on outside click / Escape / any scroll (the anchor rect goes
+  // stale the moment the table scrolls under a fixed-position panel).
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node))
+        onClose()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    const onScroll = (e: Event) => {
+      if (panelRef.current && e.target instanceof Node && panelRef.current.contains(e.target))
+        return
+      onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onClose)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onClose)
+    }
+  }, [onClose])
+
+  const left = Math.max(
+    8,
+    Math.min(anchor.left, window.innerWidth - PICKER_W - 8),
+  )
+  const openUp =
+    anchor.bottom + 6 + PICKER_EST_H > window.innerHeight &&
+    anchor.top - 6 - PICKER_EST_H > 0
+  const pos: CSSProperties = openUp
+    ? { left, bottom: window.innerHeight - anchor.top + 6 }
+    : { left, top: anchor.bottom + 6 }
+
+  const count = STAGES.filter((s) => route.has(s)).length
+
+  return createPortal(
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-label="选择工序"
+      style={{ ...pos, width: PICKER_W }}
+      className="fixed z-40 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_8px_28px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04)]"
+    >
+      <div className="flex items-baseline justify-between px-3 pt-2.5 pb-1.5">
+        <span className="label text-[var(--color-ink-3)]">工序 · 点选切换</span>
+        <span className="mono text-[11px] tabular-nums text-[var(--color-ink-4)]">
+          {count}/{STAGES.length}
+        </span>
+      </div>
+
+      <div className="px-1.5 pb-1.5">
+        {STAGES.map((stage) => {
+          const inRoute = route.has(stage)
+          const isOutsource = lockedByOutsource.has(stage)
+          const isAlwaysOn = ALWAYS_ON.has(stage)
+          const isLocked = isAlwaysOn || isOutsource
+          const handledInHouse = inRoute && !isOutsource
+
+          const boxCls = handledInHouse
+            ? 'bg-[var(--color-ink)] border-[var(--color-ink)]'
+            : isOutsource
+              ? 'bg-transparent border-[var(--color-warning)]'
+              : 'bg-transparent border-[var(--color-ink-4)]'
+
+          return (
+            <button
+              key={stage}
+              type="button"
+              disabled={pending || isLocked}
+              onClick={() => onToggle(stage)}
+              aria-pressed={handledInHouse}
+              className={`flex w-full items-center gap-2.5 rounded-[2px] px-2 h-[30px] text-left transition-colors ${
+                isLocked
+                  ? 'cursor-default'
+                  : 'hover:bg-[var(--color-active-bg)] cursor-pointer'
+              } disabled:opacity-100`}
+            >
+              <span
+                aria-hidden="true"
+                className={`block h-[8px] w-[8px] shrink-0 rounded-[2px] border transition-colors ${boxCls}`}
+              />
+              <span
+                className={`flex-1 text-[13px] tracking-wider transition-colors ${
+                  handledInHouse
+                    ? 'text-[var(--color-ink)] font-medium'
+                    : isOutsource
+                      ? 'text-[var(--color-warning)]'
+                      : 'text-[var(--color-ink-3)]'
+                }`}
+              >
+                {stage}
+              </span>
+              <span className="label text-[10px] text-[var(--color-ink-4)]">
+                {isAlwaysOn ? '必经' : isOutsource ? '已外协' : ''}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="border-t border-[var(--color-border)] px-1.5 py-1.5">
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full rounded-[2px] py-1.5 text-[12px] tracking-wider text-[var(--color-ink-2)] hover:bg-[var(--color-active-bg)] hover:text-[var(--color-ink)] transition-colors"
+        >
+          完成
+        </button>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      fill="none"
+      aria-hidden="true"
+      className={`ml-0.5 shrink-0 text-[var(--color-ink-4)] transition-transform group-hover:text-[var(--color-ink-2)] ${
+        open ? 'rotate-180' : ''
+      }`}
+    >
+      <path
+        d="M2.5 3.75 L5 6.5 L7.5 3.75"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 }
 

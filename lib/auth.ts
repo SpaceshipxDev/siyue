@@ -2,7 +2,7 @@ import 'server-only'
 import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import type { Stage } from './data'
-import { BOSS_USER_ID, getUserById } from './db'
+import { getUserById, isAdminUser } from './db'
 import { readSession } from './session'
 
 export type Role = 'commerce' | 'production'
@@ -71,7 +71,7 @@ export function canSeeMoney(s: Scope): boolean {
 // his own books.
 export function canSeeExpenses(u: AuthUser): boolean {
   if (u.role !== 'commerce') return false
-  return u.isFinance || u.id === BOSS_USER_ID
+  return u.isFinance || isAdminUser(u.id)
 }
 
 // Page guard for the 支出/月度 finance tabs. Non-finance commerce users land

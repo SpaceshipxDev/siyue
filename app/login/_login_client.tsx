@@ -11,14 +11,20 @@ type Mode = 'login' | 'admin'
 
 type View =
   | { kind: 'grid' }
+  | { kind: 'admin-pick' }
   | { kind: 'keypad'; user: AppUser; mode: Mode }
 
 export function LoginClient({
   users,
   boss,
+  admins,
 }: {
   users: AppUser[]
   boss: AppUser
+  // Accounts with 老板-level authority (bootstrap 老板 + promoted owners).
+  // With more than one, 管理员工 asks which admin is signing in; with just
+  // the boss it jumps straight to his keypad (the original behaviour).
+  admins: AppUser[]
 }) {
   const [view, setView] = useState<View>({ kind: 'grid' })
 
@@ -28,7 +34,22 @@ export function LoginClient({
         users={users}
         bossId={boss.id}
         onPick={(u) => setView({ kind: 'keypad', user: u, mode: 'login' })}
-        onManage={() => setView({ kind: 'keypad', user: boss, mode: 'admin' })}
+        onManage={() =>
+          admins.length > 1
+            ? setView({ kind: 'admin-pick' })
+            : setView({ kind: 'keypad', user: boss, mode: 'admin' })
+        }
+      />
+    )
+  }
+
+  if (view.kind === 'admin-pick') {
+    return (
+      <AdminPick
+        admins={admins}
+        bossId={boss.id}
+        onPick={(u) => setView({ kind: 'keypad', user: u, mode: 'admin' })}
+        onBack={() => setView({ kind: 'grid' })}
       />
     )
   }
@@ -106,6 +127,50 @@ function KeypadShell({
       onBackspace={backspace}
       onBack={onBack}
     />
+  )
+}
+
+function AdminPick({
+  admins,
+  bossId,
+  onPick,
+  onBack,
+}: {
+  admins: AppUser[]
+  bossId: string
+  onPick: (u: AppUser) => void
+  onBack: () => void
+}) {
+  return (
+    <div className="min-h-dvh flex flex-col items-center bg-[var(--color-bg)]">
+      <header className="w-full border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+        <div className="mx-auto max-w-[1500px] px-4 md:px-10 py-5 flex items-center justify-between">
+          <button
+            onClick={onBack}
+            className="label text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
+          >
+            ← 返回
+          </button>
+          <span className="label tracking-[0.22em] text-[var(--color-ink)]">
+            思跃 · 管理员工
+          </span>
+          <span style={{ width: 60 }} />
+        </div>
+      </header>
+      <main className="w-full max-w-[1100px] px-4 md:px-10 py-10 md:py-16 flex-1">
+        <h1 className="text-[28px] font-semibold tracking-tight text-[var(--color-ink)] mb-1">
+          谁在管理？
+        </h1>
+        <p className="text-[13px] text-[var(--color-ink-2)] mb-8">
+          点击你的姓名，然后输入 4 位 PIN
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+          {admins.map((u) => (
+            <UserTile key={u.id} user={u} isBoss={u.id === bossId} onPick={onPick} />
+          ))}
+        </div>
+      </main>
+    </div>
   )
 }
 
@@ -275,7 +340,7 @@ function Keypad({
             <p className="label text-[var(--color-ink-3)]">验证中…</p>
           ) : (
             <p className="label text-[var(--color-ink-3)]">
-              {isAdmin ? '输入老板 PIN' : isBoss ? '输入老板 PIN' : '输入 PIN'}
+              {isBoss ? '输入老板 PIN' : '输入 PIN'}
             </p>
           )}
         </div>

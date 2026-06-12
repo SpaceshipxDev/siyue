@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { STAGES } from '@/lib/data'
-import { getActiveUsers, getAllUsers, getBossUser } from '@/lib/db'
+import { getActiveUsers, getAllUsers, getBossUser, isAdminUser } from '@/lib/db'
 import { currentUser, landingPathFor } from '@/lib/auth'
 import { LoginClient } from './_login_client'
 import { AdminView } from './_admin_view'
@@ -20,6 +20,7 @@ export default async function LoginPage(props: PageProps<'/login'>) {
       <AdminView
         bossName={u.name}
         bossId={boss.id}
+        adminIds={allUsers.filter((x) => isAdminUser(x.id)).map((x) => x.id)}
         users={allUsers}
         stages={STAGES as readonly string[]}
       />
@@ -35,5 +36,6 @@ export default async function LoginPage(props: PageProps<'/login'>) {
   const [active, boss] = await Promise.all([getActiveUsers(), getBossUser()])
   const others = active.filter((p) => p.id !== boss.id)
   const tiles = [boss, ...others]
-  return <LoginClient users={tiles} boss={boss} />
+  const admins = tiles.filter((u) => isAdminUser(u.id))
+  return <LoginClient users={tiles} boss={boss} admins={admins} />
 }

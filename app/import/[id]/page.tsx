@@ -171,7 +171,7 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
             零件清单
           </h2>
           <p className="label">
-            点击图框上传 · 字段可直接编辑 · 工段路线默认全部经过，点击关闭不需要的
+            点击图框上传 · 字段可直接编辑 · 工序默认全部经过，点开可勾选
           </p>
         </div>
 

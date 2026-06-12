@@ -14,16 +14,18 @@ import {
 export function UserAdmin({
   users,
   bossId,
+  adminIds,
   stages,
 }: {
   users: AppUser[]
   bossId: string
+  adminIds: string[]
   stages: readonly string[]
 }) {
   return (
     <div className="space-y-10">
       <NewUserForm stages={stages} />
-      <UserList users={users} bossId={bossId} />
+      <UserList users={users} bossId={bossId} adminIds={adminIds} />
     </div>
   )
 }
@@ -146,7 +148,15 @@ function Field({
   )
 }
 
-function UserList({ users, bossId }: { users: AppUser[]; bossId: string }) {
+function UserList({
+  users,
+  bossId,
+  adminIds,
+}: {
+  users: AppUser[]
+  bossId: string
+  adminIds: string[]
+}) {
   return (
     <section>
       <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)] mb-3">
@@ -182,7 +192,12 @@ function UserList({ users, bossId }: { users: AppUser[]; bossId: string }) {
               </tr>
             ) : (
               users.map((u) => (
-                <UserRow key={u.id} user={u} bossId={bossId} />
+                <UserRow
+                  key={u.id}
+                  user={u}
+                  bossId={bossId}
+                  locked={adminIds.includes(u.id)}
+                />
               ))
             )}
           </tbody>
@@ -192,7 +207,17 @@ function UserList({ users, bossId }: { users: AppUser[]; bossId: string }) {
   )
 }
 
-function UserRow({ user, bossId }: { user: AppUser; bossId: string }) {
+function UserRow({
+  user,
+  bossId,
+  locked,
+}: {
+  user: AppUser
+  bossId: string
+  // 老板-level account (bootstrap 老板 or a promoted owner): protected from
+  // deactivation / 财务 revocation / deletion, so those controls are hidden.
+  locked: boolean
+}) {
   const [pending, start] = useTransition()
   const [resetting, setResetting] = useState(false)
   const [pin, setPin] = useState('')
@@ -330,7 +355,7 @@ function UserRow({ user, bossId }: { user: AppUser; bossId: string }) {
             >
               重置 PIN
             </button>
-            {!isBoss && user.role === 'commerce' && (
+            {!locked && user.role === 'commerce' && (
               <button
                 type="button"
                 onClick={onToggleFinance}
@@ -345,7 +370,7 @@ function UserRow({ user, bossId }: { user: AppUser; bossId: string }) {
                 {user.isFinance ? '取消财务' : '设为财务'}
               </button>
             )}
-            {!isBoss && (
+            {!locked && (
               <>
                 <button
                   type="button"
