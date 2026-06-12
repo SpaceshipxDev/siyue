@@ -10,6 +10,7 @@ import {
   formatShipmentLog,
   isBlockClosed,
   isBlockingVerdict,
+  isMemberFullyReturned,
   jobComponentsTotal,
   jobExternalSpend,
   jobIsShipped,
@@ -18,6 +19,7 @@ import {
   jobReturnedQtyByPart,
   vendorById,
   type Job,
+  type Stage,
   type Vendor,
 } from '@/lib/data'
 import { getJob, getProcessCard, getVendors } from '@/lib/db'
@@ -156,12 +158,27 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
 
   // New-outsource-block picker. Scoped the same way: while a return is open,
   // only the returned parts are sendable — the rest are at the customer.
-  const componentOptions = componentRows.map(({ c }) => ({
-    id: c.id,
-    name: c.name,
-    qty: c.qty,
-    hasAnyBlock: (c.outsourceBlocks ?? []).length > 0,
-  }))
+  // openStages/openVendorName surface "this part has units still out" as a
+  // faint hint beside the checkbox — informational, never a filter; the
+  // server's overlap check is the real guard (warn-and-confirm).
+  const componentOptions = componentRows.map(({ c }) => {
+    const openStageSet = new Set<Stage>()
+    let openVendorName: string | undefined
+    for (const b of c.outsourceBlocks ?? []) {
+      const member = b.members.find((m) => m.componentId === c.id)
+      if (!member || isMemberFullyReturned(member)) continue
+      for (const s of b.stages) openStageSet.add(s)
+      openVendorName =
+        openVendorName ?? vendorById(b.vendorId, vendors)?.name ?? b.vendorId
+    }
+    return {
+      id: c.id,
+      name: c.name,
+      qty: c.qty,
+      openStages: STAGES.filter((s) => openStageSet.has(s)),
+      openVendorName,
+    }
+  })
 
   // A block now spans N components — dedupe by block.id so the per-job list
   // shows one row per shipment with all members.
@@ -918,7 +935,8 @@ function ExternalSection({
     id: string
     name: string
     qty: number
-    hasAnyBlock: boolean
+    openStages?: Stage[]
+    openVendorName?: string
   }[]
   blockRows: {
     block: NonNullable<Job['components'][number]['outsourceBlocks']>[number]
@@ -949,6 +967,7 @@ function ExternalSection({
                 block={r.block}
                 vendor={vendorById(r.block.vendorId, vendors)}
                 vendors={vendors}
+                componentOptions={componentOptions}
               />
             ))}
           </div>

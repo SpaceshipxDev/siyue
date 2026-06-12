@@ -112,6 +112,10 @@ export default async function OutsourceDocPage(
             value={<span className="mono">{createdAt}</span>}
           />
           <Field
+            label="销售单号"
+            value={<span className="mono">{info.jobNo}</span>}
+          />
+          <Field
             label="寄出时间"
             value={
               <OutsourceBlockDate
@@ -119,6 +123,17 @@ export default async function OutsourceDocPage(
                 jobId={info.jobId}
                 field="sentDate"
                 value={info.block.sentDate}
+              />
+            }
+          />
+          <Field
+            label="到料时间"
+            value={
+              <OutsourceBlockDate
+                blockId={info.block.id}
+                jobId={info.jobId}
+                field="expectedReturn"
+                value={info.block.expectedReturn}
               />
             }
           />
@@ -181,10 +196,6 @@ export default async function OutsourceDocPage(
                 />
               </span>
             }
-          />
-          <Field
-            label="销售单号"
-            value={<span className="mono">{info.jobNo}</span>}
           />
           <Field
             label="备注"

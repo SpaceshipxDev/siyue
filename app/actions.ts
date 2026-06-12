@@ -60,6 +60,7 @@ import {
   upsertCustomerByName,
   type BlockPatch,
   type ComponentPatch,
+  type CreateBlockResult,
   type CreateReturnInput,
   type CustomerPatch,
   type JobPatch,
@@ -370,11 +371,11 @@ export async function createOutsourceBlockAction(
   jobId: string,
   componentIds: string[],
   input: NewBlockInput,
-): Promise<string | undefined> {
+): Promise<CreateBlockResult> {
   await requireOutsourceManager()
-  const id = await createOutsourceBlockAt(jobId, componentIds, input)
-  revalidateExternal(jobId)
-  return id
+  const result = await createOutsourceBlockAt(jobId, componentIds, input)
+  if (result.ok) revalidateExternal(jobId)
+  return result
 }
 
 export async function updateOutsourceBlockAction(

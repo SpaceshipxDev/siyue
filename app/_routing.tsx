@@ -14,6 +14,7 @@ import {
   memberLineTotal,
   memberRemainingQty,
   memberReturnedQty,
+  outsourceLabel,
   stageRangeLabel,
   type OutsourceBlock,
   type Stage,
@@ -23,6 +24,7 @@ import { mutate } from '@/lib/mutate'
 import type { Vendor as VendorRow } from '@/lib/data'
 
 import { today } from '@/lib/today'
+import { DatePop } from './_datepop'
 import {
   BlockMemberQty,
   BlockMemberUnitPrice,
@@ -40,85 +42,117 @@ export type ComponentOption = {
   id: string
   name: string
   qty: number
-  hasAnyBlock: boolean
+  // Stages of this part currently OUT at a vendor (un-returned coverage),
+  // plus that vendor's name — rendered as a faint 在外 hint beside the
+  // checkbox. Parts are never filtered out anymore: a part can be outsourced
+  // any number of times (外发CNC then 外发氧化, second batches, rework).
+  openStages?: Stage[]
+  openVendorName?: string
 }
 
-// === Stage range — two dropdowns ===
+// Overlap conflict surfaced by the server when a dispatch would cover stages
+// that are still out at another vendor. Mirror of lib/db BlockOverlapConflict
+// with the vendor name resolved by the caller.
+type OverlapConflict = {
+  componentId: string
+  name: string
+  stages: Stage[]
+  vendorId: string
+}
+
+type BlockMutateResult =
+  | { ok: true; id: string; docNo?: string }
+  | { ok: false; reason: 'overlap'; conflicts: OverlapConflict[] }
+  | { ok: false; reason: 'invalid' }
+
+// === Stage multi-select — checkbox chips ===
 //
-// 从 [操机]  到 [打磨]. That's it. Two `<select>`s, the simplest widget on
-// earth. Replaces a two-click anchor/endpoint dot picker the boss kept
-// finding ambiguous ("did my first click commit, or did it just anchor?").
-// Defaults to "the range starts and ends at the same stage" — single-stage
-// blocks are the common case once activities (外发氧化, 外发CNC, …) are
-// what the boss thinks in.
-function StageRange({
-  from,
-  to,
-  onChange,
+// Free pick over OUTSOURCEABLE_STAGES, replacing the 从/到 range dropdowns
+// the floor found too rigid ("工序灵活选 选错就只能重新做外协登记"). Visual
+// vocabulary borrowed from _stagechips: filled square = covered.
+function StageMultiSelect({
+  value,
+  onToggle,
   disabled,
 }: {
-  from: Stage
-  to: Stage
-  onChange: (from: Stage, to: Stage) => void
+  value: Set<Stage>
+  onToggle: (s: Stage) => void
   disabled?: boolean
 }) {
-  const fromIdx = OUTSOURCEABLE_STAGES.indexOf(from)
-  const toIdx = OUTSOURCEABLE_STAGES.indexOf(to)
-  const handleFrom = (next: Stage) => {
-    const nextIdx = OUTSOURCEABLE_STAGES.indexOf(next)
-    // Keep the range valid — if "from" moves past "to", drag "to" along.
-    if (nextIdx > toIdx) onChange(next, next)
-    else onChange(next, to)
-  }
-  const handleTo = (next: Stage) => {
-    const nextIdx = OUTSOURCEABLE_STAGES.indexOf(next)
-    if (nextIdx < fromIdx) onChange(next, next)
-    else onChange(from, next)
-  }
-  const baseSelectCls =
-    'bg-transparent border border-[var(--color-border)] rounded-[2px] px-2 py-1 text-[13px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50 mono'
   return (
-    <span className="inline-flex items-center gap-2">
-      <span className="label text-[var(--color-ink-3)]">从</span>
-      <select
-        className={baseSelectCls}
-        value={from}
-        onChange={(e) => handleFrom(e.target.value as Stage)}
-        disabled={disabled}
-        aria-label="起始工段"
-      >
-        {OUTSOURCEABLE_STAGES.map((s) => (
-          <option key={s} value={s}>
+    <div className="flex flex-wrap items-center gap-1.5">
+      {OUTSOURCEABLE_STAGES.map((s) => {
+        const on = value.has(s)
+        return (
+          <button
+            key={s}
+            type="button"
+            disabled={disabled}
+            onClick={() => onToggle(s)}
+            aria-pressed={on}
+            className={`rounded-[2px] border px-2.5 py-1 text-[12px] mono transition-colors disabled:opacity-40 ${
+              on
+                ? 'border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-surface)]'
+                : 'border-[var(--color-border)] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]'
+            }`}
+          >
             {s}
-          </option>
-        ))}
-      </select>
-      <span className="label text-[var(--color-ink-3)]">到</span>
-      <select
-        className={baseSelectCls}
-        value={to}
-        onChange={(e) => handleTo(e.target.value as Stage)}
-        disabled={disabled}
-        aria-label="结束工段"
-      >
-        {OUTSOURCEABLE_STAGES.map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-      </select>
-    </span>
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
-// Range helper — slice the canonical OUTSOURCEABLE_STAGES between (inclusive)
-// two endpoints. Defined once so the form and the submit path agree.
-function stagesBetween(from: Stage, to: Stage): Stage[] {
-  const lo = OUTSOURCEABLE_STAGES.indexOf(from)
-  const hi = OUTSOURCEABLE_STAGES.indexOf(to)
-  if (lo < 0 || hi < 0) return []
-  const [a, b] = lo <= hi ? [lo, hi] : [hi, lo]
-  return OUTSOURCEABLE_STAGES.slice(a, b + 1)
+// Inline warn-and-confirm panel for the open-overlap case — the server
+// flagged units still out at a vendor for the same stage(s); the operator
+// decides (split quantities across vendors are a real case).
+function OverlapConfirm({
+  conflicts,
+  vendors,
+  pending,
+  onConfirm,
+  onCancel,
+}: {
+  conflicts: OverlapConflict[]
+  vendors: Vendor[]
+  pending: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div className="rounded-[2px] border border-[var(--color-warning)] bg-[color-mix(in_srgb,var(--color-warning)_8%,transparent)] px-3 py-2.5 text-[12px]">
+      <p className="text-[var(--color-ink)]">
+        {conflicts.map((c) => {
+          const vendorName =
+            vendors.find((v) => v.id === c.vendorId)?.name ?? c.vendorId
+          return (
+            <span key={c.componentId} className="block">
+              「{c.name}」的 {c.stages.join('、')} 仍在外协中（{vendorName}）
+            </span>
+          )
+        })}
+      </p>
+      <div className="mt-2 flex items-center gap-3">
+        <button
+          type="button"
+          disabled={pending}
+          onClick={onConfirm}
+          className="px-3 py-1 text-[12px] tracking-wider rounded-[2px] bg-[var(--color-ink)] text-[var(--color-surface)] hover:opacity-80 disabled:opacity-40"
+        >
+          确认再次外协
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={onCancel}
+          className="label text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+        >
+          取消
+        </button>
+      </div>
+    </div>
+  )
 }
 
 // === Activity picker ===
@@ -383,11 +417,12 @@ export function NewBlockForm({
   components: ComponentOption[]
   vendors: Vendor[]
 }) {
-  // Components already covered by an outsource block can't be added again —
-  // a block now covers a contiguous stage range and a second block on the
-  // same range would overlap. Filter them out of the dropdown rather than
-  // letting submit fail.
-  const available = components.filter((c) => !c.hasAnyBlock)
+  // Every part is always offered — a part can be outsourced any number of
+  // times over its life (外发CNC to one vendor, later 外发氧化 to another, a
+  // second batch, rework). Units still out for a same-stage dispatch are the
+  // only thing worth flagging, and the server returns that as a
+  // warn-and-confirm (see OverlapConfirm) rather than a hard block.
+  const available = components
   // Multi-select: track a Set of component ids. Default to first available.
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(available[0]?.id ? [available[0].id] : []),
@@ -430,15 +465,25 @@ export function NewBlockForm({
   // Named activity is the primary thing — selected from the fixed list
   // in OUTSOURCE_ACTIVITIES. Empty until the user picks.
   const [activity, setActivity] = useState('')
-  // 范围 collapsed from a two-click range gesture to two simple dropdowns.
-  // Single-stage default (从 == 到) — once activities are how the boss
-  // thinks, most blocks cover one in-house stage, not a range.
-  const [stageFrom, setStageFrom] = useState<Stage>(OUTSOURCEABLE_STAGES[0])
-  const [stageTo, setStageTo] = useState<Stage>(OUTSOURCEABLE_STAGES[0])
+  // Covered stages — free multi-select (checkbox chips). Defaults to the
+  // first outsourceable stage; most blocks cover one stage once activities
+  // are how the boss thinks.
+  const [stages, setStages] = useState<Set<Stage>>(
+    () => new Set([OUTSOURCEABLE_STAGES[0]]),
+  )
+  const toggleStage = (s: Stage) =>
+    setStages((prev) => {
+      const next = new Set(prev)
+      if (next.has(s)) next.delete(s)
+      else next.add(s)
+      return next
+    })
   const [pending, start] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  // Server-flagged open overlap awaiting the operator's 确认.
+  const [overlap, setOverlap] = useState<OverlapConflict[] | null>(null)
 
-  const stageRange = stagesBetween(stageFrom, stageTo)
+  const stageRange = OUTSOURCEABLE_STAGES.filter((s) => stages.has(s))
 
   // 金额 is always optional. Empty → null in DB, surfaced as 待补金额 on the
   // row so commerce can fill it in later. The user-facing label/placeholder
@@ -456,9 +501,10 @@ export function NewBlockForm({
     expectedReturn &&
     stageRange.length > 0
 
-  const submit = () => {
+  const submit = (force = false) => {
     if (!valid) return
     setError(null)
+    if (!force) setOverlap(null)
     start(async () => {
       let useVendorId = vendorId
       if (vendorMode === 'create') {
@@ -497,7 +543,7 @@ export function NewBlockForm({
         if (c && n === c.qty) continue
         qtysByComponent[cid] = n
       }
-      const r = await mutate<{ id: string | undefined }>({
+      const r = await mutate<{ result: BlockMutateResult | undefined }>({
         kind: 'createOutsourceBlock',
         jobId,
         componentIds: [...selected],
@@ -510,20 +556,35 @@ export function NewBlockForm({
           expectedReturn,
           unitPricesCny,
           qtysByComponent,
+          force,
         },
       })
-      const id = r.data.id
-      if (!id) {
-        setError('创建失败：所选零件中可能已有外协记录')
+      const result = r.data.result
+      if (!result || !result.ok) {
+        if (result && result.reason === 'overlap') {
+          // Same stage(s) still out at a vendor — surface the warn-and-confirm
+          // panel; 确认再次外协 resubmits with force.
+          setOverlap(result.conflicts)
+          if (vendorMode === 'create') {
+            // The vendor row was already created — don't create it twice on
+            // the forced resubmit.
+            setVendorId(useVendorId)
+            setVendorMode('select')
+            setNewVendorName('')
+            setNewVendorAddress('')
+          }
+          return
+        }
+        setError('创建失败 · 请刷新页面后重试')
         return
       }
+      setOverlap(null)
       setAmount('')
       setUnitPrices({})
       setQtys({})
       setSelected(new Set())
       setActivity('')
-      setStageFrom(OUTSOURCEABLE_STAGES[0])
-      setStageTo(OUTSOURCEABLE_STAGES[0])
+      setStages(new Set([OUTSOURCEABLE_STAGES[0]]))
       if (vendorMode === 'create') {
         setVendorId(useVendorId)
         setVendorMode('select')
@@ -536,9 +597,7 @@ export function NewBlockForm({
   if (available.length === 0) {
     return (
       <p className="text-[12px] text-[var(--color-ink-3)] py-3">
-        {components.length === 0
-          ? '当前工单无可外协零件'
-          : '所有零件均已外协 · 如需重新外协请先删除现有记录'}
+        当前工单无可外协零件
       </p>
     )
   }
@@ -582,6 +641,15 @@ export function NewBlockForm({
                       className="accent-[var(--color-ink)]"
                     />
                     <span className="flex-1 truncate">{c.name}</span>
+                    {c.openStages && c.openStages.length > 0 ? (
+                      <span
+                        className="mono text-[10px] tracking-wider px-1 rounded-[2px] border border-[var(--color-info)] text-[var(--color-info)] shrink-0"
+                        title={`仍在外协 · ${c.openStages.join('、')}${c.openVendorName ? ` · ${c.openVendorName}` : ''}`}
+                      >
+                        在外·{c.openStages[0]}
+                        {c.openStages.length > 1 ? `+${c.openStages.length - 1}` : ''}
+                      </span>
+                    ) : null}
                   </label>
                   {/* 外协数量 — defaults to the part's full qty; editable so the
                       boss can send only some units. /{c.qty} shows the total
@@ -691,43 +759,41 @@ export function NewBlockForm({
             title="可留空 — 送出后在该行点击 编辑 即可补填金额"
           />
         </label>
-        <label className="col-span-1 md:col-span-2 flex flex-col gap-1">
+        <div className="col-span-1 md:col-span-2 flex flex-col gap-1">
           <span className="label">寄出</span>
-          <input
-            type="date"
-            className={`${fieldStyles()} mono`}
-            value={sentDate}
-            onChange={(e) => setSentDate(e.target.value)}
-            disabled={pending}
-          />
-        </label>
-        <label className="col-span-1 md:col-span-2 flex flex-col gap-1">
+          <DatePop value={sentDate} onChange={setSentDate} disabled={pending} />
+        </div>
+        <div className="col-span-1 md:col-span-2 flex flex-col gap-1">
           <span className="label">预计回厂</span>
-          <input
-            type="date"
-            className={`${fieldStyles()} mono`}
+          <DatePop
             value={expectedReturn}
-            onChange={(e) => setExpectedReturn(e.target.value)}
-            disabled={pending}
-          />
-        </label>
-        <div className="col-span-2 md:col-span-12 flex flex-col gap-1.5">
-          <span className="label">外协承接的工段</span>
-          <StageRange
-            from={stageFrom}
-            to={stageTo}
-            onChange={(f, t) => {
-              setStageFrom(f)
-              setStageTo(t)
-            }}
+            onChange={setExpectedReturn}
             disabled={pending}
           />
         </div>
+        <div className="col-span-2 md:col-span-12 flex flex-col gap-1.5">
+          <span className="label">
+            外协承接的工段 ·{' '}
+            <span className="text-[var(--color-ink-3)]">可多选 · 送出后仍可修改</span>
+          </span>
+          <StageMultiSelect value={stages} onToggle={toggleStage} disabled={pending} />
+        </div>
+        {overlap ? (
+          <div className="col-span-2 md:col-span-12">
+            <OverlapConfirm
+              conflicts={overlap}
+              vendors={vendors}
+              pending={pending}
+              onConfirm={() => submit(true)}
+              onCancel={() => setOverlap(null)}
+            />
+          </div>
+        ) : null}
         <div className="col-span-2 md:col-span-12 flex items-end gap-3 flex-wrap">
           <button
             type="button"
             disabled={!valid || pending}
-            onClick={submit}
+            onClick={() => submit()}
             className="px-4 py-1.5 text-[13px] tracking-wider rounded-[2px] bg-[var(--color-ink)] text-[var(--color-surface)] hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             送出 · 生成外协单
@@ -773,6 +839,7 @@ export function BlockRow({
   block,
   vendor,
   vendors,
+  componentOptions,
 }: {
   jobId: string
   jobNo?: string
@@ -780,8 +847,17 @@ export function BlockRow({
   block: OutsourceBlock
   vendor?: Vendor
   vendors: Vendor[]
+  /** The job's parts — enables the + 添加零件 affordance. Omitted on views
+   * outside the job detail page (station board), where adding members has
+   * no natural picker. */
+  componentOptions?: ComponentOption[]
 }) {
   const [pending, start] = useTransition()
+  // Local optimistic copies of the two block facets that are now editable
+  // in place (stages via the popover editor, members via + 添加零件). Server
+  // revalidation catches up on the next navigation.
+  const [localStages, setLocalStages] = useState<Stage[]>(block.stages)
+  const [addedMembers, setAddedMembers] = useState<OutsourceBlock['members']>([])
 
   // Local state for the receive flow. `receiveQty` holds the per-member
   // quantity the user has typed for this batch; default = remaining qty so
@@ -807,12 +883,21 @@ export function BlockRow({
 
   const closed = isBlockClosed(block)
 
-  // All member-derived state runs off `members` (post-optimistic-removal),
-  // not `block.members`. Keeps the row's headline count, 收件 button, and
-  // member list consistent the instant the user clicks 撤销 on a row.
-  const members = removedIds.size === 0
+  // All member-derived state runs off `members` (post-optimistic-removal,
+  // post-optimistic-add), not `block.members`. Keeps the row's headline
+  // count, 收件 button, and member list consistent the instant the user
+  // clicks 撤销 / 添加 on a row.
+  const baseMembers = addedMembers.length === 0
     ? block.members
-    : block.members.filter((m) => !removedIds.has(m.componentId))
+    : [
+        ...block.members,
+        ...addedMembers.filter(
+          (a) => !block.members.some((m) => m.componentId === a.componentId),
+        ),
+      ]
+  const members = removedIds.size === 0
+    ? baseMembers
+    : baseMembers.filter((m) => !removedIds.has(m.componentId))
 
   const pendingMembers = members.filter((m) => !isMemberFullyReturned(m))
   const partialMembers = members.filter((m) => isMemberPartiallyReturned(m))
@@ -1116,11 +1201,20 @@ export function BlockRow({
           </Link>
         ) : null}
         {customer ? <span>{customer}</span> : null}
-        <span title={`工段范围 · 活动：${blockActivityLabel(block)}`}>
-          {block.activity?.trim()
-            ? `${stageRangeLabel(block.stages)}`
-            : blockActivityLabel(block)}
-        </span>
+        {block.docNo ? (
+          <span className="mono text-[var(--color-ink-2)]" title="外协单号">
+            {block.docNo}
+          </span>
+        ) : null}
+        <BlockStagesEditor
+          blockId={block.id}
+          jobId={jobId}
+          stages={localStages}
+          activity={block.activity}
+          vendors={vendors}
+          disabled={pending}
+          onSaved={setLocalStages}
+        />
         <span className="flex items-baseline gap-1">
           <span>寄</span>
           <OutsourceBlockDate
@@ -1207,13 +1301,11 @@ export function BlockRow({
                   <span className="ml-auto inline-flex items-baseline gap-1.5 text-[var(--color-success)]">
                     <span className="mono text-[11px]">回 ✓ {m.qty}/{m.qty}</span>
                     {m.returnedAt ? (
-                      <input
-                        type="date"
-                        className="bg-transparent border-0 mono text-[11px] text-[var(--color-success)] focus:outline-none focus:bg-[var(--color-active-bg)] px-0.5 -mx-0.5 cursor-text"
+                      <DatePop
                         value={m.returnedAt}
-                        onChange={(e) => editReturnDate(m.componentId, e.target.value)}
+                        onChange={(d) => editReturnDate(m.componentId, d)}
+                        allowFuture={false}
                         disabled={pending}
-                        title="点击修改回厂日期"
                       />
                     ) : null}
                     <button
@@ -1299,6 +1391,24 @@ export function BlockRow({
         )
       })() : null}
 
+      {/* + 添加零件 — append parts to an existing dispatch instead of
+          delete-and-recreate ("遇到多件的情况 很不好操作"). Only on views
+          that can supply the job's part list. */}
+      {!closed && componentOptions ? (
+        <AddMembersRow
+          blockId={block.id}
+          jobId={jobId}
+          stages={localStages}
+          componentOptions={componentOptions.filter(
+            (c) => !members.some((m) => m.componentId === c.id),
+          )}
+          vendors={vendors}
+          onAdded={(newMembers) =>
+            setAddedMembers((prev) => [...prev, ...newMembers])
+          }
+        />
+      ) : null}
+
       {/* Receive tray — only renders when 收件 is in dropdown mode AND open. */}
       {!closed && trayOpen && pendingMembers.length > 0 ? (
         <div className="mt-3 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-active-bg)] p-3">
@@ -1350,11 +1460,10 @@ export function BlockRow({
           </ul>
           <div className="mt-3 flex items-center gap-3 flex-wrap">
             <span className="label text-[var(--color-ink-3)]">收件日期</span>
-            <input
-              type="date"
-              className={`${fieldStyles()} mono text-[12px]`}
+            <DatePop
               value={receiveDate}
-              onChange={(e) => setReceiveDate(e.target.value)}
+              onChange={setReceiveDate}
+              allowFuture={false}
               disabled={pending}
             />
             <button
@@ -1387,18 +1496,13 @@ export function BlockRow({
         <div className="mt-1 flex items-baseline gap-2 text-[12px] text-[var(--color-success)]">
           <span>回 ✓</span>
           {fullyReturnedMembers[0].returnedAt ? (
-            <input
-              type="date"
-              className="bg-transparent border-0 mono text-[11px] text-[var(--color-success)] focus:outline-none focus:bg-[var(--color-active-bg)] px-0.5 -mx-0.5 cursor-text"
+            <DatePop
               value={fullyReturnedMembers[0].returnedAt}
-              onChange={(e) =>
-                editReturnDate(
-                  fullyReturnedMembers[0].componentId,
-                  e.target.value,
-                )
+              onChange={(d) =>
+                editReturnDate(fullyReturnedMembers[0].componentId, d)
               }
+              allowFuture={false}
               disabled={pending}
-              title="点击修改回厂日期"
             />
           ) : null}
           <button
@@ -1475,6 +1579,302 @@ function MemberRemoveButton({
         取消
       </button>
     </span>
+  )
+}
+
+// === Editable stage coverage on an existing block ===
+//
+// The 工段 label on line 2 is the click target; it opens a small popover with
+// the same checkbox-chip multi-select as the create form. Saving goes through
+// setOutsourceBlockStages — added stages pause in-house work + get route rows
+// server-side; removed stages just stop being covered (derivation is live).
+function BlockStagesEditor({
+  blockId,
+  jobId,
+  stages,
+  activity,
+  vendors,
+  disabled,
+  onSaved,
+}: {
+  blockId: string
+  jobId: string
+  stages: Stage[]
+  activity?: string
+  vendors: Vendor[]
+  disabled?: boolean
+  onSaved: (stages: Stage[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState<Set<Stage>>(() => new Set(stages))
+  const [overlap, setOverlap] = useState<OverlapConflict[] | null>(null)
+  const [pending, start] = useTransition()
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false)
+        setOverlap(null)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false)
+        setOverlap(null)
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const openEditor = () => {
+    setDraft(new Set(stages))
+    setOverlap(null)
+    setOpen(true)
+  }
+
+  const orderedDraft = OUTSOURCEABLE_STAGES.filter((s) => draft.has(s))
+
+  const save = (force = false) => {
+    if (orderedDraft.length === 0) return
+    start(async () => {
+      const r = await mutate<{ result: BlockMutateResult | undefined }>({
+        kind: 'setOutsourceBlockStages',
+        blockId,
+        jobId,
+        stages: orderedDraft,
+        force,
+      })
+      const result = r.data.result
+      if (!result || !result.ok) {
+        if (result && result.reason === 'overlap') {
+          setOverlap(result.conflicts)
+        }
+        return
+      }
+      onSaved(orderedDraft)
+      setOpen(false)
+      setOverlap(null)
+    })
+  }
+
+  const label = activity?.trim() ? stageRangeLabel(stages) : outsourceLabel(stages)
+
+  return (
+    <div ref={rootRef} className="relative inline-flex">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => (open ? setOpen(false) : openEditor())}
+        title="工段范围 · 点击修改"
+        aria-expanded={open}
+        className="rounded-[2px] px-0.5 -mx-0.5 hover:bg-[var(--color-active-bg)] hover:text-[var(--color-ink)] transition-colors disabled:opacity-50"
+      >
+        {label}
+      </button>
+      {open ? (
+        <div
+          role="dialog"
+          aria-label="修改外协工段"
+          className="absolute left-0 top-[calc(100%+6px)] z-30 w-[320px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[0_8px_28px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04)]"
+        >
+          <p className="label mb-2">外协承接的工段</p>
+          <StageMultiSelect
+            value={draft}
+            onToggle={(s) =>
+              setDraft((prev) => {
+                const next = new Set(prev)
+                if (next.has(s)) next.delete(s)
+                else next.add(s)
+                return next
+              })
+            }
+            disabled={pending}
+          />
+          {overlap ? (
+            <div className="mt-2.5">
+              <OverlapConfirm
+                conflicts={overlap}
+                vendors={vendors}
+                pending={pending}
+                onConfirm={() => save(true)}
+                onCancel={() => setOverlap(null)}
+              />
+            </div>
+          ) : null}
+          <div className="mt-3 flex items-center gap-3">
+            <button
+              type="button"
+              disabled={pending || orderedDraft.length === 0}
+              onClick={() => save()}
+              className="px-3 py-1 text-[12px] tracking-wider rounded-[2px] bg-[var(--color-ink)] text-[var(--color-surface)] hover:opacity-80 disabled:opacity-40"
+            >
+              保存
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                setOpen(false)
+                setOverlap(null)
+              }}
+              className="label text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+            >
+              取消
+            </button>
+            <span className="label text-[var(--color-ink-4)] ml-auto">
+              移除的工段恢复厂内进度
+            </span>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+// === + 添加零件 on an existing block ===
+//
+// Collapsed to a faint one-liner; expands into a checkbox picker of the
+// job's parts not already on this dispatch. Quantities/prices stay editable
+// in the member list afterwards — this row only appends membership.
+function AddMembersRow({
+  blockId,
+  jobId,
+  stages,
+  componentOptions,
+  vendors,
+  onAdded,
+}: {
+  blockId: string
+  jobId: string
+  stages: Stage[]
+  componentOptions: ComponentOption[]
+  vendors: Vendor[]
+  onAdded: (members: OutsourceBlock['members']) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [overlap, setOverlap] = useState<OverlapConflict[] | null>(null)
+  const [pending, start] = useTransition()
+
+  if (componentOptions.length === 0) return null
+
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const submit = (force = false) => {
+    if (selected.size === 0) return
+    start(async () => {
+      const r = await mutate<{ result: BlockMutateResult | undefined }>({
+        kind: 'addOutsourceBlockMembers',
+        blockId,
+        jobId,
+        items: [...selected].map((componentId) => ({ componentId })),
+        force,
+      })
+      const result = r.data.result
+      if (!result || !result.ok) {
+        if (result && result.reason === 'overlap') setOverlap(result.conflicts)
+        return
+      }
+      const added = componentOptions
+        .filter((c) => selected.has(c.id))
+        .map((c) => ({ componentId: c.id, name: c.name, qty: c.qty }))
+      onAdded(added)
+      setSelected(new Set())
+      setOverlap(null)
+      setOpen(false)
+    })
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-1.5 label text-[var(--color-ink-3)] hover:text-[var(--color-ink)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-[2px] px-0.5"
+      >
+        + 添加零件
+      </button>
+    )
+  }
+
+  return (
+    <div className="mt-2 rounded-[2px] border border-dashed border-[var(--color-border-strong)] p-3">
+      <p className="label mb-2 text-[var(--color-ink-3)]">
+        添加零件到此外协单 · 承接 {stageRangeLabel(stages)}
+      </p>
+      <div className="flex flex-col gap-1 max-h-[150px] overflow-auto">
+        {componentOptions.map((c) => (
+          <label
+            key={c.id}
+            className="flex items-center gap-2 text-[13px] text-[var(--color-ink)] cursor-pointer"
+          >
+            <input
+              type="checkbox"
+              checked={selected.has(c.id)}
+              onChange={() => toggle(c.id)}
+              disabled={pending}
+              className="accent-[var(--color-ink)]"
+            />
+            <span className="flex-1 truncate">{c.name}</span>
+            <span className="mono text-[11px] text-[var(--color-ink-3)]">×{c.qty}</span>
+            {c.openStages && c.openStages.length > 0 ? (
+              <span
+                className="mono text-[10px] tracking-wider px-1 rounded-[2px] border border-[var(--color-info)] text-[var(--color-info)] shrink-0"
+                title={`仍在外协 · ${c.openStages.join('、')}${c.openVendorName ? ` · ${c.openVendorName}` : ''}`}
+              >
+                在外
+              </span>
+            ) : null}
+          </label>
+        ))}
+      </div>
+      {overlap ? (
+        <div className="mt-2.5">
+          <OverlapConfirm
+            conflicts={overlap}
+            vendors={vendors}
+            pending={pending}
+            onConfirm={() => submit(true)}
+            onCancel={() => setOverlap(null)}
+          />
+        </div>
+      ) : null}
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          type="button"
+          disabled={pending || selected.size === 0}
+          onClick={() => submit()}
+          className="px-3 py-1 text-[12px] tracking-wider rounded-[2px] bg-[var(--color-ink)] text-[var(--color-surface)] hover:opacity-80 disabled:opacity-40"
+        >
+          添加 {selected.size > 0 ? `· ${selected.size} 件` : ''}
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => {
+            setOpen(false)
+            setSelected(new Set())
+            setOverlap(null)
+          }}
+          className="label text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+        >
+          取消
+        </button>
+      </div>
+    </div>
   )
 }
 

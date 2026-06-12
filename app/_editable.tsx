@@ -18,6 +18,7 @@ import type {
 } from '@/lib/db'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
+import { DatePop } from '@/app/_datepop'
 
 // Every primitive in this file commits via /api/mutate (~30-byte JSON
 // request/response) instead of a server action. Server-action responses
@@ -1158,6 +1159,10 @@ export function OutsourceBlockAmount({
   )
 }
 
+// Popover calendar (app/_datepop.tsx) instead of the native <input type=date>
+// EditableDate still uses elsewhere — the outsource dates are the fields users
+// kept mis-committing via the native widget. Optimistic local value with
+// rollback on failure; print renders the plain mono string.
 export function OutsourceBlockDate({
   blockId,
   jobId,
@@ -1171,21 +1176,36 @@ export function OutsourceBlockDate({
   value: string
   className?: string
 }) {
+  const [local, setLocal] = useState(value)
+  const [pending, start] = useTransition()
   return (
-    <EditableDate
-      value={value}
-      className={className}
-      onSave={async (v) => {
-        const patch: BlockPatch =
-          field === 'sentDate' ? { sentDate: v } : { expectedReturn: v }
-        await mutate({
-          kind: 'updateOutsourceBlock',
-          blockId,
-          patch,
-          jobId,
-        })
-      }}
-    />
+    <>
+      <span className={`screen-only inline-flex ${pending ? 'opacity-60' : ''}`}>
+        <DatePop
+          value={local}
+          onChange={(next) => {
+            if (next === local || !next) return
+            const prev = local
+            setLocal(next)
+            start(async () => {
+              try {
+                const patch: BlockPatch =
+                  field === 'sentDate' ? { sentDate: next } : { expectedReturn: next }
+                await mutate({ kind: 'updateOutsourceBlock', blockId, patch, jobId })
+              } catch (e) {
+                setLocal(prev)
+                showToast(
+                  `保存失败 · ${e instanceof Error ? e.message : '网络中断'}`,
+                  'warning',
+                )
+              }
+            })
+          }}
+          className={className}
+        />
+      </span>
+      <span className={`mono print-only ${className ?? ''}`}>{local}</span>
+    </>
   )
 }
 

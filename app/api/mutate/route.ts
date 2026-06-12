@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import {
+  addOutsourceBlockMembers,
   appendComponent,
   assignJobToStage,
   assignToStage,
@@ -35,6 +36,7 @@ import {
   setJobPin,
   setJobStagePin,
   setInspectionVerdict,
+  setOutsourceBlockStages,
   setJobIsProduct,
   setJobPaused,
   setJobType,
@@ -61,6 +63,7 @@ import {
   type ComponentPatch,
   type CreateReturnInput,
   type CustomerPatch,
+  type AddBlockMemberInput,
   type DailyFocusPatch,
   type ExpensePatch,
   type HandoverPatch,
@@ -1023,13 +1026,69 @@ async function dispatch(
       )
         return err('bad createOutsourceBlock args')
       await requireOutsourceManager()
-      const id = await createOutsourceBlockAt(
+      const result = await createOutsourceBlockAt(
         jobId,
         componentIds as string[],
         input as NewBlockInput,
       )
-      revalidateExternal(jobId)
-      return Response.json(ok({ id }))
+      if (result.ok) revalidateExternal(jobId)
+      return Response.json(ok({ result }))
+    }
+
+    // Edit a block's covered stage set in place — no delete-and-recreate.
+    case 'setOutsourceBlockStages': {
+      const blockId = body.blockId
+      const stages = body.stages
+      const jobId = body.jobId
+      if (
+        !isString(blockId) ||
+        !Array.isArray(stages) ||
+        !stages.every((s: unknown) => isString(s) && (STAGES as readonly string[]).includes(s))
+      )
+        return err('bad setOutsourceBlockStages args')
+      await requireOutsourceManager()
+      const result = await setOutsourceBlockStages(
+        blockId,
+        stages as Stage[],
+        body.force === true,
+      )
+      if (result.ok) {
+        if (isString(jobId)) revalidateExternal(jobId)
+        revalidatePath(`/print/outsource/${blockId}`)
+      }
+      return Response.json(ok({ result }))
+    }
+
+    // Add parts to an existing block (the "forgot one part" fix).
+    case 'addOutsourceBlockMembers': {
+      const blockId = body.blockId
+      const items = body.items
+      const jobId = body.jobId
+      const validItem = (x: unknown): boolean => {
+        if (typeof x !== 'object' || x === null) return false
+        const o = x as Record<string, unknown>
+        if (!isString(o.componentId)) return false
+        if (!isOptNumber(o.qty) || !isOptNumber(o.unitPriceCny)) return false
+        return true
+      }
+      if (
+        !isString(blockId) ||
+        !Array.isArray(items) ||
+        items.length === 0 ||
+        !items.every(validItem)
+      )
+        return err('bad addOutsourceBlockMembers args')
+      await requireOutsourceManager()
+      const result = await addOutsourceBlockMembers(
+        blockId,
+        items as AddBlockMemberInput[],
+        body.force === true,
+      )
+      if (result.ok) {
+        if (isString(jobId)) revalidateExternal(jobId)
+        revalidatePath(`/print/outsource/${blockId}`)
+      }
+      return Response.json(ok({ result }))
     }
 
     case 'updateOutsourceBlock': {

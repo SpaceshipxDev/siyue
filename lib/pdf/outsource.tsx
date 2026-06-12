@@ -81,13 +81,16 @@ export function OutsourceDocPDF({
           <Field label="制单人" value={block.createdBy ?? '—'} />
           <Field label="联系人" value={vendor?.notes ?? '—'} />
           <Field label="制单时间" value={createdAt} />
+          <Field label="销售单号" value={jobNo} />
+          {/* 寄出 + 到料 side by side — the boss asked for the expected
+              return date on paper ("改成：到料时间"); we keep both. */}
           <Field label="寄出时间" value={block.sentDate} />
+          <Field label="到料时间" value={block.expectedReturn} />
           <Field full label="供应商地址" value={vendor?.address ?? '—'} />
           <Field full label="收件地址" value={recipientAddress} />
           <Field label="收件人" value={recipientName} />
           <Field label="联系电话" value={recipientPhone} />
           <Field label="订单金额" value={formatCny(block.amountCny)} />
-          <Field label="销售单号" value={jobNo} />
           <Field full label="备注" value={stripProcessMethodFromNotes(block.notes) || '—'} />
         </View>
 
