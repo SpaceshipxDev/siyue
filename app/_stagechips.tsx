@@ -7,6 +7,7 @@ import {
   useTransition,
   type CSSProperties,
   type ReactNode,
+  type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
 import { STAGES, partRoute, type Component, type Stage } from '@/lib/data'
@@ -151,6 +152,7 @@ export function StageChips({
       {anchor ? (
         <RoutePicker
           anchor={anchor}
+          triggerRef={triggerRef}
           route={currentRoute}
           lockedByOutsource={lockedByOutsource}
           pending={pending}
@@ -208,7 +210,6 @@ function RouteSummary({
 }) {
   const inRoute = STAGES.filter((s) => route.has(s))
   const skipped = STAGES.filter((s) => !route.has(s))
-  const outsourced = inRoute.filter((s) => lockedByOutsource.has(s))
   const title = routeTitle(inRoute, lockedByOutsource)
 
   let main: ReactNode
@@ -241,11 +242,6 @@ function RouteSummary({
       className="text-[12px] tracking-wider leading-[1.5] text-[var(--color-ink)]"
     >
       {main}
-      {outsourced.length > 0 ? (
-        <span className="ml-1 text-[11px] text-[var(--color-warning)] whitespace-nowrap">
-          外协{outsourced.length > 2 ? ` ${outsourced.length}` : ` ${outsourced.join('·')}`}
-        </span>
-      ) : null}
     </span>
   )
 }
@@ -260,6 +256,7 @@ const PICKER_EST_H = 36 + STAGES.length * 32 + 44 // header + rows + footer
 
 function RoutePicker({
   anchor,
+  triggerRef,
   route,
   lockedByOutsource,
   pending,
@@ -267,6 +264,7 @@ function RoutePicker({
   onClose,
 }: {
   anchor: DOMRect
+  triggerRef: RefObject<HTMLButtonElement | null>
   route: Set<Stage>
   lockedByOutsource: Set<Stage>
   pending: boolean
@@ -277,10 +275,14 @@ function RoutePicker({
 
   // Dismiss on outside click / Escape / any scroll (the anchor rect goes
   // stale the moment the table scrolls under a fixed-position panel).
+  // Clicks on the trigger are NOT outside — closing here would race the
+  // trigger's own onClick toggle and instantly reopen the panel.
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node))
-        onClose()
+      const t = e.target as Node
+      if (panelRef.current && panelRef.current.contains(t)) return
+      if (triggerRef.current && triggerRef.current.contains(t)) return
+      onClose()
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -306,9 +308,13 @@ function RoutePicker({
     8,
     Math.min(anchor.left, window.innerWidth - PICKER_W - 8),
   )
-  const openUp =
-    anchor.bottom + 6 + PICKER_EST_H > window.innerHeight &&
-    anchor.top - 6 - PICKER_EST_H > 0
+  // Open toward whichever side has more room; cap the panel to that room so
+  // the 完成 footer never falls below the fold (the stage list scrolls
+  // internally instead).
+  const spaceBelow = window.innerHeight - anchor.bottom - 14
+  const spaceAbove = anchor.top - 14
+  const openUp = spaceBelow < PICKER_EST_H && spaceAbove > spaceBelow
+  const maxH = Math.min(PICKER_EST_H, openUp ? spaceAbove : spaceBelow)
   const pos: CSSProperties = openUp
     ? { left, bottom: window.innerHeight - anchor.top + 6 }
     : { left, top: anchor.bottom + 6 }
@@ -320,17 +326,17 @@ function RoutePicker({
       ref={panelRef}
       role="dialog"
       aria-label="选择工序"
-      style={{ ...pos, width: PICKER_W }}
-      className="fixed z-40 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_8px_28px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04)]"
+      style={{ ...pos, width: PICKER_W, maxHeight: maxH }}
+      className="fixed z-40 flex flex-col rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_8px_28px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04)]"
     >
-      <div className="flex items-baseline justify-between px-3 pt-2.5 pb-1.5">
+      <div className="flex shrink-0 items-baseline justify-between px-3 pt-2.5 pb-1.5">
         <span className="label text-[var(--color-ink-3)]">工序 · 点选切换</span>
         <span className="mono text-[11px] tabular-nums text-[var(--color-ink-4)]">
           {count}/{STAGES.length}
         </span>
       </div>
 
-      <div className="px-1.5 pb-1.5">
+      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5">
         {STAGES.map((stage) => {
           const inRoute = route.has(stage)
           const isOutsource = lockedByOutsource.has(stage)
@@ -380,7 +386,7 @@ function RoutePicker({
         })}
       </div>
 
-      <div className="border-t border-[var(--color-border)] px-1.5 py-1.5">
+      <div className="shrink-0 border-t border-[var(--color-border)] px-1.5 py-1.5">
         <button
           type="button"
           onClick={onClose}
