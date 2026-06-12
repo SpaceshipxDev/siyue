@@ -20,7 +20,7 @@ export function searchHaystack(j: Job, jobNoOnly: boolean): string {
   if (!jobNoOnly) {
     parts.push(j.customer, j.product)
     if (j.contractNo) parts.push(j.contractNo)
-    if (j.contact) parts.push(j.contact)
+    if (j.engineer) parts.push(j.engineer)
     if (j.notes) parts.push(j.notes)
   }
   for (const c of j.components) {

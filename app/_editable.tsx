@@ -1211,7 +1211,7 @@ export function OutsourceBlockDate({
   )
 }
 
-type JobShippingField = 'createdBy' | 'contractNo' | 'batchNo' | 'engineer' | 'contact'
+type JobShippingField = 'createdBy' | 'contractNo' | 'batchNo' | 'engineer'
 
 export function JobShippingText({
   jobId,
@@ -1240,9 +1240,7 @@ export function JobShippingText({
               ? { contractNo: next }
               : field === 'batchNo'
                 ? { batchNo: next }
-                : field === 'contact'
-                  ? { contact: next }
-                  : { engineer: next }
+                : { engineer: next }
         await mutate({ kind: 'updateJob', jobId, patch })
       }}
     />

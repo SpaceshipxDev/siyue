@@ -588,12 +588,10 @@ export type Job = {
   createdBy?: string
   contractNo?: string
   batchNo?: string
-  // 联系人 — the customer-side contact for THIS order. AI-extracted on
-  // import when present; editable in the job header. Order-level (the same
-  // customer ships to different 对接人), distinct from the customer directory.
-  contact?: string
-  // 工程师 — engineering owner of the job. AI-extracted on import when
-  // present in the source workbook, blank otherwise. Editable inline.
+  // 工程师 — the customer's representative for this order (the floor calls
+  // them 工程师; source workbooks also label the same person 联系人/对接人).
+  // AI-extracted on import when present, editable inline. One field on
+  // purpose — they are the same concept, not two people.
   engineer?: string
   // ISO timestamp the job row was created. Used as the wait-timer anchor on
   // the first stage (工程) where there's no upstream finishedAt to fall back to.

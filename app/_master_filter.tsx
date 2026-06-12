@@ -1320,12 +1320,6 @@ function JobRow({
             }
           >
             <Highlight text={isProduction ? row.product : row.engineer || '—'} q={q} />
-            {!isProduction && row.contact ? (
-              <>
-                {' · '}
-                <Highlight text={row.contact} q={q} />
-              </>
-            ) : null}
           </span>
           {/* 订单备注 — third faint line, commerce only ("公司名称 / 联系人 /
               订单备注" from the floor's dashboard feedback). */}

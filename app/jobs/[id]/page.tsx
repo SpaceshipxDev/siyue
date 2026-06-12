@@ -314,9 +314,9 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]"
                   placeholder="客户"
                 />
-                {/* 工程师 sits under the customer name as the customer-side
-                    identifier commerce/boss care about. 产品 moves to the
-                    metadata grid below (still editable). */}
+                {/* 工程师 = the customer's 联系人/对接人 (one concept, one
+                    field). Sits under the customer name as the customer-side
+                    identifier commerce/boss care about. */}
                 <div className="mt-1 flex items-baseline gap-3">
                   <JobShippingText
                     jobId={job.id}
@@ -324,13 +324,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     value={job.engineer}
                     className="text-[14px] text-[var(--color-ink-2)]"
                     placeholder="工程师"
-                  />
-                  <JobShippingText
-                    jobId={job.id}
-                    field="contact"
-                    value={job.contact}
-                    className="text-[14px] text-[var(--color-ink-2)]"
-                    placeholder="联系人"
                   />
                 </div>
               </>

@@ -59,12 +59,10 @@ export type MasterRow = {
   jobNo: string
   customer: string
   product: string
-  /** 工程师 — AI-extracted engineer name. Customer-facing PII (scrubbed for
-   *  production scopes). Drives the commerce/boss dashboard subtext. */
+  /** 工程师 — the customer's representative (also labelled 联系人 on source
+   *  docs; same person). Customer-facing PII (scrubbed for production
+   *  scopes). Drives the commerce/boss dashboard subtext. */
   engineer?: string
-  /** 联系人 — order-level customer contact. Customer-facing PII (scrubbed
-   *  for production scopes). Third line of the commerce customer cell. */
-  contact?: string
   amountCny?: number
   /** Original contract dueDate from the jobs row. Use `effectiveDueDate` for sort/color. */
   dueDate: string

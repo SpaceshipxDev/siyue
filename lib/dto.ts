@@ -51,7 +51,6 @@ export function scrubJob(job: Job, scope: Scope): Job {
     contractNo: customerOk ? job.contractNo : undefined,
     batchNo: customerOk ? job.batchNo : undefined,
     engineer: customerOk ? job.engineer : undefined,
-    contact: customerOk ? job.contact : undefined,
     createdBy: moneyOk ? job.createdBy : undefined,
     sourceFileUrl: moneyOk ? job.sourceFileUrl : undefined,
     components: job.components.map((c) => ({
@@ -98,7 +97,6 @@ export function scrubMasterRow(row: MasterRow, scope: Scope): MasterRow {
     // 工程师 / 联系人 are customer-facing PII — strip for production scopes
     // (they render 产品 in the grid, not the customer-side identifiers).
     engineer: customerOk ? row.engineer : undefined,
-    contact: customerOk ? row.contact : undefined,
     amountCny: moneyOk ? row.amountCny : undefined,
     externalSpendCny: moneyOk ? row.externalSpendCny : 0,
     marginCny: moneyOk ? row.marginCny : undefined,
