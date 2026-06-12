@@ -885,7 +885,7 @@ export function MasterSheet({
 }
 
 function searchPlaceholder(jobNoOnly: boolean): string {
-  return jobNoOnly ? '搜索 · 工号 / 零件' : '搜索 · 工号 / 客户 / 产品 / 零件'
+  return jobNoOnly ? '搜索 · 工号 / 零件 / 料号' : '搜索 · 工号 / 客户 / 产品 / 零件 / 合同号 / 料号'
 }
 
 // Two text buttons, no container, no fill — just typography. Active label
@@ -1320,7 +1320,23 @@ function JobRow({
             }
           >
             <Highlight text={isProduction ? row.product : row.engineer || '—'} q={q} />
+            {!isProduction && row.contact ? (
+              <>
+                {' · '}
+                <Highlight text={row.contact} q={q} />
+              </>
+            ) : null}
           </span>
+          {/* 订单备注 — third faint line, commerce only ("公司名称 / 联系人 /
+              订单备注" from the floor's dashboard feedback). */}
+          {!isProduction && row.notes ? (
+            <span
+              className="mt-0.5 text-[11px] text-[var(--color-ink-4)] truncate max-w-[260px]"
+              title={row.notes}
+            >
+              <Highlight text={row.notes} q={q} />
+            </span>
+          ) : null}
           {/* MatchedComponentsStrip dropped on the lite shape — components
               are not loaded on the master read. Job-detail still shows them. */}
         </div>

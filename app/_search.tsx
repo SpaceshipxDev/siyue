@@ -17,10 +17,17 @@ import {
 // filter above.
 export function searchHaystack(j: Job, jobNoOnly: boolean): string {
   const parts: string[] = [j.jobNo]
-  if (!jobNoOnly) parts.push(j.customer, j.product)
+  if (!jobNoOnly) {
+    parts.push(j.customer, j.product)
+    if (j.contractNo) parts.push(j.contractNo)
+    if (j.contact) parts.push(j.contact)
+    if (j.notes) parts.push(j.notes)
+  }
   for (const c of j.components) {
     parts.push(c.name)
     if (c.material) parts.push(c.material)
+    if (c.partNo) parts.push(c.partNo)
+    if (c.process) parts.push(c.process)
   }
   return parts.join(' ').toLowerCase()
 }

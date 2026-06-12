@@ -317,13 +317,20 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 {/* 工程师 sits under the customer name as the customer-side
                     identifier commerce/boss care about. 产品 moves to the
                     metadata grid below (still editable). */}
-                <div className="mt-1">
+                <div className="mt-1 flex items-baseline gap-3">
                   <JobShippingText
                     jobId={job.id}
                     field="engineer"
                     value={job.engineer}
                     className="text-[14px] text-[var(--color-ink-2)]"
                     placeholder="工程师"
+                  />
+                  <JobShippingText
+                    jobId={job.id}
+                    field="contact"
+                    value={job.contact}
+                    className="text-[14px] text-[var(--color-ink-2)]"
+                    placeholder="联系人"
                   />
                 </div>
               </>
@@ -602,6 +609,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   零件
                 </th>
                 <th className="px-4 py-3 label whitespace-nowrap">料号</th>
+                <th className="px-4 py-3 label whitespace-nowrap">加工工艺</th>
                 <th className="px-4 py-3 text-right label whitespace-nowrap">
                   数量
                 </th>
@@ -741,6 +749,22 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       ) : (
                         <span className="mono text-[12px] text-[var(--color-ink-2)]">
                           {c.partNo ?? ''}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3">
+                      {canEditFields ? (
+                        <ComponentText
+                          jobId={job.id}
+                          componentId={c.id}
+                          field="process"
+                          value={c.process}
+                          placeholder="—"
+                          className="text-[12px] text-[var(--color-ink-2)]"
+                        />
+                      ) : (
+                        <span className="text-[12px] text-[var(--color-ink-2)]">
+                          {c.process ?? ''}
                         </span>
                       )}
                     </td>

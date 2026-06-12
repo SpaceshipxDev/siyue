@@ -101,25 +101,33 @@ export function ReportEditor({
     'idle',
   )
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const latest = useRef(draft)
-  latest.current = draft
+  // Source of truth for the debounced save — written ONLY inside `update`
+  // (an event-handler path), never during render, so the autosave always
+  // serializes the latest keystroke without a render-phase ref read.
+  const latest = useRef<Draft | null>(null)
 
   const update = (fn: (d: Draft) => Draft) => {
     if (!editable) return
-    setDraft(fn)
+    setDraft((prev) => {
+      const next = fn(latest.current ?? prev)
+      latest.current = next
+      return next
+    })
     setSaveState('dirty')
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => void save(), 900)
   }
 
   const save = async () => {
+    const snapshot = latest.current
+    if (!snapshot) return
     setSaveState('saving')
     try {
       await mutate({
         kind: 'upsertInspectionReport',
         jobId,
         componentId,
-        patch: toPatch(latest.current),
+        patch: toPatch(snapshot),
       })
       setSaveState('saved')
     } catch {

@@ -29,13 +29,14 @@ export function DatePop({
   className?: string
 }) {
   const [open, setOpen] = useState(false)
-  const todayStr = useRef(localToday())
-  const [view, setView] = useState(() => monthOf(value || todayStr.current))
+  const [today, setToday] = useState(localToday)
+  const [view, setView] = useState(() => monthOf(value || localToday()))
   const rootRef = useRef<HTMLDivElement>(null)
 
   const openCal = () => {
-    todayStr.current = localToday()
-    setView(monthOf(value || todayStr.current))
+    const t = localToday()
+    setToday(t)
+    setView(monthOf(value || t))
     setOpen(true)
   }
   const close = () => setOpen(false)
@@ -58,7 +59,6 @@ export function DatePop({
   }, [open])
 
   const grid = monthGrid(view.y, view.m)
-  const today = todayStr.current
 
   return (
     <div ref={rootRef} className={`relative inline-flex ${className}`}>

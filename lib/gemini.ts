@@ -40,6 +40,7 @@ function buildSystem(): string {
 - dueDate (交期): 格式 YYYY-MM-DD。如果只写"确认后 15 天内完成"等模糊描述，按今日 + 15 天估算。如果完全找不到，留 null。今日是 ${today()}。
 - notes (备注): 工单级备注，比如付款方式、特殊要求；零件级别的备注放到对应 part 内。
 - engineer (工程师): 工程负责人或对接工程师的姓名（中文/英文皆可）。常见于"工程师"、"项目工程师"、"对接工程师"、"项目负责人"等字段。只输出姓名，去掉职务前缀。找不到留 null。
+- contact (联系人): 客户方联系人/对接人姓名。常见于"联系人"、"对接人"、"跟单"等字段。只输出姓名。找不到留 null。
 
 零件列表 (parts)：每行实际零件占一项，跳过表头/合计/付款方式/验收标准等说明行。
 - name (零件名称): 物料名称或零件名称那一列；尽量保留完整描述。
@@ -47,6 +48,7 @@ function buildSystem(): string {
 - material (材料): 材料/材质列，比如 "ADC12"、"PA66+GF30 135℃ V-0"、"阻燃ABS"。
 - surfaceTreatment (表面处理): 表面处理列，比如"喷涂灰色户外粉艾罗色号：C-020-1000，有遮喷要求"、"P-002 云海白"、"黑色"。
 - notes (零件备注): 该行的any备注列内容，没有就 null。
+- process (加工工艺): 该行的"加工方式"或"工艺要求"列，比如 "机加"、"3D打印"、"打印"、"CNC"。两列都有时合并为 "打印·机加" 这种形式。找不到留 null。
 - unitPriceCny (单价): 该行的单价/单价(元)/unit price 列，单位人民币元。找不到留 null。
 - lineTotalCny (小计): 该行的小计/金额/合计 列（数量 × 单价的那一列），单位人民币元。如果只列了单价但有数量，可不填，让前端自行计算。两个都没有就 null。
 
@@ -74,6 +76,7 @@ const SCHEMA = {
     dueDate: { type: Type.STRING, nullable: true },
     notes: { type: Type.STRING, nullable: true },
     engineer: { type: Type.STRING, nullable: true },
+    contact: { type: Type.STRING, nullable: true },
     parts: {
       type: Type.ARRAY,
       items: {
@@ -83,6 +86,7 @@ const SCHEMA = {
           qty: { type: Type.INTEGER },
           material: { type: Type.STRING, nullable: true },
           surfaceTreatment: { type: Type.STRING, nullable: true },
+          process: { type: Type.STRING, nullable: true },
           notes: { type: Type.STRING, nullable: true },
           unitPriceCny: { type: Type.NUMBER, nullable: true },
           lineTotalCny: { type: Type.NUMBER, nullable: true },
@@ -94,6 +98,7 @@ const SCHEMA = {
           'qty',
           'material',
           'surfaceTreatment',
+          'process',
           'notes',
           'unitPriceCny',
           'lineTotalCny',
@@ -111,6 +116,7 @@ const SCHEMA = {
     'dueDate',
     'notes',
     'engineer',
+    'contact',
     'parts',
   ],
 }
@@ -123,11 +129,13 @@ type GeminiJobJson = {
   dueDate?: string | null
   notes?: string | null
   engineer?: string | null
+  contact?: string | null
   parts: {
     name: string
     qty: number
     material?: string | null
     surfaceTreatment?: string | null
+    process?: string | null
     notes?: string | null
     unitPriceCny?: number | null
     lineTotalCny?: number | null
@@ -230,12 +238,14 @@ export async function extractJobFromXlsx(input: ExtractInput): Promise<Extracted
     dueDate: clean(parsed.dueDate) ?? fallbackDueDate(),
     notes: clean(parsed.notes),
     engineer: clean(parsed.engineer),
+    contact: clean(parsed.contact),
     sourceFile: input.fileName,
     components: (parsed.parts ?? []).map((p) => ({
       name: clean(p.name) ?? '未命名零件',
       qty: Number.isFinite(p.qty) ? Math.max(0, Math.round(p.qty)) : 0,
       material: clean(p.material),
       surfaceTreatment: clean(p.surfaceTreatment),
+      process: clean(p.process),
       notes: clean(p.notes),
       unitPriceCny:
         typeof p.unitPriceCny === 'number' && Number.isFinite(p.unitPriceCny)

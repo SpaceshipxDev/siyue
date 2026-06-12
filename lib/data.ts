@@ -284,6 +284,10 @@ export type Component = {
   // 料号 — vendor/customer part number. Manual entry only (never AI-extracted).
   // Surfaced on the printed 出货单 / 外协单 when present.
   partNo?: string
+  // 加工工艺 — how this part is made (机加 / 3D打印 / 打印 …). AI-extracted
+  // from the production order's 加工方式/工艺要求 columns; editable inline.
+  // Informational — never drives the stage route automatically.
+  process?: string
   // Per-line quote fields. Both stored independently — qty * unitPriceCny is
   // not enforced to equal lineTotalCny, since real 报价单s often line-discount,
   // round, or tax differently per item. Either may be undefined when the AI
@@ -584,6 +588,10 @@ export type Job = {
   createdBy?: string
   contractNo?: string
   batchNo?: string
+  // 联系人 — the customer-side contact for THIS order. AI-extracted on
+  // import when present; editable in the job header. Order-level (the same
+  // customer ships to different 对接人), distinct from the customer directory.
+  contact?: string
   // 工程师 — engineering owner of the job. AI-extracted on import when
   // present in the source workbook, blank otherwise. Editable inline.
   engineer?: string

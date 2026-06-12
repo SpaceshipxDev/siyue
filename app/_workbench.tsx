@@ -675,7 +675,7 @@ function EmptyState({
 }
 
 function searchPlaceholder(jobNoOnly: boolean): string {
-  return jobNoOnly ? '搜索 · 工号 / 零件' : '搜索 · 工号 / 客户 / 产品 / 零件'
+  return jobNoOnly ? '搜索 · 工号 / 零件 / 料号' : '搜索 · 工号 / 客户 / 产品 / 零件 / 合同号 / 料号'
 }
 
 // Inline range filter. Idle = chip "📅 交期"; click expands to a preset row
