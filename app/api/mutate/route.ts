@@ -6,6 +6,8 @@ import {
   assignToStage,
   closeReturn,
   createDailyFocusItem,
+  createExpense,
+  createExpenses,
   createHandover,
   createOutsourceBlockAt,
   createProcurement,
@@ -13,6 +15,7 @@ import {
   createReturn,
   createVendor,
   deleteDailyFocusItem,
+  deleteExpense,
   deleteHandover,
   deleteProcurement,
   deleteProcurementProduct,
@@ -45,6 +48,7 @@ import {
   updateComponent,
   updateCustomer,
   updateDailyFocusItem,
+  updateExpense,
   updateHandover,
   updateProcurement,
   updateProcurementProduct,
@@ -58,10 +62,12 @@ import {
   type CreateReturnInput,
   type CustomerPatch,
   type DailyFocusPatch,
+  type ExpensePatch,
   type HandoverPatch,
   type JobPatch,
   type NewBlockInput,
   type NewDailyFocusInput,
+  type NewExpenseInput,
   type NewHandoverInput,
   type NewProcurementInput,
   type NewProcurementProductInput,
@@ -72,6 +78,7 @@ import {
 } from '@/lib/db'
 import {
   canManageOutsource,
+  canSeeExpenses,
   canSeeFactoryPulse,
   currentUser,
   requireCommerce,
@@ -82,6 +89,7 @@ import {
 } from '@/lib/auth'
 import type { JobType, Stage, Verdict } from '@/lib/data'
 import { JOB_TYPES, STAGES, VERDICTS } from '@/lib/data'
+import { isExpenseCategory } from '@/lib/expenses'
 import { removeInspectionPhotoObject } from '@/lib/inspection-photo'
 
 // Single JSON dispatcher for mutating writes. Every existing inline-edit
@@ -276,6 +284,38 @@ function isValidProcurementProductPatch(
   for (const f of ['category', 'supplier', 'link', 'notes']) {
     if (!isOptString(o[f])) return false
   }
+  return true
+}
+
+function isValidExpenseInput(x: unknown): x is NewExpenseInput {
+  if (typeof x !== 'object' || x === null) return false
+  const o = x as Record<string, unknown>
+  if (!isString(o.expenseDate) || !/^\d{4}-\d{2}-\d{2}$/.test(o.expenseDate))
+    return false
+  if (!isExpenseCategory(o.category)) return false
+  if (typeof o.amountCny !== 'number' || !Number.isFinite(o.amountCny) || o.amountCny < 0)
+    return false
+  if (!isOptString(o.payee) || !isOptString(o.note)) return false
+  return true
+}
+
+function isValidExpensePatch(x: unknown): x is ExpensePatch {
+  if (typeof x !== 'object' || x === null) return false
+  const o = x as Record<string, unknown>
+  if (
+    o.expenseDate !== undefined &&
+    (!isString(o.expenseDate) || !/^\d{4}-\d{2}-\d{2}$/.test(o.expenseDate))
+  )
+    return false
+  if (o.category !== undefined && !isExpenseCategory(o.category)) return false
+  if (
+    o.amountCny !== undefined &&
+    (typeof o.amountCny !== 'number' ||
+      !Number.isFinite(o.amountCny) ||
+      o.amountCny < 0)
+  )
+    return false
+  if (!isOptString(o.payee) || !isOptString(o.note)) return false
   return true
 }
 
@@ -1314,6 +1354,55 @@ async function dispatch(
       await requireUser()
       await deleteProcurementProduct(productId)
       revalidatePath('/procurement')
+      return Response.json(ok())
+    }
+
+    // === 支出台账 (expense ledger) — boss + designated finance users only.
+    // Payroll rows carry per-person salaries; the gate matches the page
+    // (canSeeExpenses), returning 403 rather than redirecting. ===
+    case 'createExpense': {
+      const input = body.input
+      if (!isValidExpenseInput(input)) return err('bad createExpense args')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      const id = await createExpense(input, u.name)
+      revalidatePath('/finance')
+      return Response.json(ok({ id }))
+    }
+
+    case 'createExpenses': {
+      const inputs = body.inputs
+      // Batch — powers 复制上月工资. Capped: a payroll run is dozens of rows,
+      // never hundreds; anything bigger is a client bug.
+      if (!Array.isArray(inputs) || inputs.length === 0 || inputs.length > 50)
+        return err('bad createExpenses args')
+      if (!inputs.every(isValidExpenseInput)) return err('bad createExpenses args')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      const ids = await createExpenses(inputs, u.name)
+      revalidatePath('/finance')
+      return Response.json(ok({ ids }))
+    }
+
+    case 'updateExpense': {
+      const expenseId = body.expenseId
+      const patch = body.patch
+      if (!isString(expenseId) || !isValidExpensePatch(patch))
+        return err('bad updateExpense args')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      await updateExpense(expenseId, patch)
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    case 'deleteExpense': {
+      const expenseId = body.expenseId
+      if (!isString(expenseId)) return err('bad deleteExpense args')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      await deleteExpense(expenseId)
+      revalidatePath('/finance')
       return Response.json(ok())
     }
 

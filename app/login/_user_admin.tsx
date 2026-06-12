@@ -8,6 +8,7 @@ import {
   deleteUserAction,
   resetPinAction,
   setActiveAction,
+  setFinanceAction,
 } from './admin_actions'
 
 export function UserAdmin({
@@ -211,6 +212,17 @@ function UserRow({ user, bossId }: { user: AppUser; bossId: string }) {
     })
   }
 
+  const onToggleFinance = () => {
+    start(async () => {
+      const res = await setFinanceAction(user.id, !user.isFinance)
+      if (res.ok) {
+        router.refresh()
+      } else {
+        window.alert(res.error)
+      }
+    })
+  }
+
   const onDelete = () => {
     if (
       !window.confirm(
@@ -254,6 +266,11 @@ function UserRow({ user, bossId }: { user: AppUser; bossId: string }) {
       </td>
       <td className="px-4 py-3 label">
         {isBoss ? '老板' : user.role === 'commerce' ? '商务' : '生产'}
+        {user.role === 'commerce' && (isBoss || user.isFinance) && (
+          <span className="ml-1.5 text-[10px] tracking-wider text-[var(--color-info)]">
+            财务
+          </span>
+        )}
       </td>
       <td className="px-4 py-3 mono text-[12px]">
         {user.defaultStage ?? '—'}
@@ -313,6 +330,21 @@ function UserRow({ user, bossId }: { user: AppUser; bossId: string }) {
             >
               重置 PIN
             </button>
+            {!isBoss && user.role === 'commerce' && (
+              <button
+                type="button"
+                onClick={onToggleFinance}
+                disabled={pending}
+                title="财务可见性 — 支出台账与月度现金流（含工资）"
+                className={`label cursor-pointer disabled:opacity-50 ${
+                  user.isFinance
+                    ? 'hover:text-[var(--color-overdue)]'
+                    : 'hover:text-[var(--color-ink)]'
+                }`}
+              >
+                {user.isFinance ? '取消财务' : '设为财务'}
+              </button>
+            )}
             {!isBoss && (
               <>
                 <button

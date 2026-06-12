@@ -75,6 +75,7 @@ export async function loginAction(
         name: user.name,
         role: user.role,
         defaultStage: user.defaultStage,
+        isFinance: user.isFinance,
       })
     : user.role === 'commerce'
       ? '/'

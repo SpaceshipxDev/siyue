@@ -2,7 +2,7 @@ import 'server-only'
 import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import type { Stage } from './data'
-import { getUserById } from './db'
+import { BOSS_USER_ID, getUserById } from './db'
 import { readSession } from './session'
 
 export type Role = 'commerce' | 'production'
@@ -12,6 +12,11 @@ export type AuthUser = {
   name: string
   role: Role
   defaultStage?: Stage
+  // 财务可见性 flag from users.is_finance (migration 0051). Gates the
+  // 支出/月度 tabs — payroll amounts are sensitive, so ordinary 商务 keep
+  // seeing 应收 only. Check via canSeeExpenses, never this flag directly
+  // (the boss is granted in code even on a pre-migration DB).
+  isFinance: boolean
 }
 
 // Wrapped in React `cache` so multiple component reads in the same render
@@ -28,6 +33,7 @@ export const currentUser = cache(async (): Promise<AuthUser | null> => {
     name: user.name,
     role: user.role,
     defaultStage: user.defaultStage,
+    isFinance: user.isFinance,
   }
 })
 
@@ -56,6 +62,24 @@ export type Scope = Pick<AuthUser, 'role' | 'defaultStage'>
 
 export function canSeeMoney(s: Scope): boolean {
   return s.role === 'commerce'
+}
+
+// 支出台账 + 月度现金流 — the boss and designated finance users only. Payroll
+// rows carry per-person salaries, so this is deliberately narrower than
+// canSeeMoney (which every 商务 holds). The 老板 bootstrap account qualifies
+// unconditionally so a half-applied migration can never lock the boss out of
+// his own books.
+export function canSeeExpenses(u: AuthUser): boolean {
+  if (u.role !== 'commerce') return false
+  return u.isFinance || u.id === BOSS_USER_ID
+}
+
+// Page guard for the 支出/月度 finance tabs. Non-finance commerce users land
+// back on the 应收 tab rather than an error page.
+export async function requireFinance(): Promise<AuthUser> {
+  const u = await requireCommerce()
+  if (!canSeeExpenses(u)) redirect('/finance')
+  return u
 }
 
 // Customer name, customerId, contractNo, batchNo — anything customer-facing

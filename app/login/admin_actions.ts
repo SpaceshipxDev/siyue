@@ -59,6 +59,23 @@ export async function setActiveAction(
   }
 }
 
+// Grant / revoke the 财务 flag (支出/月度 tab visibility). Commerce users
+// only — the toggle is hidden for production rows in the UI, and the boss
+// row rejects revocation at the lib/db level.
+export async function setFinanceAction(
+  userId: string,
+  isFinance: boolean,
+): Promise<SetActiveResult> {
+  await requireCommerce()
+  try {
+    await updateUser(userId, { isFinance })
+    revalidatePath('/login')
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '更新失败' }
+  }
+}
+
 export async function resetPinAction(
   userId: string,
   pin: string,
