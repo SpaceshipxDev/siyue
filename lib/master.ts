@@ -123,6 +123,28 @@ export type MasterRow = {
   cells: Partial<Record<Stage, MasterCell>>
 }
 
+export type MasterAggregates = {
+  totalJobs: number
+  inProgress: number
+  paused: number
+  overdue: number
+  dueToday: number
+  totalAmountCny: number
+  totalExternalSpendCny: number
+  totalMarginCny: number
+  byStage: Partial<
+    Record<
+      Stage,
+      {
+        here: number
+        dueToday: number
+        overdue: number
+        parts: number
+      }
+    >
+  >
+}
+
 // =====================================================================
 // Helpers — drop-in replacements for the lib/data.ts helpers that the
 // master-grid path used. Each takes the precomputed cell or row instead

@@ -1,5 +1,4 @@
-import { dueState, formatCny, formatMinutes, type Stage } from '@/lib/data'
-import { rowIsMineAtStage, type MasterRow } from '@/lib/master'
+import { formatCny, formatMinutes } from '@/lib/data'
 
 // A compact station-context strip, sitting just under the personal 今日产出
 // card. Deliberately quiet — small inline label+value pairs, urgency shown by
@@ -19,28 +18,19 @@ import { rowIsMineAtStage, type MasterRow } from '@/lib/master'
 //   在此金额 (opt-in via wipCny): boss-only ¥ value of WIP at this station.
 //            Workers without money visibility get the original 4-up layout.
 export function StationSummary({
-  rows,
-  stage,
+  here,
+  dueToday,
+  overdue,
   avgMinutes,
   wipCny,
 }: {
-  rows: MasterRow[]
-  stage: Stage
+  here: number
+  dueToday: number
+  overdue: number
   avgMinutes?: number | null
   /** ¥ value of WIP at this station. Pass to render the 5th metric. */
   wipCny?: number
 }) {
-  let here = 0
-  let dueToday = 0
-  let overdue = 0
-  for (const r of rows) {
-    if (!rowIsMineAtStage(r, stage)) continue
-    here++
-    const ds = dueState(r.dueDate)
-    if (ds === 'overdue') overdue++
-    else if (ds === 'today') dueToday++
-  }
-
   const showWip = typeof wipCny === 'number'
 
   // A quiet, compact strip — not a hero band. The personal 今日产出 card now

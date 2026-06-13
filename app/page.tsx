@@ -1,12 +1,17 @@
 import { Suspense } from 'react'
 import {
   STAGES,
-  dueState,
   formatCny,
   type Stage,
 } from '@/lib/data'
 import { today } from '@/lib/today'
-import { getDailyFocusItems, getMasterRows, getStageFlowMinutes } from '@/lib/db'
+import {
+  getDailyFocusItems,
+  getInboxRows,
+  getMasterAggregates,
+  getMasterRowsByIds,
+  getStageFlowMinutes,
+} from '@/lib/db'
 import { requireUser, canSeeFactoryPulse, canSeeMoney } from '@/lib/auth'
 import { scrubMasterRow } from '@/lib/dto'
 import { getStationWip, getWorkerSelfStats } from '@/lib/pulse'
@@ -60,22 +65,30 @@ export default async function MasterBoard(
   // job-detail page (/jobs/[id]) which still loads a single-job snapshot.
   const useMasterSheet = !stageFilter || stageFilter === '工程'
 
-  const [rawRows, stageFlowMinutes, selfStats, focusItems] = await Promise.all([
-    getMasterRows(),
-    getStageFlowMinutes(),
-    // The worker's own today/this-week numbers — fetched alongside the board so
-    // the headline paints in the same shot. Only production users get a row.
-    showMyToday ? getWorkerSelfStats(user.name) : Promise.resolve(null),
-    // 今日重点 — the boss's daily must-do list, mirrored onto every view.
-    getDailyFocusItems(today()),
-  ])
+  const [stageFlowMinutes, selfStats, focusItems, aggregates, inboxRawRows] =
+    await Promise.all([
+      getStageFlowMinutes(),
+      // The worker's own today/this-week numbers — fetched alongside the board so
+      // the headline paints in the same shot. Only production users get a row.
+      showMyToday ? getWorkerSelfStats(user.name) : Promise.resolve(null),
+      // 今日重点 — the boss's daily must-do list, mirrored onto every view.
+      getDailyFocusItems(today()),
+      getMasterAggregates(),
+      isProduction && !isEngineering ? Promise.resolve([]) : getInboxRows(),
+    ])
 
-  const rows = isProduction ? rawRows.map((r) => scrubMasterRow(r, user)) : rawRows
+  const focusJobIds = focusItems
+    .map((it) => it.jobId)
+    .filter((id): id is string => Boolean(id))
+  const rawFocusRows = await getMasterRowsByIds(focusJobIds)
+  const focusMasterRows = isProduction
+    ? rawFocusRows.map((r) => scrubMasterRow(r, user))
+    : rawFocusRows
 
   // Join today's focus rows against the (scrubbed) master read so the strip
   // shows live jobNo / product / due state. Free-text rows pass through
   // unlinked. Same list for everyone — boss and floor read identical state.
-  const rowById = new Map(rows.map((r) => [r.id, r]))
+  const rowById = new Map(focusMasterRows.map((r) => [r.id, r]))
   const focusRows: FocusStripRow[] = focusItems.map((it) => {
     const job = it.jobId ? rowById.get(it.jobId) : undefined
     return {
@@ -99,34 +112,16 @@ export default async function MasterBoard(
   const inbox =
     isProduction && !isEngineering
       ? []
-      : rows.filter(
-          (r) =>
-            r.status === 'parsing' || r.status === 'draft' || r.status === 'failed',
-        )
-  // Effective due date is precomputed on the row; just sort by it.
-  const live = rows.filter(
-    (r) => r.status !== 'parsing' && r.status !== 'draft' && r.status !== 'failed',
-  )
-  const sorted = [...live].sort((a, b) =>
-    a.effectiveDueDate.localeCompare(b.effectiveDueDate),
-  )
-  // 在产 / 逾期 / 今日 pills are "needs attention" signals — shipped jobs
-  // (every in-route part done at 出货) are off the floor, so they don't
-  // count even if their dueDate is in the past. Paused (暂停) jobs are
-  // deliberately on hold, so they're carved out into their own pill and don't
-  // skew 在产 / 逾期 / 今日. Mirrors the MasterSheet 在产 / 暂停 / 已出货 split
-  // (see _master_filter.tsx liveCount).
-  const inProgress = sorted.filter((r) => !r.isShipped && !r.pausedAt)
-  const pausedCount = sorted.filter((r) => !r.isShipped && r.pausedAt).length
-  const overdue = inProgress.filter(
-    (r) => dueState(r.effectiveDueDate) === 'overdue',
-  ).length
-  const dueToday = inProgress.filter(
-    (r) => dueState(r.effectiveDueDate) === 'today',
-  ).length
-  const totalAmount = sorted.reduce((sum, r) => sum + (r.amountCny ?? 0), 0)
-  const totalExternal = sorted.reduce((sum, r) => sum + r.externalSpendCny, 0)
-  const totalMargin = totalAmount - totalExternal
+      : isProduction
+        ? inboxRawRows.map((r) => scrubMasterRow(r, user))
+        : inboxRawRows
+  const overdue = aggregates.overdue
+  const dueToday = aggregates.dueToday
+  const inProgressCount = aggregates.inProgress
+  const pausedCount = aggregates.paused
+  const totalAmount = aggregates.totalAmountCny
+  const totalExternal = aggregates.totalExternalSpendCny
+  const totalMargin = aggregates.totalMarginCny
 
   // Production users see just their station name as the title — no "工单" /
   // "我的工单" subtitle clutter; the StationSummary card below carries the
@@ -217,14 +212,14 @@ export default async function MasterBoard(
             <div className="flex items-center gap-2">
               <Pill tone="overdue" label="逾期" value={overdue} />
               <Pill tone="warning" label="今日" value={dueToday} />
-              <Pill tone="neutral" label="在产" value={inProgress.length} />
+              <Pill tone="neutral" label="在产" value={inProgressCount} />
               <Pill tone="neutral" label="暂停/取消" value={pausedCount} />
             </div>
           ) : isProduction ? null : (
             <div className="flex items-center gap-2">
               <Pill tone="overdue" label="逾期" value={overdue} />
               <Pill tone="warning" label="今日" value={dueToday} />
-              <Pill tone="neutral" label="在产" value={inProgress.length} />
+              <Pill tone="neutral" label="在产" value={inProgressCount} />
               <Pill tone="neutral" label="暂停/取消" value={pausedCount} />
               <Pill tone="info" label="总额" value={formatCny(totalAmount)} />
               <Pill tone="info" label="外发" value={formatCny(totalExternal)} />
@@ -262,7 +257,7 @@ export default async function MasterBoard(
                 点击任意单元格进入工单 · 点击工段表头漏斗按状态筛选
               </p>
             </div>
-            <p className="label">{sorted.length} 个工单</p>
+            <p className="label">{aggregates.totalJobs} 个工单</p>
           </div>
         )}
 
@@ -283,8 +278,9 @@ export default async function MasterBoard(
 
         {summaryStage && (
           <StationSummary
-            rows={sorted}
-            stage={summaryStage}
+            here={aggregates.byStage[summaryStage]?.here ?? 0}
+            dueToday={aggregates.byStage[summaryStage]?.dueToday ?? 0}
+            overdue={aggregates.byStage[summaryStage]?.overdue ?? 0}
             avgMinutes={stageFlowMinutes.get(summaryStage) ?? null}
             wipCny={wipForStation}
           />

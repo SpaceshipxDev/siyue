@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Stage } from '@/lib/data'
 import type { MasterRow } from '@/lib/master'
+import { expandMasterWireRows, type CompactMasterRow } from '@/lib/master_wire'
 import { MasterSheet } from './_master_filter'
 import { StationWorkbench } from './_workbench'
 
@@ -29,18 +30,22 @@ type RowsState =
 function useMasterRows(): { state: RowsState; reload: () => void } {
   const [state, setState] = useState<RowsState>({ status: 'loading' })
   const [nonce, setNonce] = useState(0)
-  const reload = useCallback(() => setNonce((n) => n + 1), [])
+  const reload = useCallback(() => {
+    setState({ status: 'loading' })
+    setNonce((n) => n + 1)
+  }, [])
 
   useEffect(() => {
     let alive = true
-    setState((prev) => (prev.status === 'ready' ? prev : { status: 'loading' }))
     fetch('/api/master/rows', { cache: 'no-store' })
       .then(async (r) => {
         const data = (await r.json()) as
-          | { ok: true; rows: MasterRow[] }
+          | { ok: true; rows: CompactMasterRow[] }
           | { ok: false; error: string }
         if (!alive) return
-        if (data.ok) setState({ status: 'ready', rows: data.rows })
+        if (data.ok) {
+          setState({ status: 'ready', rows: expandMasterWireRows(data.rows) })
+        }
         else setState({ status: 'error', message: data.error })
       })
       .catch((e: unknown) => {
