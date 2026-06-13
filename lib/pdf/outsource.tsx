@@ -10,6 +10,7 @@ import {
 } from './../data'
 import { BRAND } from './../brand'
 import { styles } from './styles'
+import { DocFooter } from './footer'
 import { ensureFontsRegistered } from './fonts'
 import type { ImageSource } from './images'
 import { stripProcessMethodFromNotes } from './sanitize'
@@ -65,8 +66,8 @@ export function OutsourceDocPDF({
     <Document
       title={`外协单 ${docNo}`}
       author={BRAND.legalName}
-      creator={BRAND.software}
-      producer={BRAND.software}
+      creator={BRAND.softwareCredit}
+      producer={BRAND.softwareCredit}
     >
       <Page size="A4" style={styles.page} wrap>
         <View style={styles.headerRule}>
@@ -227,7 +228,7 @@ export function OutsourceDocPDF({
           </View>
         </View>
 
-        <Text style={styles.softwareCredit}>{BRAND.software}</Text>
+        <DocFooter />
       </Page>
     </Document>
   )

@@ -342,8 +342,10 @@ export default async function OutsourceDocPage(
           </div>
         </footer>
 
-        <p className="mt-8 text-[10px] text-[var(--color-ink-4)] tracking-[0.14em] uppercase">
-          {BRAND.software}
+        <p className="mt-8 flex items-baseline gap-1.5 text-[11px]">
+          <span className="tracking-[0.1em] text-[var(--color-ink-3)]">{BRAND.software}</span>
+          <span className="text-[var(--color-ink-4)]">·</span>
+          <span className="tracking-[0.02em] text-[var(--color-ink-2)]">{BRAND.domain}</span>
         </p>
       </article>
     </>

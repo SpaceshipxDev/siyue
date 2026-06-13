@@ -2,6 +2,7 @@ import 'server-only'
 import { Document, Page, Text, View } from '@react-pdf/renderer'
 import { BRAND } from './../brand'
 import { styles, COLOR } from './styles'
+import { DocFooter } from './footer'
 import { ensureFontsRegistered } from './fonts'
 import {
   dimLimit,
@@ -48,8 +49,8 @@ export function InspectionReportPDF({
     <Document
       title={`出厂检验报告 ${report.reportNo ?? header.jobNo}`}
       author={BRAND.legalName}
-      creator={BRAND.software}
-      producer={BRAND.software}
+      creator={BRAND.softwareCredit}
+      producer={BRAND.softwareCredit}
     >
       <Page size="A4" style={styles.page} wrap>
         <View style={styles.headerRule}>
@@ -193,21 +194,7 @@ export function InspectionReportPDF({
           <Sig label="检验时间" value={report.inspectedAt ?? ''} />
         </View>
 
-        <Text
-          fixed
-          style={{
-            position: 'absolute',
-            bottom: 18,
-            left: 40,
-            right: 40,
-            textAlign: 'center',
-            fontSize: 7,
-            color: COLOR.ink4,
-            letterSpacing: 1.4,
-          }}
-        >
-          {BRAND.software}
-        </Text>
+        <DocFooter />
       </Page>
     </Document>
   )

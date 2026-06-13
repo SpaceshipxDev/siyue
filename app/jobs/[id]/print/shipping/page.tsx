@@ -12,6 +12,7 @@ import {
 import { requireUser } from '@/lib/auth'
 import { BRAND } from '@/lib/brand'
 import { proxiedStorageUrl } from '@/lib/storage-url'
+import { stripProcessMethodFromNotes } from '@/lib/pdf/sanitize'
 import { PrintToolbar } from '@/app/_print'
 import {
   ComponentText,
@@ -177,7 +178,7 @@ export default async function ShippingDocPage(
             value={
               <JobNotes
                 jobId={job.id}
-                value={job.notes}
+                value={stripProcessMethodFromNotes(job.notes)}
                 placeholder="—"
               />
             }
@@ -230,7 +231,7 @@ export default async function ShippingDocPage(
                         placeholder="—"
                       />
                     </td>
-                    <td className="text-[var(--color-ink-2)]">{c.notes ?? ''}</td>
+                    <td className="text-[var(--color-ink-2)]">{stripProcessMethodFromNotes(c.notes)}</td>
                   </tr>
                 ))}
                 <tr>
@@ -267,8 +268,10 @@ export default async function ShippingDocPage(
         ) : null}
 
         <footer className="mt-16 flex items-end justify-between text-[12px] text-[var(--color-ink-2)]">
-          <p className="text-[10px] text-[var(--color-ink-4)] tracking-[0.14em] uppercase">
-            {BRAND.software}
+          <p className="flex items-baseline gap-1.5 text-[11px]">
+            <span className="tracking-[0.1em] text-[var(--color-ink-3)]">{BRAND.software}</span>
+            <span className="text-[var(--color-ink-4)]">·</span>
+            <span className="tracking-[0.02em] text-[var(--color-ink-2)]">{BRAND.domain}</span>
           </p>
           <p className="min-w-[220px]">
             <span className="label mr-3">签收人</span>

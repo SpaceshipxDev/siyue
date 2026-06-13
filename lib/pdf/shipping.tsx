@@ -7,6 +7,7 @@ import {
 } from './../data'
 import { BRAND } from './../brand'
 import { COLOR, styles } from './styles'
+import { DocFooter } from './footer'
 import { ensureFontsRegistered } from './fonts'
 import type { ImageSource } from './images'
 import { stripProcessMethodFromNotes } from './sanitize'
@@ -58,8 +59,8 @@ export function ShippingDocPDF({
     <Document
       title={docNo ? `出货单 ${docNo}` : '出货单'}
       author={BRAND.legalName}
-      creator={BRAND.software}
-      producer={BRAND.software}
+      creator={BRAND.softwareCredit}
+      producer={BRAND.softwareCredit}
     >
       <Page size="A4" style={styles.page} wrap>
         {/* Header */}
@@ -181,8 +182,7 @@ export function ShippingDocPDF({
         ) : null}
 
         {/* Footer signature */}
-        <View style={styles.signatureBlock}>
-          <Text style={styles.softwareCredit}>{BRAND.software}</Text>
+        <View style={[styles.signatureBlock, { justifyContent: 'flex-end' }]}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
             <Text style={styles.amountLabel}>签收人</Text>
             <View
@@ -195,6 +195,8 @@ export function ShippingDocPDF({
             />
           </View>
         </View>
+
+        <DocFooter />
       </Page>
     </Document>
   )

@@ -26,7 +26,9 @@ import {
   removeOutsourceBlockMember,
   finishJobStage,
   finishStage,
+  getCachedMutationResponse,
   getJob,
+  recordMutationResponse,
   markJobAsDraft,
   prepareShipping,
   setBlockMembersReturnedQty,
@@ -179,6 +181,11 @@ async function cacheAndSend(
       expiresAt: now + IDEMPOTENCY_TTL_MS,
     })
     evictExpired(now)
+    // Persist to the cross-worker store so a retry on another cluster worker
+    // replays instead of re-applying. Fire-and-forget: awaiting would add a
+    // round-trip to the response the client is waiting on, and a lost record
+    // only weakens dedupe (never corrupts the write that already committed).
+    void recordMutationResponse(requestId, status, body)
   }
   return Response.json(body, { status })
 }
@@ -375,10 +382,23 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   // Idempotency: a client retry after a killed response carries the same
   // requestId; replay the cached reply instead of double-applying the write.
+  // In-memory Map is the same-worker fast path; under pm2 cluster a retry can
+  // hit a different worker, so we also consult the durable mutation_log store
+  // (no-op if migration 0058 isn't applied yet).
   if (requestId) {
     const cached = idempotencyCache.get(requestId)
     if (cached && cached.expiresAt > Date.now()) {
       return Response.json(cached.body, { status: cached.status })
+    }
+    const durable = await getCachedMutationResponse(requestId)
+    if (durable) {
+      // Warm the local Map so subsequent same-worker retries skip the DB.
+      idempotencyCache.set(requestId, {
+        body: durable.body,
+        status: durable.status,
+        expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
+      })
+      return Response.json(durable.body, { status: durable.status })
     }
   }
 

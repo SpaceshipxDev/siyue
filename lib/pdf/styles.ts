@@ -204,12 +204,6 @@ export const styles = StyleSheet.create({
     fontSize: 9,
     color: COLOR.ink2,
   },
-  softwareCredit: {
-    fontSize: 7,
-    color: COLOR.ink4,
-    letterSpacing: 1.2,
-    marginTop: 24,
-  },
 
   // Outsource-specific signature column
   signatureColumn: {
