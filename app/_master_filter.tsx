@@ -14,6 +14,7 @@ import {
 } from '@/lib/data'
 import {
   rowIsDoneAtStage,
+  rowIsInbox,
   rowIsMineAtStage,
   rowIsShipped,
   rowIsUpstreamOfStage,
@@ -277,6 +278,10 @@ export function MasterSheet({
     let paused = 0
     let shipped = 0
     for (const r of rows) {
+      // 收件箱 jobs (parsing/draft/failed) are not confirmed orders — they never
+      // belong to any production bucket. The board feed already excludes them;
+      // this guards the optimistic by-id refresh path from re-introducing them.
+      if (rowIsInbox(r)) continue
       if (rowIsShipped(r)) shipped++
       else if (effectiveIsPaused(r)) paused++
       else live++
@@ -285,11 +290,16 @@ export function MasterSheet({
   }, [rows, effectiveIsPaused])
 
   const scopedRows = useMemo(() => {
-    if (!showShipTabs) return rows
-    if (shipFilter === 'shipped') return rows.filter((r) => rowIsShipped(r))
+    if (!showShipTabs) return rows.filter((r) => !rowIsInbox(r))
+    if (shipFilter === 'shipped')
+      return rows.filter((r) => !rowIsInbox(r) && rowIsShipped(r))
     if (shipFilter === 'paused')
-      return rows.filter((r) => !rowIsShipped(r) && effectiveIsPaused(r))
-    return rows.filter((r) => !rowIsShipped(r) && !effectiveIsPaused(r))
+      return rows.filter(
+        (r) => !rowIsInbox(r) && !rowIsShipped(r) && effectiveIsPaused(r),
+      )
+    return rows.filter(
+      (r) => !rowIsInbox(r) && !rowIsShipped(r) && !effectiveIsPaused(r),
+    )
   }, [rows, showShipTabs, shipFilter, effectiveIsPaused])
   // Highlight the user's home station for production; otherwise highlight the
   // URL stage (so commerce navigating to a station sees the same emphasis).

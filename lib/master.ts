@@ -293,6 +293,17 @@ export function rowIsShipped(row: MasterRow): boolean {
   return row.isShipped
 }
 
+/** True for 收件箱 jobs (parsing/draft/failed) — not yet confirmed orders, so
+ *  they belong only to the inbox and must never count toward 在产 / 暂停 / 已出货
+ *  on the production board. Mirrors master_board_summary's status guard. */
+export function rowIsInbox(row: MasterRow): boolean {
+  return (
+    row.status === 'parsing' ||
+    row.status === 'draft' ||
+    row.status === 'failed'
+  )
+}
+
 /** True when the job is deliberately on hold (暂停). Independent of isShipped;
  *  the 在产 / 暂停 / 已出货 split treats 暂停 as a slice of not-yet-shipped. */
 export function rowIsPaused(row: MasterRow): boolean {
