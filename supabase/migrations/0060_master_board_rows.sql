@@ -7,10 +7,78 @@
 
 create extension if not exists pg_trgm;
 
+create or replace function master_board_job_intake_date(p_job_no text)
+returns text
+language plpgsql
+immutable
+as $$
+declare
+  m text[];
+  yy int;
+  mm int;
+  dd int;
+begin
+  if p_job_no is null then
+    return null;
+  end if;
+  m := regexp_match(
+    trim(p_job_no),
+    '^[A-Z][A-Z0-9]*-(\d{2})-(\d{1,2})-(\d{1,2})-(\d+)$',
+    'i'
+  );
+  if m is null then
+    return null;
+  end if;
+  yy := m[1]::int;
+  mm := m[2]::int;
+  dd := m[3]::int;
+  if mm < 1 or mm > 12 or dd < 1 or dd > 31 then
+    return null;
+  end if;
+  return '20' || lpad(yy::text, 2, '0') || '-' ||
+    lpad(mm::text, 2, '0') || '-' ||
+    lpad(dd::text, 2, '0');
+end;
+$$;
+
+create or replace function master_board_job_no_sort_key(p_job_no text)
+returns text
+language plpgsql
+immutable
+as $$
+declare
+  m text[];
+  intake text;
+  seq int;
+begin
+  if p_job_no is null then
+    return chr(65535);
+  end if;
+  m := regexp_match(
+    trim(p_job_no),
+    '^[A-Z][A-Z0-9]*-(\d{2})-(\d{1,2})-(\d{1,2})-(\d+)$',
+    'i'
+  );
+  if m is null then
+    return chr(65535);
+  end if;
+  intake := master_board_job_intake_date(p_job_no);
+  if intake is null then
+    return chr(65535);
+  end if;
+  seq := least(99999, m[4]::int);
+  return translate(intake, '0123456789', '9876543210') ||
+    '-' ||
+    lpad((99999 - seq)::text, 5, '0');
+end;
+$$;
+
 create table if not exists master_board_rows (
   job_id text primary key references jobs(id) on delete cascade,
   position numeric,
   job_no text not null,
+  job_no_sort_key text not null default chr(65535),
+  job_intake_date text,
   customer text not null,
   product text not null,
   engineer text,
@@ -44,6 +112,11 @@ create table if not exists master_board_rows (
   updated_at timestamptz not null default now()
 );
 
+alter table master_board_rows
+  add column if not exists job_no_sort_key text not null default chr(65535);
+alter table master_board_rows
+  add column if not exists job_intake_date text;
+
 create index if not exists master_board_rows_status_idx
   on master_board_rows(status);
 create index if not exists master_board_rows_position_idx
@@ -52,6 +125,10 @@ create index if not exists master_board_rows_effective_due_idx
   on master_board_rows(effective_due_date, job_id);
 create index if not exists master_board_rows_job_no_idx
   on master_board_rows(job_no);
+create index if not exists master_board_rows_job_no_sort_idx
+  on master_board_rows(job_no_sort_key, job_id);
+create index if not exists master_board_rows_job_intake_idx
+  on master_board_rows(job_intake_date);
 create index if not exists master_board_rows_search_haystack_idx
   on master_board_rows using gin (search_haystack gin_trgm_ops);
 
@@ -73,6 +150,8 @@ begin
     job_id,
     position,
     job_no,
+    job_no_sort_key,
+    job_intake_date,
     customer,
     product,
     engineer,
@@ -109,6 +188,8 @@ begin
     j.id,
     j.position,
     j.job_no,
+    master_board_job_no_sort_key(j.job_no),
+    master_board_job_intake_date(j.job_no),
     j.customer,
     j.product,
     j.engineer,
@@ -196,6 +277,8 @@ begin
   on conflict (job_id) do update set
     position = excluded.position,
     job_no = excluded.job_no,
+    job_no_sort_key = excluded.job_no_sort_key,
+    job_intake_date = excluded.job_intake_date,
     customer = excluded.customer,
     product = excluded.product,
     engineer = excluded.engineer,
@@ -394,6 +477,116 @@ drop trigger if exists refresh_master_board_outsource_block_parts on outsource_b
 create trigger refresh_master_board_outsource_block_parts
 after insert or update or delete on outsource_block_parts
 for each row execute function trg_refresh_master_board_from_outsource_block_parts();
+
+create or replace function master_board_stage_kind(p_cells jsonb, p_stage text)
+returns text
+language sql
+immutable
+as $$
+  with c as (
+    select
+      coalesce((p_cells -> p_stage ->> 'total')::int, 0) as total,
+      coalesce((p_cells -> p_stage ->> 'inHouseDone')::int, 0) as in_house_done,
+      coalesce((p_cells -> p_stage ->> 'outsourcedClosed')::int, 0) as outsourced_closed,
+      coalesce((p_cells -> p_stage ->> 'outsourcedOpen')::int, 0) as outsourced_open,
+      coalesce((p_cells -> p_stage ->> 'inProgress')::int, 0) as in_progress
+  )
+  select case
+    when total = 0 then 'na'
+    when in_house_done + outsourced_closed + outsourced_open = total then 'done'
+    when in_house_done + outsourced_closed + outsourced_open = 0 and in_progress = 0 then 'pending'
+    else 'partial'
+  end
+  from c;
+$$;
+
+create or replace function master_board_facets(
+  p_q text default null,
+  p_job_no_only boolean default false,
+  p_ship text default null,
+  p_sort text default 'due',
+  p_date_start text default null,
+  p_date_end text default null,
+  p_status_filters jsonb default '{}'::jsonb
+)
+returns table(stage text, pending int, partial int, done int, total int)
+language sql
+stable
+as $$
+  with stage_names(stage, ord) as (
+    values
+      ('工程', 1),
+      ('编程', 2),
+      ('操机', 3),
+      ('检验', 4),
+      ('手工', 5),
+      ('打磨', 6),
+      ('喷漆', 7),
+      ('丝印', 8),
+      ('质量', 9),
+      ('出货', 10)
+  ),
+  filtered as (
+    select m.*
+    from master_board_rows m
+    where coalesce(m.status, 'ready') not in ('parsing', 'draft', 'failed')
+      and (
+        nullif(trim(coalesce(p_q, '')), '') is null
+        or (
+          p_job_no_only
+          and m.job_no ilike '%' || trim(p_q) || '%'
+        )
+        or (
+          not p_job_no_only
+          and m.search_haystack ilike '%' || lower(trim(p_q)) || '%'
+        )
+      )
+      and (
+        p_ship is null
+        or (p_ship = 'shipped' and m.is_shipped)
+        or (p_ship = 'paused' and not m.is_shipped and m.paused_at is not null)
+        or (p_ship = 'live' and not m.is_shipped and m.paused_at is null)
+      )
+      and (
+        p_date_start is null
+        or case
+          when p_sort = 'jobNo' then m.job_intake_date
+          else m.effective_due_date
+        end >= p_date_start
+      )
+      and (
+        p_date_end is null
+        or case
+          when p_sort = 'jobNo' then m.job_intake_date
+          else m.effective_due_date
+        end <= p_date_end
+      )
+  )
+  select
+    sn.stage,
+    count(*) filter (
+      where master_board_stage_kind(f.cells, sn.stage) = 'pending'
+    )::int as pending,
+    count(*) filter (
+      where master_board_stage_kind(f.cells, sn.stage) = 'partial'
+    )::int as partial,
+    count(*) filter (
+      where master_board_stage_kind(f.cells, sn.stage) = 'done'
+    )::int as done,
+    count(*) filter (
+      where master_board_stage_kind(f.cells, sn.stage) in ('pending', 'partial', 'done')
+    )::int as total
+  from stage_names sn
+  left join filtered f
+    on not exists (
+      select 1
+      from jsonb_each_text(coalesce(p_status_filters, '{}'::jsonb)) sf
+      where sf.key <> sn.stage
+        and master_board_stage_kind(f.cells, sf.key) <> sf.value
+    )
+  group by sn.stage, sn.ord
+  order by sn.ord;
+$$;
 
 select refresh_master_board_rows();
 
