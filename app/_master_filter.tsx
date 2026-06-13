@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import Link from 'next/link'
 import {
   STAGES,
@@ -43,12 +44,6 @@ type Role = 'commerce' | 'production'
 function isJobNoOnlySearch(role: Role, defaultStage?: Stage): boolean {
   return role === 'production' && defaultStage !== '出货'
 }
-
-// Default page size on the commerce overview. The full list (1000+ at scale)
-// belongs in search/filter, not as a default scroll. The cap only applies on
-// the unfiltered overview — search, date filter, and station views all bypass
-// it because narrowing implies "show me everything that matches."
-const DEFAULT_PAGE_SIZE = 25
 
 // Two ordering axes the floor reasons in:
 //   'due'   — by 交期 ascending. Production's "what's burning" — the historic
@@ -201,10 +196,6 @@ export function MasterSheet({
   const [shipFilter, setShipFilter] = usePersistentState<ShipFilter>(
     `${persistKey}:ship`,
     'live',
-  )
-  const [showAll, setShowAll] = usePersistentState<boolean>(
-    `${persistKey}:showAll`,
-    false,
   )
   // 待外协 facet — 商务's "what's waiting on me to arrange outsourcing" view.
   // Transient (not persisted): it's a momentary focus, not a saved preference,
@@ -500,16 +491,96 @@ export function MasterSheet({
     onlyPendingOutsource ||
     onlyDrawingChange
 
-  // Pagination applies only on the commerce overview. Station views already
-  // self-limit (mine + upstream≤20 + done≤20), and any active filter implies
-  // "show me everything that matches" — capping there would feel broken.
-  const shouldPaginate = !isStationView && !isFiltered
-  const visibleTopRows =
-    shouldPaginate && !showAll
-      ? topRows.slice(0, DEFAULT_PAGE_SIZE)
-      : topRows
-  const hiddenTopCount =
-    shouldPaginate && !showAll ? topRows.length - visibleTopRows.length : 0
+  type VirtualDivider = {
+    kind: 'divider'
+    key: string
+    label: string
+    sub: string
+  }
+  type VirtualJob = {
+    kind: 'job'
+    key: string
+    row: MasterRow
+    tier: 'mine' | 'upstream' | 'done'
+    displayIndex: number
+  }
+  type VirtualItem = VirtualDivider | VirtualJob
+
+  const virtualRows = useMemo<VirtualItem[]>(() => {
+    const out: VirtualItem[] = topRows.map((row, i) => ({
+      kind: 'job',
+      key: `job:${row.id}:mine`,
+      row,
+      tier: 'mine',
+      displayIndex: i,
+    }))
+    if (upstreamRows.length > 0) {
+      out.push({
+        kind: 'divider',
+        key: 'divider:upstream',
+        label: '即将到达',
+        sub: `上游 · ${upstreamRows.length}`,
+      })
+      upstreamRows.forEach((row, i) => {
+        out.push({
+          kind: 'job',
+          key: `job:${row.id}:upstream`,
+          row,
+          tier: 'upstream',
+          displayIndex: topRows.length + i,
+        })
+      })
+    }
+    if (doneRows.length > 0) {
+      out.push({
+        kind: 'divider',
+        key: 'divider:done',
+        label: '已处理',
+        sub: `完成 / 外协 · ${doneRows.length}`,
+      })
+      doneRows.forEach((row, i) => {
+        out.push({
+          kind: 'job',
+          key: `job:${row.id}:done`,
+          row,
+          tier: 'done',
+          displayIndex: topRows.length + upstreamRows.length + i,
+        })
+      })
+    }
+    return out
+  }, [topRows, upstreamRows, doneRows])
+
+  const [tableOffsetTop, setTableOffsetTop] = useState(0)
+  useEffect(() => {
+    const el = tableScrollRef.current
+    if (!el) return
+    const update = () => setTableOffsetTop(el.getBoundingClientRect().top + window.scrollY)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    window.addEventListener('resize', update)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', update)
+    }
+  }, [virtualRows.length])
+
+  const rowVirtualizer = useWindowVirtualizer<HTMLTableRowElement>({
+    count: virtualRows.length,
+    estimateSize: (index) => (virtualRows[index]?.kind === 'divider' ? 82 : 78),
+    getItemKey: (index) => virtualRows[index]?.key ?? index,
+    overscan: 12,
+    scrollMargin: tableOffsetTop,
+  })
+  const virtualItems = rowVirtualizer.getVirtualItems()
+  const topSpacer = virtualItems.length > 0 ? virtualItems[0].start : 0
+  const bottomSpacer =
+    virtualItems.length > 0
+      ? rowVirtualizer.getTotalSize() -
+        virtualItems[virtualItems.length - 1].end
+      : 0
+  const colSpan = 5 + STAGES.length + (showMoney ? 1 : 0)
 
   return (
     <>
@@ -717,131 +788,64 @@ export function MasterSheet({
             </tr>
           </thead>
           <tbody>
-            {visibleTopRows.map((row, i) => (
-              <JobRow
-                key={row.id}
-                row={row}
-                index={i}
-                q={q}
-                isProduction={isProduction}
-                showMoney={showMoney}
-                highlightStage={highlightStage}
-                highlightIsActionable={highlightIsActionable}
-                tier="mine"
-                canEditType={canEditType}
-                jobType={effectiveType(row)}
-                isProduct={effectiveIsProduct(row)}
-                paused={effectiveIsPaused(row)}
-                pauseReason={row.pauseReason}
-                onTypeChange={(next) => setType(row, next)}
-                onProductChange={(next) => setIsProduct(row, next)}
-                onPauseChange={(next, reason) => setPaused(row, next, reason)}
-              />
-            ))}
-            {shouldPaginate && (showAll || hiddenTopCount > 0) && topRows.length > DEFAULT_PAGE_SIZE && (
-              <tr>
-                <td
-                  colSpan={5 + STAGES.length + (showMoney ? 1 : 0)}
-                  className="px-4 py-3 text-center border-t border-[var(--color-border)]"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setShowAll((s) => !s)}
-                    className="label text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
-                    aria-expanded={showAll}
-                  >
-                    {showAll ? (
-                      <>收起 ↑</>
-                    ) : (
-                      <>
-                        显示其余{' '}
-                        <span className="mono tabular-nums">{hiddenTopCount}</span>{' '}
-                        个 ↓
-                      </>
-                    )}
-                  </button>
-                </td>
+            {topSpacer > 0 && (
+              <tr aria-hidden="true">
+                <td colSpan={colSpan} style={{ height: topSpacer, padding: 0 }} />
               </tr>
             )}
-            {upstreamRows.length > 0 && (
-              <>
-                <tr aria-hidden="true">
-                  <td
-                    colSpan={5 + STAGES.length + (showMoney ? 1 : 0)}
-                    className="px-4 pt-8 pb-2"
+            {virtualItems.map((virtualItem) => {
+              const item = virtualRows[virtualItem.index]
+              if (!item) return null
+              if (item.kind === 'divider') {
+                return (
+                  <tr
+                    key={item.key}
+                    ref={rowVirtualizer.measureElement}
+                    data-index={virtualItem.index}
+                    aria-hidden="true"
                   >
-                    <div className="flex items-baseline gap-3 border-t border-[var(--color-border)] pt-4">
-                      <span className="label text-[var(--color-ink-3)]">
-                        即将到达
-                      </span>
-                      <span className="mono text-[11px] text-[var(--color-ink-4)]">
-                        上游 · {upstreamRows.length}
-                      </span>
-                    </div>
-                  </td>
-                </tr>
-                {upstreamRows.map((row, i) => (
-                  <JobRow
-                    key={row.id}
-                    row={row}
-                    index={topRows.length + i}
-                    q={q}
-                    isProduction={isProduction}
-                    showMoney={showMoney}
-                    highlightStage={highlightStage}
-                    highlightIsActionable={highlightIsActionable}
-                    tier="upstream"
-                    canEditType={canEditType}
-                    jobType={effectiveType(row)}
-                    isProduct={effectiveIsProduct(row)}
-                    paused={effectiveIsPaused(row)}
-                    pauseReason={row.pauseReason}
-                    onTypeChange={(next) => setType(row, next)}
-                    onProductChange={(next) => setIsProduct(row, next)}
-                    onPauseChange={(next, reason) => setPaused(row, next, reason)}
-                  />
-                ))}
-              </>
-            )}
-            {doneRows.length > 0 && (
-              <>
-                <tr aria-hidden="true">
-                  <td
-                    colSpan={5 + STAGES.length + (showMoney ? 1 : 0)}
-                    className="px-4 pt-8 pb-2"
-                  >
-                    <div className="flex items-baseline gap-3 border-t border-[var(--color-border)] pt-4">
-                      <span className="label text-[var(--color-ink-3)]">
-                        已处理
-                      </span>
-                      <span className="mono text-[11px] text-[var(--color-ink-4)]">
-                        完成 / 外协 · {doneRows.length}
-                      </span>
-                    </div>
-                  </td>
-                </tr>
-                {doneRows.map((row, i) => (
-                  <JobRow
-                    key={row.id}
-                    row={row}
-                    index={topRows.length + upstreamRows.length + i}
-                    q={q}
-                    isProduction={isProduction}
-                    showMoney={showMoney}
-                    highlightStage={highlightStage}
-                    highlightIsActionable={highlightIsActionable}
-                    tier="done"
-                    canEditType={canEditType}
-                    jobType={effectiveType(row)}
-                    isProduct={effectiveIsProduct(row)}
-                    paused={effectiveIsPaused(row)}
-                    pauseReason={row.pauseReason}
-                    onTypeChange={(next) => setType(row, next)}
-                    onProductChange={(next) => setIsProduct(row, next)}
-                    onPauseChange={(next, reason) => setPaused(row, next, reason)}
-                  />
-                ))}
-              </>
+                    <td colSpan={colSpan} className="px-4 pt-8 pb-2">
+                      <div className="flex items-baseline gap-3 border-t border-[var(--color-border)] pt-4">
+                        <span className="label text-[var(--color-ink-3)]">
+                          {item.label}
+                        </span>
+                        <span className="mono text-[11px] text-[var(--color-ink-4)]">
+                          {item.sub}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              }
+              const row = item.row
+              return (
+                <JobRow
+                  key={item.key}
+                  measureRef={rowVirtualizer.measureElement}
+                  virtualIndex={virtualItem.index}
+                  row={row}
+                  index={item.displayIndex}
+                  q={q}
+                  isProduction={isProduction}
+                  showMoney={showMoney}
+                  highlightStage={highlightStage}
+                  highlightIsActionable={highlightIsActionable}
+                  tier={item.tier}
+                  canEditType={canEditType}
+                  jobType={effectiveType(row)}
+                  isProduct={effectiveIsProduct(row)}
+                  paused={effectiveIsPaused(row)}
+                  pauseReason={row.pauseReason}
+                  onTypeChange={(next) => setType(row, next)}
+                  onProductChange={(next) => setIsProduct(row, next)}
+                  onPauseChange={(next, reason) => setPaused(row, next, reason)}
+                />
+              )
+            })}
+            {bottomSpacer > 0 && (
+              <tr aria-hidden="true">
+                <td colSpan={colSpan} style={{ height: bottomSpacer, padding: 0 }} />
+              </tr>
             )}
           </tbody>
         </table>
@@ -1132,6 +1136,8 @@ function FunnelIcon() {
 }
 
 function JobRow({
+  measureRef,
+  virtualIndex,
   row,
   index,
   q,
@@ -1149,6 +1155,8 @@ function JobRow({
   onProductChange,
   onPauseChange,
 }: {
+  measureRef?: (node: HTMLTableRowElement | null) => void
+  virtualIndex?: number
   row: MasterRow
   index: number
   q: string
@@ -1212,6 +1220,8 @@ function JobRow({
     tier === 'mine' ? '' : tier === 'upstream' ? 'opacity-50' : 'opacity-40'
   return (
     <tr
+      ref={measureRef}
+      data-index={virtualIndex}
       style={{
         viewTransitionName: `row-${row.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
       }}
