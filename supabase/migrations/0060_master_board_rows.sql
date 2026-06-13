@@ -326,6 +326,52 @@ begin
 end;
 $$;
 
+create or replace function master_board_rows_backfill_status()
+returns table(total_jobs int, refreshed_jobs int, remaining_jobs int)
+language sql
+stable
+as $$
+  select
+    (select count(*)::int from jobs) as total_jobs,
+    (select count(*)::int from master_board_rows) as refreshed_jobs,
+    greatest(
+      0,
+      (select count(*)::int from jobs) -
+      (select count(*)::int from master_board_rows)
+    ) as remaining_jobs;
+$$;
+
+create or replace function master_board_rows_backfill_batch(p_limit int default 50)
+returns table(refreshed_jobs int, remaining_jobs int)
+language plpgsql
+as $$
+declare
+  r record;
+  n int := 0;
+begin
+  for r in
+    select j.id
+    from jobs j
+    left join master_board_rows m on m.job_id = j.id
+    where m.job_id is null
+    order by j.position nulls last, j.created_at, j.id
+    limit greatest(1, least(coalesce(p_limit, 50), 200))
+  loop
+    perform refresh_master_board_row(r.id);
+    n := n + 1;
+  end loop;
+
+  return query
+  select
+    n,
+    greatest(
+      0,
+      (select count(*)::int from jobs) -
+      (select count(*)::int from master_board_rows)
+    );
+end;
+$$;
+
 create or replace function refresh_master_board_row_for_part(p_part_id text)
 returns void
 language plpgsql
@@ -588,22 +634,45 @@ as $$
   order by sn.ord;
 $$;
 
-select refresh_master_board_rows();
-
 create or replace view master_board_summary as
 with today_sh as (
   select (now() at time zone 'Asia/Shanghai')::date as d
 ),
+ready as (
+  select
+    (select count(*) from master_board_rows) >=
+    (select count(*) from jobs) as ok
+),
 base as (
   select
-    job_id,
-    amount_cny,
-    external_spend_cny,
-    effective_due_date::date as effective_due_date,
-    paused_at,
-    is_shipped
-  from master_board_rows
-  where coalesce(status, 'ready') not in ('parsing', 'draft', 'failed')
+    m.job_id as id,
+    m.amount_cny,
+    m.external_spend_cny,
+    m.effective_due_date::date as effective_due_date,
+    m.paused_at,
+    m.is_shipped
+  from master_board_rows m
+  cross join ready
+  where ready.ok
+    and coalesce(m.status, 'ready') not in ('parsing', 'draft', 'failed')
+  union all
+  select
+    j.id,
+    j.amount_cny,
+    coalesce(js.external_spend_cny, 0)::numeric as external_spend_cny,
+    coalesce(js.active_return_due_date, j.due_date)::date as effective_due_date,
+    j.paused_at,
+    coalesce(ship.total, 0) > 0
+      and coalesce(ship.in_progress, 0) = 0
+      and coalesce(ship.pending, 0) = 0 as is_shipped
+  from jobs j
+  cross join ready
+  left join job_summary js on js.job_id = j.id
+  left join job_stage_rollup ship
+    on ship.job_id = j.id
+   and ship.stage = '出货'
+  where not ready.ok
+    and coalesce(j.status, 'ready') not in ('parsing', 'draft', 'failed')
 ),
 global_totals as (
   select
@@ -638,33 +707,48 @@ stage_names(stage, ord) as (
     ('质量', 9),
     ('出货', 10)
 ),
+rollup_source as (
+  select
+    m.job_id,
+    sn.stage,
+    (
+      coalesce((m.cells -> sn.stage ->> 'inProgress')::int, 0) > 0
+      or coalesce((m.cells -> sn.stage ->> 'hasMinePending')::boolean, false)
+    ) as here,
+    coalesce((m.cells -> sn.stage ->> 'total')::int, 0) as total
+  from master_board_rows m
+  cross join ready
+  cross join stage_names sn
+  where ready.ok
+    and m.cells ? sn.stage
+    and coalesce(m.status, 'ready') not in ('parsing', 'draft', 'failed')
+  union all
+  select
+    r.job_id,
+    r.stage,
+    coalesce(r.in_progress, 0) > 0 or coalesce(r.has_mine_pending, false) as here,
+    coalesce(r.total, 0) as total
+  from job_stage_rollup r
+  cross join ready
+  where not ready.ok
+),
 stage_totals as (
   select
     sn.stage,
     sn.ord,
-    count(m.job_id) filter (
-      where coalesce((m.cells -> sn.stage ->> 'inProgress')::int, 0) > 0
-        or coalesce((m.cells -> sn.stage ->> 'hasMinePending')::boolean, false)
-    )::int as here,
-    count(m.job_id) filter (
-      where (
-          coalesce((m.cells -> sn.stage ->> 'inProgress')::int, 0) > 0
-          or coalesce((m.cells -> sn.stage ->> 'hasMinePending')::boolean, false)
-        )
-        and m.effective_due_date::date = (select d from today_sh)
+    count(b.id) filter (where rs.here)::int as here,
+    count(b.id) filter (
+      where rs.here
+        and b.effective_due_date = (select d from today_sh)
     )::int as due_today,
-    count(m.job_id) filter (
-      where (
-          coalesce((m.cells -> sn.stage ->> 'inProgress')::int, 0) > 0
-          or coalesce((m.cells -> sn.stage ->> 'hasMinePending')::boolean, false)
-        )
-        and m.effective_due_date::date < (select d from today_sh)
+    count(b.id) filter (
+      where rs.here
+        and b.effective_due_date < (select d from today_sh)
     )::int as overdue,
-    coalesce(sum(coalesce((m.cells -> sn.stage ->> 'total')::int, 0)), 0)::int as parts
+    coalesce(sum(rs.total) filter (where b.id is not null), 0)::int as parts
   from stage_names sn
-  left join master_board_rows m
-    on m.cells ? sn.stage
-   and coalesce(m.status, 'ready') not in ('parsing', 'draft', 'failed')
+  left join rollup_source rs on rs.stage = sn.stage
+  left join base b on b.id = rs.job_id
   group by sn.stage, sn.ord
 )
 select
