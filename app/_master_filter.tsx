@@ -574,11 +574,18 @@ export function MasterSheet({
     scrollMargin: tableOffsetTop,
   })
   const virtualItems = rowVirtualizer.getVirtualItems()
-  const topSpacer = virtualItems.length > 0 ? virtualItems[0].start : 0
+  const firstVirtualStart =
+    virtualItems.length > 0
+      ? Math.max(0, virtualItems[0].start - tableOffsetTop)
+      : 0
+  const lastVirtualEnd =
+    virtualItems.length > 0
+      ? Math.max(0, virtualItems[virtualItems.length - 1].end - tableOffsetTop)
+      : 0
+  const topSpacer = firstVirtualStart
   const bottomSpacer =
     virtualItems.length > 0
-      ? rowVirtualizer.getTotalSize() -
-        virtualItems[virtualItems.length - 1].end
+      ? Math.max(0, rowVirtualizer.getTotalSize() - lastVirtualEnd)
       : 0
   const colSpan = 5 + STAGES.length + (showMoney ? 1 : 0)
 
