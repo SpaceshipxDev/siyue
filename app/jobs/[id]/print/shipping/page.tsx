@@ -1,7 +1,6 @@
 import { notFound } from 'next/navigation'
 import {
   customerById,
-  formatShipmentTimestamp,
   latestShipment,
 } from '@/lib/data'
 import {
@@ -70,8 +69,9 @@ export default async function ShippingDocPage(
     : []
   const shippingStarted = shippingRows.length > 0
   const totalShipped = shippingRows.reduce((s, r) => s + r.qty, 0)
-  const docNo = shipment?.docNo ?? job.shippingDocNo
-  const printedAt = shipment ? formatShipmentTimestamp(shipment.createdAt) : undefined
+  // 出货单号 prints the 销售单号 (工单号) verbatim — the shipping note carries
+  // the sales-order number itself, not the internal per-day shipment doc_no.
+  const docNo = job.jobNo
 
   return (
     <>
@@ -92,16 +92,7 @@ export default async function ShippingDocPage(
         <section className="grid grid-cols-2 gap-x-10 gap-y-3 py-5 text-[14px] font-medium border-b border-[var(--color-border)]">
           <Field
             label="出货单号"
-            value={
-              <span className="mono">
-                {docNo ?? '—'}
-                {printedAt ? (
-                  <span className="ml-2 text-[10px] text-[var(--color-ink-4)]">
-                    {printedAt}
-                  </span>
-                ) : null}
-              </span>
-            }
+            value={<span className="mono">{docNo || '—'}</span>}
           />
           <Field
             label="送货日期"

@@ -7,7 +7,7 @@ import {
   updateJob,
   upsertCustomerByName,
 } from '@/lib/db'
-import { customerById, latestShipment } from '@/lib/data'
+import { customerById } from '@/lib/data'
 import { fetchImages } from '@/lib/pdf/images'
 import { ShippingDocPDF } from '@/lib/pdf/shipping'
 
@@ -45,8 +45,8 @@ export async function GET(
     }
   }
 
-  const shipment = latestShipment(job)
-  const docNo = shipment?.docNo ?? job.shippingDocNo ?? 'draft'
+  // Filename uses the 销售单号 to match the 出货单号 now printed on the doc.
+  const docNo = job.jobNo || 'draft'
   const images = await fetchImages(job.components.map((c) => c.imageUrl))
 
   const pdf = await renderToBuffer(

@@ -3,7 +3,6 @@ import { Document, Image, Page, Text, View } from '@react-pdf/renderer'
 import type { Customer, Job } from './../data'
 import {
   customerById,
-  formatShipmentTimestamp,
   latestShipment,
 } from './../data'
 import { BRAND } from './../brand'
@@ -52,8 +51,8 @@ export function ShippingDocPDF({
     : []
   const shippingStarted = shippingRows.length > 0
   const totalShipped = shippingRows.reduce((s, r) => s + r.qty, 0)
-  const docNo = shipment?.docNo ?? job.shippingDocNo ?? ''
-  const printedAt = shipment ? formatShipmentTimestamp(shipment.createdAt) : ''
+  // 出货单号 prints the 销售单号 (工单号) verbatim, not the internal shipment doc_no.
+  const docNo = job.jobNo ?? ''
 
   return (
     <Document
@@ -74,7 +73,7 @@ export function ShippingDocPDF({
         <View style={styles.fieldGrid}>
           <Field
             label="出货单号"
-            value={printedAt ? `${docNo || '—'}  ${printedAt}` : docNo || '—'}
+            value={docNo || '—'}
           />
           <Field label="送货日期" value={job.dueDate} />
           <Field label="客户名称" value={customerName || '—'} />
