@@ -9,9 +9,9 @@ export const BRAND = {
   code: 'YNMX',
   address: '杭州市富阳区同登路中交智能物联科技园6栋',
   receivingContact: { name: '王雪梅', phone: '15551519971' },
-  software: '思跃',
+  software: '思跃 MES',
   domain: 'siyue.ai',
-  softwareCredit: '思跃 · siyue.ai',
+  softwareCredit: '思跃 MES · siyue.ai',
 } as const
 
 // Format used on real factory docs: YNMX-yy-m-d-NNN. Month and day are NOT

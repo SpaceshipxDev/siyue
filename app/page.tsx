@@ -14,14 +14,13 @@ import { Pill, TopBar, type TabKey } from './_ui'
 import { MyToday } from './_my_today'
 import { MasterUploader } from './_uploader'
 import { InboxList } from './_inbox_list'
-import { MasterSheet } from './_master_filter'
+import { MasterSheetLoader, StationWorkbenchLoader } from './_master_loaders'
 import { DailyFocusStrip, type FocusStripRow } from './_focus_strip'
 import { StationSummary } from './_station_summary'
 import {
   StationReportAsync,
   StationReportFallback,
 } from './_station_report'
-import { StationWorkbench } from './_workbench'
 
 export const dynamic = 'force-dynamic'
 
@@ -292,8 +291,10 @@ export default async function MasterBoard(
         )}
 
         {useMasterSheet ? (
-          <MasterSheet
-            rows={sorted}
+          // Rows are fetched client-side from /api/master/rows (see
+          // _master_loaders) rather than serialized into this RSC payload —
+          // that 660-row tree was the ~2.4s render bottleneck.
+          <MasterSheetLoader
             role={user.role}
             defaultStage={user.defaultStage}
             stageFilter={stageFilter}
@@ -311,8 +312,7 @@ export default async function MasterBoard(
             }
           />
         ) : (
-          <StationWorkbench
-            rows={sorted}
+          <StationWorkbenchLoader
             stage={stageFilter!}
             role={user.role}
             defaultStage={user.defaultStage}
