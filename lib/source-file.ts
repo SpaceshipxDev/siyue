@@ -1,6 +1,6 @@
 import 'server-only'
 import { supabase, STORAGE_BUCKET } from './supabase'
-import { proxiedKeyUrl } from './storage-url'
+import { proxiedKeyUrl, storageKeyFromUrl } from './storage-url'
 
 // Original-upload storage helpers. We park the source workbook inside the
 // same `uploads` bucket that holds component images, but under a dedicated
@@ -72,4 +72,29 @@ export async function uploadSourceFile(input: {
   // hnd1) instead of *.supabase.co — China clients pay one short hop instead
   // of a transpacific TLS handshake per download.
   return proxiedKeyUrl(key)
+}
+
+// Re-download a previously stored source workbook by its stored URL. Used by
+// /api/retry-parse to re-run extraction without a fresh upload.
+//
+// The stored URL is a PROXIED path (`/api/img/<key>?v=…`) — relative, so a
+// server-side `fetch()` on it throws "Failed to parse URL". We instead recover
+// the storage key and pull the bytes straight from Supabase storage.
+export async function downloadSourceFile(sourceFileUrl: string): Promise<ArrayBuffer> {
+  const key = storageKeyFromUrl(sourceFileUrl)
+  if (!key) {
+    // Last-resort: an absolute http(s) URL we don't recognise. fetch() can at
+    // least handle those (relative /api/img paths are what break it).
+    if (/^https?:\/\//.test(sourceFileUrl)) {
+      const r = await fetch(sourceFileUrl)
+      if (!r.ok) throw new Error(`下载源文件失败 (${r.status})`)
+      return r.arrayBuffer()
+    }
+    throw new Error(`无法解析源文件地址: ${sourceFileUrl}`)
+  }
+  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(key)
+  if (error || !data) {
+    throw new Error(`下载源文件失败: ${error?.message ?? 'not found'}`)
+  }
+  return data.arrayBuffer()
 }

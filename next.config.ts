@@ -3,6 +3,13 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   experimental: {
     viewTransition: true,
+    // Order workbooks (报价单/生产单) carry embedded part photos and routinely
+    // exceed Next's default 10MB buffered-body cap. Past the cap the body is
+    // silently truncated, so /api/ingest's request.formData() then throws
+    // "Failed to parse body as FormData" and the import fails. Lift it to fit
+    // image-heavy xlsx. (Applies because the app buffers the request body via
+    // proxy; see docs/…/proxyClientMaxBodySize.)
+    proxyClientMaxBodySize: '50mb',
   },
   async headers() {
     return [

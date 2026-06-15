@@ -8,6 +8,7 @@ import { canEditProductionFields, currentUser } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { uploadSourceFile } from '@/lib/source-file'
 import { runExtraction } from '@/lib/extract'
+import { errMessage } from '@/lib/err'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -28,7 +29,7 @@ export async function POST(request: NextRequest) {
     form = await request.formData()
   } catch (err) {
     console.error('[ingest] formData() failed', err)
-    const message = err instanceof Error ? err.message : String(err)
+    const message = errMessage(err)
     return Response.json({ ok: false, error: `formData: ${message}` }, { status: 500 })
   }
 
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
     buf = await file.arrayBuffer()
   } catch (err) {
     console.error('[ingest] arrayBuffer() failed', { fileName }, err)
-    const message = err instanceof Error ? err.message : String(err)
+    const message = errMessage(err)
     return Response.json({ ok: false, error: `arrayBuffer: ${message}` }, { status: 500 })
   }
 
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
     job = await createParsingJob({ sourceFile: fileName })
   } catch (err) {
     console.error('[ingest] createParsingJob failed', { fileName }, err)
-    const message = err instanceof Error ? err.message : String(err)
+    const message = errMessage(err)
     return Response.json({ ok: false, error: message }, { status: 500 })
   }
   console.log('[ingest] job created', { jobId: job.id, jobNo: job.jobNo, fileName, ms: Date.now() - t0 })
@@ -91,7 +92,7 @@ export async function POST(request: NextRequest) {
     try {
       await runExtraction({ jobId: job.id, fileName, buf, t0 })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = errMessage(err)
       console.error('[ingest] parse failed', {
         jobId: job.id,
         fileName,

@@ -7,6 +7,8 @@ import {
 } from '@/lib/db'
 import { currentUser } from '@/lib/auth'
 import { runExtraction } from '@/lib/extract'
+import { downloadSourceFile } from '@/lib/source-file'
+import { errMessage } from '@/lib/err'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -54,12 +56,13 @@ export async function POST(request: NextRequest) {
   // the invocation alive past response flush.
   after(async () => {
     try {
-      const r = await fetch(sourceFileUrl)
-      if (!r.ok) throw new Error(`下载源文件失败 (${r.status})`)
-      const buf = await r.arrayBuffer()
+      // sourceFileUrl is a proxied `/api/img/…` path — relative, so a
+      // server-side fetch() on it throws "Failed to parse URL". Pull the bytes
+      // straight from Supabase storage by key instead.
+      const buf = await downloadSourceFile(sourceFileUrl)
       await runExtraction({ jobId, fileName, buf })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = errMessage(err)
       console.error('[retry-parse] failed', { jobId, fileName, message })
       await markJobFailed(jobId, message)
     } finally {

@@ -25,3 +25,27 @@ export function proxiedKeyUrl(key: string, version: string | number = Date.now()
   const encoded = key.split('/').map(encodeURIComponent).join('/')
   return `/api/img/${encoded}?v=${version}`
 }
+
+// Inverse of the URL builders above: recover the Supabase storage key from a
+// stored URL, whichever form it takes. Stored values are either proxied paths
+// (`/api/img/<enc-key>?v=…`, written by proxiedKeyUrl) or legacy full Supabase
+// public URLs (`https://<ref>.supabase.co/storage/v1/object/public/uploads/<key>`).
+//
+// This exists because server-side code must NOT `fetch()` the proxied path —
+// it is relative, and Node's fetch rejects relative URLs ("Failed to parse
+// URL from /api/img/…"). The key lets callers go straight to Supabase storage
+// (supabase.storage.from(bucket).download(key)) instead.
+export function storageKeyFromUrl(url: string): string | undefined {
+  if (!url) return undefined
+  // Proxied form: strip the /api/img/ prefix and the ?v= cache-buster, then
+  // URL-decode each path segment (proxiedKeyUrl encodes them individually).
+  if (url.startsWith('/api/img/')) {
+    const noQuery = url.slice('/api/img/'.length).split('?')[0]
+    return noQuery.split('/').map(decodeURIComponent).join('/')
+  }
+  const m = SUPABASE_PUBLIC_PREFIX_RE.exec(url)
+  if (m) {
+    return decodeURIComponent(url.slice(m[0].length).split('?')[0])
+  }
+  return undefined
+}
