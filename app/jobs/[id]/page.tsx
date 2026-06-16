@@ -315,18 +315,19 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   placeholder="客户"
                 />
                 {/* The two people who own this order, as a labeled pair under
-                    the customer name. 客户：工程师 is the customer's rep
+                    the customer name. 客户工程师 is the customer's rep
                     (job.engineer, AI-extracted on import); 越侬商务 is OUR
-                    salesperson on the account (human-filled). */}
+                    salesperson on the account (human-filled). Empty fields show
+                    no placeholder — just a clickable slot — for a seamless UI. */}
                 <div className="mt-2 flex items-baseline gap-x-6">
                   <span className="flex items-baseline gap-1.5">
-                    <span className="label whitespace-nowrap">客户：工程师</span>
+                    <span className="label whitespace-nowrap">客户工程师</span>
                     <JobShippingText
                       jobId={job.id}
                       field="engineer"
                       value={job.engineer}
-                      className="text-[14px] text-[var(--color-ink-2)]"
-                      placeholder="—"
+                      className="text-[14px] text-[var(--color-ink-2)] min-w-[4ch]"
+                      placeholder=""
                     />
                   </span>
                   <span className="flex items-baseline gap-1.5">
@@ -335,8 +336,8 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       jobId={job.id}
                       field="yuenongBusiness"
                       value={job.yuenongBusiness}
-                      className="text-[14px] text-[var(--color-ink-2)]"
-                      placeholder="—"
+                      className="text-[14px] text-[var(--color-ink-2)] min-w-[4ch]"
+                      placeholder=""
                     />
                   </span>
                 </div>
@@ -466,7 +467,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 // 出货 reads the same two contacts as commerce, read-only.
                 <div className="flex gap-x-10">
                   <div>
-                    <p className="label mb-2 whitespace-nowrap">客户：工程师</p>
+                    <p className="label mb-2 whitespace-nowrap">客户工程师</p>
                     <p className="text-[13px] text-[var(--color-ink)]">
                       {job.engineer ?? '—'}
                     </p>
