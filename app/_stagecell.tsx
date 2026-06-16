@@ -94,34 +94,12 @@ export function EffectiveStageCell({
   // only returns non-na kinds when component.stages[stage] is defined).
   const rawState = component.stages[stage]!
 
-  // Closed-block "done" — raw stage may still be pending; render static badge.
-  // The cell is intentionally non-interactive: this stage was completed at a
-  // vendor (closed outsource block), so there's no in-house state to undo
-  // here. To re-open, the head must edit the outsource block in 外协 below
-  // the table, not click this cell. We surface that explicitly via title /
-  // aria-label so a head clicking on a "flat ✓" actually learns why it
-  // didn't respond, instead of silently giving up.
-  if (eff.kind === 'done' && rawState.status !== 'done') {
-    const hint = eff.by
-      ? `${stage} · 外协返回 (${eff.by}) · 在外协块中处理`
-      : `${stage} · 外协返回 · 在外协块中处理`
-    return (
-      <div
-        className="flex h-full w-full flex-col items-center justify-center gap-0.5 leading-none px-1 py-2 cursor-help"
-        title={hint}
-        aria-label={hint}
-      >
-        <span className="text-[16px] leading-none font-semibold text-[var(--color-success)]">
-          ✓
-        </span>
-        {eff.completedAt ? (
-          <span className="mono text-[10px] text-[var(--color-ink-3)]">
-            {fmtDate(eff.completedAt)}
-          </span>
-        ) : null}
-      </div>
-    )
-  }
+  // A closed (returned) outsource block no longer forces a dead vendor ✓ —
+  // effectiveStageState reverts the stage to its in-house status, so the cell
+  // falls through to the normal interactive StageCellButton below and the
+  // worker can 报工 the remaining finishing work (手工 etc.). The cell is locked
+  // (kind 'outsourced', handled above) only while the part is still at the
+  // vendor.
 
   // 检验 swaps the ▶/⏸/✓ pair for the verdict cell (重做/返修/外修/OK +
   // 检验照片). Read-only viewers still get the cell — the modal opens in

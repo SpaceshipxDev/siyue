@@ -849,9 +849,13 @@ export function canStartStage(component: Component, stage: Stage): boolean {
       if (!b.stages.includes(stage)) continue
       const m = memberFor(b, component.id)
       if (m === undefined) continue
-      // Vendor owns this stage — open (still at vendor) or closed (vendor did
-      // it on return). Either way, in-house worker doesn't touch it.
-      return false
+      // Lock only while the part is physically OUT (open block) — clicking then
+      // would be wrong, the part isn't even in the building. Once it's returned
+      // (closed block) the stage reverts to in-house so the worker can report
+      // any remaining finishing work (手工 etc.); fall through to the normal
+      // pending check below. A block drawn one stage too wide therefore can't
+      // lock a station out anymore.
+      if (!isMemberFullyReturned(m)) return false
     }
   }
   // Permissive: any pending in-house stage can be started — workers can grab
@@ -1062,12 +1066,14 @@ export function effectiveStageState(
   }
   const closed =
     stage === '出货' ? undefined : findClosedBlockCovering(component, stage)
-  if (closed) {
-    return {
-      kind: 'done',
-      completedAt: closed.member.returnedAt,
-      by: vendorById(closed.block.vendorId, vendors)?.name ?? closed.block.vendorId,
-    }
+  if (closed && st.status !== 'done') {
+    // Part has physically returned but the in-house finishing isn't reported
+    // yet. Surface the raw in-house status so the station gets a live report
+    // cell (▶/✓) instead of a dead vendor ✓ — this is what lets 手工 报工 after
+    // 外协回来. Once the worker clicks ✓ (st.status === 'done') we fall through
+    // to the done branch below and the vendor return is considered confirmed.
+    if (st.status === 'in_progress') return { kind: 'in_progress', by: st.by }
+    return { kind: 'pending', canStart: canStartStage(component, stage) }
   }
   if (st.status === 'pending') {
     return { kind: 'pending', canStart: canStartStage(component, stage) }
