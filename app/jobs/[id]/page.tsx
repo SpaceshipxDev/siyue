@@ -314,32 +314,26 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]"
                   placeholder="客户"
                 />
-                {/* The two people who own this order, as a labeled pair under
-                    the customer name. 客户工程师 is the customer's rep
-                    (job.engineer, AI-extracted on import); 越侬商务 is OUR
-                    salesperson on the account (human-filled). Empty fields show
-                    no placeholder — just a clickable slot — for a seamless UI. */}
+                {/* The two people who own this order. No labels — the field
+                    name lives in the placeholder, so an empty field reads
+                    "客户工程师" / "越侬商务" and your text types straight over it.
+                    job.engineer = the customer's rep (AI-extracted on import);
+                    job.yuenongBusiness = OUR salesperson (human-filled). */}
                 <div className="mt-2 flex items-baseline gap-x-6">
-                  <span className="flex items-baseline gap-1.5">
-                    <span className="label whitespace-nowrap">客户工程师</span>
-                    <JobShippingText
-                      jobId={job.id}
-                      field="engineer"
-                      value={job.engineer}
-                      className="text-[14px] text-[var(--color-ink-2)] min-w-[4ch]"
-                      placeholder=""
-                    />
-                  </span>
-                  <span className="flex items-baseline gap-1.5">
-                    <span className="label whitespace-nowrap">越侬商务</span>
-                    <JobShippingText
-                      jobId={job.id}
-                      field="yuenongBusiness"
-                      value={job.yuenongBusiness}
-                      className="text-[14px] text-[var(--color-ink-2)] min-w-[4ch]"
-                      placeholder=""
-                    />
-                  </span>
+                  <JobShippingText
+                    jobId={job.id}
+                    field="engineer"
+                    value={job.engineer}
+                    className="text-[14px] text-[var(--color-ink-2)]"
+                    placeholder="客户工程师"
+                  />
+                  <JobShippingText
+                    jobId={job.id}
+                    field="yuenongBusiness"
+                    value={job.yuenongBusiness}
+                    className="text-[14px] text-[var(--color-ink-2)]"
+                    placeholder="越侬商务"
+                  />
                 </div>
               </>
             )}
