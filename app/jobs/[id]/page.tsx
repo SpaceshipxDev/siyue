@@ -318,7 +318,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     the customer name. 客户：工程师 is the customer's rep
                     (job.engineer, AI-extracted on import); 越侬商务 is OUR
                     salesperson on the account (human-filled). */}
-                <div className="mt-2 flex flex-wrap items-baseline gap-x-6 gap-y-1.5">
+                <div className="mt-2 flex items-baseline gap-x-6">
                   <span className="flex items-baseline gap-1.5">
                     <span className="label">客户：工程师</span>
                     <JobShippingText
@@ -464,7 +464,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   the customer name, so they edit 产品 here instead. */}
               {isProduction ? (
                 // 出货 reads the same two contacts as commerce, read-only.
-                <div className="flex flex-wrap gap-x-10 gap-y-3">
+                <div className="flex gap-x-10">
                   <div>
                     <p className="label mb-2">客户：工程师</p>
                     <p className="text-[13px] text-[var(--color-ink)]">
