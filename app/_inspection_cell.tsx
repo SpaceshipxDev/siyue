@@ -60,14 +60,29 @@ export function InspectionCell({
 
   const display = optimistic ?? state
 
-  // Nothing is written while the dialog is open — verdict + 不良原因/责任人
-  // are a draft that commits on 确认 and evaporates on 取消/ESC/backdrop.
-  const onApply = (verdict: Verdict, reason?: string, owner?: string) => {
+  // Nothing is written while the dialog is open — verdict + detail (不良原因/
+  // 责任人 on a hold, 责任人/备注 on an OK release) are a draft that commits on
+  // 确认 and evaporates on 取消/ESC/backdrop.
+  const onApply = (
+    verdict: Verdict,
+    detail: { reason?: string; owner?: string; note?: string },
+  ) => {
     setError(false)
     setOptimistic(
       verdict === 'OK'
-        ? { status: 'done', completedAt: undefined, verdict: 'OK' }
-        : { status: 'in_progress', verdict, verdictReason: reason, verdictOwner: owner },
+        ? {
+            status: 'done',
+            completedAt: undefined,
+            verdict: 'OK',
+            verdictOwner: detail.owner,
+            verdictNote: detail.note,
+          }
+        : {
+            status: 'in_progress',
+            verdict,
+            verdictReason: detail.reason,
+            verdictOwner: detail.owner,
+          },
     )
     setOpen(false)
     start(async () => {
@@ -75,18 +90,23 @@ export function InspectionCell({
         if (verdict !== state.verdict) {
           await mutate({ kind: 'setInspectionVerdict', jobId, componentId, verdict })
         }
-        if (
-          verdict !== 'OK' &&
-          ((reason ?? null) !== (state.verdictReason ?? null) ||
-            (owner ?? null) !== (state.verdictOwner ?? null))
-        ) {
-          await mutate({
-            kind: 'setInspectionVerdictDetail',
-            jobId,
-            componentId,
-            reason: reason ?? null,
-            owner: owner ?? null,
-          })
+        // Detail rides its own targeted write. Only send the fields this verdict
+        // owns — OK never touches 不良原因, a hold never touches 备注 — so the two
+        // paths don't clobber each other's column. Omitted field = leave as-is.
+        const patch: Record<string, string | null> = {}
+        if (verdict === 'OK') {
+          if ((detail.owner ?? null) !== (state.verdictOwner ?? null))
+            patch.owner = detail.owner ?? null
+          if ((detail.note ?? null) !== (state.verdictNote ?? null))
+            patch.note = detail.note ?? null
+        } else {
+          if ((detail.reason ?? null) !== (state.verdictReason ?? null))
+            patch.reason = detail.reason ?? null
+          if ((detail.owner ?? null) !== (state.verdictOwner ?? null))
+            patch.owner = detail.owner ?? null
+        }
+        if (Object.keys(patch).length > 0) {
+          await mutate({ kind: 'setInspectionVerdictDetail', jobId, componentId, ...patch })
         }
       } catch {
         setOptimistic(null)
@@ -242,7 +262,7 @@ function InspectionModal({
   readOnly: boolean
   pending: boolean
   photos: PartPhoto[]
-  onApply: (v: Verdict, reason?: string, owner?: string) => void
+  onApply: (v: Verdict, detail: { reason?: string; owner?: string; note?: string }) => void
   onUndo: () => void
   onClose: () => void
 }) {
@@ -257,22 +277,34 @@ function InspectionModal({
   const done = state.status === 'done'
 
   // Draft selection — seeded from the recorded verdict, committed only via
-  // 确认. 取消/ESC/backdrop discard everything.
+  // 确认. 取消/ESC/backdrop discard everything. In the done (OK released) state
+  // draft seeds to 'OK', so the 责任人/备注 fields stay editable for annotating
+  // an already-passed part.
   const [draft, setDraft] = useState<Verdict | null>(state.verdict ?? null)
   const [reasonDraft, setReasonDraft] = useState(state.verdictReason ?? '')
   const [ownerDraft, setOwnerDraft] = useState(state.verdictOwner ?? '')
+  const [noteDraft, setNoteDraft] = useState(state.verdictNote ?? '')
   const draftBlocking = draft != null && draft !== 'OK'
-  const dirty =
-    draft != null &&
-    (draft !== (state.verdict ?? null) ||
-      (draftBlocking &&
-        (reasonDraft.trim() !== (state.verdictReason ?? '') ||
-          ownerDraft.trim() !== (state.verdictOwner ?? ''))))
+  const nn = (s: string) => (s.trim() === '' ? undefined : s.trim())
+  const verdictDirty = draft != null && draft !== (state.verdict ?? null)
+  const detailDirty =
+    draft === 'OK'
+      ? (nn(ownerDraft) ?? null) !== (state.verdictOwner ?? null) ||
+        (nn(noteDraft) ?? null) !== (state.verdictNote ?? null)
+      : draftBlocking
+        ? (nn(reasonDraft) ?? null) !== (state.verdictReason ?? null) ||
+          (nn(ownerDraft) ?? null) !== (state.verdictOwner ?? null)
+        : false
+  const dirty = draft != null && (verdictDirty || detailDirty)
 
   const confirm = () => {
     if (!draft || !dirty) return
-    const nn = (s: string) => (s.trim() === '' ? undefined : s.trim())
-    onApply(draft, draftBlocking ? nn(reasonDraft) : undefined, draftBlocking ? nn(ownerDraft) : undefined)
+    onApply(
+      draft,
+      draft === 'OK'
+        ? { owner: nn(ownerDraft), note: nn(noteDraft) }
+        : { reason: nn(reasonDraft), owner: nn(ownerDraft) },
+    )
   }
 
   return (
@@ -293,29 +325,52 @@ function InspectionModal({
         </h3>
 
         {done ? (
-          <div className="mb-5 flex items-center justify-between gap-3 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2.5">
-            <span className="inline-flex items-baseline gap-2">
-              <span className="text-[15px] font-semibold leading-none text-[var(--color-success)]">
-                ✓ OK
-              </span>
-              {serverState.by ? (
-                <span className="label text-[var(--color-ink-3)]">
-                  经手 {serverState.by}
-                  {serverState.completedAt ? ` · ${serverState.completedAt}` : ''}
+          <>
+            <div className="mb-5 flex items-center justify-between gap-3 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2.5">
+              <span className="inline-flex items-baseline gap-2">
+                <span className="text-[15px] font-semibold leading-none text-[var(--color-success)]">
+                  ✓ OK
                 </span>
+                {serverState.by ? (
+                  <span className="label text-[var(--color-ink-3)]">
+                    经手 {serverState.by}
+                    {serverState.completedAt ? ` · ${serverState.completedAt}` : ''}
+                  </span>
+                ) : null}
+              </span>
+              {!readOnly ? (
+                <button
+                  type="button"
+                  onClick={onUndo}
+                  disabled={pending}
+                  className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border)] text-[var(--color-ink-2)] hover:bg-[#f1eee4] rounded-[2px] disabled:opacity-60"
+                >
+                  撤销
+                </button>
               ) : null}
-            </span>
-            {!readOnly ? (
-              <button
-                type="button"
-                onClick={onUndo}
+            </div>
+            {/* Even on an OK release the inspector can record 责任人 + 备注. */}
+            {readOnly ? (
+              state.verdictOwner || state.verdictNote ? (
+                <p className="mb-5 text-[12px] text-[var(--color-ink-2)]">
+                  {state.verdictOwner ? `责任人 · ${state.verdictOwner}` : null}
+                  {state.verdictOwner && state.verdictNote ? ' · ' : null}
+                  {state.verdictNote ? `备注 · ${state.verdictNote}` : null}
+                </p>
+              ) : null
+            ) : (
+              <VerdictDetail
+                verdict="OK"
+                reason={reasonDraft}
+                owner={ownerDraft}
+                note={noteDraft}
+                onReason={setReasonDraft}
+                onOwner={setOwnerDraft}
+                onNote={setNoteDraft}
                 disabled={pending}
-                className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border)] text-[var(--color-ink-2)] hover:bg-[#f1eee4] rounded-[2px] disabled:opacity-60"
-              >
-                撤销
-              </button>
-            ) : null}
-          </div>
+              />
+            )}
+          </>
         ) : (
           <>
             {readOnly ? (
@@ -384,27 +439,17 @@ function InspectionModal({
                 {state.verdictBy ? ` · ${state.verdictBy}` : ''}
               </p>
             ) : null}
-            {!readOnly && draftBlocking ? (
-              <div className="mb-5 grid grid-cols-2 gap-3">
-                <label className="block">
-                  <span className="label block mb-1">不良原因</span>
-                  <input
-                    value={reasonDraft}
-                    onChange={(e) => setReasonDraft(e.target.value)}
-                    placeholder="尺寸超差 / 划伤 …"
-                    className={detailInputCls}
-                  />
-                </label>
-                <label className="block">
-                  <span className="label block mb-1">责任人</span>
-                  <input
-                    value={ownerDraft}
-                    onChange={(e) => setOwnerDraft(e.target.value)}
-                    placeholder="姓名 / 工位"
-                    className={detailInputCls}
-                  />
-                </label>
-              </div>
+            {!readOnly && draft != null ? (
+              <VerdictDetail
+                verdict={draft}
+                reason={reasonDraft}
+                owner={ownerDraft}
+                note={noteDraft}
+                onReason={setReasonDraft}
+                onOwner={setOwnerDraft}
+                onNote={setNoteDraft}
+                disabled={pending}
+              />
             ) : null}
           </>
         )}
@@ -422,9 +467,9 @@ function InspectionModal({
             onClick={onClose}
             className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border)] text-[var(--color-ink-2)] hover:bg-[#f1eee4] rounded-[2px]"
           >
-            {readOnly || done ? '关闭' : '取消'}
+            {readOnly ? '关闭' : '取消'}
           </button>
-          {!readOnly && !done ? (
+          {!readOnly ? (
             <button
               type="button"
               disabled={pending || !dirty}
@@ -442,6 +487,70 @@ function InspectionModal({
 
 const detailInputCls =
   'w-full rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 py-1.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]'
+
+// The two-input detail row under the verdict. A blocking verdict captures
+// 不良原因 + 责任人 (why it bounced, who's accountable); an OK release captures
+// 责任人 + 备注 (who signed off, plus any remark). 责任人 is shared; the free-text
+// slot swaps label + column (不良原因 ↔ 备注) so the two never collide.
+function VerdictDetail({
+  verdict,
+  reason,
+  owner,
+  note,
+  onReason,
+  onOwner,
+  onNote,
+  disabled,
+}: {
+  verdict: Verdict
+  reason: string
+  owner: string
+  note: string
+  onReason: (v: string) => void
+  onOwner: (v: string) => void
+  onNote: (v: string) => void
+  disabled: boolean
+}) {
+  const ok = verdict === 'OK'
+  return (
+    <div className="mb-5 grid grid-cols-2 gap-3">
+      {ok ? null : (
+        <label className="block">
+          <span className="label block mb-1">不良原因</span>
+          <input
+            value={reason}
+            onChange={(e) => onReason(e.target.value)}
+            placeholder="尺寸超差 / 划伤 …"
+            disabled={disabled}
+            className={detailInputCls}
+          />
+        </label>
+      )}
+      <label className="block">
+        <span className="label block mb-1">责任人</span>
+        <input
+          value={owner}
+          onChange={(e) => onOwner(e.target.value)}
+          placeholder="姓名 / 工位"
+          disabled={disabled}
+          className={detailInputCls}
+        />
+      </label>
+      {ok ? (
+        <label className="block">
+          <span className="label block mb-1">备注</span>
+          <input
+            value={note}
+            onChange={(e) => onNote(e.target.value)}
+            placeholder="可选 · 备注说明 …"
+            disabled={disabled}
+            className={detailInputCls}
+          />
+        </label>
+      ) : null}
+    </div>
+  )
+}
 
 // Photo strip + uploader inside the modal. Local state seeded from the
 // server-rendered list; uploads append optimistically from the API response

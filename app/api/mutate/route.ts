@@ -716,6 +716,7 @@ async function dispatch(
       const componentId = body.componentId
       const reason = body.reason
       const owner = body.owner
+      const note = body.note
       if (!isString(jobId) || !isString(componentId)) {
         return err('bad setInspectionVerdictDetail args')
       }
@@ -723,10 +724,13 @@ async function dispatch(
         return err('bad reason')
       if (owner !== undefined && owner !== null && !isString(owner))
         return err('bad owner')
+      if (note !== undefined && note !== null && !isString(note))
+        return err('bad note')
       await requireOwnStage('检验')
       await setInspectionVerdictDetail(jobId, componentId, {
         reason: reason as string | null | undefined,
         owner: owner as string | null | undefined,
+        note: note as string | null | undefined,
       })
       revalidateStage(jobId, '检验')
       return Response.json(ok())

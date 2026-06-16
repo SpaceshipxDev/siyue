@@ -75,6 +75,10 @@ export type StageState = {
   // part bounced survives the release.
   verdictReason?: string
   verdictOwner?: string
+  // 备注 — free-text note the inspector can attach to a PASSING (OK) verdict
+  // (migration 0064). Distinct from 不良原因: it's a remark on a released part,
+  // not a defect cause. 责任人 (verdictOwner) is shared with the blocking path.
+  verdictNote?: string
 }
 
 export type VendorId = string
