@@ -320,7 +320,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     salesperson on the account (human-filled). */}
                 <div className="mt-2 flex items-baseline gap-x-6">
                   <span className="flex items-baseline gap-1.5">
-                    <span className="label">客户：工程师</span>
+                    <span className="label whitespace-nowrap">客户：工程师</span>
                     <JobShippingText
                       jobId={job.id}
                       field="engineer"
@@ -330,7 +330,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     />
                   </span>
                   <span className="flex items-baseline gap-1.5">
-                    <span className="label">越侬商务</span>
+                    <span className="label whitespace-nowrap">越侬商务</span>
                     <JobShippingText
                       jobId={job.id}
                       field="yuenongBusiness"
@@ -466,13 +466,13 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 // 出货 reads the same two contacts as commerce, read-only.
                 <div className="flex gap-x-10">
                   <div>
-                    <p className="label mb-2">客户：工程师</p>
+                    <p className="label mb-2 whitespace-nowrap">客户：工程师</p>
                     <p className="text-[13px] text-[var(--color-ink)]">
                       {job.engineer ?? '—'}
                     </p>
                   </div>
                   <div>
-                    <p className="label mb-2">越侬商务</p>
+                    <p className="label mb-2 whitespace-nowrap">越侬商务</p>
                     <p className="text-[13px] text-[var(--color-ink)]">
                       {job.yuenongBusiness ?? '—'}
                     </p>
