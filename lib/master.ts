@@ -354,9 +354,8 @@ export function rowIsDownstreamOf(row: MasterRow, stage: Stage): boolean {
 }
 
 /** Replaces lib/_workbench.tsx#upstreamActiveStages — prior stages with
- *  in_progress in-house work OR open outsource. A returned (closed) outsource
- *  prior reverts to in-house pending (see 0062); pending isn't "正在 · ..."
- *  active work, so it's intentionally excluded here too. */
+ *  in_progress in-house work OR open outsource. Closed-outsource priors are
+ *  effectively done so they don't show as "正在 · ...". */
 export function rowUpstreamActiveStages(row: MasterRow, stage: Stage): Stage[] {
   const idx = STAGES.indexOf(stage)
   if (idx <= 0) return []
