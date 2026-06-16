@@ -314,17 +314,31 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]"
                   placeholder="客户"
                 />
-                {/* 工程师 = the customer's 联系人/对接人 (one concept, one
-                    field). Sits under the customer name as the customer-side
-                    identifier commerce/boss care about. */}
-                <div className="mt-1 flex items-baseline gap-3">
-                  <JobShippingText
-                    jobId={job.id}
-                    field="engineer"
-                    value={job.engineer}
-                    className="text-[14px] text-[var(--color-ink-2)]"
-                    placeholder="工程师"
-                  />
+                {/* The two people who own this order, as a labeled pair under
+                    the customer name. 客户：工程师 is the customer's rep
+                    (job.engineer, AI-extracted on import); 越侬商务 is OUR
+                    salesperson on the account (human-filled). */}
+                <div className="mt-2 flex flex-wrap items-baseline gap-x-6 gap-y-1.5">
+                  <span className="flex items-baseline gap-1.5">
+                    <span className="label">客户：工程师</span>
+                    <JobShippingText
+                      jobId={job.id}
+                      field="engineer"
+                      value={job.engineer}
+                      className="text-[14px] text-[var(--color-ink-2)]"
+                      placeholder="—"
+                    />
+                  </span>
+                  <span className="flex items-baseline gap-1.5">
+                    <span className="label">越侬商务</span>
+                    <JobShippingText
+                      jobId={job.id}
+                      field="yuenongBusiness"
+                      value={job.yuenongBusiness}
+                      className="text-[14px] text-[var(--color-ink-2)]"
+                      placeholder="—"
+                    />
+                  </span>
                 </div>
               </>
             )}
@@ -449,12 +463,21 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   this metadata row for them. Commerce/boss moved 工程师 up under
                   the customer name, so they edit 产品 here instead. */}
               {isProduction ? (
-                <>
-                  <p className="label mb-2">工程师</p>
-                  <p className="text-[13px] text-[var(--color-ink)]">
-                    {job.engineer ?? '—'}
-                  </p>
-                </>
+                // 出货 reads the same two contacts as commerce, read-only.
+                <div className="flex flex-wrap gap-x-10 gap-y-3">
+                  <div>
+                    <p className="label mb-2">客户：工程师</p>
+                    <p className="text-[13px] text-[var(--color-ink)]">
+                      {job.engineer ?? '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="label mb-2">越侬商务</p>
+                    <p className="text-[13px] text-[var(--color-ink)]">
+                      {job.yuenongBusiness ?? '—'}
+                    </p>
+                  </div>
+                </div>
               ) : (
                 <>
                   <p className="label mb-2">产品</p>

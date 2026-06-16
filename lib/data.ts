@@ -595,8 +595,13 @@ export type Job = {
   // 工程师 — the customer's representative for this order (the floor calls
   // them 工程师; source workbooks also label the same person 联系人/对接人).
   // AI-extracted on import when present, editable inline. One field on
-  // purpose — they are the same concept, not two people.
+  // purpose — they are the same concept, not two people. Shown as
+  // 客户：工程师 in the UI to disambiguate from 越侬商务 (our side).
   engineer?: string
+  // 越侬商务 — OUR commercial owner for this order (越侬 = the factory side),
+  // the in-house counterpart to engineer. NEVER AI-extracted: humans type it
+  // in the job header. Same scrubbing as engineer (customer-facing context).
+  yuenongBusiness?: string
   // ISO timestamp the job row was created. Used as the wait-timer anchor on
   // the first stage (工程) where there's no upstream finishedAt to fall back to.
   createdAt?: string
