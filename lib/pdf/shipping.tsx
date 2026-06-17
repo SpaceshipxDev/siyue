@@ -171,13 +171,6 @@ export function ShippingDocPDF({
               </View>
             </View>
 
-            {/* Amount */}
-            <View style={styles.amountRow}>
-              <Text style={styles.amountLabel}>金额</Text>
-              <Text style={styles.amountValue}>
-                ¥{typeof job.amountCny === 'number' ? job.amountCny : '—'}
-              </Text>
-            </View>
           </>
         ) : null}
 

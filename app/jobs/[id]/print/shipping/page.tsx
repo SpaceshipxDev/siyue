@@ -17,7 +17,6 @@ import { PrintToolbar } from '@/app/_print'
 import {
   ComponentText,
   CustomerText,
-  JobAmount,
   JobDueDate,
   JobNotes,
   JobShippingText,
@@ -252,20 +251,6 @@ export default async function ShippingDocPage(
             <p className="mt-1 label">回到工单详情页,点击「制作出货单」即可生成。</p>
           </section>
         )}
-
-        {shippingStarted ? (
-          <section className="py-2 border-t border-[var(--color-border)] text-right text-[12px] flex items-baseline justify-end gap-2">
-            <span className="label">金额</span>
-            <span className="mono text-[16px] font-semibold inline-flex items-baseline gap-0.5">
-              <span>¥</span>
-              <JobAmount
-                jobId={job.id}
-                value={job.amountCny}
-                className="text-[16px] font-semibold [field-sizing:content] min-w-[2ch]"
-              />
-            </span>
-          </section>
-        ) : null}
 
         <footer className="mt-16 flex items-end justify-between text-[12px] text-[var(--color-ink-2)]">
           <p className="flex items-baseline gap-1.5 text-[11px]">
