@@ -532,6 +532,7 @@ export function ComponentText({
   value,
   className,
   placeholder,
+  multiline,
 }: {
   jobId: string
   componentId: string
@@ -539,23 +540,38 @@ export function ComponentText({
   value: string | undefined
   className?: string
   placeholder?: string
+  // Spec columns (加工工艺 / 材料 / 表面处理) can run long. Set multiline so the
+  // field renders as an auto-growing textarea that wraps onto further lines
+  // instead of overflowing a single-line <input>.
+  multiline?: boolean
 }) {
+  const onSave = async (v: string) => {
+    const patch: ComponentPatch =
+      field === 'name'
+        ? { name: v }
+        : field === 'material'
+          ? { material: v.length === 0 ? null : v }
+          : field === 'surfaceTreatment'
+            ? { surfaceTreatment: v.length === 0 ? null : v }
+            : field === 'process'
+              ? { process: v.length === 0 ? null : v }
+              : { partNo: v.length === 0 ? null : v }
+    await mutate({ kind: 'updateComponent', jobId, componentId, patch })
+  }
+  if (multiline) {
+    return (
+      <EditableTextArea
+        value={value}
+        onSave={onSave}
+        className={className}
+        placeholder={placeholder}
+      />
+    )
+  }
   return (
     <EditableText
       value={value}
-      onSave={async (v) => {
-        const patch: ComponentPatch =
-          field === 'name'
-            ? { name: v }
-            : field === 'material'
-              ? { material: v.length === 0 ? null : v }
-              : field === 'surfaceTreatment'
-                ? { surfaceTreatment: v.length === 0 ? null : v }
-                : field === 'process'
-                  ? { process: v.length === 0 ? null : v }
-                  : { partNo: v.length === 0 ? null : v }
-        await mutate({ kind: 'updateComponent', jobId, componentId, patch })
-      }}
+      onSave={onSave}
       className={className}
       placeholder={placeholder}
     />

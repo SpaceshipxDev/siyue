@@ -763,7 +763,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-3 whitespace-nowrap">
+                    <td className="px-3 py-3 align-top">
                       {canEditFields ? (
                         <ComponentText
                           jobId={job.id}
@@ -771,10 +771,11 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           field="process"
                           value={c.process}
                           placeholder="—"
-                          className="text-[12px] text-[var(--color-ink-2)] whitespace-nowrap"
+                          multiline
+                          className="text-[12px] text-[var(--color-ink-2)] leading-snug"
                         />
                       ) : (
-                        <span className="text-[12px] text-[var(--color-ink-2)] whitespace-nowrap">
+                        <span className="text-[12px] text-[var(--color-ink-2)] leading-snug whitespace-pre-wrap break-words">
                           {c.process ?? ''}
                         </span>
                       )}
@@ -793,7 +794,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3 align-top">
                       {canEditFields ? (
                         <ComponentText
                           jobId={job.id}
@@ -801,15 +802,16 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           field="material"
                           value={c.material}
                           placeholder="材料"
-                          className="text-[12px] text-[var(--color-ink-2)]"
+                          multiline
+                          className="text-[12px] text-[var(--color-ink-2)] leading-snug"
                         />
                       ) : (
-                        <span className="text-[12px] text-[var(--color-ink-2)]">
+                        <span className="text-[12px] text-[var(--color-ink-2)] leading-snug whitespace-pre-wrap break-words">
                           {c.material ?? ''}
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3 align-top">
                       {canEditFields ? (
                         <ComponentText
                           jobId={job.id}
@@ -817,10 +819,11 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           field="surfaceTreatment"
                           value={c.surfaceTreatment}
                           placeholder="表面处理"
-                          className="text-[12px] text-[var(--color-ink-2)]"
+                          multiline
+                          className="text-[12px] text-[var(--color-ink-2)] leading-snug"
                         />
                       ) : (
-                        <span className="text-[12px] text-[var(--color-ink-2)]">
+                        <span className="text-[12px] text-[var(--color-ink-2)] leading-snug whitespace-pre-wrap break-words">
                           {c.surfaceTreatment ?? ''}
                         </span>
                       )}
