@@ -780,7 +780,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3 align-top">
                       {canEditFields ? (
                         <ComponentQty
                           jobId={job.id}
