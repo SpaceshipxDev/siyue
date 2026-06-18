@@ -578,7 +578,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               <col style={{ width: 78 }} />
               <col style={{ width: 200 }} />
               <col style={{ width: 120 }} />
-              <col style={{ width: 160 }} />
+              <col style={{ width: 130 }} />
               <col style={{ width: 130 }} />
               <col style={{ width: 180 }} />
               <col style={{ width: 220 }} />
