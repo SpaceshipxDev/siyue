@@ -578,7 +578,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               <col style={{ width: 78 }} />
               <col style={{ width: 200 }} />
               <col style={{ width: 120 }} />
-              <col style={{ width: 70 }} />
+              <col style={{ width: 160 }} />
               <col style={{ width: 130 }} />
               <col style={{ width: 180 }} />
               <col style={{ width: 220 }} />
@@ -620,7 +620,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   零件
                 </th>
                 <th className="px-4 py-3 label whitespace-nowrap">料号</th>
-                <th className="px-4 py-3 label whitespace-nowrap min-w-[160px]">加工工艺</th>
+                <th className="px-4 py-3 label whitespace-nowrap">加工工艺</th>
                 <th className="px-4 py-3 text-right label whitespace-nowrap">
                   数量
                 </th>
@@ -763,7 +763,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-3 min-w-[160px] whitespace-nowrap">
+                    <td className="px-3 py-3 whitespace-nowrap">
                       {canEditFields ? (
                         <ComponentText
                           jobId={job.id}
