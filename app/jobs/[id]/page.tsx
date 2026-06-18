@@ -620,7 +620,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   零件
                 </th>
                 <th className="px-4 py-3 label whitespace-nowrap">料号</th>
-                <th className="px-4 py-3 label whitespace-nowrap">加工工艺</th>
+                <th className="px-4 py-3 label whitespace-nowrap min-w-[160px]">加工工艺</th>
                 <th className="px-4 py-3 text-right label whitespace-nowrap">
                   数量
                 </th>
@@ -763,7 +763,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3 min-w-[160px] whitespace-nowrap">
                       {canEditFields ? (
                         <ComponentText
                           jobId={job.id}
@@ -771,10 +771,10 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           field="process"
                           value={c.process}
                           placeholder="—"
-                          className="text-[12px] text-[var(--color-ink-2)]"
+                          className="text-[12px] text-[var(--color-ink-2)] whitespace-nowrap"
                         />
                       ) : (
-                        <span className="text-[12px] text-[var(--color-ink-2)]">
+                        <span className="text-[12px] text-[var(--color-ink-2)] whitespace-nowrap">
                           {c.process ?? ''}
                         </span>
                       )}
