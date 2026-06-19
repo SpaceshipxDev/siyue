@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { canSeeExpenses, requireCommerce } from '@/lib/auth'
-import { getExpenses, getFinanceRows } from '@/lib/db'
+import { getExpenses, getFinanceRows, getOrderMoneyRows } from '@/lib/db'
 import { today } from '@/lib/today'
 import { formatCny } from '@/lib/data'
 import {
@@ -11,6 +11,13 @@ import {
   isFinanceFilter,
   type FinanceFilter,
 } from '@/lib/finance'
+import {
+  applyOrderMoneyFilters,
+  orderMoneyCounts,
+  orderMoneyTotals,
+  isOrderMoneyFilter,
+  type OrderMoneyFilter,
+} from '@/lib/order-money'
 import {
   applyExpenseFilters,
   expenseCounts,
@@ -27,20 +34,25 @@ import { TopBar } from '../_ui'
 import { FinanceLedger } from './_ledger'
 import { ExpenseLedger } from './_expense_ledger'
 import { MonthlyCashflow } from './_monthly'
+import { OrderMoneyBoard } from './_orders'
 
 export const dynamic = 'force-dynamic'
 
 const PAGE_SIZE = 25
+// The money board is a scan view (read, not edit) — show more per page.
+const ORDER_PAGE_SIZE = 50
 
-// 财务 — three reads of the same books, one route:
-//   应收 (tab=ar, default)    money owed to us — the original AR ledger
+// 财务 — four reads of the same books, one route:
+//   订单 (tab=orders, default) money on each order — the boss's money-visibility
+//                              board: 合同 / 金额 / 外协 / 出货 / 开票 / 回款 / 应收
+//   应收 (tab=ar)             money owed to us — the original AR ledger
 //   支出 (tab=expense)        money out — the boss's 7 manual categories
 //   月度 (tab=month)          回款收入 − 支出 = 净现金流, by month
-// 应收 stays visible to every 商务 (unchanged). 支出/月度 carry per-person
-// payroll, so they're gated to the boss + designated finance users
-// (users.is_finance, migration 0051) — others don't even see the tabs.
+// 订单 + 应收 stay visible to every 商务. 支出/月度 carry per-person payroll, so
+// they're gated to the boss + designated finance users (users.is_finance,
+// migration 0051) — others don't even see those two tabs.
 
-type FinanceTab = 'ar' | 'expense' | 'month'
+type FinanceTab = 'orders' | 'ar' | 'expense' | 'month'
 
 export default async function FinancePage({
   searchParams,
@@ -59,18 +71,26 @@ export default async function FinancePage({
   const showExpenses = canSeeExpenses(user)
 
   const tab: FinanceTab =
-    params.tab === 'expense' || params.tab === 'month'
+    params.tab === 'ar' ||
+    params.tab === 'expense' ||
+    params.tab === 'month'
       ? (params.tab as FinanceTab)
-      : 'ar'
-  // Deep link to a gated tab from a non-finance user → land on 应收.
-  if (tab !== 'ar' && !showExpenses) redirect('/finance')
+      : 'orders'
+  // Deep link to a gated tab from a non-finance user → land on the money board.
+  if ((tab === 'expense' || tab === 'month') && !showExpenses) redirect('/finance')
 
   const todayStr = today()
   const month = todayStr.slice(0, 7) // 'YYYY-MM'
   const monthLabel = `${parseInt(month.slice(5), 10)}月`
 
   const subtitle =
-    tab === 'ar' ? '应收账款' : tab === 'expense' ? '支出台账' : '月度现金流'
+    tab === 'orders'
+      ? '订单资金'
+      : tab === 'ar'
+        ? '应收账款'
+        : tab === 'expense'
+          ? '支出台账'
+          : '月度现金流'
 
   return (
     <div className="flex-1 flex flex-col">
@@ -83,7 +103,8 @@ export default async function FinancePage({
         userName={user.name}
       />
       <main className="mx-auto w-full max-w-[1240px] px-5 md:px-10 py-10 md:py-14 flex-1">
-        {showExpenses && <FinanceTabs tab={tab} />}
+        <FinanceTabs tab={tab} showExpenses={showExpenses} />
+        {tab === 'orders' && <OrderTab params={params} todayStr={todayStr} />}
         {tab === 'ar' && (
           <ArTab params={params} todayStr={todayStr} month={month} monthLabel={monthLabel} />
         )}
@@ -97,12 +118,18 @@ export default async function FinancePage({
 }
 
 // Sub-tab row — same underline-active text-toggle idiom as the ledger filters.
-// Server-rendered links so the gate stays on the server.
-function FinanceTabs({ tab }: { tab: FinanceTab }) {
+// Server-rendered links so the gate stays on the server. 订单 + 应收 show for
+// every 商务; 支出 + 月度 only when the user may see payroll.
+function FinanceTabs({ tab, showExpenses }: { tab: FinanceTab; showExpenses: boolean }) {
   const tabs: { key: FinanceTab; href: string; label: string }[] = [
-    { key: 'ar', href: '/finance', label: '应收' },
-    { key: 'expense', href: '/finance?tab=expense', label: '支出' },
-    { key: 'month', href: '/finance?tab=month', label: '月度' },
+    { key: 'orders', href: '/finance', label: '订单' },
+    { key: 'ar', href: '/finance?tab=ar', label: '应收' },
+    ...(showExpenses
+      ? ([
+          { key: 'expense', href: '/finance?tab=expense', label: '支出' },
+          { key: 'month', href: '/finance?tab=month', label: '月度' },
+        ] as { key: FinanceTab; href: string; label: string }[])
+      : []),
   ]
   return (
     <div role="tablist" aria-label="财务视图" className="flex items-baseline gap-x-7 mb-12">
@@ -125,6 +152,83 @@ function FinanceTabs({ tab }: { tab: FinanceTab }) {
         )
       })}
     </div>
+  )
+}
+
+// === 订单 (per-order money board — the boss's money-visibility view) ===
+
+async function OrderTab({
+  params,
+  todayStr,
+}: {
+  params: { q?: string; filter?: string; page?: string }
+  todayStr: string
+}) {
+  const q = params.q ?? ''
+  const filter: OrderMoneyFilter =
+    params.filter && isOrderMoneyFilter(params.filter) ? params.filter : 'all'
+
+  const allRows = await getOrderMoneyRows()
+
+  // KPIs aggregate over the FULL order book; the table is filtered + paginated.
+  const totals = orderMoneyTotals(allRows)
+  const counts = orderMoneyCounts(allRows)
+  const filtered = applyOrderMoneyFilters(allRows, { q, filter })
+
+  const total = filtered.length
+  const totalPages = Math.max(1, Math.ceil(total / ORDER_PAGE_SIZE))
+  const page = Math.min(
+    Math.max(1, parseInt(params.page ?? '1', 10) || 1),
+    totalPages,
+  )
+  const start = (page - 1) * ORDER_PAGE_SIZE
+  const display = filtered.slice(start, start + ORDER_PAGE_SIZE)
+  const rangeStart = total === 0 ? 0 : start + 1
+  const rangeEnd = Math.min(start + ORDER_PAGE_SIZE, total)
+
+  const exportParams = new URLSearchParams()
+  if (q.trim()) exportParams.set('q', q.trim())
+  if (filter !== 'all') exportParams.set('filter', filter)
+  const exportHref = exportParams.toString()
+    ? `/finance/orders/export?${exportParams.toString()}`
+    : '/finance/orders/export'
+
+  return (
+    <>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-10 mb-14">
+        <Stat
+          label="订单总额"
+          value={formatCny(totals.orderValueCny)}
+          sub={`在系统 ${totals.orderCount} 单`}
+        />
+        <Stat label="应收余额" value={formatCny(totals.outstandingCny)} sub="未回款总额" />
+        <Stat
+          label="外协总额"
+          value={formatCny(totals.outsourceSpendCny)}
+          sub={`${totals.outsourcedCount} 单走外协`}
+        />
+        <Stat
+          label="逾期未回款"
+          value={formatCny(totals.overdueCny)}
+          sub={totals.overdueCount > 0 ? `${totals.overdueCount} 笔` : '无逾期'}
+          tone={totals.overdueCny > 0 ? 'overdue' : undefined}
+        />
+      </div>
+
+      <OrderMoneyBoard
+        rows={display}
+        q={q}
+        filter={filter}
+        counts={counts}
+        todayStr={todayStr}
+        total={total}
+        page={page}
+        totalPages={totalPages}
+        rangeStart={rangeStart}
+        rangeEnd={rangeEnd}
+        exportHref={exportHref}
+      />
+    </>
   )
 }
 
