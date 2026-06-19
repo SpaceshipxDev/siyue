@@ -1,8 +1,10 @@
 'use client'
 
-import { useRef, useState, useTransition } from 'react'
+import { useRef, useState, useTransition, type KeyboardEvent } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
+import { mutate } from '@/lib/mutate'
+import { showToast } from '@/app/_toast'
 import { formatCny } from '@/lib/data'
 import { shipDateLabel } from '@/lib/finance'
 import { SearchInput } from '@/app/_search'
@@ -44,6 +46,134 @@ const STATUS_TEXT: Record<OrderMoneyStatus, string> = {
 }
 
 const ALARM_WASH = 'bg-[var(--color-overdue-soft)]'
+
+// Same inline-edit field vocabulary as the AR ledger / _editable — transparent,
+// underline-on-focus — so an editing money cell reads like every other edit in
+// the app. Both editors commit through /api/mutate (kind 'updateJob').
+const baseInputClass =
+  'block w-full bg-transparent border-0 outline-none rounded-[2px] px-1 -mx-1 py-0.5 transition-[background-color,box-shadow] duration-150 hover:bg-[var(--color-active-bg)] hover:shadow-[inset_0_-1px_0_var(--color-border-strong)] focus:bg-[var(--color-active-bg)] focus:shadow-[inset_0_-1px_0_var(--color-ink)]'
+
+// 合同号 — text at rest (红 无合同 when missing, the boss's flag), click to type.
+// He fixes the 合同 gap right where he spots it, no page hop.
+function ContractCell({ jobId, value }: { jobId: string; value?: string }) {
+  const ref = useRef<HTMLInputElement>(null)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value ?? '')
+  const [pending, start] = useTransition()
+
+  const commit = (raw: string) => {
+    setEditing(false)
+    const next = raw.trim() === '' ? null : raw.trim()
+    if (next === (value ?? null)) return
+    start(async () => {
+      try {
+        await mutate({ kind: 'updateJob', jobId, patch: { contractNo: next } })
+      } catch (e) {
+        showToast(`保存失败 · ${e instanceof Error ? e.message : '网络中断'}`, 'warning')
+        setDraft(value ?? '')
+      }
+    })
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={ref}
+        autoFocus
+        value={draft}
+        placeholder="合同号"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={(e) => commit(e.target.value)}
+        onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            ref.current?.blur()
+          } else if (e.key === 'Escape') {
+            setDraft(value ?? '')
+            requestAnimationFrame(() => ref.current?.blur())
+          }
+        }}
+        className={`${baseInputClass} mono text-[12px] placeholder:text-[var(--color-ink-4)]`}
+      />
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      className={`block w-full text-left rounded-[2px] px-1 -mx-1 py-0.5 transition-colors hover:bg-[var(--color-active-bg)] ${pending ? 'opacity-60' : ''}`}
+    >
+      {value ? (
+        <span className="mono text-[12px] text-[var(--color-ink-2)]">{value}</span>
+      ) : (
+        <span className="text-[12px] text-[var(--color-overdue)]">无合同</span>
+      )}
+    </button>
+  )
+}
+
+// 金额 — formatted ¥ at rest, click to type the raw number. Empty clears to null.
+function AmountCell({ jobId, value }: { jobId: string; value?: number }) {
+  const ref = useRef<HTMLInputElement>(null)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(typeof value === 'number' ? String(value) : '')
+  const [pending, start] = useTransition()
+
+  const commit = (raw: string) => {
+    setEditing(false)
+    const trimmed = raw.trim()
+    const next = trimmed === '' ? null : Number(trimmed)
+    if (next !== null && (!Number.isFinite(next) || next < 0)) {
+      setDraft(typeof value === 'number' ? String(value) : '')
+      return
+    }
+    if (next === (value ?? null)) return
+    start(async () => {
+      try {
+        await mutate({ kind: 'updateJob', jobId, patch: { amountCny: next } })
+      } catch (e) {
+        showToast(`保存失败 · ${e instanceof Error ? e.message : '网络中断'}`, 'warning')
+        setDraft(typeof value === 'number' ? String(value) : '')
+      }
+    })
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={ref}
+        autoFocus
+        type="number"
+        inputMode="decimal"
+        min={0}
+        step={1}
+        value={draft}
+        placeholder="金额"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={(e) => commit(e.target.value)}
+        onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            ref.current?.blur()
+          } else if (e.key === 'Escape') {
+            setDraft(typeof value === 'number' ? String(value) : '')
+            requestAnimationFrame(() => ref.current?.blur())
+          }
+        }}
+        className={`${baseInputClass} mono text-right text-[13px] placeholder:text-[var(--color-ink-4)]`}
+      />
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      className={`block w-full text-right rounded-[2px] px-1 -mx-1 py-0.5 mono text-[13px] transition-colors hover:bg-[var(--color-active-bg)] ${pending ? 'opacity-60' : ''} ${typeof value === 'number' ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-4)]'}`}
+    >
+      {typeof value === 'number' ? formatCny(value) : '—'}
+    </button>
+  )
+}
 
 export function OrderMoneyBoard({
   rows,
@@ -208,26 +338,15 @@ export function OrderMoneyBoard({
                     </Link>
                   </Td>
 
-                  {/* 合同 — muted red text when missing (most orders carry no
-                      合同号 here, so a wash would drown the board; the dedicated
-                      column + the red 无合同 filter count carry the signal). */}
+                  {/* 合同 — editable: 红 无合同 when missing (the boss's flag),
+                      click to type the 合同号 right where he spots the gap. */}
                   <Td className="whitespace-nowrap">
-                    {r.contractNo ? (
-                      <span className="mono text-[12px] text-[var(--color-ink-2)]">
-                        {r.contractNo}
-                      </span>
-                    ) : (
-                      <span className="text-[12px] text-[var(--color-overdue)]">无合同</span>
-                    )}
+                    <ContractCell jobId={r.jobId} value={r.contractNo} />
                   </Td>
 
-                  {/* 金额 — the order's contract value. */}
-                  <Td className="text-right mono text-[13px] whitespace-nowrap">
-                    {typeof r.amountCny === 'number' ? (
-                      <span className="text-[var(--color-ink)]">{formatCny(r.amountCny)}</span>
-                    ) : (
-                      <span className="text-[var(--color-ink-4)]">—</span>
-                    )}
+                  {/* 金额 — editable: the order's contract value, fix it inline. */}
+                  <Td className="text-right whitespace-nowrap">
+                    <AmountCell jobId={r.jobId} value={r.amountCny} />
                   </Td>
 
                   {/* 外协 — count · spend · turnaround days; flags 在外协中. */}
