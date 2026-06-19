@@ -16,7 +16,7 @@ export function JobTabs({
   tabs,
   rootId = 'jobtabs-root',
 }: {
-  tabs: { key: string; label: string }[]
+  tabs: { key: string; label: string; badge?: string; alarm?: boolean }[]
   rootId?: string
 }) {
   const [active, setActive] = useState(tabs[0]?.key ?? '')
@@ -54,6 +54,17 @@ export function JobTabs({
             }`}
           >
             {t.label}
+            {t.badge ? (
+              <span
+                className={`ml-1.5 mono text-[11px] tabular-nums ${
+                  t.alarm
+                    ? 'text-[var(--color-warning)] font-medium'
+                    : 'text-[var(--color-ink-4)]'
+                }`}
+              >
+                {t.badge}
+              </span>
+            ) : null}
           </button>
         )
       })}

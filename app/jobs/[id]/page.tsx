@@ -202,9 +202,23 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
 
   // 工单明细 section tabs — 零件 always; 外协 for the outsource managers; 财务
   // for the money roles. Must match the data-jobtab wrappers rendered below.
+  // 外协 carries a count of blocks still at a vendor (在外) so pending outsourcing
+  // shows on the tab bar without a click.
+  const openOutsourceCount = blockRows.filter(
+    (r) => !isBlockClosed(r.block),
+  ).length
   const jobTabs = [
     { key: 'parts', label: '零件' },
-    ...(canManageOutsource(user) ? [{ key: 'waixie', label: '外协' }] : []),
+    ...(canManageOutsource(user)
+      ? [
+          {
+            key: 'waixie',
+            label: '外协',
+            badge: openOutsourceCount > 0 ? String(openOutsourceCount) : undefined,
+            alarm: openOutsourceCount > 0,
+          },
+        ]
+      : []),
     ...(showMoney ? [{ key: 'caiwu', label: '财务' }] : []),
   ]
 
