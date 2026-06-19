@@ -56,6 +56,7 @@ import { ComponentImageUploader } from '@/app/_image_uploader'
 import { StageChips } from '@/app/_stagechips'
 import { ComponentsScrollArea } from '@/app/_components_table'
 import { ComponentAnchorScroller } from '@/app/_component_anchor'
+import { JobTabs } from './_job_tabs'
 import { SourceFileRow } from '@/app/_source_file'
 import {
   ActiveReturnBadge,
@@ -198,6 +199,14 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
     if (aClosed !== bClosed) return aClosed ? 1 : -1
     return a.block.expectedReturn.localeCompare(b.block.expectedReturn)
   })
+
+  // 工单明细 section tabs — 零件 always; 外协 for the outsource managers; 财务
+  // for the money roles. Must match the data-jobtab wrappers rendered below.
+  const jobTabs = [
+    { key: 'parts', label: '零件' },
+    ...(canManageOutsource(user) ? [{ key: 'waixie', label: '外协' }] : []),
+    ...(showMoney ? [{ key: 'caiwu', label: '财务' }] : []),
+  ]
 
   return (
     <div className="flex-1 flex flex-col">
@@ -366,36 +375,8 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               />
             </div>
           </div>
-          {showMoney && (
-            <div className="col-span-2 md:col-span-3">
-              <p className="label mb-2">金额 / 外发 / 毛利</p>
-              <div className="flex items-baseline gap-1">
-                <span className="mono text-[15px] text-[var(--color-ink-3)]">
-                  ¥
-                </span>
-                <JobAmount
-                  jobId={job.id}
-                  value={job.amountCny}
-                  className="text-[15px] font-medium text-[var(--color-ink)]"
-                />
-              </div>
-              {externalSpend > 0 ? (
-                <p className="mono text-[11px] text-[var(--color-ink-3)] mt-0.5">
-                  外 {formatCny(externalSpend)}
-                  {typeof margin === 'number'
-                    ? ` · 利 ${formatCny(margin)}`
-                    : ''}
-                </p>
-              ) : (
-                <p className="label text-[var(--color-ink-4)] mt-0.5">无外发</p>
-              )}
-              {componentsTotal > 0 && (
-                <p className="mono text-[11px] text-[var(--color-ink-3)] mt-0.5">
-                  零件合计 {formatCny(componentsTotal)}
-                </p>
-              )}
-            </div>
-          )}
+          {/* 金额 / 外发 / 毛利 moved into the 财务 tab below — keeps the header
+              to identity + schedule, and gives 财务 its own editable home. */}
           <div className="col-span-1 md:col-span-2">
             <p className="label mb-2">交期</p>
             <div className="flex flex-col gap-0.5">
@@ -428,7 +409,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               </p>
             )}
           </div>
-          <div className={showMoney ? 'col-span-2 md:col-span-3' : 'col-span-2 md:col-span-6'}>
+          <div className="col-span-2 md:col-span-6">
             <p className="label mb-2">总进度</p>
             <div className="flex items-baseline gap-2">
               <span className="mono text-[15px] text-[var(--color-ink)]">{pct}%</span>
@@ -534,20 +515,13 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           )}
         </div>
 
-        {/* 外协预警 — 工程's upstream "needs outsourcing" flag. Visible to the
-            outsource managers (商务 + 工程 head); raising it surfaces the job on
-            the 商务 master grid as 待外协 with no message sent. */}
-        {canManageOutsource(user) && (
-          <div className="mb-6 max-w-md">
-            <OutsourceFlag
-              jobId={job.id}
-              state={jobOutsourceState(job)}
-              initialNeeds={Boolean(job.needsOutsource)}
-              initialNote={job.outsourceNote}
-            />
-          </div>
-        )}
+        {/* 工单明细 tabs — 零件 / 外协 / 财务. Each big section below is wrapped
+            in a data-jobtab div that <JobTabs> shows/hides, so nobody scrolls
+            past the parts table to reach 外协 or the money summary. */}
+        <div id="jobtabs-root">
+          <JobTabs tabs={jobTabs} />
 
+          <div data-jobtab="parts">
         <div className="mb-3 flex items-baseline justify-between">
           <div className="flex items-baseline gap-3">
             <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
@@ -894,16 +868,41 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           </table>
         </ComponentsScrollArea>
 
-        {canManageOutsource(user) && (
-          <ExternalSection
-            jobId={job.id}
-            vendors={vendors}
-            componentOptions={componentOptions}
-            blockRows={blockRows}
-          />
-        )}
-
         <ActorTrail job={job} vendors={vendors} />
+          </div>
+          {/* /零件 tab */}
+
+          {canManageOutsource(user) && (
+            <div data-jobtab="waixie" hidden>
+              <div className="mb-6 max-w-md">
+                <OutsourceFlag
+                  jobId={job.id}
+                  state={jobOutsourceState(job)}
+                  initialNeeds={Boolean(job.needsOutsource)}
+                  initialNote={job.outsourceNote}
+                />
+              </div>
+              <ExternalSection
+                jobId={job.id}
+                vendors={vendors}
+                componentOptions={componentOptions}
+                blockRows={blockRows}
+              />
+            </div>
+          )}
+
+          {showMoney && (
+            <div data-jobtab="caiwu" hidden>
+              <JobFinancePanel
+                job={job}
+                externalSpend={externalSpend}
+                margin={margin}
+                componentsTotal={componentsTotal}
+              />
+            </div>
+          )}
+        </div>
+        {/* /jobtabs-root */}
       </main>
     </div>
   )
@@ -1114,5 +1113,73 @@ function ActorTrail({
         ))}
       </ul>
     </section>
+  )
+}
+
+// 财务 tab — this order's money at a glance, with 金额 editable in place. The
+// per-shipment 开票 / 回款 detail lives in the 应收 ledger (linked); here it's
+// the order-level position so commerce reads + fixes the number from the job.
+function JobFinancePanel({
+  job,
+  externalSpend,
+  margin,
+  componentsTotal,
+}: {
+  job: NonNullable<Awaited<ReturnType<typeof getJob>>>
+  externalSpend: number
+  margin: number | undefined
+  componentsTotal: number
+}) {
+  return (
+    <div className="max-w-3xl">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-x-10 gap-y-10">
+        <div>
+          <p className="label mb-2">金额</p>
+          <div className="flex items-baseline gap-1">
+            <span className="mono text-[22px] text-[var(--color-ink-3)]">¥</span>
+            <JobAmount
+              jobId={job.id}
+              value={job.amountCny}
+              className="text-[22px] font-semibold tracking-tight text-[var(--color-ink)]"
+            />
+          </div>
+        </div>
+        <div>
+          <p className="label mb-2">外发金额</p>
+          <p className="mono text-[22px] font-semibold tracking-tight text-[var(--color-ink)]">
+            {externalSpend > 0 ? formatCny(externalSpend) : '—'}
+          </p>
+        </div>
+        <div>
+          <p className="label mb-2">毛利</p>
+          <p
+            className={`mono text-[22px] font-semibold tracking-tight ${
+              typeof margin === 'number' && margin < 0
+                ? 'text-[var(--color-overdue)]'
+                : 'text-[var(--color-ink)]'
+            }`}
+          >
+            {typeof margin === 'number' ? formatCny(margin) : '—'}
+          </p>
+        </div>
+        <div>
+          <p className="label mb-2">零件合计</p>
+          <p className="mono text-[22px] font-semibold tracking-tight text-[var(--color-ink)]">
+            {componentsTotal > 0 ? formatCny(componentsTotal) : '—'}
+          </p>
+        </div>
+      </div>
+
+      <p className="mt-10 text-[12px] text-[var(--color-ink-3)]">
+        开票 / 回款 / 应收明细见{' '}
+        <a
+          href="/finance?tab=ar"
+          className="text-[var(--color-ink)] underline decoration-[var(--color-border-strong)] underline-offset-2 hover:decoration-[var(--color-ink)]"
+        >
+          应收账款
+        </a>
+        ，单价 / 小计 可在「零件」逐件填写。
+      </p>
+    </div>
   )
 }
