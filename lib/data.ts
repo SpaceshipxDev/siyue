@@ -57,6 +57,10 @@ export type StageState = {
   // with startedAt to drive the per-stage avg flow time in StationSummary.
   finishedAt?: string
   by?: string
+  // Who clicked ▶ 起步 (pending → in_progress). `by` records the ✓ 收件
+  // finisher; startedBy records the starter, so the 动态 column can name the
+  // actor of an in-progress stage that has no finisher yet.
+  startedBy?: string
   // Partial-completion count while status='in_progress': how many of the
   // part's qty have been finished at this stage. Undefined = none yet (or
   // status='done' which implies all of qty). Status only flips to 'done'
@@ -744,6 +748,104 @@ export function formatShipmentTimestamp(iso: string): string {
   const parts = fmt.formatToParts(d)
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
   return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`
+}
+
+// 动态 column timestamp — "MM-DD HH:mm" in factory-local (Asia/Shanghai) time.
+// The DB stores stage timestamps as UTC ISO strings; the floor reads them in
+// Beijing time. Drops the year (the 动态 column is always recent) for a tight
+// two-line cell. Falls back to the raw string if it isn't parseable ISO (e.g.
+// a legacy MM-DD completedAt with no hour — shown date-only by the caller).
+export function formatActivityTimestamp(iso: string): string {
+  const t = Date.parse(iso)
+  if (!Number.isFinite(t)) return iso
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(t))
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`
+}
+
+// The single most recent human action on a component, derived purely from its
+// stage rows: who clicked, when, and what they did. Powers the 工单详情 动态
+// column. "Action" is one of 起步 / 完成 / a 检验 verdict — the gestures a
+// worker makes on a stage cell. We pick the event with the latest precise ISO
+// timestamp (start/finish/verdict all stamp one); if a part only carries a
+// legacy MM-DD completedAt (pre-finishedAt rows), we fall back to that so the
+// column is never blank on a part that has clearly moved. `when` is the ISO
+// instant when known (→ formatted with hours) or a bare MM-DD legacy date.
+export type ComponentActivity = {
+  when: string
+  hasTime: boolean
+  by: string
+  action: string
+  stage: Stage
+}
+
+export function latestComponentActivity(
+  component: Component,
+): ComponentActivity | null {
+  const candidates: { sort: number; ev: ComponentActivity }[] = []
+  const consider = (
+    iso: string | undefined,
+    by: string | undefined,
+    action: string,
+    stage: Stage,
+  ) => {
+    if (!iso || !by) return
+    const t = Date.parse(iso)
+    if (!Number.isFinite(t)) return
+    candidates.push({
+      sort: t,
+      ev: { when: iso, hasTime: true, by, action, stage },
+    })
+  }
+
+  for (const stage of STAGES) {
+    const st = component.stages[stage]
+    if (!st) continue
+    // ▶ 起步 — names the starter (startedBy), distinct from the finisher.
+    consider(st.startedAt, st.startedBy, '起步', stage)
+    // 检验 verdict — the inspector's gesture. 'OK' shares finishedAt/by with a
+    // normal finish, so we render it as the verdict and skip the generic 完成
+    // below to avoid a duplicate at the same instant.
+    if (st.verdict) {
+      // The stage suffix (· 检验) already names the station, so the action is
+      // just the verdict — avoids "检验 返修 · 检验".
+      const action = st.verdict === 'OK' ? '通过' : st.verdict
+      consider(st.verdictAt, st.verdictBy, action, stage)
+    }
+    // ✓ 收件 / 完成 — the finisher.
+    if (st.status === 'done' && !(stage === '检验' && st.verdict)) {
+      consider(st.finishedAt, st.by, '完成', stage)
+    }
+  }
+  if (candidates.length > 0) {
+    return candidates.reduce((a, b) => (b.sort > a.sort ? b : a)).ev
+  }
+
+  // Legacy fallback: no ISO-stamped event anywhere, but a stage finished with
+  // only a MM-DD completedAt. Surface the lexically-latest such date so old
+  // jobs still show their last move (date-only, no hour).
+  let legacy: ComponentActivity | null = null
+  for (const stage of STAGES) {
+    const st = component.stages[stage]
+    if (!st || st.status !== 'done' || !st.completedAt || !st.by) continue
+    if (!legacy || st.completedAt > legacy.when) {
+      legacy = {
+        when: st.completedAt,
+        hasTime: false,
+        by: st.by,
+        action: '完成',
+        stage,
+      }
+    }
+  }
+  return legacy
 }
 
 // Most recent printed batch for a job — drives the read-only 出货单 preview.

@@ -6,6 +6,7 @@ import {
   daysFromToday,
   dueState,
   effectiveStageState,
+  formatActivityTimestamp,
   formatCny,
   formatShipmentLog,
   isBlockClosed,
@@ -17,6 +18,7 @@ import {
   jobMargin,
   jobOutsourceState,
   jobReturnedQtyByPart,
+  latestComponentActivity,
   vendorById,
   type Job,
   type Stage,
@@ -627,6 +629,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   </th>
                 ))}
                 <th className="px-3 py-3 label whitespace-nowrap">出货记录</th>
+                <th className="px-3 py-3 label whitespace-nowrap">动态</th>
                 {canEditFields && (
                   <th className="px-4 py-3 label whitespace-nowrap">备注</th>
                 )}
@@ -845,6 +848,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     <ShipmentLogCell
                       entries={componentShipmentEntries(c.id, job.shipments)}
                     />
+                    <ActivityCell component={c} />
                     {canEditFields && (
                       <td className="px-3 py-3">
                         <ComponentNotes
@@ -978,6 +982,37 @@ function ShipmentLogCell({
       <pre className="mono text-[11px] leading-snug text-[var(--color-ink-2)] whitespace-pre-wrap font-normal">
         {log}
       </pre>
+    </td>
+  )
+}
+
+// 动态 — the latest human touch on this part: who clicked, what they did, and
+// when (date + hour, factory-local). Three stacked lines wrap inside a fixed
+// width so the cell reads like 表面处理 rather than blowing the row wide. Empty
+// state is a single muted dash so the column keeps its width.
+function ActivityCell({ component }: { component: import('@/lib/data').Component }) {
+  const a = latestComponentActivity(component)
+  if (!a) {
+    return (
+      <td className="px-3 py-3 text-[var(--color-ink-4)] mono text-[11px] align-top">
+        —
+      </td>
+    )
+  }
+  return (
+    <td className="px-3 py-3 align-top">
+      <div className="w-[150px] leading-snug">
+        <div className="text-[13px] font-medium text-[var(--color-ink)] break-words">
+          {a.by}
+        </div>
+        <div className="text-[12px] text-[var(--color-ink-2)] break-words">
+          <span className="tracking-wider">{a.action}</span>
+          <span className="text-[var(--color-ink-3)]"> · {a.stage}</span>
+        </div>
+        <div className="mt-0.5 mono text-[11px] text-[var(--color-ink-3)]">
+          {a.hasTime ? formatActivityTimestamp(a.when) : a.when}
+        </div>
+      </div>
     </td>
   )
 }
