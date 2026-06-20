@@ -99,6 +99,7 @@ import { JOB_TYPES, STAGES, VERDICTS } from '@/lib/data'
 import { isExpenseCategory } from '@/lib/expenses'
 import { isDimRow, type InspectionReportPatch } from '@/lib/inspection-report'
 import { removeInspectionPhotoObject } from '@/lib/inspection-photo'
+import { deleteContractFile } from '@/lib/contract-file'
 
 // Single JSON dispatcher for mutating writes. Every existing inline-edit
 // surface (job/component fields, stage cells, routing chips, outsource block
@@ -747,6 +748,19 @@ async function dispatch(
       await requireOwnStage('检验')
       const url = await deletePartPhoto(jobId, photoId)
       if (url) await removeInspectionPhotoObject(url)
+      revalidatePath(`/jobs/${jobId}`)
+      return Response.json(ok())
+    }
+
+    // 合同 removal. Upload goes through /api/upload-contract (multipart);
+    // deletion is a normal JSON mutation. Commerce-only (the 财务 surface).
+    case 'deleteContract': {
+      const jobId = body.jobId
+      const contractId = body.contractId
+      if (!isString(jobId) || !isString(contractId))
+        return err('bad deleteContract args')
+      await requireCommerce()
+      await deleteContractFile(jobId, contractId)
       revalidatePath(`/jobs/${jobId}`)
       return Response.json(ok())
     }

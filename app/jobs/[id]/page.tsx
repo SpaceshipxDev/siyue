@@ -25,6 +25,7 @@ import {
   type Vendor,
 } from '@/lib/data'
 import { getJob, getProcessCard, getVendors } from '@/lib/db'
+import { getContractFiles } from '@/lib/contract-file'
 import {
   canEditPartRoute,
   canEditProductionFields,
@@ -60,6 +61,7 @@ import { ComponentsScrollArea } from '@/app/_components_table'
 import { ComponentAnchorScroller } from '@/app/_component_anchor'
 import { JobTabs } from './_job_tabs'
 import { SourceFileRow } from '@/app/_source_file'
+import { ContractFiles } from '@/app/_contract_files'
 import {
   ActiveReturnBadge,
   OpenReturnButton,
@@ -101,6 +103,9 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // 出货单 print). They still don't edit, manage outsource, or see money.
   const showCustomer = canSeeCustomerData(user)
   const showMoney = canSeeMoney(user)
+  // 合同 attachments live behind the money gate (财务 tab). Only fetch them when
+  // the viewer can see that tab — production users never need the read.
+  const contractFiles = showMoney ? await getContractFiles(id) : []
   // 工程 head edits the same non-commercial fields commerce does (product,
   // jobNo, dueDate, component name/qty/material/notes, image). Pure-floor
   // production users (焊接, 喷塑, etc.) keep the read-only view they had.
@@ -925,6 +930,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 margin={margin}
                 componentsTotal={componentsTotal}
               />
+              <ContractFiles jobId={job.id} initial={contractFiles} />
             </div>
           )}
         </div>

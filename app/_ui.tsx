@@ -53,7 +53,11 @@ function tabsForRole(role: Role, defaultStage?: string): Tab[] {
         { key: '退货', label: '退货', href: '/returns' },
       ]
     }
-    return []
+    // Pure-floor stations (焊接, 喷塑, 打磨, …) otherwise carry no tab nav —
+    // the StationSummary on the body does the work. They still get the one
+    // 采购 tab: the boss's rule is everyone on the floor buys things and must
+    // be able to log/see what's on the way, regardless of station.
+    return [{ key: '采购', label: '采购', href: '/procurement' }]
   }
   return [
     { key: '商务', label: '商务', href: '/' },

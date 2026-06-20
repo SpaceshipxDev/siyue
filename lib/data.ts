@@ -322,6 +322,18 @@ export type PartPhoto = {
   createdAt: string
 }
 
+// 合同文件 — a signed contract attached to an order by 财务 (migration 0066).
+// Many per job; download via the proxied url, metadata shown in the 财务 tab.
+export type ContractFile = {
+  id: string
+  url: string
+  filename: string
+  filesize?: number
+  contentType?: string
+  uploadedBy?: string
+  createdAt: string
+}
+
 // Best-effort line subtotal: prefer the explicitly-quoted lineTotalCny;
 // otherwise derive from qty * unitPriceCny when both are present. Returns
 // undefined when neither path yields a number, so callers can render "—"
@@ -1468,10 +1480,12 @@ export function jobExternalSpend(job: Job): number {
     for (const b of c.outsourceBlocks ?? []) {
       if (seen.has(b.id)) continue
       seen.add(b.id)
-      // 加急 blocks ship before commerce has a quote — null amount is a
-      // "待补金额" placeholder, not zero. Skip until backfilled so the
-      // 外/利 chips don't go NaN.
-      if (b.amountCny != null) total += b.amountCny
+      // 加急 blocks ship before commerce sets a block-level 金额 — fall back to
+      // the per-member line totals (单价 × 数量) so 外/利 reflect rush pricing
+      // too. Still 0 (skipped) when neither a block amount nor any line price
+      // exists, so the chips never go NaN on a genuinely unpriced block.
+      const spend = b.amountCny ?? blockLineTotalsSum(b)
+      if (spend != null) total += spend
     }
   }
   return total

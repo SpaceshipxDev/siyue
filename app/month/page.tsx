@@ -2,6 +2,7 @@ import Link from 'next/link'
 import {
   blockActivityLabel,
   blockClosedAt,
+  blockLineTotalsSum,
   formatCny,
   vendorById,
   type OpenBlockRow,
@@ -72,7 +73,9 @@ function collectClosedBlocks(
       componentName: summary,
       vendorName: v?.name ?? r.block.vendorId,
       activity: blockActivityLabel(r.block),
-      amountCny: r.block.amountCny,
+      // Rush blocks carry no block-level 金额 — fall back to the per-line sum
+      // so 月结 settles them at their real outsourcing cost.
+      amountCny: r.block.amountCny ?? blockLineTotalsSum(r.block) ?? null,
       closedAt,
     })
   }
