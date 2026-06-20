@@ -739,24 +739,39 @@ export function ComponentNotes({
   value,
   className,
   placeholder,
+  multiline,
 }: {
   jobId: string
   componentId: string
   value: string | undefined
   className?: string
   placeholder?: string
+  // Top-aligned auto-growing textarea (matches the 加工工艺 / 材料 spec columns)
+  // instead of a vertically-centered single-line input. Notes can run long.
+  multiline?: boolean
 }) {
+  const onSave = async (v: string) => {
+    await mutate({
+      kind: 'updateComponent',
+      jobId,
+      componentId,
+      patch: { notes: v.length === 0 ? null : v },
+    })
+  }
+  if (multiline) {
+    return (
+      <EditableTextArea
+        value={value}
+        onSave={onSave}
+        className={className}
+        placeholder={placeholder}
+      />
+    )
+  }
   return (
     <EditableText
       value={value}
-      onSave={async (v) => {
-        await mutate({
-          kind: 'updateComponent',
-          jobId,
-          componentId,
-          patch: { notes: v.length === 0 ? null : v },
-        })
-      }}
+      onSave={onSave}
       className={className}
       placeholder={placeholder}
     />

@@ -591,7 +591,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               ))}
               <col style={{ width: 160 }} />
               <col style={{ width: 170 }} />
-              {canEditFields && <col style={{ width: 200 }} />}
+              {canEditFields && <col style={{ width: 170 }} />}
               {showMoney && <col style={{ width: 110 }} />}
               {showMoney && <col style={{ width: 100 }} />}
             </colgroup>
@@ -857,13 +857,14 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     />
                     <ActivityCell component={c} />
                     {canEditFields && (
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 align-top">
                         <ComponentNotes
                           jobId={job.id}
                           componentId={c.id}
                           value={c.notes}
                           placeholder="添加备注…"
-                          className="text-[12px] text-[var(--color-ink-2)]"
+                          multiline
+                          className="text-[12px] text-[var(--color-ink-2)] leading-snug"
                         />
                       </td>
                     )}
