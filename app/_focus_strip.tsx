@@ -126,11 +126,20 @@ export function DailyFocusStrip({
           )
           const rowCls =
             'flex items-baseline gap-3 px-4 py-2 border-b border-[var(--color-border)] last:border-b-0'
+          // Curators (商务 / 工程 head) click THROUGH the panel, not straight
+          // at the job: the row opens /daily scrolled to and pulsing this same
+          // 重点, and they drill into the 工单 from there. The floor can't open
+          // /daily (it redirects them), so their rows keep the direct job link.
+          const href = canManage
+            ? `/daily#focus-${r.id}`
+            : r.jobId
+              ? `/jobs/${r.jobId}`
+              : undefined
           return (
             <li key={r.id}>
-              {r.jobId ? (
+              {href ? (
                 <Link
-                  href={`/jobs/${r.jobId}`}
+                  href={href}
                   className={`${rowCls} transition-colors hover:bg-[#f1eee4]`}
                 >
                   {inner}

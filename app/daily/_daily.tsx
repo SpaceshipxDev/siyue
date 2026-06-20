@@ -421,6 +421,29 @@ export function DailyFocusBoard({
     }
   }, [menu])
 
+  // Deep-link from the 今日重点 strip: /daily#focus-<id> scrolls that row into
+  // view and pulses it, so the boss lands on the panel with the 重点 he clicked
+  // already highlighted (and drills into the 工单 from the row's ↗). Reuses the
+  // same is-pulsed treatment as the job-detail component anchor.
+  useEffect(() => {
+    const apply = () => {
+      const hash = window.location.hash
+      if (!hash.startsWith('#focus-')) return
+      const el = document.getElementById(hash.slice(1))
+      if (!el) return
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      el.classList.remove('is-pulsed')
+      void el.offsetWidth // force reflow so re-clicking the same row re-pulses
+      el.classList.add('is-pulsed')
+    }
+    const t = window.setTimeout(apply, 30) // let the seeded rows mount first
+    window.addEventListener('hashchange', apply)
+    return () => {
+      window.clearTimeout(t)
+      window.removeEventListener('hashchange', apply)
+    }
+  }, [])
+
   const isToday = day === todayStr
   const filledCount = rows.reduce((n, r) => (rowHasContent(r) ? n + 1 : n), 0)
 
@@ -681,6 +704,9 @@ function SheetRow({
 
   return (
     <tr
+      // Anchor for the 今日重点 strip → panel deep-link: clicking a 重点 on the
+      // dashboard lands here (/daily#focus-<id>) and pulses this row.
+      id={`focus-${row.id}`}
       className={`group/row align-middle ${dragging ? 'opacity-40' : ''} ${
         shipped ? 'opacity-60' : ''
       }`}
