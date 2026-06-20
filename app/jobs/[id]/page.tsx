@@ -572,6 +572,11 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               <col style={{ width: 130 }} />
               <col style={{ width: 180 }} />
               <col style={{ width: 220 }} />
+              {/* 工序 (StageChips) — sits between 表面处理 and the stage grid.
+                  Without its own <col> every column to the right inherits the
+                  wrong width and 备注/单价/小计 fall off the end of the
+                  colgroup. */}
+              <col style={{ width: 150 }} />
               {STAGES.map((s) => (
                 <col
                   key={s}
@@ -584,7 +589,9 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   }}
                 />
               ))}
-              {canEditFields && <col style={{ minWidth: 180 }} />}
+              <col style={{ width: 160 }} />
+              <col style={{ width: 170 }} />
+              {canEditFields && <col style={{ width: 200 }} />}
               {showMoney && <col style={{ width: 110 }} />}
               {showMoney && <col style={{ width: 100 }} />}
             </colgroup>
@@ -1001,7 +1008,7 @@ function ActivityCell({ component }: { component: import('@/lib/data').Component
   }
   return (
     <td className="px-3 py-3 align-top">
-      <div className="w-[150px] leading-snug">
+      <div className="leading-snug">
         <div className="text-[13px] font-medium text-[var(--color-ink)] break-words">
           {a.by}
         </div>
@@ -1009,7 +1016,7 @@ function ActivityCell({ component }: { component: import('@/lib/data').Component
           <span className="tracking-wider">{a.action}</span>
           <span className="text-[var(--color-ink-3)]"> · {a.stage}</span>
         </div>
-        <div className="mt-0.5 mono text-[11px] text-[var(--color-ink-3)]">
+        <div className="mt-0.5 mono text-[11px] text-[var(--color-ink-3)] whitespace-nowrap">
           {a.hasTime ? formatActivityTimestamp(a.when) : a.when}
         </div>
       </div>
