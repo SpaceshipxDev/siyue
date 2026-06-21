@@ -51,7 +51,7 @@ import {
   JobShippingText,
   JobText,
 } from '@/app/_editable'
-import { BlockRow, SendOutsourceButton } from '@/app/_routing'
+import { BlockRow, NewBlockForm } from '@/app/_routing'
 import { OutsourceFlag } from '@/app/_outsource_flag'
 import { ExternalBadge } from '@/app/_externalbadge'
 import { ComponentImageUploader } from '@/app/_image_uploader'
@@ -1034,40 +1034,30 @@ function ExternalSection({
           </p>
         </div>
         {blockRows.length === 0 ? (
-          <div className="flex flex-col items-start gap-4 py-6 border-t border-[var(--color-border)]">
-            <p className="text-[13px] text-[var(--color-ink-3)]">
-              尚无外协 · 还没有零件送出
-            </p>
-            <SendOutsourceButton
-              jobId={jobId}
-              components={componentOptions}
-              vendors={vendors}
-            />
-          </div>
+          <p className="text-[12px] text-[var(--color-ink-3)] py-3 border-y border-[var(--color-border)]">
+            尚无外协记录
+          </p>
         ) : (
-          <>
-            <div className="flex flex-col gap-3">
-              {blockRows.map((r) => (
-                <BlockRow
-                  key={r.block.id}
-                  jobId={jobId}
-                  block={r.block}
-                  vendor={vendorById(r.block.vendorId, vendors)}
-                  vendors={vendors}
-                  componentOptions={componentOptions}
-                  variant="card"
-                />
-              ))}
-            </div>
-            <div className="mt-4">
-              <SendOutsourceButton
+          <div className="border-y border-[var(--color-border)]">
+            {blockRows.map((r) => (
+              <BlockRow
+                key={r.block.id}
                 jobId={jobId}
-                components={componentOptions}
+                block={r.block}
+                vendor={vendorById(r.block.vendorId, vendors)}
                 vendors={vendors}
+                componentOptions={componentOptions}
               />
-            </div>
-          </>
+            ))}
+          </div>
         )}
+        <div className="mt-4">
+          <NewBlockForm
+            jobId={jobId}
+            components={componentOptions}
+            vendors={vendors}
+          />
+        </div>
       </div>
     </section>
   )
