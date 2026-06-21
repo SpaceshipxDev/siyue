@@ -1,4 +1,3 @@
-import { Suspense } from 'react'
 import { notFound, redirect } from 'next/navigation'
 import {
   STAGES,
@@ -24,7 +23,7 @@ import {
   type Stage,
   type Vendor,
 } from '@/lib/data'
-import { getJob, getProcessCard, getVendors } from '@/lib/db'
+import { getJob, getVendors } from '@/lib/db'
 import { getContractFiles } from '@/lib/contract-file'
 import {
   canEditPartRoute,
@@ -52,7 +51,7 @@ import {
   JobShippingText,
   JobText,
 } from '@/app/_editable'
-import { BlockRow, NewBlockForm } from '@/app/_routing'
+import { BlockRow, SendOutsourceButton } from '@/app/_routing'
 import { OutsourceFlag } from '@/app/_outsource_flag'
 import { ExternalBadge } from '@/app/_externalbadge'
 import { ComponentImageUploader } from '@/app/_image_uploader'
@@ -73,11 +72,6 @@ import {
 } from '@/app/_drawing_change'
 import { ShippingComposerButton } from '@/app/_shipping'
 import { JobTypeEditor } from '@/app/_type_chip'
-import {
-  ProcessCardButton,
-  type StoredProcessCard,
-} from '@/app/_process_card'
-import { normalizeCard } from '@/lib/gemini-card'
 
 // Intentionally not `force-dynamic`. The page still ends up dynamic because
 // `requireUser()` reads cookies and `getJob` is uncached, but leaving Next's
@@ -87,10 +81,6 @@ import { normalizeCard } from '@/lib/gemini-card'
 export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   const user = await requireUser()
   const { id } = await props.params
-  // Process card is non-critical for first paint — only the toolbar button
-  // depends on it. Pull it in via <Suspense> so the page header + parts table
-  // can flush as soon as job + vendors resolve, instead of blocking on the
-  // slowest of three queries.
   const [rawJob, rawVendors] = await Promise.all([getJob(id), getVendors()])
   if (!rawJob) notFound()
   // Only `ready` jobs live on the production board. A draft/parsing/failed job
@@ -277,9 +267,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 />
               )
             )}
-            <Suspense fallback={<ProcessCardButtonFallback />}>
-              <AsyncProcessCardButton jobId={job.id} jobNo={job.jobNo} />
-            </Suspense>
             <ShippingComposerButton
               jobId={job.id}
               components={job.components}
@@ -940,42 +927,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   )
 }
 
-async function AsyncProcessCardButton({
-  jobId,
-  jobNo,
-}: {
-  jobId: string
-  jobNo: string
-}) {
-  const processCard = await getProcessCard(jobId)
-  return (
-    <ProcessCardButton
-      jobId={jobId}
-      jobNo={jobNo}
-      initial={
-        processCard
-          ? ({
-              jobId: processCard.jobId,
-              card: normalizeCard(processCard.card),
-              sourceFiles: processCard.sourceFiles,
-              model: processCard.model,
-              generatedAt: processCard.generatedAt,
-              generatedBy: processCard.generatedBy,
-            } satisfies StoredProcessCard)
-          : null
-      }
-    />
-  )
-}
-
-function ProcessCardButtonFallback() {
-  return (
-    <span className="px-3 py-1.5 text-[12px] tracking-wider rounded-[2px] border border-[var(--color-border)] text-[var(--color-ink-3)]">
-      工艺卡 …
-    </span>
-  )
-}
-
 // Per-part shipment history cell — one row per batch shipped, newest at top.
 // Empty state renders a single muted dash so the column stays the same width.
 function ShipmentLogCell({
@@ -1083,30 +1034,40 @@ function ExternalSection({
           </p>
         </div>
         {blockRows.length === 0 ? (
-          <p className="text-[12px] text-[var(--color-ink-3)] py-3 border-y border-[var(--color-border)]">
-            尚无外协记录
-          </p>
-        ) : (
-          <div className="border-y border-[var(--color-border)]">
-            {blockRows.map((r) => (
-              <BlockRow
-                key={r.block.id}
-                jobId={jobId}
-                block={r.block}
-                vendor={vendorById(r.block.vendorId, vendors)}
-                vendors={vendors}
-                componentOptions={componentOptions}
-              />
-            ))}
+          <div className="flex flex-col items-start gap-4 py-6 border-t border-[var(--color-border)]">
+            <p className="text-[13px] text-[var(--color-ink-3)]">
+              尚无外协 · 还没有零件送出
+            </p>
+            <SendOutsourceButton
+              jobId={jobId}
+              components={componentOptions}
+              vendors={vendors}
+            />
           </div>
+        ) : (
+          <>
+            <div className="flex flex-col gap-3">
+              {blockRows.map((r) => (
+                <BlockRow
+                  key={r.block.id}
+                  jobId={jobId}
+                  block={r.block}
+                  vendor={vendorById(r.block.vendorId, vendors)}
+                  vendors={vendors}
+                  componentOptions={componentOptions}
+                  variant="card"
+                />
+              ))}
+            </div>
+            <div className="mt-4">
+              <SendOutsourceButton
+                jobId={jobId}
+                components={componentOptions}
+                vendors={vendors}
+              />
+            </div>
+          </>
         )}
-        <div className="mt-4">
-          <NewBlockForm
-            jobId={jobId}
-            components={componentOptions}
-            vendors={vendors}
-          />
-        </div>
       </div>
     </section>
   )
