@@ -22,11 +22,10 @@ const PUBLIC_PATHS = ['/login', '/join']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only
-// surfaces (月结/外协/import/print/backend) stay locked. Employee management
+// surfaces (外协/import/print/backend) stay locked. Employee management
 // lives inline on /login (gated by ?admin=1 + a commerce session check in
 // the page itself), so it does not need a forbidden-prefix entry here.
 const PRODUCTION_FORBIDDEN_PREFIXES = [
-  '/month',
   '/finance',
   '/pulse',
   '/report',
@@ -43,7 +42,7 @@ const PRODUCTION_FORBIDDEN_PREFIXES = [
 // does — so /import/* and /api/ingest are explicitly allowed for them.
 // /pulse (现场) is also open to them — they run the floor and need the
 // factory-wide pulse view; the page itself hides ¥ columns from them via
-// canSeeMoney. Everything else on the forbidden list (月结/backend/non-
+// canSeeMoney. Everything else on the forbidden list (backend/non-
 // outsource print) still blocks them.
 const ENGINEERING_ALLOWED_PREFIXES = [
   '/station/outsource',
@@ -86,7 +85,7 @@ export async function proxy(request: NextRequest) {
 
   if (session.role === 'production') {
     // Forbidden = admin surfaces production users shouldn't see (money,
-    // outsource, monthly close, import, print). The master board itself (/)
+    // outsource, import, print). The master board itself (/)
     // is now shared, so it's NOT in the forbidden list.
     // 工程 head's holistic view lives at bare /, same as commerce — don't
      // pin them to ?stage=工程 when bouncing from a forbidden page.

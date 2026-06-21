@@ -12,7 +12,6 @@ export type TabKey =
   | '交接'
   | '采购'
   | '报工'
-  | '月结'
   | '财务'
   | '工单'
   | (typeof STAGES)[number]
@@ -28,7 +27,7 @@ type Tab = { key: TabKey; label: string; href: string }
 //
 // 工程 head (PMC in shop terms) runs the boss-style holistic nav: drills
 // into 外协, /退货, and every station to see what's happening across the
-// floor — same shape as commerce, minus the 月结 tab (no money visibility).
+// floor — same shape as commerce (no money visibility).
 function tabsForRole(role: Role, defaultStage?: string): Tab[] {
   if (role === 'production') {
     if (defaultStage === '工程') {
@@ -66,7 +65,6 @@ function tabsForRole(role: Role, defaultStage?: string): Tab[] {
     { key: '交接', label: '交接', href: '/handover' },
     { key: '采购', label: '采购', href: '/procurement' },
     { key: '报工', label: '报工', href: '/report' },
-    { key: '月结', label: '月结', href: '/month' },
     { key: '财务', label: '财务', href: '/finance' },
     { key: '外协', label: '外协', href: '/station/outsource' },
     ...STAGES.map((s) => ({

@@ -176,9 +176,7 @@ export async function MonthlyCashflow({
             )}
             <tr className="border-b border-[var(--color-border)]">
               <td className="py-2.5 text-[14px] text-[var(--color-ink)]">
-                <Link href="/month" className="hover:underline underline-offset-2 decoration-[var(--color-border-strong)]">
-                  外协
-                </Link>
+                外协
                 <span className="ml-2 label text-[var(--color-ink-4)]">
                   自动 · 本月已结 {outsourceCount} 单
                 </span>
