@@ -22,9 +22,9 @@ import { TopBar } from '../_ui'
 
 export const dynamic = 'force-dynamic'
 
-// /report — 报功. The person-axis read of the floor.
+// /report — 报工. The person-axis read of the floor.
 //
-// 现场 (/pulse) answers "what's happening, by stage, right now." 报功 rotates
+// 现场 (/pulse) answers "what's happening, by stage, right now." 报工 rotates
 // the same finish-event data 90°: "how much did each worker push through,
 // per day / week / month." Two numbers per worker — 完成零件 (components that
 // flowed through their hands) and ¥经手 (the value of that throughput). It
@@ -136,9 +136,9 @@ export default async function ReportPage({
   return (
     <div className="flex-1 flex flex-col">
       <TopBar
-        title="报功"
+        title="报工"
         subtitle={showMoney ? '当日产出 · 经手金额' : '当日产出'}
-        currentTab="报功"
+        currentTab="报工"
         role={user.role}
         defaultStage={user.defaultStage}
         userName={user.name}

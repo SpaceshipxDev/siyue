@@ -228,7 +228,7 @@ export function StageCellButton({
       ) : null}
     </>
   )
-  // 报功 attribution surfaces on hover via the native title — a styled popover
+  // 报工 attribution surfaces on hover via the native title — a styled popover
   // gets clipped by the cell/row overflow in every grid this renders in, so the
   // title is the only thing that actually shows. `state.by` is server truth
   // (optimistic finishes don't carry it yet); it fills in on the server echo.

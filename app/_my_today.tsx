@@ -6,7 +6,7 @@ import type { WorkerSelfStats } from '@/lib/pulse'
 // numbers: how many components they finished today (the hero), the ¥ that
 // flowed through their hands today, and how many they've finished this week.
 //
-// 现场/报功 answer "how is the floor doing"; this answers "how am *I* doing."
+// 现场/报工 answer "how is the floor doing"; this answers "how am *I* doing."
 // It is the one place a worker sees money — their own throughput value, by the
 // boss's call — so it sits above everything, before the work queue itself.
 export function MyToday({

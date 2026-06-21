@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { getStationOutput } from '@/lib/pulse'
 import type { Stage } from '@/lib/data'
 
-// Boss-only. Today's 报功 scoreboard for a single station — one row per worker,
+// Boss-only. Today's 报工 scoreboard for a single station — one row per worker,
 // ranked by 完成, counting only their work *at this stage*. Replaces the old
 // raw 近期活动 event log: the boss standing on the 编程 tab now sees who
 // produced here and how much, not just a chronological feed. The full ranged
@@ -112,7 +112,7 @@ function ReportHeader({ href }: { href?: string }) {
   return (
     <div className="mb-3 flex items-baseline justify-between">
       <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
-        本工段报功
+        本工段报工
         <span className="ml-2 label text-[var(--color-ink-3)]">今日</span>
       </h2>
       {href && (

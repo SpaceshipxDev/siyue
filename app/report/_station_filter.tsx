@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { STAGES, type Stage } from '@/lib/data'
 
-// 报功 station axis — a segmented chip row that re-cuts the whole scoreboard to
+// 报工 station axis — a segmented chip row that re-cuts the whole scoreboard to
 // one station (全部 = the original all-stages view). The chips mirror the
 // dashboard's station tabs one-for-one, so the boss can land on the same
 // station here that he was just looking at on the floor. State lives in the URL

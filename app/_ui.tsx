@@ -11,7 +11,7 @@ export type TabKey =
   | '现场'
   | '交接'
   | '采购'
-  | '报功'
+  | '报工'
   | '月结'
   | '财务'
   | '工单'
@@ -42,7 +42,7 @@ function tabsForRole(role: Role, defaultStage?: string): Tab[] {
         { key: '现场', label: '现场', href: '/pulse' },
         { key: '交接', label: '交接', href: '/handover' },
         { key: '采购', label: '采购', href: '/procurement' },
-        // 报功 deliberately omitted — the per-person merit scoreboard is a 商务
+        // 报工 deliberately omitted — the per-person merit scoreboard is a 商务
         // read only; 工程 head doesn't see it (gate: requireReportViewer).
         { key: '外协', label: '外协', href: '/station/outsource' },
         ...STAGES.filter((s) => s !== '工程').map((s) => ({
@@ -65,7 +65,7 @@ function tabsForRole(role: Role, defaultStage?: string): Tab[] {
     { key: '现场', label: '现场', href: '/pulse' },
     { key: '交接', label: '交接', href: '/handover' },
     { key: '采购', label: '采购', href: '/procurement' },
-    { key: '报功', label: '报功', href: '/report' },
+    { key: '报工', label: '报工', href: '/report' },
     { key: '月结', label: '月结', href: '/month' },
     { key: '财务', label: '财务', href: '/finance' },
     { key: '外协', label: '外协', href: '/station/outsource' },
@@ -343,7 +343,7 @@ export function RollupCell({ rollup }: { rollup: Rollup }) {
   )
 }
 
-// 报功 hover hint for an aggregate master-grid cell: who most recently clicked
+// 报工 hover hint for an aggregate master-grid cell: who most recently clicked
 // ✓ here (经手), plus the date. Returns undefined when no in-house finisher is
 // known — so the cell stays bare rather than showing an empty tooltip.
 function rollupByHint(rollup: Rollup): string | undefined {
@@ -453,7 +453,7 @@ export function StageCell({
       </div>
     )
   }
-  // 报功 attribution: surface 经手人 on hover for the read-only twin too.
+  // 报工 attribution: surface 经手人 on hover for the read-only twin too.
   // The grid stays a bare ✓+date at rest; the name only appears on the
   // native tooltip so the dense view never gains a column.
   const attribution = state.by

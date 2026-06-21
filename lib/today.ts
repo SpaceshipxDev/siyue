@@ -53,7 +53,7 @@ export function shanghaiWindow(
 // [from, to) UTC instants spanning a custom inclusive local-day range —
 // startDate..endDate, both 'YYYY-MM-DD' in Shanghai local time. `to` is the
 // exclusive midnight after endDate, so endDate's full day is covered. Powers
-// the 报功 page's "从 [date] → 到 [date]" custom range. Caller guarantees
+// the 报工 page's "从 [date] → 到 [date]" custom range. Caller guarantees
 // start <= end (the picker swaps them otherwise).
 export function shanghaiRangeWindow(
   startDate: string,
@@ -66,7 +66,7 @@ export function shanghaiRangeWindow(
 
 // Inclusive local-day [from, to] YMD bounds for the day/week/month window
 // containing `date` — the 'YYYY-MM-DD' mirror of shanghaiWindow (which returns
-// UTC instants). Lets the 报功 period nav show the exact span the granularity
+// UTC instants). Lets the 报工 period nav show the exact span the granularity
 // toggle selects, so the readout stays in sync with 日/周/月.
 export function windowDateBounds(
   date: string,
@@ -92,7 +92,7 @@ function utcYMD(y: number, monthZeroBased: number, d: number): string {
 }
 
 // Step the anchor date forward/back by one unit of the granularity. Returns a
-// 'YYYY-MM-DD' string. Used by the 报功 page's ◂ ▸ period nav.
+// 'YYYY-MM-DD' string. Used by the 报工 page's ◂ ▸ period nav.
 export function shiftDate(date: string, gran: Granularity, delta: number): string {
   const [y, m, d] = date.split('-').map(Number)
   const next =

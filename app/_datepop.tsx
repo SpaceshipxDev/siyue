@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 
 // Single-date popover picker — the project's replacement for native
 // <input type=date>, which auto-commits while scrolling months (the exact
-// failure the 报功 range calendar was built to fix; this is its single-date
+// failure the 报工 range calendar was built to fix; this is its single-date
 // sibling). Month arrows ONLY change the view; clicking a day commits and
 // closes. Unlike the report calendar, future dates are allowed by default —
 // 预计回厂 / 交期-style fields point forward.

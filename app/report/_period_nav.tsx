@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
-// 报功 period control — one unified date-range picker, Apple-Calendar in spirit:
+// 报工 period control — one unified date-range picker, Apple-Calendar in spirit:
 //
 //   ‹   5月26日 – 6月1日   ›        今天        [📅 opens range calendar]
 //

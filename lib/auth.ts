@@ -167,7 +167,7 @@ export async function requirePulseViewer(): Promise<AuthUser> {
   redirect(landingPathFor(u))
 }
 
-// 报功 viewer gate — commerce ONLY. Stricter than requirePulseViewer: the
+// 报工 viewer gate — commerce ONLY. Stricter than requirePulseViewer: the
 // per-person merit scoreboard is a 商务 read, and the 工程 head is
 // deliberately excluded (it's also hidden from their nav). 工程 head and
 // floor workers alike bounce to their landing page on a direct URL hit.

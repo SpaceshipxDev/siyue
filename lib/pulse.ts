@@ -151,7 +151,7 @@ export async function getStationEvents(opts?: {
   return out
 }
 
-// === 报功 (worker output) reads — see migration 0025_worker_output.sql ===
+// === 报工 (worker output) reads — see migration 0025_worker_output.sql ===
 
 // One worker's roll-up within a reporting window.
 export type WorkerOutputRow = {
@@ -202,7 +202,7 @@ export async function getWorkerOutput(
     to: string
   },
   // Optional station filter. Undefined = the global, all-stages scoreboard
-  // (报功's original behaviour); a stage re-scopes counts + value to that one
+  // (报工's original behaviour); a stage re-scopes counts + value to that one
   // station. Resolves to the worker_output() p_stage param (migration 0039).
   stage?: Stage,
 ): Promise<WorkerOutputRow[]> {
@@ -231,15 +231,15 @@ export async function getWorkerOutput(
 }
 
 // One worker's stage events (开始 + 完成) within a window, newest first.
-// Powers the 报功 drill-down. Bounded by `limit` so the read stays cheap.
+// Powers the 报工 drill-down. Bounded by `limit` so the read stays cheap.
 export async function getWorkerTimeline(opts: {
   actorName: string
   from: string
   to: string
-  /** Restrict to one event kind — the 报功 "completed components" view passes
+  /** Restrict to one event kind — the 报工 "completed components" view passes
    *  'finished' so the Excel rows are exactly the parts they finished. */
   kind?: WorkerEventKind
-  /** Restrict to one station — the per-station 报功 cut filters the drill-down
+  /** Restrict to one station — the per-station 报工 cut filters the drill-down
    *  to the parts this worker finished *at that stage*. */
   stage?: Stage
   limit?: number
@@ -286,10 +286,10 @@ export async function getWorkerTimeline(opts: {
   return out
 }
 
-// Today's 报功 scoreboard for one station — the station-axis cut of
+// Today's 报工 scoreboard for one station — the station-axis cut of
 // worker_output(): one row per worker, ranked by finishes, counting only their
 // work *at this stage*, over the factory-local current day. Powers the
-// per-station 报功 block embedded on the dashboard station tab; the full ranged
+// per-station 报工 block embedded on the dashboard station tab; the full ranged
 // view (any date range, drill-downs) lives at /report?stage=<stage>.
 export async function getStationOutput(stage: Stage): Promise<WorkerOutputRow[]> {
   const window = shanghaiWindow(today(), 'day')

@@ -51,7 +51,7 @@ const ENGINEERING_ALLOWED_PREFIXES = [
   '/import',
   '/api/ingest',
   '/pulse',
-  // 报功 (worker output) — the 工程 head runs the floor, so they get the
+  // 报工 (worker output) — the 工程 head runs the floor, so they get the
   // same person-axis read commerce does; the page hides ¥ from them via
   // canSeeMoney, exactly like /pulse.
   '/report',
