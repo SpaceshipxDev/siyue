@@ -503,14 +503,24 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 </p>
               </div>
             ) : (
-              <div />
+              // 源文件 (file in) + 生产单 (file out) — sits here so the documents
+              // zone aligns on the same row as 产品 rather than dropping a row
+              // down next to 工单备注.
+              <div className="space-y-2">
+                <SourceFileRow
+                  jobId={job.id}
+                  fileName={job.sourceFile}
+                  url={job.sourceFileUrl}
+                />
+                <ProductionOrderRow jobId={job.id} jobNo={job.jobNo} />
+              </div>
             )}
           </div>
         )}
 
         {/* 工单备注 is the one field everyone owns — production heads add 催单 /
-            shop-floor context, commerce reads + writes too. SourceFileRow is
-            commerce-only (links to the original 报价单 PDF). */}
+            shop-floor context, commerce reads + writes too. The 源文件 / 生产单
+            documents zone moved up next to 产品 so it aligns on that row. */}
         <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <p className="label mb-2">工单备注</p>
@@ -521,16 +531,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               className="text-[13px] text-[var(--color-ink)]"
             />
           </div>
-          {!isProduction && (
-            <div className="space-y-2">
-              <SourceFileRow
-                jobId={job.id}
-                fileName={job.sourceFile}
-                url={job.sourceFileUrl}
-              />
-              <ProductionOrderRow jobId={job.id} jobNo={job.jobNo} />
-            </div>
-          )}
         </div>
 
         {/* 工单明细 tabs — 零件 / 外协 / 财务. Each big section below is wrapped
