@@ -61,6 +61,7 @@ import { ComponentsScrollArea } from '@/app/_components_table'
 import { ComponentAnchorScroller } from '@/app/_component_anchor'
 import { JobTabs } from './_job_tabs'
 import { SourceFileRow } from '@/app/_source_file'
+import { ProductionOrderRow } from '@/app/_production_order'
 import { ContractFiles } from '@/app/_contract_files'
 import { JobMoneyEditor } from '@/app/_money_popover'
 import {
@@ -521,11 +522,14 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             />
           </div>
           {!isProduction && (
-            <SourceFileRow
-              jobId={job.id}
-              fileName={job.sourceFile}
-              url={job.sourceFileUrl}
-            />
+            <div className="space-y-2">
+              <SourceFileRow
+                jobId={job.id}
+                fileName={job.sourceFile}
+                url={job.sourceFileUrl}
+              />
+              <ProductionOrderRow jobId={job.id} jobNo={job.jobNo} />
+            </div>
           )}
         </div>
 
