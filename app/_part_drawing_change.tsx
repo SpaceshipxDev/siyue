@@ -45,7 +45,7 @@ export function PartDrawingChange({
   if (!canEdit && count === 0) return null
 
   return (
-    <span className="block mt-1">
+    <span className="inline-flex">
       <button type="button" onClick={() => setOpen(true)} className="text-left">
         {live ? (
           <span className="inline-flex items-center rounded-[2px] border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-[var(--color-overdue)]">

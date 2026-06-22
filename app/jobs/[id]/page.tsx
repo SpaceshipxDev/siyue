@@ -734,23 +734,26 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       {/* 出厂检验报告 — the 质量 step's standard template.
                           One faint link per part; the report page itself
                           gates editing. */}
-                      <a
-                        href={`/jobs/${job.id}/print/inspection/${encodeURIComponent(c.id)}`}
-                        target="_blank"
-                        rel="noopener"
-                        className="block mt-0.5 text-[10px] tracking-wider text-[var(--color-ink-4)] hover:text-[var(--color-ink)] transition-colors"
-                      >
-                        检验报告 ↗
-                      </a>
-                      {/* 图纸变更 — per-part revision history (一次/二次/三次).
-                          Floor sees it read-only; 商务/工程 head raise + clear. */}
-                      <PartDrawingChange
-                        jobId={job.id}
-                        partId={c.id}
-                        partName={c.name}
-                        changes={c.drawingChanges ?? []}
-                        canEdit={canEditFields}
-                      />
+                      {/* 检验报告 + 图纸变更 share one line — keeps the row from
+                          growing taller. 图纸变更 is per-part (一次/二次/三次);
+                          floor reads it, 商务/工程 head raise + clear. */}
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                        <a
+                          href={`/jobs/${job.id}/print/inspection/${encodeURIComponent(c.id)}`}
+                          target="_blank"
+                          rel="noopener"
+                          className="text-[10px] tracking-wider text-[var(--color-ink-4)] hover:text-[var(--color-ink)] transition-colors whitespace-nowrap"
+                        >
+                          检验报告 ↗
+                        </a>
+                        <PartDrawingChange
+                          jobId={job.id}
+                          partId={c.id}
+                          partName={c.name}
+                          changes={c.drawingChanges ?? []}
+                          canEdit={canEditFields}
+                        />
+                      </div>
                     </td>
                     <td className="px-3 py-3">
                       {canEditFields ? (

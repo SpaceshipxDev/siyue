@@ -591,7 +591,7 @@ async function dispatch(
         return err('bad imageUrl')
       const u = await requireOutsourceManager()
       const revision = await raisePartDrawingChange({
-        partId,
+        componentId: partId,
         jobId,
         note: typeof note === 'string' ? note : undefined,
         imageUrl: typeof imageUrl === 'string' ? imageUrl : undefined,
@@ -607,7 +607,7 @@ async function dispatch(
       if (!isString(jobId) || !isString(partId))
         return err('bad clearPartDrawingChange args')
       const u = await requireOutsourceManager()
-      await clearPartDrawingChange({ partId, jobId, clearedBy: u.name })
+      await clearPartDrawingChange({ componentId: partId, jobId, clearedBy: u.name })
       revalidateJob(jobId)
       return Response.json(ok())
     }
