@@ -1202,12 +1202,16 @@ export function OutsourceBlockDate({
   field,
   value,
   className,
+  formatLabel,
+  hideIcon,
 }: {
   blockId: string
   jobId?: string
   field: 'sentDate' | 'expectedReturn'
   value: string
   className?: string
+  formatLabel?: (iso: string) => string
+  hideIcon?: boolean
 }) {
   const [local, setLocal] = useState(value)
   const [pending, start] = useTransition()
@@ -1235,6 +1239,8 @@ export function OutsourceBlockDate({
             })
           }}
           className={className}
+          formatLabel={formatLabel}
+          hideIcon={hideIcon}
         />
       </span>
       <span className={`mono print-only ${className ?? ''}`}>{local}</span>

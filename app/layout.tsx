@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { ToastHost } from './_toast'
+import { APP_TITLE } from '@/lib/brand'
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -14,7 +15,7 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: '越侬模型 · 思跃 MES',
+  title: APP_TITLE,
   description: '工段实时进度看板',
 }
 

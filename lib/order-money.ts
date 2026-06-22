@@ -75,10 +75,23 @@ export type OrderMoneyStatus =
   | 'settled' // 已结清 — paid in full
 
 export function orderMoneyStatus(row: OrderMoneyRow): OrderMoneyStatus {
-  if (row.hasOverdue) return 'overdue'
-  if (!row.isShipped) return 'in_production'
-  if (!row.hasInvoice) return 'uninvoiced'
-  if (row.outstandingCny > 0) return 'unpaid'
+  return orderMoneyStatusFrom(row)
+}
+
+// Same logic off the four primitives that decide it — so the master board can
+// compute the 收款 light from a lightweight per-job aggregation (no need to
+// assemble a full OrderMoneyRow just to read its status). The full-row overload
+// above delegates here, so the board and the AR ledger can never disagree.
+export function orderMoneyStatusFrom(r: {
+  hasOverdue: boolean
+  isShipped: boolean
+  hasInvoice: boolean
+  outstandingCny: number
+}): OrderMoneyStatus {
+  if (r.hasOverdue) return 'overdue'
+  if (!r.isShipped) return 'in_production'
+  if (!r.hasInvoice) return 'uninvoiced'
+  if (r.outstandingCny > 0) return 'unpaid'
   return 'settled'
 }
 

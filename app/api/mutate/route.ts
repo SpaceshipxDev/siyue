@@ -9,6 +9,11 @@ import {
   createDailyFocusItem,
   createExpense,
   createExpenses,
+  createNote,
+  updateNote,
+  deleteNote,
+  raisePartDrawingChange,
+  clearPartDrawingChange,
   createHandover,
   createOutsourceBlockAt,
   createProcurement,
@@ -100,6 +105,7 @@ import { isExpenseCategory } from '@/lib/expenses'
 import { isDimRow, type InspectionReportPatch } from '@/lib/inspection-report'
 import { removeInspectionPhotoObject } from '@/lib/inspection-photo'
 import { deleteContractFile } from '@/lib/contract-file'
+import { deleteExpenseVoucher } from '@/lib/voucher-file'
 
 // Single JSON dispatcher for mutating writes. Every existing inline-edit
 // surface (job/component fields, stage cells, routing chips, outsource block
@@ -568,6 +574,44 @@ async function dispatch(
       return Response.json(ok())
     }
 
+    // 零件图纸变更 — per-part drawing revisions (一次/二次/三次), the granular
+    // version of the job alarm above. Same auth (商务 + 工程 head). Raising adds
+    // revision N+1 and lights the job alarm; clearing a part drops the job alarm
+    // when no other part is still open.
+    case 'raisePartDrawingChange': {
+      const jobId = body.jobId
+      const partId = body.partId
+      const note = body.note
+      const imageUrl = body.imageUrl
+      if (!isString(jobId) || !isString(partId))
+        return err('bad raisePartDrawingChange args')
+      if (note !== undefined && note !== null && !isString(note))
+        return err('bad note')
+      if (imageUrl !== undefined && imageUrl !== null && !isString(imageUrl))
+        return err('bad imageUrl')
+      const u = await requireOutsourceManager()
+      const revision = await raisePartDrawingChange({
+        partId,
+        jobId,
+        note: typeof note === 'string' ? note : undefined,
+        imageUrl: typeof imageUrl === 'string' ? imageUrl : undefined,
+        raisedBy: u.name,
+      })
+      revalidateJob(jobId)
+      return Response.json(ok({ revision }))
+    }
+
+    case 'clearPartDrawingChange': {
+      const jobId = body.jobId
+      const partId = body.partId
+      if (!isString(jobId) || !isString(partId))
+        return err('bad clearPartDrawingChange args')
+      const u = await requireOutsourceManager()
+      await clearPartDrawingChange({ partId, jobId, clearedBy: u.name })
+      revalidateJob(jobId)
+      return Response.json(ok())
+    }
+
     // === Component-level edits ===
     case 'updateComponent': {
       const jobId = body.jobId
@@ -762,6 +806,21 @@ async function dispatch(
       await requireCommerce()
       await deleteContractFile(jobId, contractId)
       revalidatePath(`/jobs/${jobId}`)
+      return Response.json(ok())
+    }
+
+    // 凭证 removal. Upload goes through /api/upload-voucher (multipart);
+    // deletion is a normal JSON mutation. Gated to the 支出 surface (boss +
+    // finance users), same as the expense ledger.
+    case 'deleteVoucher': {
+      const expenseId = body.expenseId
+      const voucherId = body.voucherId
+      if (!isString(expenseId) || !isString(voucherId))
+        return err('bad deleteVoucher args')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      await deleteExpenseVoucher(expenseId, voucherId)
+      revalidatePath('/finance')
       return Response.json(ok())
     }
 
@@ -1586,6 +1645,34 @@ async function dispatch(
       if (!canSeeExpenses(u)) return err('forbidden', 403)
       await deleteExpense(expenseId)
       revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    // === 笔记 (notes) — the boss's per-author scratchpad. Commerce-only; each
+    // user only ever touches their own notes (getNotes scopes by author). ===
+    case 'createNote': {
+      const u = await requireCommerce()
+      const id = await createNote(u.id)
+      revalidatePath('/notes')
+      return Response.json(ok({ id }))
+    }
+
+    case 'updateNote': {
+      const noteId = body.noteId
+      const text = body.body
+      if (!isString(noteId) || !isString(text)) return err('bad updateNote args')
+      await requireCommerce()
+      await updateNote(noteId, text)
+      revalidatePath('/notes')
+      return Response.json(ok())
+    }
+
+    case 'deleteNote': {
+      const noteId = body.noteId
+      if (!isString(noteId)) return err('bad deleteNote args')
+      await requireCommerce()
+      await deleteNote(noteId)
+      revalidatePath('/notes')
       return Response.json(ok())
     }
 

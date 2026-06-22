@@ -1,6 +1,41 @@
 import { currentUser } from '@/lib/auth'
-import { getMasterRows, getMasterRowsPage } from '@/lib/db'
+import {
+  getMasterRows,
+  getMasterRowsPage,
+  getOrderMoneyLightByJob,
+  type OrderMoneyLite,
+} from '@/lib/db'
+import type { MasterRow } from '@/lib/master'
 import { toMasterWireRows } from '@/lib/master_wire'
+
+// Stamp each row with its 收款 money light from the per-job aggregation.
+// Confirmed orders with no 出货单 aren't in the map → 在产 (blank cell, no money
+// due yet). Only meaningful for commerce; the wire scrubs it for everyone else,
+// so we skip the query entirely for the floor.
+function applyMoney(
+  rows: MasterRow[],
+  money: Map<string, OrderMoneyLite> | null,
+): MasterRow[] {
+  if (!money) return rows
+  for (const r of rows) {
+    const m = money.get(r.id)
+    if (m) {
+      r.moneyStatus = m.status
+      r.outstandingCny = m.outstandingCny
+      r.overdueDays = m.overdueDays
+    } else {
+      // No 出货单 / finance row. Two notions of "shipped" diverge: the board's
+      // 已出货 (出货 stage ticked done) vs money's (a 出货单 exists to invoice
+      // against). An order ticked through 出货 but with no 出货单 would read as a
+      // confusing blank on the 已出货 tab — so if the board calls it shipped, it's
+      // still 待开票 (delivered, nothing billed), not 在产. Only genuinely
+      // in-production orders stay blank.
+      r.moneyStatus = r.isShipped ? 'uninvoiced' : 'in_production'
+      r.outstandingCny = 0
+    }
+  }
+  return rows
+}
 
 // Compact rows feed for the master board. The dashboard page (app/page.tsx)
 // renders only the shell + pills now; the grid (MasterSheet / StationWorkbench)
@@ -25,6 +60,10 @@ export async function GET(request: Request): Promise<Response> {
   if (!user) {
     return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 })
   }
+  // 收款 light is commerce-only (the wire scrubs it otherwise), so the floor
+  // never pays for the shipments + shipment_finance read.
+  const moneyPromise =
+    user.role === 'commerce' ? getOrderMoneyLightByJob() : Promise.resolve(null)
   try {
     const url = new URL(request.url)
     const limitParam = url.searchParams.get('limit')
@@ -32,32 +71,35 @@ export async function GET(request: Request): Promise<Response> {
       const limit = parseIntParam(limitParam, 100)
       const ship = url.searchParams.get('ship')
       const sort = url.searchParams.get('sort')
-      const page = await getMasterRowsPage({
-        limit,
-        cursor: url.searchParams.get('cursor') ?? undefined,
-        q: url.searchParams.get('q') ?? undefined,
-        jobNoOnlySearch: user.role === 'production' && user.defaultStage !== '出货',
-        ship:
-          ship === 'live' || ship === 'paused' || ship === 'shipped'
-            ? ship
-            : undefined,
-        sort: sort === 'jobNo' ? 'jobNo' : 'due',
-        dateStart: url.searchParams.get('dateStart') ?? undefined,
-        dateEnd: url.searchParams.get('dateEnd') ?? undefined,
-      })
+      const [page, money] = await Promise.all([
+        getMasterRowsPage({
+          limit,
+          cursor: url.searchParams.get('cursor') ?? undefined,
+          q: url.searchParams.get('q') ?? undefined,
+          jobNoOnlySearch: user.role === 'production' && user.defaultStage !== '出货',
+          ship:
+            ship === 'live' || ship === 'paused' || ship === 'shipped'
+              ? ship
+              : undefined,
+          sort: sort === 'jobNo' ? 'jobNo' : 'due',
+          dateStart: url.searchParams.get('dateStart') ?? undefined,
+          dateEnd: url.searchParams.get('dateEnd') ?? undefined,
+        }),
+        moneyPromise,
+      ])
       return Response.json(
         {
           ok: true,
-          rows: toMasterWireRows(page.rows, user),
+          rows: toMasterWireRows(applyMoney(page.rows, money), user),
           nextCursor: page.nextCursor,
           total: page.total,
         },
         { headers: { 'cache-control': 'no-store' } },
       )
     }
-    const rows = await getMasterRows()
+    const [rows, money] = await Promise.all([getMasterRows(), moneyPromise])
     return Response.json(
-      { ok: true, rows: toMasterWireRows(rows, user) },
+      { ok: true, rows: toMasterWireRows(applyMoney(rows, money), user) },
       { headers: { 'cache-control': 'no-store' } },
     )
   } catch (e) {

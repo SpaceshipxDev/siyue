@@ -256,6 +256,32 @@ export const OUTSOURCE_ACTIVITIES = [
 
 export type OutsourceActivity = (typeof OUTSOURCE_ACTIVITIES)[number]
 
+// Default in-house stage(s) a given outsource activity stands in for. The boss
+// picks the activity (送什么 · 工序); this fills 承接工段 so he never types the
+// stage twice. Editable in the composer (改工段) for the rare exception. Pure
+// default — the SAME stages array is written to the block, so there is no
+// behavior change vs. hand-picking; it just replaces the old arbitrary "first
+// outsourceable stage" seed. Tuning the mapping = edit one line here.
+//   • machining-class (CNC/钣金/车/线割/电火花/打印) → 操机
+//   • surface-finish (氧化/电镀/喷塑/电泳) → 喷漆
+//   • assembly-class (焊接/包胶) → 手工
+export const ACTIVITY_DEFAULT_STAGES: Record<OutsourceActivity, Stage[]> = {
+  外发CNC: ['操机'],
+  外发钣金: ['操机'],
+  外发打印: ['操机'],
+  外发打印半透: ['操机'],
+  外发车: ['操机'],
+  外发线割: ['操机'],
+  电火花: ['操机'],
+  外发其他1: ['操机'],
+  外发氧化: ['喷漆'],
+  外发电镀: ['喷漆'],
+  外发喷塑: ['喷漆'],
+  外发焊接: ['手工'],
+  外发电泳: ['喷漆'],
+  包胶: ['手工'],
+}
+
 // "Closed" is derived: a block is closed when every member's returned_qty
 // has reached its qty. The closure date is the latest member returnedAt —
 // that's when the last missing piece finally got back.
@@ -313,6 +339,10 @@ export type Component = {
   // Newest last. Undefined ⇒ not loaded in this view (lists); [] ⇒ loaded,
   // none yet (job detail).
   inspectionPhotos?: PartPhoto[]
+  // 图纸变更 revisions for this part (migration 0067), sorted by revision asc.
+  // Loaded only on the job detail (lists leave it undefined). [] ⇒ loaded,
+  // none yet. See drawingChangeCount / openDrawingChange.
+  drawingChanges?: PartDrawingChange[]
 }
 
 export type PartPhoto = {
@@ -320,6 +350,41 @@ export type PartPhoto = {
   url: string
   createdBy?: string
   createdAt: string
+}
+
+// 零件图纸变更 — one revision of a part's drawing change (migration 0067).
+// revision counts up 1, 2, 3… (一次/二次/三次). `clearedAt` null = still open
+// (the floor hasn't caught up to the new drawing yet).
+export type PartDrawingChange = {
+  id: string
+  revision: number
+  note?: string
+  imageUrl?: string
+  raisedBy?: string
+  raisedAt: string
+  clearedAt?: string
+  clearedBy?: string
+}
+
+// The latest revision number on a part (history depth) — drives the "N次" tag.
+export function drawingChangeCount(c: Component): number {
+  const list = c.drawingChanges ?? []
+  return list.reduce((m, d) => Math.max(m, d.revision), 0)
+}
+
+// The newest still-open (uncleared) change, if any — the red "图纸变更" flag.
+export function openDrawingChange(c: Component): PartDrawingChange | undefined {
+  let best: PartDrawingChange | undefined
+  for (const d of c.drawingChanges ?? []) {
+    if (!d.clearedAt && (!best || d.revision > best.revision)) best = d
+  }
+  return best
+}
+
+// 一次 / 二次 / 三次 … (Chinese ordinal for a revision number).
+export function revisionLabel(rev: number): string {
+  const cn = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
+  return rev >= 1 && rev <= 10 ? `${cn[rev]}次` : `${rev}次`
 }
 
 // 合同文件 — a signed contract attached to an order by 财务 (migration 0066).
@@ -332,6 +397,29 @@ export type ContractFile = {
   contentType?: string
   uploadedBy?: string
   createdAt: string
+}
+
+// 凭证 / 报销凭证 — the receipt image (or PDF) the finance person attaches to a
+// 支出 row as proof. Same shape as a contract file; stored table-free in the
+// bucket alongside the expense (see lib/voucher-file.ts).
+export type VoucherFile = {
+  id: string
+  url: string
+  filename: string
+  filesize?: number
+  contentType?: string
+  uploadedBy?: string
+  createdAt: string
+}
+
+// 笔记 — the boss's freeform scratchpad note (Apple-Notes style). Per-author;
+// `body` is the whole note (first line doubles as the title in the list).
+export type Note = {
+  id: string
+  authorId: string
+  body: string
+  createdAt: string
+  updatedAt: string
 }
 
 // Best-effort line subtotal: prefer the explicitly-quoted lineTotalCny;
@@ -1534,11 +1622,8 @@ export function allOutsourceBlocks(jobs: Job[]): OpenBlockRow[] {
 export function stageRangeLabel(stages: Stage[]): string {
   if (stages.length === 0) return '—'
   if (stages.length === 1) return stages[0]
-  // Sort by canonical stage order so the label is stable and reads naturally.
+  // List every covered stage, dot-separated — reads as plain words, no arrows.
   const ordered = STAGES.filter((s) => stages.includes(s))
-  const indices = ordered.map((s) => STAGES.indexOf(s))
-  const isContiguous = indices.every((i, k) => k === 0 || i === indices[k - 1] + 1)
-  if (isContiguous) return `${ordered[0]} → ${ordered[ordered.length - 1]}`
   return ordered.join(' · ')
 }
 

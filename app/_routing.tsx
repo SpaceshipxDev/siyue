@@ -7,11 +7,9 @@ import {
   OUTSOURCE_ACTIVITIES,
   blockActivityLabel,
   daysFromToday,
-  formatCny,
   isBlockClosed,
   isMemberFullyReturned,
   isMemberPartiallyReturned,
-  memberLineTotal,
   memberRemainingQty,
   memberReturnedQty,
   outsourceLabel,
@@ -27,7 +25,6 @@ import { today } from '@/lib/today'
 import { DatePop } from './_datepop'
 import {
   BlockMemberQty,
-  BlockMemberUnitPrice,
   NameCombobox,
   OutsourceBlockAmount,
   OutsourceBlockDate,
@@ -36,6 +33,14 @@ import {
 
 function fieldStyles(): string {
   return 'bg-transparent border border-[var(--color-border)] rounded-[2px] px-2 py-1 text-[13px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50'
+}
+
+// '2026-06-18' → '6月18日' — the part rows read in plain dates, not ISO.
+function mdLabel(iso?: string): string {
+  if (!iso) return ''
+  const p = iso.split('-')
+  if (p.length < 3) return iso
+  return `${Number(p[1])}月${Number(p[2])}日`
 }
 
 export type ComponentOption = {
@@ -1048,21 +1053,6 @@ export function BlockRow({
     })
   }
 
-  const editReturnDate = (componentId: string, date: string) => {
-    if (!date) return
-    const m = block.members.find((x) => x.componentId === componentId)
-    if (!m) return
-    start(async () => {
-      await mutate({
-        kind: 'setMemberReturnedQty',
-        blockId: block.id,
-        componentId,
-        qty: memberReturnedQty(m),
-        date,
-        jobId,
-      })
-    })
-  }
 
   const dueDisplay =
     overdue
@@ -1128,7 +1118,6 @@ export function BlockRow({
             </span>
           )}
         </div>
-        <span className="text-[var(--color-ink-3)] shrink-0">→</span>
         <div className="basis-[140px] shrink-0">
           <NameCombobox
             target={{ kind: 'vendor', blockId: block.id, jobId }}
@@ -1153,6 +1142,8 @@ export function BlockRow({
             field="expectedReturn"
             value={block.expectedReturn}
             className="text-[12px] text-[var(--color-ink-2)]"
+            formatLabel={mdLabel}
+            hideIcon
           />
           <span className={`label ${dueClass}`}>{dueDisplay}</span>
         </div>
@@ -1223,6 +1214,8 @@ export function BlockRow({
             field="sentDate"
             value={block.sentDate}
             className="text-[12px] text-[var(--color-ink-3)]"
+            formatLabel={mdLabel}
+            hideIcon
           />
         </span>
         {totalReturnedUnits > 0 && !closed ? (
@@ -1262,114 +1255,69 @@ export function BlockRow({
             const partial = isMemberPartiallyReturned(m)
             const remaining = memberRemainingQty(m)
             const returnedSoFar = memberReturnedQty(m)
-
-            const lineTotal = memberLineTotal(m)
             const armed = armedRemoveId === m.componentId
-            const removeBtn = !closed ? (
-              <MemberRemoveButton
-                armed={armed}
-                pending={pending}
-                fullyReturned={fullyReturned}
-                onArm={() => setArmedRemoveId(m.componentId)}
-                onCancel={() => setArmedRemoveId(null)}
-                onConfirm={() => removeMember(m.componentId)}
-              />
-            ) : null
-            if (fullyReturned) {
-              return (
-                <li
-                  key={m.componentId}
-                  className={`flex items-baseline gap-2 text-[12px] group ${armed ? 'bg-[color-mix(in_srgb,var(--color-overdue)_8%,transparent)] rounded-[2px] -mx-1 px-1' : ''}`}
-                >
-                  <span className="text-[var(--color-ink)] truncate basis-[140px] grow">{m.name}</span>
-                  <span className="mono text-[11px] text-[var(--color-ink-3)] shrink-0">
-                    {m.qty}件
-                  </span>
-                  <span className="inline-flex items-baseline gap-0.5 shrink-0">
-                    <span className="mono text-[11px] text-[var(--color-ink-3)]">¥</span>
-                    <BlockMemberUnitPrice
-                      blockId={block.id}
-                      componentId={m.componentId}
-                      jobId={jobId}
-                      value={m.unitPriceCny}
-                      className="text-[12px] text-[var(--color-ink-2)] text-right [field-sizing:content] min-w-[3ch]"
-                    />
-                  </span>
-                  <span className="mono text-[11px] text-[var(--color-ink-3)] w-[68px] text-right shrink-0">
-                    {lineTotal != null ? formatCny(lineTotal) : ''}
-                  </span>
-                  <span className="ml-auto inline-flex items-baseline gap-1.5 text-[var(--color-success)]">
-                    <span className="mono text-[11px]">回 ✓ {m.qty}/{m.qty}</span>
-                    {m.returnedAt ? (
-                      <DatePop
-                        value={m.returnedAt}
-                        onChange={(d) => editReturnDate(m.componentId, d)}
-                        allowFuture={false}
-                        disabled={pending}
-                      />
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => unreturn(m.componentId)}
-                      disabled={pending}
-                      title="撤销回厂"
-                      className="text-[12px] leading-none text-[var(--color-success)] hover:text-[var(--color-overdue)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-[2px] px-0.5"
-                    >
-                      ↺
-                    </button>
-                  </span>
-                  {removeBtn}
-                </li>
-              )
-            }
-
+            // One part, one plain line: 名称 · 数量 · 状态(人话). Prices live on
+            // the printed 外协单, not here — the panel reads, it doesn't tally.
             return (
               <li
                 key={m.componentId}
-                className={`flex items-baseline gap-2 text-[12px] group ${armed ? 'bg-[color-mix(in_srgb,var(--color-overdue)_8%,transparent)] rounded-[2px] -mx-1 px-1' : ''}`}
+                className={`flex items-baseline gap-3 py-0.5 text-[13px] group ${armed ? 'bg-[color-mix(in_srgb,var(--color-overdue)_8%,transparent)] rounded-[2px] -mx-1 px-1' : ''}`}
               >
-                <span className="text-[var(--color-ink-2)] truncate basis-[140px] grow">{m.name}</span>
+                <span
+                  className={`truncate flex-1 min-w-0 ${fullyReturned ? 'text-[var(--color-ink-3)]' : 'text-[var(--color-ink)]'}`}
+                >
+                  {m.name}
+                </span>
                 {members.length > 1 ? (
-                  <span className="mono text-[11px] text-[var(--color-ink-3)] shrink-0 inline-flex items-baseline gap-0.5">
+                  <span className="mono text-[12px] text-[var(--color-ink-3)] shrink-0 inline-flex items-baseline gap-0.5">
                     <BlockMemberQty
                       blockId={block.id}
                       componentId={m.componentId}
                       jobId={jobId}
                       value={m.qty}
-                      className="text-[11px] text-[var(--color-ink-3)] text-right [field-sizing:content] min-w-[2ch]"
+                      className="text-[12px] text-[var(--color-ink-3)] text-right [field-sizing:content] min-w-[2ch]"
                     />
                     <span>件</span>
                   </span>
                 ) : (
-                  <span className="mono text-[11px] text-[var(--color-ink-3)] shrink-0">
-                    {m.qty}件
+                  <span className="mono text-[12px] text-[var(--color-ink-3)] shrink-0">
+                    {m.qty} 件
                   </span>
                 )}
-                <span className="inline-flex items-baseline gap-0.5 shrink-0">
-                  <span className="mono text-[11px] text-[var(--color-ink-3)]">¥</span>
-                  <BlockMemberUnitPrice
-                    blockId={block.id}
-                    componentId={m.componentId}
-                    jobId={jobId}
-                    value={m.unitPriceCny}
-                    className="text-[12px] text-[var(--color-ink-2)] text-right [field-sizing:content] min-w-[3ch]"
-                  />
-                </span>
-                <span className="mono text-[11px] text-[var(--color-ink-3)] w-[68px] text-right shrink-0">
-                  {lineTotal != null ? formatCny(lineTotal) : ''}
-                </span>
-                <span className="ml-auto label">
-                  {partial ? (
-                    <span className="mono text-[11px] text-[var(--color-warning)]">
-                      已回 {returnedSoFar}/{m.qty} · 在外 {remaining}
+                <span className="shrink-0 w-[128px] text-right text-[12px]">
+                  {fullyReturned ? (
+                    <span className="text-[var(--color-success)]">
+                      已回{m.returnedAt ? ` · ${mdLabel(m.returnedAt)}` : ''}
+                    </span>
+                  ) : partial ? (
+                    <span className="text-[var(--color-warning)]">
+                      回 {returnedSoFar} · 在外 {remaining}
                     </span>
                   ) : (
-                    <span className="mono text-[11px] text-[var(--color-ink-3)]">
-                      在外 {remaining}
-                    </span>
+                    <span className="text-[var(--color-ink-3)]">在外 {remaining}</span>
                   )}
                 </span>
-                {removeBtn}
+                {returnedSoFar > 0 && !closed ? (
+                  <button
+                    type="button"
+                    onClick={() => unreturn(m.componentId)}
+                    disabled={pending}
+                    title="撤销回厂"
+                    className="label text-[var(--color-ink-4)] hover:text-[var(--color-ink)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                  >
+                    撤销
+                  </button>
+                ) : null}
+                {!closed ? (
+                  <MemberRemoveButton
+                    armed={armed}
+                    pending={pending}
+                    fullyReturned={fullyReturned}
+                    onArm={() => setArmedRemoveId(m.componentId)}
+                    onCancel={() => setArmedRemoveId(null)}
+                    onConfirm={() => removeMember(m.componentId)}
+                  />
+                ) : null}
               </li>
             )
           })}
@@ -1493,26 +1441,21 @@ export function BlockRow({
           Single-member closed blocks would otherwise have no member list and
           nothing showing the closure date, since needsList is false. */}
       {closed && !needsList && fullyReturnedMembers[0] ? (
-        <div className="mt-1 flex items-baseline gap-2 text-[12px] text-[var(--color-success)]">
-          <span>回 ✓</span>
-          {fullyReturnedMembers[0].returnedAt ? (
-            <DatePop
-              value={fullyReturnedMembers[0].returnedAt}
-              onChange={(d) =>
-                editReturnDate(fullyReturnedMembers[0].componentId, d)
-              }
-              allowFuture={false}
-              disabled={pending}
-            />
-          ) : null}
+        <div className="mt-1 flex items-baseline gap-2 text-[12px] group">
+          <span className="text-[var(--color-success)]">
+            已回
+            {fullyReturnedMembers[0].returnedAt
+              ? ` · ${mdLabel(fullyReturnedMembers[0].returnedAt)}`
+              : ''}
+          </span>
           <button
             type="button"
             onClick={() => unreturn(fullyReturnedMembers[0].componentId)}
             disabled={pending}
             title="撤销回厂"
-            className="text-[12px] leading-none hover:text-[var(--color-overdue)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-[2px] px-0.5"
+            className="label text-[var(--color-ink-4)] hover:text-[var(--color-ink)] opacity-0 group-hover:opacity-100 transition-opacity"
           >
-            ↺
+            撤销
           </button>
         </div>
       ) : null}
@@ -1551,9 +1494,9 @@ function MemberRemoveButton({
         disabled={pending}
         title="从此外协单移除该零件"
         aria-label="移除零件"
-        className="ml-1 text-[12px] leading-none text-[var(--color-ink-4)] opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-[var(--color-overdue)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-[2px] px-0.5 transition-opacity disabled:opacity-30"
+        className="ml-1 label leading-none text-[var(--color-ink-4)] opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-[var(--color-overdue)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] rounded-[2px] px-0.5 transition-opacity disabled:opacity-30"
       >
-        ✕
+        移除
       </button>
     )
   }

@@ -1,12 +1,14 @@
 import Link from 'next/link'
 import type { DueState, Rollup, StageState } from '@/lib/data'
-import { STAGES } from '@/lib/data'
+import { STAGES, formatCny } from '@/lib/data'
 import { today } from '@/lib/today'
 import type { Role } from '@/lib/auth'
+import type { OrderMoneyStatus } from '@/lib/order-money'
 import { LogoutButton } from './_logout'
 
 export type TabKey =
   | '商务'
+  | '笔记'
   | '重点'
   | '现场'
   | '交接'
@@ -60,6 +62,9 @@ function tabsForRole(role: Role, defaultStage?: string): Tab[] {
   }
   return [
     { key: '商务', label: '商务', href: '/' },
+    // 笔记 — the boss's private scratchpad, right before 重点. Per-author, so
+    // each 商务 user only ever sees their own notes (it reads as "his").
+    { key: '笔记', label: '笔记', href: '/notes' },
     { key: '重点', label: '重点', href: '/daily' },
     { key: '现场', label: '现场', href: '/pulse' },
     { key: '交接', label: '交接', href: '/handover' },
@@ -337,6 +342,80 @@ export function RollupCell({ rollup }: { rollup: Rollup }) {
         </span>
       )}
       {outsourced > 0 && <OutsourceCorner count={outsourced} />}
+    </div>
+  )
+}
+
+// 收款 — the order's money light, the read-only twin of RollupCell. One glance
+// answers "发了货、钱收了没有、有没有拖":
+//   在产 (not shipped)  → blank, no money due yet, no noise
+//   待开票 (uninvoiced)  → 出货了没开票 = a leak; amber label, no ¥ (nothing billed)
+//   待回款 (unpaid)      → invoiced, waiting; warning label + 应收 ¥
+//   逾期 (overdue)       → red wash + 应收 ¥ + 拖了 N 天 — the boss chases this
+//   已结清 (settled)     → green ✓, fades to the bottom
+// The boss scans this column for red. He reads it; he never operates it (entry
+// stays in the 应收 ledger).
+export function MoneyCell({
+  status,
+  outstandingCny,
+  overdueDays,
+}: {
+  status?: OrderMoneyStatus
+  outstandingCny?: number
+  overdueDays?: number
+}) {
+  // 在产 / unknown → blank. 80% of the board is mid-production; an empty cell
+  // here is the whole point (no money due yet ⇒ no noise).
+  if (!status || status === 'in_production') {
+    return <div className="h-full w-full" aria-hidden="true" />
+  }
+  if (status === 'settled') {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-0.5 leading-none">
+        <span className="text-[15px] leading-none font-semibold text-[var(--color-success)]">
+          ✓
+        </span>
+        <span className="mono text-[10px] text-[var(--color-ink-3)]">已结清</span>
+      </div>
+    )
+  }
+  if (status === 'uninvoiced') {
+    // Shipped, not invoiced — you can't collect without a 发票. The leak flag.
+    return (
+      <div
+        className="flex h-full flex-col items-center justify-center gap-0.5 leading-none"
+        title="已出货 · 尚未开票"
+      >
+        <span className="text-[12px] font-medium text-[var(--color-info)]">待开票</span>
+      </div>
+    )
+  }
+  const owed = outstandingCny ? formatCny(outstandingCny) : ''
+  if (status === 'overdue') {
+    return (
+      <div
+        className="flex h-full w-full flex-col items-center justify-center gap-0.5 leading-none bg-[var(--color-overdue-soft)]"
+        title={`逾期未回款${overdueDays ? ` · 已拖 ${overdueDays} 天` : ''}`}
+      >
+        <span className="text-[12px] font-semibold text-[var(--color-overdue)]">
+          逾期{overdueDays ? ` ${overdueDays}天` : ''}
+        </span>
+        {owed && (
+          <span className="mono text-[11px] text-[var(--color-overdue)]">{owed}</span>
+        )}
+      </div>
+    )
+  }
+  // unpaid — invoiced, within term, still owed.
+  return (
+    <div
+      className="flex h-full flex-col items-center justify-center gap-0.5 leading-none"
+      title="已开票 · 待回款"
+    >
+      <span className="text-[12px] font-medium text-[var(--color-warning)]">待回款</span>
+      {owed && (
+        <span className="mono text-[11px] text-[var(--color-ink-3)]">{owed}</span>
+      )}
     </div>
   )
 }

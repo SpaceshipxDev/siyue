@@ -4,6 +4,7 @@ import { useCallback, useRef, useState, useTransition } from 'react'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
+import { JobShippingText } from '@/app/_editable'
 import type { ContractFile } from '@/lib/data'
 
 // 合同 — 财务 attaches the signed contract to an order, downloads it later, and
@@ -34,9 +35,13 @@ function dateLabel(iso: string): string {
 export function ContractFiles({
   jobId,
   initial,
+  contractNo,
+  canEdit = false,
 }: {
   jobId: string
   initial: ContractFile[]
+  contractNo?: string
+  canEdit?: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [files, setFiles] = useState<ContractFile[]>(initial)
@@ -122,6 +127,25 @@ export function ContractFiles({
           {pending ? <SpinnerIcon /> : <UploadIcon />}
           上传合同
         </button>
+      </div>
+
+      {/* 合同号 — sits WITH the contract files: a contract is a number AND a
+          document. Commerce edits in place; 出货 reads it in the job header. */}
+      <div className="mb-3 flex items-center gap-3">
+        <span className="label shrink-0 text-[var(--color-ink-3)]">合同号</span>
+        {canEdit ? (
+          <JobShippingText
+            jobId={jobId}
+            field="contractNo"
+            value={contractNo}
+            className="mono text-[13px] text-[var(--color-ink)]"
+            placeholder="—"
+          />
+        ) : (
+          <span className="mono text-[13px] text-[var(--color-ink)]">
+            {contractNo ?? '—'}
+          </span>
+        )}
       </div>
 
       <div

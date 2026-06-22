@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react'
 import Link from 'next/link'
+import { APP_TITLE } from '@/lib/brand'
 
 type SheetPayload = {
   name: string
@@ -271,7 +272,7 @@ export default function BackendPage() {
 
       <footer className="border-t border-[var(--color-border)] bg-[var(--color-surface)]">
         <div className="px-4 md:px-10 py-4 flex items-baseline justify-between text-[var(--color-ink-3)]">
-          <span className="label">越侬模型 · 思跃 MES · 后端 v0.1</span>
+          <span className="label">{APP_TITLE} · 后端 v0.1</span>
           <Link href="/" className="label hover:text-[var(--color-ink)]">
             ← 返回看板
           </Link>

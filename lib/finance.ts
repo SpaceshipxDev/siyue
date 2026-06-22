@@ -74,6 +74,16 @@ function daysBetween(aYmd: string, bYmd: string): number {
   return Math.round((b - a) / 86_400_000)
 }
 
+// Days a delivery is past the aging window (0 if within term or uninvoiced).
+// Drives the "逾期 N天" readout on the master board's 收款 light.
+export function overdueDays(
+  invoiceDate: string | undefined,
+  todayYmd: string,
+): number {
+  if (!invoiceDate) return 0
+  return Math.max(0, daysBetween(invoiceDate, todayYmd) - AR_AGING_DAYS)
+}
+
 export function financeStatus(row: FinanceRow, todayYmd: string): FinanceStatus {
   if (!row.invoiceDate) return 'uninvoiced'
   const billed = row.invoiceAmountCny ?? effectiveAmount(row) ?? 0

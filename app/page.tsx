@@ -5,11 +5,13 @@ import {
   type Stage,
 } from '@/lib/data'
 import { today } from '@/lib/today'
+import { APP_TITLE } from '@/lib/brand'
 import {
   getDailyFocusItems,
   getInboxRows,
   getMasterAggregates,
   getMasterRowsByIds,
+  getOrderMoneyLightByJob,
   getStageFlowMinutes,
 } from '@/lib/db'
 import { requireUser, canSeeFactoryPulse, canSeeMoney } from '@/lib/auth'
@@ -65,7 +67,7 @@ export default async function MasterBoard(
   // job-detail page (/jobs/[id]) which still loads a single-job snapshot.
   const useMasterSheet = !stageFilter || stageFilter === '工程'
 
-  const [stageFlowMinutes, selfStats, focusItems, aggregates, inboxRawRows] =
+  const [stageFlowMinutes, selfStats, focusItems, aggregates, inboxRawRows, moneyLite] =
     await Promise.all([
       getStageFlowMinutes(),
       // The worker's own today/this-week numbers — fetched alongside the board so
@@ -75,7 +77,23 @@ export default async function MasterBoard(
       getDailyFocusItems(today()),
       getMasterAggregates(),
       isProduction && !isEngineering ? Promise.resolve([]) : getInboxRows(),
+      // 应收 headline — commerce only (the floor + 工程 head see no money).
+      user.role === 'commerce'
+        ? getOrderMoneyLightByJob()
+        : Promise.resolve(null),
     ])
+
+  // Total 应收余额 across the order book + whether anything is overdue — the
+  // boss's one money number on the board's top bar (the rest of the money story
+  // lives in the 收款 column below).
+  let arOutstanding = 0
+  let arOverdueCount = 0
+  if (moneyLite) {
+    for (const m of moneyLite.values()) {
+      arOutstanding += m.outstandingCny
+      if (m.status === 'overdue') arOverdueCount += 1
+    }
+  }
 
   const focusJobIds = focusItems
     .map((it) => it.jobId)
@@ -224,6 +242,13 @@ export default async function MasterBoard(
               <Pill tone="info" label="总额" value={formatCny(totalAmount)} />
               <Pill tone="info" label="外发" value={formatCny(totalExternal)} />
               <Pill tone="success" label="毛利" value={formatCny(totalMargin)} />
+              {/* 应收 — cash still owed across the order book. Overdue tone the
+                  moment any order is past term, so the boss sees red up top. */}
+              <Pill
+                tone={arOverdueCount > 0 ? 'overdue' : 'info'}
+                label={arOverdueCount > 0 ? `应收 · 逾期${arOverdueCount}` : '应收'}
+                value={formatCny(arOutstanding)}
+              />
             </div>
           )
         }
@@ -324,12 +349,12 @@ export default async function MasterBoard(
           </Suspense>
         )}
 
-        {showOverviewChrome && <Legend />}
+        {showOverviewChrome && <Legend showMoney={isOverview} />}
       </main>
 
       <footer className="border-t border-[var(--color-border)] bg-[var(--color-surface)]">
         <div className="px-4 md:px-10 py-4 flex items-baseline justify-between text-[var(--color-ink-3)]">
-          <span className="label">越侬模型 · 思跃 MES v0.1</span>
+          <span className="label">{APP_TITLE} v0.1</span>
           <span className="label">基准日 {today()}</span>
         </div>
       </footer>
@@ -337,7 +362,7 @@ export default async function MasterBoard(
   )
 }
 
-function Legend() {
+function Legend({ showMoney = false }: { showMoney?: boolean }) {
   return (
     <div className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-3 text-[var(--color-ink-2)]">
       <span className="label">图例</span>
@@ -369,6 +394,36 @@ function Legend() {
         swatch={<span className="block h-3 w-1 bg-[var(--color-warning)]" />}
         text="今日"
       />
+      {/* 收款 column legend — only where the money light renders (商务 overview). */}
+      {showMoney && (
+        <>
+          <span className="label text-[var(--color-ink-3)]">收款</span>
+          <LegendItem
+            swatch={
+              <span className="text-[11px] font-semibold text-[var(--color-overdue)]">逾期</span>
+            }
+            text="已开票逾期未回款"
+          />
+          <LegendItem
+            swatch={
+              <span className="text-[11px] font-medium text-[var(--color-warning)]">待回款</span>
+            }
+            text="已开票 · 待回款"
+          />
+          <LegendItem
+            swatch={
+              <span className="text-[11px] font-medium text-[var(--color-info)]">待开票</span>
+            }
+            text="已出货 · 未开票"
+          />
+          <LegendItem
+            swatch={
+              <span className="text-[12px] font-semibold text-[var(--color-success)]">✓</span>
+            }
+            text="已结清"
+          />
+        </>
+      )}
     </div>
   )
 }

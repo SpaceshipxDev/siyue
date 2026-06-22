@@ -25,6 +25,7 @@ import {
 } from '@/lib/data'
 import { getJob, getVendors } from '@/lib/db'
 import { getContractFiles } from '@/lib/contract-file'
+import { BRAND } from '@/lib/brand'
 import {
   canEditPartRoute,
   canEditProductionFields,
@@ -61,6 +62,7 @@ import { ComponentAnchorScroller } from '@/app/_component_anchor'
 import { JobTabs } from './_job_tabs'
 import { SourceFileRow } from '@/app/_source_file'
 import { ContractFiles } from '@/app/_contract_files'
+import { JobMoneyEditor } from '@/app/_money_popover'
 import {
   ActiveReturnBadge,
   OpenReturnButton,
@@ -70,6 +72,7 @@ import {
   DrawingChangeBanner,
   DrawingChangeButton,
 } from '@/app/_drawing_change'
+import { PartDrawingChange } from '@/app/_part_drawing_change'
 import { ShippingComposerButton } from '@/app/_shipping'
 import { JobTypeEditor } from '@/app/_type_chip'
 
@@ -81,7 +84,17 @@ import { JobTypeEditor } from '@/app/_type_chip'
 export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   const user = await requireUser()
   const { id } = await props.params
-  const [rawJob, rawVendors] = await Promise.all([getJob(id), getVendors()])
+  const showMoney = canSeeMoney(user)
+  // 合同 attachments live behind the money gate (财务 tab). Fetched IN PARALLEL
+  // with the job snapshot — never a sequential round-trip tacked onto the page
+  // load (the caiwu tab must add zero latency to the floor's hot path). The
+  // 开票/回款 state is lazy-loaded by JobMoneyEditor itself, so it never touches
+  // the server critical path at all.
+  const [rawJob, rawVendors, contractFiles] = await Promise.all([
+    getJob(id),
+    getVendors(),
+    showMoney ? getContractFiles(id) : Promise.resolve([]),
+  ])
   if (!rawJob) notFound()
   // Only `ready` jobs live on the production board. A draft/parsing/failed job
   // reached here via a stale link or a 工号-conflict button — send it to the
@@ -92,10 +105,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // 出货 production users get customer-flavored visibility (customer name +
   // 出货单 print). They still don't edit, manage outsource, or see money.
   const showCustomer = canSeeCustomerData(user)
-  const showMoney = canSeeMoney(user)
-  // 合同 attachments live behind the money gate (财务 tab). Only fetch them when
-  // the viewer can see that tab — production users never need the read.
-  const contractFiles = showMoney ? await getContractFiles(id) : []
   // 工程 head edits the same non-commercial fields commerce does (product,
   // jobNo, dueDate, component name/qty/material/notes, image). Pure-floor
   // production users (焊接, 喷塑, etc.) keep the read-only view they had.
@@ -349,7 +358,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     field="yuenongBusiness"
                     value={job.yuenongBusiness}
                     className="text-[14px] text-[var(--color-ink-2)]"
-                    placeholder="越侬商务"
+                    placeholder={BRAND.commerceLabel}
                   />
                 </div>
               </>
@@ -456,7 +465,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     </p>
                   </div>
                   <div>
-                    <p className="label mb-2 whitespace-nowrap">越侬商务</p>
+                    <p className="label mb-2 whitespace-nowrap">{BRAND.commerceLabel}</p>
                     <p className="text-[13px] text-[var(--color-ink)]">
                       {job.yuenongBusiness ?? '—'}
                     </p>
@@ -482,22 +491,19 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 </>
               )}
             </div>
-            <div>
-              <p className="label mb-2">合同号</p>
-              {canEditFields ? (
-                <JobShippingText
-                  jobId={job.id}
-                  field="contractNo"
-                  value={job.contractNo}
-                  className="mono text-[13px] text-[var(--color-ink)]"
-                  placeholder="—"
-                />
-              ) : (
+            {/* 合同号 — commerce now edits it in the 财务 tab, grouped with
+                上传合同 (a contract is a number AND a document). 出货 reads it
+                here read-only: they print it on the 出货单 and have no 财务 tab. */}
+            {isProduction ? (
+              <div>
+                <p className="label mb-2">合同号</p>
                 <p className="mono text-[13px] text-[var(--color-ink)]">
                   {job.contractNo ?? '—'}
                 </p>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div />
+            )}
           </div>
         )}
 
@@ -736,6 +742,15 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       >
                         检验报告 ↗
                       </a>
+                      {/* 图纸变更 — per-part revision history (一次/二次/三次).
+                          Floor sees it read-only; 商务/工程 head raise + clear. */}
+                      <PartDrawingChange
+                        jobId={job.id}
+                        partId={c.id}
+                        partName={c.name}
+                        changes={c.drawingChanges ?? []}
+                        canEdit={canEditFields}
+                      />
                     </td>
                     <td className="px-3 py-3">
                       {canEditFields ? (
@@ -917,7 +932,12 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 margin={margin}
                 componentsTotal={componentsTotal}
               />
-              <ContractFiles jobId={job.id} initial={contractFiles} />
+              <ContractFiles
+                jobId={job.id}
+                initial={contractFiles}
+                contractNo={job.contractNo}
+                canEdit={canEditFields}
+              />
             </div>
           )}
         </div>
@@ -1130,9 +1150,10 @@ function ActorTrail({
   )
 }
 
-// 财务 tab — this order's money at a glance, with 金额 editable in place. The
-// per-shipment 开票 / 回款 detail lives in the 应收 ledger (linked); here it's
-// the order-level position so commerce reads + fixes the number from the job.
+// 财务 tab — one order's money, end to end: the position (金额 / 毛利 / 外发 /
+// 零件合计), then 开票 / 回款 captured in one tap right here (the same light the
+// board reads), then 合同号 + 上传合同 grouped below. No link-outs to a dead
+// ledger; this IS the per-order caiwu workspace.
 function JobFinancePanel({
   job,
   externalSpend,
@@ -1146,54 +1167,72 @@ function JobFinancePanel({
 }) {
   return (
     <div className="max-w-3xl">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-x-10 gap-y-10">
-        <div>
-          <p className="label mb-2">金额</p>
-          <div className="flex items-baseline gap-1">
-            <span className="mono text-[22px] text-[var(--color-ink-3)]">¥</span>
-            <JobAmount
-              jobId={job.id}
-              value={job.amountCny}
-              className="text-[22px] font-semibold tracking-tight text-[var(--color-ink)]"
-            />
-          </div>
-        </div>
-        <div>
-          <p className="label mb-2">外发金额</p>
-          <p className="mono text-[22px] font-semibold tracking-tight text-[var(--color-ink)]">
-            {externalSpend > 0 ? formatCny(externalSpend) : '—'}
-          </p>
-        </div>
-        <div>
-          <p className="label mb-2">毛利</p>
-          <p
-            className={`mono text-[22px] font-semibold tracking-tight ${
+      {/* Position — 金额 leads (boss edits it in place); 毛利 is the number he
+          actually reads; 外发 / 零件合计 are supporting context. */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-x-10 gap-y-8">
+        <Money label="金额">
+          <span className="mono text-[24px] text-[var(--color-ink-3)]">¥</span>
+          <JobAmount
+            jobId={job.id}
+            value={job.amountCny}
+            className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]"
+          />
+        </Money>
+        <Money label="毛利">
+          <span
+            className={`mono text-[24px] font-semibold tracking-tight ${
               typeof margin === 'number' && margin < 0
                 ? 'text-[var(--color-overdue)]'
                 : 'text-[var(--color-ink)]'
             }`}
           >
             {typeof margin === 'number' ? formatCny(margin) : '—'}
-          </p>
-        </div>
-        <div>
-          <p className="label mb-2">零件合计</p>
-          <p className="mono text-[22px] font-semibold tracking-tight text-[var(--color-ink)]">
+          </span>
+        </Money>
+        <Money label="外发金额">
+          <span className="mono text-[24px] font-semibold tracking-tight text-[var(--color-ink-2)]">
+            {externalSpend > 0 ? formatCny(externalSpend) : '—'}
+          </span>
+        </Money>
+        <Money label="零件合计">
+          <span className="mono text-[24px] font-semibold tracking-tight text-[var(--color-ink-2)]">
             {componentsTotal > 0 ? formatCny(componentsTotal) : '—'}
-          </p>
-        </div>
+          </span>
+        </Money>
       </div>
 
-      <p className="mt-10 text-[12px] text-[var(--color-ink-3)]">
-        开票 / 回款 / 应收明细见{' '}
-        <a
-          href="/finance?tab=ar"
-          className="text-[var(--color-ink)] underline decoration-[var(--color-border-strong)] underline-offset-2 hover:decoration-[var(--color-ink)]"
-        >
-          应收账款
-        </a>
-        ，单价 / 小计 可在「零件」逐件填写。
-      </p>
+      {/* 开票 / 回款 — one tap per 出货单, the same capture as the board's 收款
+          light. Full per-单 ledger (单价/小计) stays in 应收账款 for the clerk. */}
+      <div className="mt-12 border-t border-[var(--color-border)] pt-8">
+        <p className="label mb-4">开票 / 回款</p>
+        <JobMoneyEditor jobId={job.id} amountCny={job.amountCny} />
+        <p className="mt-6 text-[12px] text-[var(--color-ink-4)]">
+          全部开票明细见{' '}
+          <a
+            href="/finance?tab=ar"
+            className="text-[var(--color-ink-2)] underline decoration-[var(--color-border-strong)] underline-offset-2 hover:text-[var(--color-ink)] hover:decoration-[var(--color-ink)]"
+          >
+            应收账款
+          </a>
+          ，单价 / 小计 可在「零件」逐件填写。
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// One position stat — label over a single value line, baseline-aligned.
+function Money({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <p className="label mb-2">{label}</p>
+      <div className="flex items-baseline gap-1 leading-none">{children}</div>
     </div>
   )
 }

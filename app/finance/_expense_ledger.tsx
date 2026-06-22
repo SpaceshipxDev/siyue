@@ -8,6 +8,8 @@ import { showToast } from '@/app/_toast'
 import { formatCny } from '@/lib/data'
 import { EditableText } from '@/app/_editable'
 import { SearchInput } from '@/app/_search'
+import { VoucherCell } from './_vouchers'
+import type { VoucherFile } from '@/lib/data'
 import {
   CATEGORY_LABEL,
   EXPENSE_CATEGORIES,
@@ -61,6 +63,7 @@ export function ExpenseLedger({
   lastMonthPayroll,
   lastMonthLabel,
   userName,
+  vouchers,
 }: {
   rows: Expense[]
   q: string
@@ -76,6 +79,7 @@ export function ExpenseLedger({
   lastMonthPayroll: PayrollCopyRow[]
   lastMonthLabel: string
   userName: string
+  vouchers: Record<string, VoucherFile[]>
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -170,17 +174,23 @@ export function ExpenseLedger({
               <Th className="min-w-[120px]">对象</Th>
               <Th className="text-right">金额</Th>
               <Th className="min-w-[160px]">备注</Th>
+              <Th>凭证</Th>
               <Th>记录人</Th>
               <Th> </Th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
-              <ExpenseRow key={r.id} row={r} onDeleted={() => router.refresh()} />
+              <ExpenseRow
+                key={r.id}
+                row={r}
+                vouchers={vouchers[r.id] ?? []}
+                onDeleted={() => router.refresh()}
+              />
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-20 text-center text-[13px] text-[var(--color-ink-3)]">
+                <td colSpan={8} className="py-20 text-center text-[13px] text-[var(--color-ink-3)]">
                   还没有支出记录 · 点右上「记一笔」
                 </td>
               </tr>
@@ -223,7 +233,15 @@ export function ExpenseLedger({
 
 // === Table row (inline edits, same vocabulary as the AR ledger) ===
 
-function ExpenseRow({ row, onDeleted }: { row: Expense; onDeleted: () => void }) {
+function ExpenseRow({
+  row,
+  vouchers,
+  onDeleted,
+}: {
+  row: Expense
+  vouchers: VoucherFile[]
+  onDeleted: () => void
+}) {
   const [confirming, setConfirming] = useState(false)
   const [pending, start] = useTransition()
 
@@ -276,6 +294,9 @@ function ExpenseRow({ row, onDeleted }: { row: Expense; onDeleted: () => void })
             })
           }}
         />
+      </Td>
+      <Td className="whitespace-nowrap">
+        <VoucherCell expenseId={row.id} initial={vouchers} />
       </Td>
       <Td className="whitespace-nowrap text-[12px] text-[var(--color-ink-3)]">
         {row.createdBy ?? '—'}

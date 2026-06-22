@@ -10,6 +10,7 @@
 import type { JobStatus, JobType, ReturnReason, Stage } from './data'
 import { STAGES, dueState } from './data'
 import { today } from './today'
+import type { OrderMoneyStatus } from './order-money'
 
 // Precomputed per (job, stage). Replaces the per-cell traversal of
 // job.components + their stages that the old shape forced on every cell.
@@ -113,6 +114,17 @@ export type MasterRow = {
   marginCny?: number
   /** True when 出货 has total > 0 and every in-route 出货 part is in-house done. */
   isShipped: boolean
+  /** 收款 — where the order's money sits in the get-paid pipeline (在产 →
+   *  待开票 → 待回款 → 逾期 / 已结清). Drives the commerce-only 收款 column on
+   *  the master board. Computed off shipments + shipment_finance, NOT the
+   *  rollup view — see lib/db.ts#getOrderMoneyLightByJob. Undefined ⇒ scrubbed
+   *  (non-commerce) or no money read attached. */
+  moneyStatus?: OrderMoneyStatus
+  /** 应收余额 — ¥ still owed across the order's shipments (0 until invoiced). */
+  outstandingCny?: number
+  /** Days past the AR aging window on the most-overdue shipment; only set when
+   *  moneyStatus === 'overdue'. Drives the "逾期 N天" readout. */
+  overdueDays?: number
   /** Parts count (drives inbox label, no other display use). */
   componentCount: number
   /** Lowercased haystack for substring search — built by the view. */

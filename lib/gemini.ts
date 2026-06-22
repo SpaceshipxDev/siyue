@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai'
 import { today } from './today'
+import { BRAND } from './brand'
 import type { NewJobInput } from './db'
 
 /** What `extractJobFromXlsx` returns: a NewJobInput plus a per-component
@@ -28,12 +29,12 @@ const MODEL = 'gemini-3.1-flash-lite-preview'
 // Built per request so the "今日是 …" line in the prompt always reflects the
 // real local date — not the date the server process started.
 function buildSystem(): string {
-  return `你是一名工厂订单录入助手，专门处理"杭州越侬模型科技有限公司"的报价单和生产单 Excel。
+  return `你是一名工厂订单录入助手，专门处理"${BRAND.legalName}"的报价单和生产单 Excel。
 
 任务：从用户上传的、结构未必规范的 Excel 内容中，抽取一张工单 (Job) 及其零件列表 (parts)。
 
 字段规则：
-- jobNo (工号): 优先使用文件名或表内出现的 YNMX-XX-X-XX-XXX 格式编号。如果只在文件夹名中出现，也按文件名给出的提示来定。如果都找不到，使用文件名（去掉扩展名）作为工号。
+- jobNo (工号): 优先使用文件名或表内出现的 ${BRAND.code}-XX-X-XX-XXX 格式编号。如果只在文件夹名中出现，也按文件名给出的提示来定。如果都找不到，使用文件名（去掉扩展名）作为工号。
 - customer (客户): 通常在"甲方"字段后面，比如"浙江艾罗网络能源技术股份有限公司"。提取公司主名，去掉前缀。
 - product (产品): 这批零件的整体名称或主要型号；如无明显单一产品名，用类似"手板报价单"或"手板"或第一个零件名称的简称作为兜底。
 - amountCny (金额): 含税总价或合计金额，单位人民币元。如果只能找到分项金额，可求和；找不到留 null。

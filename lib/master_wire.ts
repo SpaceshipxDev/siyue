@@ -1,5 +1,6 @@
 import { STAGES, type JobStatus, type JobType, type ReturnReason, type Stage } from './data'
 import type { MasterActiveReturn, MasterCell, MasterRow } from './master'
+import type { OrderMoneyStatus } from './order-money'
 
 type Scope = {
   role: 'commerce' | 'production'
@@ -62,6 +63,10 @@ export type CompactMasterRow = [
   searchHaystack: string,
   activeReturn: WireValue<CompactActiveReturn>,
   cells: Array<WireValue<CompactCell>>,
+  // 收款 money light — appended after cells; commerce-only (null when scrubbed).
+  moneyStatus: WireValue<OrderMoneyStatus>,
+  outstandingCny: WireValue<number>,
+  overdueDays: WireValue<number>,
 ]
 
 function canSeeCustomerData(scope: Scope): boolean {
@@ -84,6 +89,9 @@ function scrubForWire(row: MasterRow, scope: Scope): MasterRow {
     externalSpendCny: moneyOk ? row.externalSpendCny : 0,
     marginCny: moneyOk ? row.marginCny : undefined,
     searchHaystack: customerOk ? row.searchHaystack : '',
+    moneyStatus: moneyOk ? row.moneyStatus : undefined,
+    outstandingCny: moneyOk ? row.outstandingCny : undefined,
+    overdueDays: moneyOk ? row.overdueDays : undefined,
   }
 }
 
@@ -169,6 +177,9 @@ export function toMasterWireRows(rows: MasterRow[], scope: Scope): CompactMaster
       r.searchHaystack,
       compactActiveReturn(r.activeReturn),
       STAGES.map((stage) => compactCell(r.cells[stage])),
+      r.moneyStatus ?? null,
+      r.outstandingCny ?? null,
+      r.overdueDays ?? null,
     ]
   })
 }
@@ -211,6 +222,9 @@ export function expandMasterWireRows(rows: CompactMasterRow[]): MasterRow[] {
       searchHaystack: r[27],
       activeReturn: expandActiveReturn(r[28]),
       cells,
+      moneyStatus: r[30] ?? undefined,
+      outstandingCny: r[31] ?? undefined,
+      overdueDays: r[32] ?? undefined,
     }
   })
 }

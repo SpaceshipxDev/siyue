@@ -24,7 +24,8 @@ import {
   rowTimerAtStage,
   type MasterRow,
 } from '@/lib/master'
-import { DueCell, RollupCell } from './_ui'
+import { DueCell, MoneyCell, RollupCell } from './_ui'
+import { ORDER_STATUS_LABEL } from '@/lib/order-money'
 import { JobStageActionButton } from './_cell'
 import { JobNotesInline } from './_editable'
 import { ReturnChip } from './_returns'
@@ -83,6 +84,45 @@ const STATUS_LABEL: Record<StatusFilter, string> = {
   pending: '未开始',
   partial: '进行中',
   done: '已完成',
+}
+
+// 收款 column funnel (商务 overview only) — the boss's receivables slice. This
+// IS the "dedicated 财务 view": same board, sliced to where the cash is stuck.
+//   逾期    — 逾期未回款 (the chase list)
+//   待回款  — invoiced, owed (includes 逾期, the broad "钱还没到" bucket)
+//   待开票  — shipped, no 发票 yet (the leak)
+//   已结清  — paid in full
+type MoneyFilter = 'all' | 'overdue' | 'unpaid' | 'uninvoiced' | 'settled'
+
+const MONEY_FILTER_LABEL: Record<MoneyFilter, string> = {
+  all: '全部',
+  overdue: ORDER_STATUS_LABEL.overdue, // 逾期
+  unpaid: '待回款',
+  uninvoiced: ORDER_STATUS_LABEL.uninvoiced, // 待开票
+  settled: ORDER_STATUS_LABEL.settled, // 已结清
+}
+
+// Does a row's money light fall in the funnel bucket? 'unpaid' is the broad
+// "invoiced but not settled" set, so it includes 逾期 (same as the AR ledger's
+// 未回款 filter) — the boss filtering "待回款" wants the overdue ones in there too.
+function rowMatchesMoney(r: MasterRow, f: MoneyFilter): boolean {
+  const s = r.moneyStatus
+  if (f === 'all') return true
+  if (!s) return false
+  if (f === 'overdue') return s === 'overdue'
+  if (f === 'uninvoiced') return s === 'uninvoiced'
+  if (f === 'settled') return s === 'settled'
+  return s === 'unpaid' || s === 'overdue' // 'unpaid'
+}
+
+// Sort a money-filtered slice so the most-pressing cash floats up: most overdue
+// first, then largest 应收余额. Used only when the 收款 funnel is active.
+function sortByMoneyUrgency(rows: MasterRow[]): MasterRow[] {
+  return [...rows].sort(
+    (a, b) =>
+      (b.overdueDays ?? 0) - (a.overdueDays ?? 0) ||
+      (b.outstandingCny ?? 0) - (a.outstandingCny ?? 0),
+  )
 }
 
 function rowMatchesDate(r: MasterRow, f: DateFilter, mode: SortMode): boolean {
@@ -226,6 +266,12 @@ export function MasterSheet({
     () => STAGES.filter((s) => statusByStage[s] && statusByStage[s] !== 'all'),
     [statusByStage],
   )
+  // 收款 funnel (商务 overview only) — slices the board to where the cash sits.
+  const [moneyFilter, setMoneyFilter] = usePersistentState<MoneyFilter>(
+    `${persistKey}:money`,
+    'all',
+  )
+  const moneyActive = moneyFilter !== 'all'
 
   const isProduction = role === 'production'
   const showMoney = role === 'commerce'
@@ -433,8 +479,14 @@ export function MasterSheet({
       const alarmScoped = onlyDrawingChange
         ? facetScoped.filter((r) => r.drawingChangeOpen)
         : facetScoped
+      // 收款 funnel — slice to where the cash is stuck, then float the most
+      // pressing (most overdue / largest 应收) to the top so the chase list
+      // reads top-down. Rush still wins the very top (floatRush last).
+      const moneyScoped = moneyActive
+        ? sortByMoneyUrgency(alarmScoped.filter((r) => rowMatchesMoney(r, moneyFilter)))
+        : alarmScoped
       return {
-        topRows: floatRush(alarmScoped),
+        topRows: floatRush(moneyScoped),
         upstreamRows: [] as MasterRow[],
         doneRows: [] as MasterRow[],
       }
@@ -469,7 +521,7 @@ export function MasterSheet({
       upstreamRows: floatRush(upstream),
       doneRows: done,
     }
-  }, [dateFiltered, isStationView, stageFilter, q, effectiveType, activeFilterStages, statusByStage, onlyPendingOutsource, onlyDrawingChange])
+  }, [dateFiltered, isStationView, stageFilter, q, effectiveType, activeFilterStages, statusByStage, onlyPendingOutsource, onlyDrawingChange, moneyActive, moneyFilter])
 
   // 待外协 count over the current date scope — drives the facet chip label and
   // hides the chip entirely when nothing is waiting (clean board, no chrome).
@@ -490,6 +542,29 @@ export function MasterSheet({
     [dateFiltered],
   )
 
+  // Live counts for the 收款 funnel menu, over the current date scope. Computed
+  // only on the commerce overview, where the money column + funnel live.
+  const moneyCounts = useMemo(() => {
+    const c: Record<MoneyFilter, number> = {
+      all: 0,
+      overdue: 0,
+      unpaid: 0,
+      uninvoiced: 0,
+      settled: 0,
+    }
+    if (!showMoney || !treatAsOverview) return c
+    for (const r of dateFiltered) {
+      const s = r.moneyStatus
+      if (!s || s === 'in_production') continue
+      c.all += 1
+      if (s === 'overdue') c.overdue += 1
+      if (s === 'unpaid' || s === 'overdue') c.unpaid += 1
+      if (s === 'uninvoiced') c.uninvoiced += 1
+      if (s === 'settled') c.settled += 1
+    }
+    return c
+  }, [dateFiltered, showMoney, treatAsOverview])
+
   // Any column filter narrows the list — treat it like search/date so
   // pagination lifts and the count chip + 清除 affordance show.
   const statusActive = activeFilterStages.length > 0
@@ -499,7 +574,8 @@ export function MasterSheet({
     dateFilter.kind !== 'all' ||
     statusActive ||
     onlyPendingOutsource ||
-    onlyDrawingChange
+    onlyDrawingChange ||
+    moneyActive
 
   type VirtualDivider = {
     kind: 'divider'
@@ -597,7 +673,8 @@ export function MasterSheet({
     virtualItems.length > 0
       ? Math.max(0, rowVirtualizer.getTotalSize() - lastVirtualEnd)
       : 0
-  const colSpan = 5 + STAGES.length + (showMoney ? 1 : 0)
+  // +金额 (left) and +收款 (right) are both commerce-only money columns.
+  const colSpan = 5 + STAGES.length + (showMoney ? 2 : 0)
 
   return (
     <>
@@ -727,6 +804,14 @@ export function MasterSheet({
                 />
               )
             })}
+            {showMoney && (
+              <col
+                style={{
+                  width: 104,
+                  background: moneyActive ? 'var(--color-info-soft)' : undefined,
+                }}
+              />
+            )}
             <col style={{ minWidth: 200 }} />
           </colgroup>
           <thead>
@@ -796,6 +881,31 @@ export function MasterSheet({
                   </th>
                 )
               })}
+              {showMoney && (
+                <th
+                  style={{ overflow: 'visible' }}
+                  className="relative px-2 py-3 text-center whitespace-nowrap"
+                >
+                  <span className="inline-flex items-center justify-center gap-1 text-[12px] font-medium tracking-wider text-[var(--color-ink)]">
+                    <span className={moneyActive ? 'font-semibold' : undefined}>
+                      收款
+                    </span>
+                    {treatAsOverview && (
+                      <MoneyHeaderFilter
+                        value={moneyFilter}
+                        counts={moneyCounts}
+                        onChange={setMoneyFilter}
+                      />
+                    )}
+                  </span>
+                  {moneyActive && (
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-x-2 bottom-[6px] h-[2px] rounded-[2px] bg-[var(--color-info)]"
+                    />
+                  )}
+                </th>
+              )}
               <th
                 className="px-4 py-3 label whitespace-nowrap"
                 style={{ borderRight: '6px solid transparent' }}
@@ -891,6 +1001,7 @@ export function MasterSheet({
                   setQ('')
                   setDateFilter({ kind: 'all' })
                   clearStageStatuses()
+                  setMoneyFilter('all')
                 }}
                 className="label mt-4 text-[var(--color-ink)] hover:underline underline-offset-4 decoration-[var(--color-ink-3)]"
               >
@@ -1070,12 +1181,14 @@ function HeaderFilter({
   )
 }
 
-type StatusTone = 'pending' | 'warning' | 'success'
+type StatusTone = 'pending' | 'warning' | 'success' | 'overdue' | 'info'
 
 const STATUS_TONE_VAR: Record<StatusTone, string> = {
   pending: 'var(--color-ink-3)',
   warning: 'var(--color-warning)',
   success: 'var(--color-success)',
+  overdue: 'var(--color-overdue)',
+  info: 'var(--color-info)',
 }
 
 // One row in a column's filter menu: a tone dot, the label, and the live count
@@ -1149,6 +1262,100 @@ function FunnelIcon() {
     <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
       <path d="M1.5 2 H10.5 L7 6.2 V9.5 L5 10.5 V6.2 Z" />
     </svg>
+  )
+}
+
+// 收款 column funnel — the twin of HeaderFilter, but slicing by money state
+// instead of work state. This is the "dedicated 财务 view" the boss asked for:
+// click 逾期 and the whole board collapses to overdue-unpaid orders, sorted
+// most-overdue first. Same mechanic he already drives on every 工段 column.
+function MoneyHeaderFilter({
+  value,
+  counts,
+  onChange,
+}: {
+  value: MoneyFilter
+  counts: Record<MoneyFilter, number>
+  onChange: (next: MoneyFilter) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLSpanElement>(null)
+  const active = value !== 'all'
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const rows: { key: MoneyFilter; tone: StatusTone; count: number }[] = [
+    { key: 'overdue', tone: 'overdue', count: counts.overdue },
+    { key: 'unpaid', tone: 'warning', count: counts.unpaid },
+    { key: 'uninvoiced', tone: 'info', count: counts.uninvoiced },
+    { key: 'settled', tone: 'success', count: counts.settled },
+  ]
+
+  return (
+    <span ref={ref} className="relative inline-flex">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="按收款状态筛选"
+        title="按收款状态筛选"
+        className={`inline-flex h-4 w-4 items-center justify-center rounded-[2px] transition-colors ${
+          active
+            ? 'text-[var(--color-info)]'
+            : open
+              ? 'text-[var(--color-ink)] bg-black/[0.06]'
+              : 'text-[var(--color-ink-4)] hover:text-[var(--color-ink-2)] hover:bg-black/[0.04]'
+        }`}
+      >
+        {active ? <FunnelIcon /> : <CaretIcon />}
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          aria-label="收款状态"
+          className="absolute right-0 top-[calc(100%+8px)] z-40 min-w-[148px] overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] py-1 text-left shadow-[0_10px_34px_-12px_rgba(20,19,15,0.28)]"
+        >
+          <FilterMenuRow
+            label={MONEY_FILTER_LABEL.all}
+            count={counts.all}
+            active={value === 'all'}
+            onClick={() => {
+              onChange('all')
+              setOpen(false)
+            }}
+          />
+          <div className="my-1 h-px bg-[var(--color-border)]" />
+          {rows.map((r) => (
+            <FilterMenuRow
+              key={r.key}
+              label={MONEY_FILTER_LABEL[r.key]}
+              count={r.count}
+              tone={r.tone}
+              active={value === r.key}
+              onClick={() => {
+                onChange(r.key)
+                setOpen(false)
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </span>
   )
 }
 
@@ -1458,6 +1665,21 @@ function JobRow({
           </td>
         )
       })}
+      {showMoney && (
+        <td className="p-0 h-[78px]">
+          <Link
+            href={detailHref}
+            className="block h-full w-full transition-colors hover:bg-[#f1eee4]"
+            aria-label={`${row.jobNo} · 收款`}
+          >
+            <MoneyCell
+              status={row.moneyStatus}
+              outstandingCny={row.outstandingCny}
+              overdueDays={row.overdueDays}
+            />
+          </Link>
+        </td>
+      )}
       <td
         className="px-3 py-2 align-middle"
         style={{ borderRight: `6px solid ${stripeColor}` }}

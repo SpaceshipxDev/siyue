@@ -18,6 +18,8 @@ export function DatePop({
   disabled = false,
   placeholder = '选择日期',
   className = '',
+  formatLabel,
+  hideIcon = false,
 }: {
   /** Current value (YYYY-MM-DD) or '' / undefined for unset. */
   value?: string
@@ -27,8 +29,13 @@ export function DatePop({
   disabled?: boolean
   placeholder?: string
   className?: string
+  /** Optional human label for the trigger (e.g. '6月10日'); raw ISO otherwise. */
+  formatLabel?: (iso: string) => string
+  /** Drop the calendar glyph on the trigger (cleaner in dense rows). */
+  hideIcon?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const [openUp, setOpenUp] = useState(false)
   const [today, setToday] = useState(localToday)
   const [view, setView] = useState(() => monthOf(value || localToday()))
   const rootRef = useRef<HTMLDivElement>(null)
@@ -37,6 +44,10 @@ export function DatePop({
     const t = localToday()
     setToday(t)
     setView(monthOf(value || t))
+    // Flip the panel above the trigger when there isn't room below — keeps the
+    // calendar on-screen when the field sits low in a table / near the fold.
+    const rect = rootRef.current?.getBoundingClientRect()
+    setOpenUp(!!rect && window.innerHeight - rect.bottom < 320)
     setOpen(true)
   }
   const close = () => setOpen(false)
@@ -73,17 +84,21 @@ export function DatePop({
             : 'text-[var(--color-ink)] hover:bg-[var(--color-active-bg)] hover:shadow-[inset_0_-1px_0_var(--color-border-strong)]'
         } ${value ? '' : 'text-[var(--color-ink-4)]'}`}
       >
-        <span className="text-[var(--color-ink-4)]">
-          <CalendarIcon />
-        </span>
-        {value || placeholder}
+        {hideIcon ? null : (
+          <span className="text-[var(--color-ink-4)]">
+            <CalendarIcon />
+          </span>
+        )}
+        {value ? (formatLabel ? formatLabel(value) : value) : placeholder}
       </button>
 
       {open && (
         <div
           role="dialog"
           aria-label="选择日期"
-          className="absolute left-0 top-[calc(100%+6px)] z-30 w-[264px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[0_8px_28px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04)]"
+          className={`absolute left-0 z-30 w-[264px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[0_8px_28px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04)] ${
+            openUp ? 'bottom-[calc(100%+6px)]' : 'top-[calc(100%+6px)]'
+          }`}
         >
           {/* Presets */}
           <div className="mb-3 flex items-center gap-1">
