@@ -637,15 +637,15 @@ export function NewBlockForm({
                   key={c.id}
                   className="flex items-center gap-2 text-[13px] text-[var(--color-ink)]"
                 >
-                  <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
+                  <label className="flex items-start gap-2 flex-1 min-w-0 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => toggle(c.id)}
                       disabled={pending}
-                      className="accent-[var(--color-ink)]"
+                      className="accent-[var(--color-ink)] mt-0.5 shrink-0"
                     />
-                    <span className="flex-1 truncate">{c.name}</span>
+                    <span className="flex-1 min-w-0 break-words leading-snug">{c.name}</span>
                     {c.openStages && c.openStages.length > 0 ? (
                       <span
                         className="mono text-[10px] tracking-wider px-1 rounded-[2px] border border-[var(--color-info)] text-[var(--color-info)] shrink-0"
