@@ -1264,7 +1264,7 @@ export function BlockRow({
                 className={`flex items-baseline gap-3 py-0.5 text-[13px] group ${armed ? 'bg-[color-mix(in_srgb,var(--color-overdue)_8%,transparent)] rounded-[2px] -mx-1 px-1' : ''}`}
               >
                 <span
-                  className={`truncate flex-1 min-w-0 ${fullyReturned ? 'text-[var(--color-ink-3)]' : 'text-[var(--color-ink)]'}`}
+                  className={`flex-1 min-w-0 break-words leading-snug ${fullyReturned ? 'text-[var(--color-ink-3)]' : 'text-[var(--color-ink)]'}`}
                 >
                   {m.name}
                 </span>
@@ -1396,7 +1396,7 @@ export function BlockRow({
                   <span className="mono text-[11px] text-[var(--color-ink-3)]">
                     / {remaining}
                   </span>
-                  <span className="text-[var(--color-ink-2)] truncate">{m.name}</span>
+                  <span className="text-[var(--color-ink-2)] min-w-0 break-words leading-snug">{m.name}</span>
                   {returnedSoFar > 0 ? (
                     <span className="mono text-[11px] text-[var(--color-warning)]">
                       · 已回 {returnedSoFar}
