@@ -635,9 +635,12 @@ export function NewBlockForm({
               return (
                 <div
                   key={c.id}
-                  className="flex items-center gap-2 text-[13px] text-[var(--color-ink)]"
+                  className="flex flex-col gap-1 py-0.5 text-[13px] text-[var(--color-ink)]"
                 >
-                  <label className="flex items-start gap-2 flex-1 min-w-0 cursor-pointer">
+                  {/* Name gets the full column width on its own line so long
+                      零件名 wrap cleanly instead of being squeezed by the badge
+                      + qty + 单价 controls. */}
+                  <label className="flex items-start gap-2 min-w-0 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={isSelected}
@@ -646,6 +649,10 @@ export function NewBlockForm({
                       className="accent-[var(--color-ink)] mt-0.5 shrink-0"
                     />
                     <span className="flex-1 min-w-0 break-words leading-snug">{c.name}</span>
+                  </label>
+                  {/* 在外 tag + 外协数量 + 单价 — one tidy line under the name,
+                      indented to align past the checkbox. */}
+                  <div className="flex items-center gap-2 pl-6">
                     {c.openStages && c.openStages.length > 0 ? (
                       <span
                         className="mono text-[10px] tracking-wider px-1 rounded-[2px] border border-[var(--color-info)] text-[var(--color-info)] shrink-0"
@@ -655,43 +662,40 @@ export function NewBlockForm({
                         {c.openStages.length > 1 ? `+${c.openStages.length - 1}` : ''}
                       </span>
                     ) : null}
-                  </label>
-                  {/* 外协数量 — defaults to the part's full qty; editable so the
-                      boss can send only some units. /{c.qty} shows the total
-                      for context. */}
-                  <span
-                    className={`mono text-[11px] shrink-0 inline-flex items-center gap-0.5 ${isSelected ? 'text-[var(--color-ink-3)]' : 'text-[var(--color-ink-4)]'}`}
-                  >
+                    <span
+                      className={`mono text-[11px] shrink-0 inline-flex items-center gap-0.5 ${isSelected ? 'text-[var(--color-ink-3)]' : 'text-[var(--color-ink-4)]'}`}
+                    >
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        step={1}
+                        value={qtys[c.id] ?? String(c.qty)}
+                        onChange={(e) => setQtyFor(c.id, e.target.value)}
+                        disabled={pending || !isSelected}
+                        title={`外协数量 · 共 ${c.qty} 件`}
+                        className="mono text-[12px] w-[46px] text-right px-1 py-0.5 rounded-[2px] bg-transparent border border-[var(--color-border)] focus:border-[var(--color-ink)] focus:outline-none disabled:opacity-40"
+                      />
+                      <span className="shrink-0">/{c.qty}</span>
+                    </span>
+                    <span
+                      className={`mono text-[11px] shrink-0 ${isSelected ? 'text-[var(--color-ink-3)]' : 'text-[var(--color-ink-4)]'}`}
+                    >
+                      ¥
+                    </span>
                     <input
                       type="number"
-                      inputMode="numeric"
-                      min={1}
+                      inputMode="decimal"
+                      min={0}
                       step={1}
-                      value={qtys[c.id] ?? String(c.qty)}
-                      onChange={(e) => setQtyFor(c.id, e.target.value)}
+                      value={unitPrices[c.id] ?? ''}
+                      onChange={(e) => setUnitPriceFor(c.id, e.target.value)}
                       disabled={pending || !isSelected}
-                      title={`外协数量 · 共 ${c.qty} 件`}
-                      className="mono text-[12px] w-[46px] text-right px-1 py-0.5 rounded-[2px] bg-transparent border border-[var(--color-border)] focus:border-[var(--color-ink)] focus:outline-none disabled:opacity-40"
+                      placeholder="单价"
+                      title="每件单价 · 可留空"
+                      className="mono text-[12px] w-[68px] text-right px-1 py-0.5 rounded-[2px] bg-transparent border border-[var(--color-border)] focus:border-[var(--color-ink)] focus:outline-none disabled:opacity-40"
                     />
-                    <span className="shrink-0">/{c.qty}</span>
-                  </span>
-                  <span
-                    className={`mono text-[11px] shrink-0 ${isSelected ? 'text-[var(--color-ink-3)]' : 'text-[var(--color-ink-4)]'}`}
-                  >
-                    ¥
-                  </span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    step={1}
-                    value={unitPrices[c.id] ?? ''}
-                    onChange={(e) => setUnitPriceFor(c.id, e.target.value)}
-                    disabled={pending || !isSelected}
-                    placeholder="单价"
-                    title="每件单价 · 可留空"
-                    className="mono text-[12px] w-[68px] text-right px-1 py-0.5 rounded-[2px] bg-transparent border border-[var(--color-border)] focus:border-[var(--color-ink)] focus:outline-none disabled:opacity-40"
-                  />
+                  </div>
                 </div>
               )
             })}
