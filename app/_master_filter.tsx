@@ -1884,10 +1884,22 @@ function SortToggle({
   )
 }
 
-// No visual highlight on search matches — the row simply appears in the
-// filtered results. (The yellow mark was removed at the founder's request.)
-function Highlight({ text }: { text: string; q: string }) {
-  return <>{text}</>
+function Highlight({ text, q }: { text: string; q: string }) {
+  const query = q.trim()
+  if (!query) return <>{text}</>
+  const lowerText = text.toLowerCase()
+  const lowerQ = query.toLowerCase()
+  const idx = lowerText.indexOf(lowerQ)
+  if (idx === -1) return <>{text}</>
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="bg-[var(--color-warning-soft)] text-[var(--color-ink)] px-0.5 rounded-[2px]">
+        {text.slice(idx, idx + query.length)}
+      </mark>
+      {text.slice(idx + query.length)}
+    </>
+  )
 }
 
 function CalendarIcon() {
