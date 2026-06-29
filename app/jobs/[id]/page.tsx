@@ -593,7 +593,16 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   colgroup. */}
               <col style={{ width: 150 }} />
               {STAGES.map((s) => (
-                <col key={s} style={{ width: 90 }} />
+                <col
+                  key={s}
+                  style={{
+                    width: 90,
+                    background:
+                      s === myStage
+                        ? 'var(--color-warning-soft)'
+                        : undefined,
+                  }}
+                />
               ))}
               <col style={{ width: 160 }} />
               <col style={{ width: 170 }} />
@@ -638,7 +647,9 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     // .sheet th { overflow:hidden } — same override the master
                     // board uses for its column filters.
                     style={{ overflow: 'visible' }}
-                    className="relative px-2 py-3 text-center whitespace-nowrap"
+                    className={`relative px-2 py-3 text-center whitespace-nowrap ${
+                      s === myStage ? 'font-semibold text-[var(--color-ink)]' : ''
+                    }`}
                   >
                     <span className="inline-flex items-center justify-center gap-1">
                       <StageHeader name={s} />
@@ -883,7 +894,11 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       )
                     })}
                     <ShipmentLogCell
+                      jobId={job.id}
+                      componentId={c.id}
+                      value={c.shipmentLog}
                       entries={componentShipmentEntries(c.id, job.shipments)}
+                      canEdit={canEditFields}
                     />
                     <ActivityCell component={c} />
                     {canEditFields && (
@@ -971,26 +986,63 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   )
 }
 
-// Per-part shipment history cell — one row per batch shipped, newest at top.
-// Empty state renders a single muted dash so the column stays the same width.
+// Per-part 出货记录 (migration 0069). Two layers, by design:
+//   1. a literally-editable free-text note (component.shipmentLog) on top, and
+//   2. the LIVE derived batch audit-log (制作出货单 → Shipment rows, newest
+//      first) read-only beneath it.
+// The auto log always reflects new 出货单 batches — typing in the note never
+// freezes or hides it. Floor users (no edit rights) see both as read-only.
+// Empty state (no note, no shipments) is a single muted dash so the column
+// keeps its width.
 function ShipmentLogCell({
+  jobId,
+  componentId,
+  value,
   entries,
+  canEdit,
 }: {
+  jobId: string
+  componentId: string
+  value: string | undefined
   entries: ReturnType<typeof componentShipmentEntries>
+  canEdit: boolean
 }) {
-  if (entries.length === 0) {
+  const derived = formatShipmentLog([...entries].reverse())
+  if (!canEdit && !value && !derived) {
     return (
       <td className="px-3 py-3 text-[var(--color-ink-4)] mono text-[11px] align-top">
         —
       </td>
     )
   }
-  const log = formatShipmentLog([...entries].reverse())
   return (
     <td className="px-3 py-3 align-top">
-      <pre className="mono text-[11px] leading-snug text-[var(--color-ink-2)] whitespace-pre-wrap font-normal">
-        {log}
-      </pre>
+      {canEdit ? (
+        <ComponentText
+          jobId={jobId}
+          componentId={componentId}
+          field="shipmentLog"
+          value={value}
+          placeholder="出货记录…"
+          multiline
+          className="mono text-[11px] leading-snug text-[var(--color-ink-2)]"
+        />
+      ) : (
+        value && (
+          <pre className="mono text-[11px] leading-snug text-[var(--color-ink-2)] whitespace-pre-wrap font-normal">
+            {value}
+          </pre>
+        )
+      )}
+      {derived && (
+        <pre
+          className={`mono text-[11px] leading-snug text-[var(--color-ink-3)] whitespace-pre-wrap font-normal${
+            canEdit || value ? ' mt-1' : ''
+          }`}
+        >
+          {derived}
+        </pre>
+      )}
     </td>
   )
 }

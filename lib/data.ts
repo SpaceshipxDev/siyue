@@ -322,6 +322,11 @@ export type Component = {
   // from the production order's 加工方式/工艺要求 columns; editable inline.
   // Informational — never drives the stage route automatically.
   process?: string
+  // 出货记录 — a literally-editable free-text shipment record (migration 0069).
+  // The 零件进度 column seeds from the derived batch audit-log (see
+  // formatShipmentLog / componentShipmentEntries) so existing records show up;
+  // once the boss types here, this manual text wins. Never AI-extracted.
+  shipmentLog?: string
   // Per-line quote fields. Both stored independently — qty * unitPriceCny is
   // not enforced to equal lineTotalCny, since real 报价单s often line-discount,
   // round, or tax differently per item. Either may be undefined when the AI

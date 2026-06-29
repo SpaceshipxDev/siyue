@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useTransition } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
   formatShipmentTimestamp,
@@ -163,7 +164,7 @@ function DrawingChangeModal({
   // History newest-first for reading.
   const history = changes.slice().sort((a, b) => b.revision - a.revision)
 
-  return (
+  const modal = (
     <div
       role="dialog"
       aria-modal="true"
@@ -300,4 +301,10 @@ function DrawingChangeModal({
       </div>
     </div>
   )
+
+  // Portal to <body> so the dark scrim composites at the document root, above
+  // the parts table's frozen columns (.sticky-col, z-index 1/11). Rendered
+  // inline, the modal is trapped inside the 零件 cell's sticky stacking context
+  // and the # / 图 / 零件 columns bleed bright over the scrim — the "highlight".
+  return typeof document === 'undefined' ? modal : createPortal(modal, document.body)
 }

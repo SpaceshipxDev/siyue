@@ -523,7 +523,13 @@ export function JobNotesInline({
   )
 }
 
-type ComponentTextField = 'name' | 'material' | 'surfaceTreatment' | 'partNo' | 'process'
+type ComponentTextField =
+  | 'name'
+  | 'material'
+  | 'surfaceTreatment'
+  | 'partNo'
+  | 'process'
+  | 'shipmentLog'
 
 export function ComponentText({
   jobId,
@@ -555,7 +561,12 @@ export function ComponentText({
             ? { surfaceTreatment: v.length === 0 ? null : v }
             : field === 'process'
               ? { process: v.length === 0 ? null : v }
-              : { partNo: v.length === 0 ? null : v }
+              : field === 'shipmentLog'
+                ? // Trim before the null decision: an all-whitespace entry
+                  // collapses to null so it can't mask the derived shipment log
+                  // (and read-only floor users never see a blank-looking cell).
+                  { shipmentLog: v.trim().length === 0 ? null : v }
+                : { partNo: v.length === 0 ? null : v }
     await mutate({ kind: 'updateComponent', jobId, componentId, patch })
   }
   if (multiline) {
