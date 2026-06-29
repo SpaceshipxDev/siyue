@@ -539,45 +539,11 @@ async function dispatch(
       return Response.json(ok())
     }
 
-    // 图纸变更报警 — the customer revised drawings mid-production. open=true
-    // stamps the alarm + note + who/when; open=false clears it (图纸已确认).
-    // Inform-only: stations keep working — the alarm headlines the job detail
-    // page and badges every row until cleared. Auth: same group that manages
-    // 外协 / 退货 (商务 + 工程 head).
-    case 'setDrawingChange': {
-      const jobId = body.jobId
-      const open = body.open
-      const note = body.note
-      if (!isString(jobId) || typeof open !== 'boolean')
-        return err('bad setDrawingChange args')
-      if (note !== undefined && note !== null && !isString(note))
-        return err('bad note')
-      const u = await requireOutsourceManager()
-      const patch: JobPatch = open
-        ? {
-            drawingChangeOpen: true,
-            // null (note explicitly emptied) clears it; undefined (note not
-            // sent) leaves the existing note untouched.
-            drawingChangeNote:
-              note === undefined ? undefined : (note as string | null),
-            drawingChangeBy: u.name,
-            drawingChangeAt: new Date().toISOString(),
-          }
-        : {
-            drawingChangeOpen: false,
-            drawingChangeNote: null,
-            drawingChangeBy: null,
-            drawingChangeAt: null,
-          }
-      await updateJob(jobId, patch)
-      revalidateJob(jobId)
-      return Response.json(ok())
-    }
-
-    // 零件图纸变更 — per-part drawing revisions (一次/二次/三次), the granular
-    // version of the job alarm above. Same auth (商务 + 工程 head). Raising adds
-    // revision N+1 and lights the job alarm; clearing a part drops the job alarm
-    // when no other part is still open.
+    // 零件图纸变更 — per-part drawing revisions (一次/二次/三次). The customer
+    // revised drawings on a part mid-production; anyone cutting to the old
+    // sheet is making scrap. Same auth as 外协 / 退货 (商务 + 工程 head). Raising
+    // adds revision N+1 and lights the derived job headline; clearing a part
+    // drops it when no other part is still open. There is no whole-job alarm.
     case 'raisePartDrawingChange': {
       const jobId = body.jobId
       const partId = body.partId

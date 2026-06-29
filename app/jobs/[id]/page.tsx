@@ -18,6 +18,7 @@ import {
   jobOutsourceState,
   jobReturnedQtyByPart,
   latestComponentActivity,
+  openDrawingChange,
   vendorById,
   type Job,
   type Stage,
@@ -75,10 +76,7 @@ import {
   OpenReturnButton,
   ReturnedComponentChip,
 } from '@/app/_returns'
-import {
-  DrawingChangeBanner,
-  DrawingChangeButton,
-} from '@/app/_drawing_change'
+import { DrawingChangeBanner } from '@/app/_drawing_change'
 import { PartDrawingChange } from '@/app/_part_drawing_change'
 import { ShippingComposerButton } from '@/app/_shipping'
 import { JobTypeEditor } from '@/app/_type_chip'
@@ -134,6 +132,12 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // Per-component returned-qty lookup for the active return. Empty map when
   // no return is open, so the badge naturally disappears once 关闭 is hit.
   const returnedQtyByPart = jobReturnedQtyByPart(job)
+
+  // 图纸变更 — derived from the parts themselves (no whole-job flag anymore).
+  // Any part with an uncleared revision headlines the page banner.
+  const partsWithDrawingChange = job.components.filter((c) =>
+    openDrawingChange(c),
+  )
 
   // 退货中 — the carried sheet shows ONLY the returned parts. Everything else
   // already shipped, and re-rendering it is pure scan tax for the floor: the
@@ -255,26 +259,15 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
 
       <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">
         <ComponentAnchorScroller />
-        {/* 图纸变更报警 — headlines the page while open. The floor opens this
-            page at every station; the alarm has to be the first thing read. */}
-        {job.drawingChangeOpen && (
-          <DrawingChangeBanner
-            jobId={job.id}
-            note={job.drawingChangeNote}
-            by={job.drawingChangeBy}
-            at={job.drawingChangeAt}
-            canEdit={canManageOutsource(user)}
-          />
-        )}
+        {/* 图纸变更报警 — headlines the page while any part has an open change.
+            The floor opens this page at every station; the alarm has to be the
+            first thing read. Derived from the parts, raised/cleared per-part. */}
+        <DrawingChangeBanner
+          parts={partsWithDrawingChange.map((c) => ({ id: c.id, name: c.name }))}
+        />
         <div className="mb-6 flex items-center justify-between gap-3">
           <BackButton fallback={backFallback} />
           <div className="flex items-center gap-3 flex-wrap justify-end">
-            {/* 图纸变更 raise affordance — quiet outline button; while an
-                alarm is open the banner above owns the state (single live
-                alarm per job, re-raising is meaningless). */}
-            {!job.drawingChangeOpen && canManageOutsource(user) && (
-              <DrawingChangeButton jobId={job.id} jobNo={job.jobNo} />
-            )}
             {job.activeReturn ? (
               <ActiveReturnBadge
                 ret={job.activeReturn}
@@ -782,6 +775,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           jobId={job.id}
                           partId={c.id}
                           partName={c.name}
+                          imageUrl={c.imageUrl}
                           changes={c.drawingChanges ?? []}
                           canEdit={canEditFields}
                         />

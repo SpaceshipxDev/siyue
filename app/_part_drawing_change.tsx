@@ -9,6 +9,7 @@ import {
 } from '@/lib/data'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
+import { proxiedStorageUrl } from '@/lib/storage-url'
 
 // 零件图纸变更 — the per-part version of the job alarm. A part's drawing can be
 // revised 一次/二次/三次…; each revision is recorded with what changed + who/
@@ -28,12 +29,14 @@ export function PartDrawingChange({
   jobId,
   partId,
   partName,
+  imageUrl,
   changes,
   canEdit,
 }: {
   jobId: string
   partId: string
   partName: string
+  imageUrl?: string
   changes: Change[]
   canEdit: boolean
 }) {
@@ -46,12 +49,22 @@ export function PartDrawingChange({
 
   return (
     <span className="inline-flex">
-      <button type="button" onClick={() => setOpen(true)} className="text-left">
+      {/* outline-none + select-none kill the browser's blue focus ring and
+          text-selection that otherwise smear over the badge after a click —
+          the badge is a quiet click target, the popup is the real signal. */}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-left outline-none select-none focus:outline-none focus-visible:outline-none"
+      >
         {live ? (
-          <span className="inline-flex items-center rounded-[2px] border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-[var(--color-overdue)]">
+          // Live alarm — the loud one. Larger than the row's other tags so the
+          // floor catches it without hunting: this part must NOT be cut to the
+          // old drawing.
+          <span className="inline-flex items-center rounded-[2px] border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] px-2 py-1 text-[12px] font-semibold tracking-wider text-[var(--color-overdue)]">
             图纸变更 · {revisionLabel(live.revision)}
             {live.note ? (
-              <span className="ml-1 max-w-[120px] truncate font-normal">{live.note}</span>
+              <span className="ml-1.5 max-w-[160px] truncate font-normal">{live.note}</span>
             ) : null}
           </span>
         ) : count > 0 ? (
@@ -69,6 +82,7 @@ export function PartDrawingChange({
           jobId={jobId}
           partId={partId}
           partName={partName}
+          imageUrl={imageUrl}
           changes={changes}
           live={live}
           count={count}
@@ -84,6 +98,7 @@ function DrawingChangeModal({
   jobId,
   partId,
   partName,
+  imageUrl,
   changes,
   live,
   count,
@@ -93,6 +108,7 @@ function DrawingChangeModal({
   jobId: string
   partId: string
   partName: string
+  imageUrl?: string
   changes: Change[]
   live: Change | undefined
   count: number
@@ -161,18 +177,39 @@ function DrawingChangeModal({
         onClick={(e) => e.stopPropagation()}
         className="flex max-h-[80vh] w-full max-w-[460px] flex-col rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-surface)] shadow-xl"
       >
-        <header className="border-b border-[var(--color-border)] px-6 py-4">
-          <p className="label mb-1 text-[var(--color-ink-3)]">图纸变更 · 零件</p>
-          <h2 className="text-[16px] font-semibold tracking-tight text-[var(--color-ink)]">
-            {partName}
-          </h2>
-          <p className="mt-1 text-[12px] text-[var(--color-ink-3)]">
-            {live
-              ? `当前第 ${live.revision} 次变更未处理 · 核对新图纸后再加工`
-              : count > 0
-                ? `共 ${count} 次变更 · 均已处理`
-                : '记录客户改图，逐次留痕，避免照旧图加工'}
-          </p>
+        <header className="flex items-start gap-4 border-b border-[var(--color-border)] px-6 py-4">
+          {/* 零件图 — the photo of the part, so whoever reads the alarm sees
+              WHICH part changed, not just its name. Same proxied-storage <img>
+              the row thumbnail uses. */}
+          <div className="h-[88px] w-[88px] shrink-0 overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+            {imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={proxiedStorageUrl(imageUrl)}
+                alt={partName}
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-contain"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-[10px] tracking-wider text-[var(--color-ink-4)]">
+                无零件图
+              </div>
+            )}
+          </div>
+          <div className="min-w-0">
+            <p className="label mb-1 text-[var(--color-ink-3)]">图纸变更 · 零件</p>
+            <h2 className="text-[16px] font-semibold tracking-tight text-[var(--color-ink)]">
+              {partName}
+            </h2>
+            <p className="mt-1 text-[12px] text-[var(--color-ink-3)]">
+              {live
+                ? `当前第 ${live.revision} 次变更未处理 · 核对新图纸后再加工`
+                : count > 0
+                  ? `共 ${count} 次变更 · 均已处理`
+                  : '记录客户改图，逐次留痕，避免照旧图加工'}
+            </p>
+          </div>
         </header>
 
         {/* History — 一次/二次/三次, newest first. */}
