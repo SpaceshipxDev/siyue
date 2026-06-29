@@ -53,22 +53,10 @@ export function matchedComponents(job: Job, q: string): Component[] {
   return out
 }
 
-export function Highlight({ text, q }: { text: string; q: string }) {
-  const query = q.trim()
-  if (!query) return <>{text}</>
-  const lowerText = text.toLowerCase()
-  const lowerQ = query.toLowerCase()
-  const idx = lowerText.indexOf(lowerQ)
-  if (idx === -1) return <>{text}</>
-  return (
-    <>
-      {text.slice(0, idx)}
-      <mark className="bg-[var(--color-warning-soft)] text-[var(--color-ink)] px-0.5 rounded-[2px]">
-        {text.slice(idx, idx + query.length)}
-      </mark>
-      {text.slice(idx + query.length)}
-    </>
-  )
+// No visual highlight on search matches — plain text. (Yellow mark removed at
+// the founder's request.)
+export function Highlight({ text }: { text: string; q: string }) {
+  return <>{text}</>
 }
 
 // Inline strip rendered inside the product / customer cell when search hit on
@@ -218,7 +206,7 @@ export function SearchInput({
       )}
       {showHint && (
         <div
-          className="absolute left-0 top-[calc(100%+10px)] z-30 whitespace-nowrap text-[11px] leading-none text-[var(--color-ink-4)] pointer-events-none"
+          className="absolute left-0 top-[calc(100%+5px)] z-30 whitespace-nowrap text-[10px] leading-none text-[var(--color-ink-4)] pointer-events-none"
           aria-hidden="true"
         >
           {hint}
