@@ -593,16 +593,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   colgroup. */}
               <col style={{ width: 150 }} />
               {STAGES.map((s) => (
-                <col
-                  key={s}
-                  style={{
-                    width: 90,
-                    background:
-                      s === myStage
-                        ? 'var(--color-warning-soft)'
-                        : undefined,
-                  }}
-                />
+                <col key={s} style={{ width: 90 }} />
               ))}
               <col style={{ width: 160 }} />
               <col style={{ width: 170 }} />
@@ -647,9 +638,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     // .sheet th { overflow:hidden } — same override the master
                     // board uses for its column filters.
                     style={{ overflow: 'visible' }}
-                    className={`relative px-2 py-3 text-center whitespace-nowrap ${
-                      s === myStage ? 'font-semibold text-[var(--color-ink)]' : ''
-                    }`}
+                    className="relative px-2 py-3 text-center whitespace-nowrap"
                   >
                     <span className="inline-flex items-center justify-center gap-1">
                       <StageHeader name={s} />
