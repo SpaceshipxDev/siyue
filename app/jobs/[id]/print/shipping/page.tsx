@@ -119,23 +119,12 @@ export default async function ShippingDocPage(
             }
           />
           <Field
-            label="工程师"
+            label="联系人"
             value={
               <JobShippingText
                 jobId={job.id}
                 field="engineer"
                 value={job.engineer}
-              />
-            }
-          />
-          <Field
-            label="联系人"
-            value={
-              <CustomerText
-                customerId={customer?.id}
-                jobId={job.id}
-                field="contact"
-                value={customer?.contact}
               />
             }
           />
