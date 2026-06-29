@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工单页 · 三个方案</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#fbfbfa;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:900px;margin:0 auto;padding:80px 32px}
+  .eyebrow{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#9a9a98}
+  h1{font-size:34px;font-weight:680;letter-spacing:-.02em;margin-top:10px}
+  p.lead{font-size:16px;color:#6b6b6b;margin-top:12px;max-width:60ch;line-height:1.6}
+  .cards{margin-top:40px;display:grid;gap:14px}
+  a.card{display:flex;align-items:center;gap:20px;text-decoration:none;color:inherit;background:#fff;border:1px solid #ececea;border-radius:6px;padding:22px 24px;transition:transform .1s,box-shadow .2s}
+  a.card:hover{transform:translateY(-2px);box-shadow:0 18px 40px -22px rgba(0,0,0,.18)}
+  .n{font-family:ui-monospace,Menlo,monospace;font-size:14px;color:#9a9a98;width:28px}
+  .c-body{flex:1}
+  .c-body h2{font-size:18px;font-weight:640}
+  .c-body span{font-size:13.5px;color:#6b6b6b}
+  .arrow{color:#c4c4c0;font-size:20px}
+  .swatch{width:54px;height:54px;border-radius:5px;flex:0 0 auto;border:1px solid #ececea}
+  .s1{background:linear-gradient(135deg,#fff,#f4f4f2)}
+  .s2{background:linear-gradient(135deg,#fff 40%,#f8efe1)}
+  .s3{background:linear-gradient(135deg,#161819,#0f1011)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">工单明细 · 重新设计</div>
+  <h1>三个方案</h1>
+  <p class="lead">原页面信息平铺、缺乏层级。三个方案都先回答同一个问题——「这单现在到哪了、是否准时」——再展开细节。Apple 静谧 × 瑞士工业效率。</p>
+  <div class="cards">
+    <a class="card" href="iteration-1-cockpit.html">
+      <div class="swatch s1"></div>
+      <span class="n">01</span>
+      <div class="c-body"><h2>控制台 · Cockpit</h2><span>浅色静谧。进度环 + 交期倒计时主导，一眼看清是否准时。</span></div>
+      <span class="arrow">→</span>
+    </a>
+    <a class="card" href="iteration-2-pipeline.html">
+      <div class="swatch s2"></div>
+      <span class="n">02</span>
+      <div class="c-body"><h2>流水线 · Pipeline</h2><span>左档案 + 右工段流。12 工段即主角，零件在哪一站一目了然。</span></div>
+      <span class="arrow">→</span>
+    </a>
+    <a class="card" href="iteration-3-command.html">
+      <div class="swatch s3"></div>
+      <span class="n">03</span>
+      <div class="c-body"><h2>指挥板 · Command</h2><span>暗色工业。KPI 条 + 工段热力图，整单状态一屏掌控。</span></div>
+      <span class="arrow">→</span>
+    </a>
+  </div>
+</div>
+</body>
+</html>

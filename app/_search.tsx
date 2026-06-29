@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import {
   effectiveStageState,
@@ -21,6 +22,7 @@ export function searchHaystack(j: Job, jobNoOnly: boolean): string {
     parts.push(j.customer, j.product)
     if (j.contractNo) parts.push(j.contractNo)
     if (j.engineer) parts.push(j.engineer)
+    if (j.yuenongBusiness) parts.push(j.yuenongBusiness)
     if (j.notes) parts.push(j.notes)
   }
   for (const c of j.components) {
@@ -173,11 +175,20 @@ export function SearchInput({
   q,
   setQ,
   placeholder,
+  hint,
 }: {
   q: string
   setQ: (s: string) => void
   placeholder: string
+  /** The full searchable-field list, revealed under the field while it's
+   * focused-and-empty. Keeps the placeholder a short teaser while everything
+   * stays discoverable on intent. Omitted ⇒ no hint. */
+  hint?: string
 }) {
+  const [focused, setFocused] = useState(false)
+  // Reveal only while focused AND empty — the moment you type, the hint yields
+  // to the live results, so it never competes with what you're scanning.
+  const showHint = Boolean(hint) && focused && q.trim().length === 0
   return (
     <div className="relative inline-block">
       <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[var(--color-ink-3)] pointer-events-none">
@@ -187,10 +198,12 @@ export function SearchInput({
         type="search"
         value={q}
         onChange={(e) => setQ(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         placeholder={placeholder}
         spellCheck={false}
         autoComplete="off"
-        className="w-[220px] md:w-[300px] h-8 pl-6 pr-6 bg-transparent border-0 border-b border-[var(--color-border-strong)] placeholder:text-[var(--color-ink-3)] focus:outline-none focus:border-[var(--color-ink)] transition-colors"
+        className="w-[220px] md:w-[300px] h-8 pl-6 pr-6 bg-transparent border-0 border-b border-[var(--color-border-strong)] placeholder:text-[var(--color-ink-3)] focus:outline-none focus:border-[var(--color-ink)] transition-colors [&::-webkit-search-cancel-button]:appearance-none"
         style={{ fontSize: '14px' }}
       />
       {q && (
@@ -202,6 +215,14 @@ export function SearchInput({
         >
           <ClearIcon />
         </button>
+      )}
+      {showHint && (
+        <div
+          className="absolute left-0 top-[calc(100%+5px)] z-30 whitespace-nowrap pl-6 text-[11px] leading-none text-[var(--color-ink-4)] pointer-events-none"
+          aria-hidden="true"
+        >
+          {hint}
+        </div>
       )}
     </div>
   )
@@ -233,8 +254,8 @@ function SearchIcon() {
 function ClearIcon() {
   return (
     <svg
-      width="10"
-      height="10"
+      width="13"
+      height="13"
       viewBox="0 0 12 12"
       fill="none"
       aria-hidden="true"

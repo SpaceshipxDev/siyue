@@ -1,5 +1,5 @@
 import { notFound, redirect } from 'next/navigation'
-import { getJob, parseJobNoConflictError } from '@/lib/db'
+import { findJobNoConflict, getJob, parseJobNoConflictError } from '@/lib/db'
 import {
   canEditProductionFields,
   landingPathFor,
@@ -26,6 +26,7 @@ import {
   AddComponentButton,
   ConfirmImportButton,
   DeleteComponentButton,
+  ImportJobNoField,
 } from '@/app/_import_actions'
 import { ParsingPoller } from '@/app/_import_status'
 import { SourceFileRow } from '@/app/_source_file'
@@ -59,6 +60,16 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
   }
 
   const withImage = job.components.filter((c) => c.imageUrl).length
+
+  // 工号 duplicate guard for the draft editor. The parse no longer hard-fails
+  // on a collision (see fillParsedJob) — instead a live (`ready`) order sharing
+  // this 工号 is surfaced as a red caution on the 工号 field and blocks 确认导入
+  // until the operator renames it. Stale `draft` collisions are auto-resolved
+  // upstream, so only a `ready` match is blocking here; confirmJob is the
+  // server-side backstop. Recomputed on every render, so a router.refresh()
+  // after a 工号 edit clears the gate the instant it's renamed to a free number.
+  const rawConflict = await findJobNoConflict(job.jobNo, job.id)
+  const jobNoConflict = rawConflict?.status === 'ready' ? rawConflict : null
 
   return (
     <div className="flex-1 flex flex-col">
@@ -114,13 +125,11 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
           </div>
           <div className="col-span-1 md:col-span-2">
             <p className="label mb-2">工号</p>
-            <JobText
+            <ImportJobNoField
               jobId={job.id}
-              field="jobNo"
               value={job.jobNo}
-              mono
+              conflict={jobNoConflict}
               className="text-[15px] text-[var(--color-ink)]"
-              placeholder="工号"
             />
           </div>
           <div className="col-span-2 md:col-span-3">
@@ -256,7 +265,7 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
           <span className="label text-[var(--color-ink-3)]">
             确认后工单进入主看板 · 选「发往工段」可直接送入指定工段队列
           </span>
-          <ConfirmImportButton jobId={job.id} />
+          <ConfirmImportButton jobId={job.id} conflict={jobNoConflict} />
         </div>
       </main>
     </div>

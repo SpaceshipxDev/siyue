@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { requireOutsourceManager } from '@/lib/auth'
 import { ensureOutsourceDocNo, getOutsourceBlock, getVendors } from '@/lib/db'
+import { contentDisposition } from '@/lib/content-disposition'
 import { fetchImages } from '@/lib/pdf/images'
 import { OutsourceDocPDF } from '@/lib/pdf/outsource'
 
@@ -49,7 +50,7 @@ export async function GET(
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `inline; filename="outsource-${docNo}.pdf"`,
+      'Content-Disposition': contentDisposition(`outsource-${docNo}.pdf`),
       'Cache-Control': 'no-store',
     },
   })

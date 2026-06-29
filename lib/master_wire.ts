@@ -67,6 +67,9 @@ export type CompactMasterRow = [
   moneyStatus: WireValue<OrderMoneyStatus>,
   outstandingCny: WireValue<number>,
   overdueDays: WireValue<number>,
+  // 越侬商务 — appended last so adding it never reshuffles the positional
+  // indices above. Customer-facing → null when scrubbed for production.
+  yuenongBusiness: WireValue<string>,
 ]
 
 function canSeeCustomerData(scope: Scope): boolean {
@@ -85,6 +88,7 @@ function scrubForWire(row: MasterRow, scope: Scope): MasterRow {
     ...row,
     customer: customerOk ? row.customer : '',
     engineer: customerOk ? row.engineer : undefined,
+    yuenongBusiness: customerOk ? row.yuenongBusiness : undefined,
     amountCny: moneyOk ? row.amountCny : undefined,
     externalSpendCny: moneyOk ? row.externalSpendCny : 0,
     marginCny: moneyOk ? row.marginCny : undefined,
@@ -180,6 +184,7 @@ export function toMasterWireRows(rows: MasterRow[], scope: Scope): CompactMaster
       r.moneyStatus ?? null,
       r.outstandingCny ?? null,
       r.overdueDays ?? null,
+      r.yuenongBusiness ?? null,
     ]
   })
 }
@@ -225,6 +230,7 @@ export function expandMasterWireRows(rows: CompactMasterRow[]): MasterRow[] {
       moneyStatus: r[30] ?? undefined,
       outstandingCny: r[31] ?? undefined,
       overdueDays: r[32] ?? undefined,
+      yuenongBusiness: r[33] ?? undefined,
     }
   })
 }

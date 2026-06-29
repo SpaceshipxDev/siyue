@@ -8,6 +8,7 @@ import {
   upsertCustomerByName,
 } from '@/lib/db'
 import { customerById } from '@/lib/data'
+import { contentDisposition } from '@/lib/content-disposition'
 import { fetchImages } from '@/lib/pdf/images'
 import { ShippingDocPDF } from '@/lib/pdf/shipping'
 
@@ -58,7 +59,7 @@ export async function GET(
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `inline; filename="shipping-${docNo}.pdf"`,
+      'Content-Disposition': contentDisposition(`shipping-${docNo}.pdf`),
       'Cache-Control': 'no-store',
     },
   })

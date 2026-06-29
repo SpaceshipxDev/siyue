@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工单明细 · 零件状态矩阵</title>
+<style>
+  :root{
+    --bg:#fbfbfa; --ink:#1a1a1a; --ink-2:#666; --ink-3:#9a9a98;
+    --line:#ececea; --line-2:#e2e2df; --card:#fff;
+    --done:#1f9d63; --done-bg:#e9f6ef;
+    --prog:#c2761a; --prog-bg:#fbf0e1;
+    --out:#2f6db0;  --out-bg:#e9f1fa;
+    --bad:#c0433f;  --bad-bg:#fbeceb;
+    --pend:#b6b6b3;
+    --frozen:#fcfcfb;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;font-feature-settings:"tnum"}
+  .mono{font-family:ui-monospace,"SF Mono","JetBrains Mono",Menlo,monospace}
+  .wrap{max-width:1480px;margin:0 auto;padding:0 24px}
+
+  /* top bar */
+  .top{position:sticky;top:0;z-index:40;background:rgba(251,251,250,.85);backdrop-filter:saturate(180%) blur(18px);border-bottom:1px solid var(--line)}
+  .top .r{display:flex;align-items:center;justify-content:space-between;height:52px;max-width:1480px;margin:0 auto;padding:0 24px}
+  .top .l{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--ink-2)}
+  .top .l b{color:var(--ink);font-weight:700}
+  .top .l .id{font-family:ui-monospace,Menlo,monospace;color:var(--ink-3);font-size:12px}
+  .top .right{display:flex;align-items:center;gap:16px;font-size:12.5px;color:var(--ink-2)}
+  .av{width:25px;height:25px;border-radius:2px;background:#1a1a1a;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:600}
+
+  /* nav tabs (role views) */
+  .nav{background:var(--card);border-bottom:1px solid var(--line)}
+  .nav .sc{display:flex;overflow-x:auto;max-width:1480px;margin:0 auto;padding:0 24px;scrollbar-width:none}
+  .nav .sc::-webkit-scrollbar{display:none}
+  .nav a{flex:0 0 auto;padding:11px 13px;font-size:13px;color:var(--ink-3);white-space:nowrap;text-decoration:none;position:relative}
+  .nav a.on{color:var(--ink);font-weight:600}
+  .nav a.on:after{content:"";position:absolute;left:13px;right:13px;bottom:-1px;height:2px;background:var(--ink)}
+
+  /* header band */
+  .band{padding:18px 0 16px;display:flex;align-items:flex-start;justify-content:space-between;gap:32px;border-bottom:1px solid var(--line)}
+  .band .who{font-size:12px;color:var(--ink-3)}
+  .band h1{font-size:27px;font-weight:680;letter-spacing:-.01em;margin-top:5px;display:flex;align-items:center;gap:10px}
+  .phase{font-size:11px;font-weight:700;color:var(--prog);background:var(--prog-bg);border-radius:2px;padding:2px 7px}
+  .band .meta{display:flex;gap:26px;margin-top:12px}
+  .band .meta .m .k{font-size:11px;color:var(--ink-3)}
+  .band .meta .m .v{font-size:13.5px;font-weight:560;margin-top:2px}
+  .stat{display:flex;align-items:center;gap:24px;flex:0 0 auto}
+  .ring{position:relative;width:72px;height:72px}
+  .ring svg{transform:rotate(-90deg)}
+  .ring .t{position:absolute;inset:0;display:grid;place-items:center}
+  .ring .t b{font-size:17px;font-weight:700}
+  .due .k{font-size:11px;color:var(--ink-3)}
+  .due .d{font-size:20px;font-weight:660;font-family:ui-monospace,Menlo,monospace;margin-top:2px}
+  .due .rem{font-size:12px;color:var(--prog);font-weight:600;margin-top:1px}
+  .acts{display:flex;gap:7px;margin-top:2px}
+  .btn{font-size:12.5px;font-weight:550;padding:8px 12px;border-radius:3px;border:1px solid var(--line-2);background:#fff;cursor:pointer}
+  .btn.dark{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
+
+  /* delivery note */
+  .note{margin:14px 0 0;background:#fdf8ee;border:1px solid #efe2c6;border-radius:3px;padding:10px 14px;font-size:13px;color:#7a591b;display:flex;gap:9px;align-items:center}
+  .note b{color:#5a3f0e}
+
+  /* sub tabs */
+  .subtabs{display:flex;gap:4px;margin:18px 0 0;border-bottom:1px solid var(--line)}
+  .subtabs a{font-size:14px;font-weight:560;color:var(--ink-3);padding:9px 4px;margin-right:18px;text-decoration:none;position:relative}
+  .subtabs a.on{color:var(--ink)}
+  .subtabs a.on:after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink)}
+
+  /* matrix */
+  .mxhead{display:flex;align-items:baseline;justify-content:space-between;margin:18px 0 10px}
+  .mxhead h2{font-size:15px;font-weight:640}
+  .legend{display:flex;gap:14px;font-size:11.5px;color:var(--ink-3);align-items:center;flex-wrap:wrap}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle;border:1px solid rgba(0,0,0,.06)}
+  .lg-done i{background:var(--done-bg);border-color:var(--done)} .lg-prog i{background:var(--prog-bg);border-color:var(--prog)}
+  .lg-pend i{background:#fff;border-color:var(--pend)} .lg-out i{background:var(--out-bg);border-color:var(--out)}
+  .lg-bad i{background:var(--bad-bg);border-color:var(--bad)} .lg-na i{background:#f3f3f1;border-color:#e0e0dd}
+
+  .scroller{overflow-x:auto;border:1px solid var(--line);border-radius:5px;background:#fff;box-shadow:0 12px 30px -20px rgba(0,0,0,.12)}
+  table{border-collapse:separate;border-spacing:0;width:100%}
+  thead th{font-size:11px;font-weight:600;color:var(--ink-3);text-align:center;padding:9px 4px;background:#fafaf8;border-bottom:1px solid var(--line-2);white-space:nowrap;position:sticky;top:0;z-index:5}
+  thead th.lft{text-align:left;padding-left:14px}
+  /* frozen identity columns */
+  .fz{position:sticky;background:var(--frozen);z-index:6}
+  th.fz{z-index:8}
+  .c-idx{left:0;width:38px;min-width:38px}
+  .c-img{left:38px;width:52px;min-width:52px}
+  .c-part{left:90px;width:208px;min-width:208px;box-shadow:1px 0 0 var(--line-2)}
+  tbody td{border-bottom:1px solid var(--line);font-size:13px;padding:0;height:62px;vertical-align:middle}
+  tbody tr:hover td{background:#fcfcfa}
+  tbody tr:hover .fz{background:#fbfbf9}
+
+  .idx{text-align:center;color:var(--ink-3);font-family:ui-monospace,Menlo,monospace;font-size:11px}
+  .thumb{width:40px;height:32px;margin:0 auto;border-radius:2px;background:#f1f1ee;border:1px solid var(--line-2);display:grid;place-items:center;color:#c2c2be;font-size:8px}
+  .pcell{padding:8px 12px 8px 14px}
+  .pname{font-weight:600;font-size:13.5px}
+  .pmeta{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+  .pmeta .lk{color:var(--out)}
+
+  /* stage cell */
+  td.cell{width:64px;min-width:64px;text-align:center;border-left:1px solid #f4f4f2;cursor:pointer}
+  .cell .box{height:62px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;position:relative}
+  .cell .ic{font-size:13px;line-height:1}
+  .cell .dt{font-size:10px;font-family:ui-monospace,Menlo,monospace}
+  .cell.na .box{color:#d2d2cf}
+  .cell.pend .ic{color:var(--pend)}
+  .cell.pend.next .box{box-shadow:inset 0 0 0 2px #dcdcd8;border-radius:3px;margin:6px 8px}
+  .cell.done .box{background:var(--done-bg);color:var(--done)}
+  .cell.done .ic{font-weight:700}
+  .cell.prog .box{background:var(--prog-bg);color:var(--prog)}
+  .cell.prog .qty{font-size:10px;font-weight:700}
+  .cell.out .box{background:var(--out-bg);color:var(--out)}
+  .cell.out .q{font-size:11px;font-weight:700}
+  .cell.out .ret{font-size:9px;opacity:.8}
+  .cell.bad .box{background:var(--bad-bg);color:var(--bad)}
+  .cell.bad .v{font-size:11px;font-weight:700}
+  .cell .pulse{position:absolute;top:8px;right:12px;width:5px;height:5px;border-radius:50%;background:var(--prog)}
+
+  /* right meta cols */
+  td.dyn,td.rmk{padding:8px 12px;font-size:12px;border-left:1px solid #f4f4f2;min-width:150px}
+  td.money{text-align:right;padding:8px 14px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;border-left:1px solid #f4f4f2;min-width:90px}
+  .dyn .actor{font-weight:600;font-size:12px}
+  .dyn .what{color:var(--ink-3);font-size:11px;margin-top:1px}
+  .dyn .tm{color:var(--ink-3);font-family:ui-monospace,Menlo,monospace;font-size:10.5px;margin-top:1px}
+  .rmk{color:var(--ink-2);line-height:1.4}
+  .ghost{color:var(--ink-3)}
+  footer{padding:22px 0 60px;color:var(--ink-3);font-size:12px}
+</style>
+</head>
+<body>
+
+<div class="top"><div class="r">
+  <div class="l"><b>思跃</b><span>工单明细</span><span class="id">YNMX-26-6-12-143</span></div>
+  <div class="right"><span class="mono">2026-06-21</span><span>HARRY · 越侬商务</span><span class="av">H</span></div>
+</div></div>
+
+<div class="nav"><div class="sc">
+  <a href="#" class="on">商务</a><a>重点</a><a>现场</a><a>交接</a><a>采购</a><a>报功</a><a>月结</a><a>财务</a><a>外协</a>
+  <a>工程</a><a>编程</a><a>操机</a><a>检验</a><a>手工</a><a>打磨</a><a>喷漆</a><a>丝印</a><a>质量</a><a>出货</a><a>退货</a>
+</div></div>
+
+<div class="wrap">
+
+  <div class="band">
+    <div>
+      <div class="who">海康机器人 · 蔡奇正</div>
+      <h1>hsr50-xb-sk <span class="phase">中期</span></h1>
+      <div class="meta">
+        <div class="m"><div class="k">工号</div><div class="v mono">YNMX-26-6-12-143</div></div>
+        <div class="m"><div class="k">零件 / 数量</div><div class="v">4 项 · 40 件</div></div>
+        <div class="m"><div class="k">合同号</div><div class="v ghost">—</div></div>
+        <div class="m"><div class="k">源文件</div><div class="v" style="font-size:12.5px">…143.xlsx ↓</div></div>
+      </div>
+    </div>
+    <div class="stat">
+      <div class="ring">
+        <svg width="72" height="72" viewBox="0 0 72 72">
+          <circle cx="36" cy="36" r="31" fill="none" stroke="#ececea" stroke-width="7"/>
+          <circle cx="36" cy="36" r="31" fill="none" stroke="#c2761a" stroke-width="7" stroke-linecap="round" stroke-dasharray="195" stroke-dashoffset="130"/>
+        </svg>
+        <div class="t"><b>33%</b></div>
+      </div>
+      <div class="due">
+        <div class="k">交期</div>
+        <div class="d">07-06</div>
+        <div class="rem">剩 15 天 · 10/30 工段</div>
+        <div class="acts" style="margin-top:10px">
+          <button class="btn dark">制作出货单</button>
+          <button class="btn">工艺卡</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note"><span>⚑</span><div><b>交付要求：</b>6/28 前交付 4 套；后续 4 套可在 7/5 前交付，逾期订单取消。</div></div>
+
+  <div class="subtabs"><a href="#" class="on">零件</a><a>外协</a><a>财务</a></div>
+
+  <div class="mxhead">
+    <h2>零件状态矩阵</h2>
+    <div class="legend">
+      <span class="lg-done"><i></i>完成</span>
+      <span class="lg-prog"><i></i>进行中</span>
+      <span class="lg-pend"><i></i>待开始</span>
+      <span class="lg-out"><i></i>外协在外</span>
+      <span class="lg-bad"><i></i>检验返工</span>
+      <span class="lg-na"><i></i>不经此段</span>
+      <span style="margin-left:8px">点 ▶ 起步 · 点 ● 收件 · 可撤销</span>
+    </div>
+  </div>
+
+  <div class="scroller">
+    <table>
+      <thead><tr>
+        <th class="fz c-idx">#</th>
+        <th class="fz c-img"></th>
+        <th class="fz c-part lft">零件</th>
+        <th>工程</th><th>编程</th><th>操机</th><th>检验</th><th>手工</th><th>打磨</th><th>喷漆</th><th>丝印</th><th>质量</th><th>出货</th>
+        <th class="lft" style="padding-left:12px">动态</th>
+        <th class="lft" style="padding-left:12px">备注</th>
+        <th>单价</th><th>小计</th>
+      </tr></thead>
+      <tbody>
+
+        <!-- Part 1: hsr50-xb-sk · full route · 工程 done, 编程 in progress -->
+        <tr>
+          <td class="fz c-idx idx">01</td>
+          <td class="fz c-img"><div class="thumb">IMG</div></td>
+          <td class="fz c-part pcell"><div class="pname">hsr50-xb-sk</div><div class="pmeta">塑胶 · 按要求 · 8件 · <span class="lk">检验报告 ↗</span></div></td>
+          <td class="cell done"><div class="box"><span class="ic">✓</span><span class="dt">06-20</span></div></td>
+          <td class="cell prog"><div class="box"><span class="pulse"></span><span class="ic">●</span><span class="qty">进行中</span></div></td>
+          <td class="cell pend next"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="cell pend"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="cell pend"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="cell pend"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="cell pend"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="cell pend"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="cell pend"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="cell pend"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="dyn"><div class="actor">HARRY</div><div class="what">起步 · 编程</div><div class="tm">06-20 09:14</div></td>
+          <td class="rmk ghost">—</td>
+          <td class="money ghost">—</td><td class="money ghost">—</td>
+        </tr>
+
+        <!-- Part 2: 底座 · short route (skips 手工打磨喷漆丝印) · 操机 partial 5/8 -->
+        <tr>
+          <td class="fz c-idx idx">02</td>
+          <td class="fz c-img"><div class="thumb">IMG</div></td>
+          <td class="fz c-part pcell"><div class="pname">hsr50-base-01 底座</div><div class="pmeta">6061铝 · 阳极氧化 · 8件</div></td>
+          <td class="cell done"><div class="box"><span class="ic">✓</span><span class="dt">06-19</span></div></td>
+          <td class="cell done"><div class="box"><span class="ic">✓</span><span class="dt">06-20</span></div></td>
+          <td class="cell prog"><div class="box"><span class="pulse"></span><span class="ic">●</span><span class="qty">5/8</span></div></td>
+          <td class="cell pend next"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="cell na"><div class="box">—</div></td>
+          <td class="cell na"><div class="box">—</div></td>
+          <td class="cell na"><div class="box">—</div></td>
+          <td class="cell na"><div class="box">—</div></td>
+          <td class="cell pend"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="cell pend"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="dyn"><div class="actor">阿强</div><div class="what">收件 · 操机 5/8</div><div class="tm">06-20 14:02</div></td>
+          <td class="rmk">先做 5 件试装</td>
+          <td class="money ghost">—</td><td class="money ghost">—</td>
+        </tr>
+
+        <!-- Part 3: 端盖 · 喷漆 outsourced (在外) -->
+        <tr>
+          <td class="fz c-idx idx">03</td>
+          <td class="fz c-img"><div class="thumb">IMG</div></td>
+          <td class="fz c-part pcell"><div class="pname">hsr50-cover-02 端盖</div><div class="pmeta">ABS · 喷漆哑黑 · 16件</div></td>
+          <td class="cell done"><div class="box"><span class="ic">✓</span><span class="dt">06-18</span></div></td>
+          <td class="cell done"><div class="box"><span class="ic">✓</span><span class="dt">06-18</span></div></td>
+          <td class="cell done"><div class="box"><span class="ic">✓</span><span class="dt">06-19</span></div></td>
+          <td class="cell done"><div class="box"><span class="ic">✓</span><span class="dt">OK</span></div></td>
+          <td class="cell na"><div class="box">—</div></td>
+          <td class="cell na"><div class="box">—</div></td>
+          <td class="cell out"><div class="box"><span class="q">在外16</span><span class="ret">回06-30</span></div></td>
+          <td class="cell na"><div class="box">—</div></td>
+          <td class="cell pend"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="cell pend"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="dyn"><div class="actor">明辉模具</div><div class="what">外发喷漆 · 在外 16</div><div class="tm">06-20 11:30</div></td>
+          <td class="rmk ghost">—</td>
+          <td class="money ghost">—</td><td class="money ghost">—</td>
+        </tr>
+
+        <!-- Part 4: 滑块 · 检验 返修 (bad verdict, held) -->
+        <tr>
+          <td class="fz c-idx idx">04</td>
+          <td class="fz c-img"><div class="thumb">IMG</div></td>
+          <td class="fz c-part pcell"><div class="pname">hsr50-slide-03 滑块</div><div class="pmeta">SUS304 · 8件 · <span style="color:var(--bad);font-weight:600">返修中</span></div></td>
+          <td class="cell done"><div class="box"><span class="ic">✓</span><span class="dt">06-18</span></div></td>
+          <td class="cell done"><div class="box"><span class="ic">✓</span><span class="dt">06-19</span></div></td>
+          <td class="cell done"><div class="box"><span class="ic">✓</span><span class="dt">06-20</span></div></td>
+          <td class="cell bad"><div class="box"><span class="v">返修</span><span class="dt">06-20</span></div></td>
+          <td class="cell pend"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="cell na"><div class="box">—</div></td>
+          <td class="cell na"><div class="box">—</div></td>
+          <td class="cell na"><div class="box">—</div></td>
+          <td class="cell pend"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="cell pend"><div class="box"><span class="ic">▶</span></div></td>
+          <td class="dyn"><div class="actor">质检-李</div><div class="what" style="color:var(--bad)">检验 返修 · 尺寸超差</div><div class="tm">06-20 16:30</div></td>
+          <td class="rmk">责任：操机 · 重新加工 3 件</td>
+          <td class="money ghost">—</td><td class="money ghost">—</td>
+        </tr>
+
+      </tbody>
+    </table>
+  </div>
+
+  <footer>重设计 · 零件状态矩阵 — 行=零件，列=10 道工段，格=可点状态（▶起步/●进行/✓完成/在外/返修）。这才是产品本体。</footer>
+</div>
+</body>
+</html>

@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { requireUser } from '@/lib/auth'
 import { getInspectionReport, getJob } from '@/lib/db'
+import { contentDisposition } from '@/lib/content-disposition'
 import { emptyReport } from '@/lib/inspection-report'
 import { InspectionReportPDF } from '@/lib/pdf/inspection'
 
@@ -43,7 +44,7 @@ export async function GET(
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `inline; filename="${encodeURIComponent(fileName)}"`,
+      'Content-Disposition': contentDisposition(fileName),
       'Cache-Control': 'no-store',
     },
   })

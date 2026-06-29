@@ -263,6 +263,7 @@ export function StationWorkbench({
           q={q}
           setQ={setQ}
           placeholder={searchPlaceholder(jobNoOnly)}
+          hint={searchHint(jobNoOnly)}
         />
         <SortBar
           sortMode={sortMode}
@@ -675,7 +676,15 @@ function EmptyState({
 }
 
 function searchPlaceholder(jobNoOnly: boolean): string {
-  return jobNoOnly ? '搜索 · 工号 / 零件 / 料号' : '搜索 · 工号 / 客户 / 产品 / 零件 / 合同号 / 料号'
+  // Short teaser; full set revealed on focus via searchHint. Mirrors
+  // _master_filter.tsx (kept duplicated to match the existing pattern).
+  return jobNoOnly ? '搜索 · 工号 / 零件 / 料号' : '搜索 · 工号 / 客户 / 零件 / 人名'
+}
+
+function searchHint(jobNoOnly: boolean): string {
+  return jobNoOnly
+    ? '可搜 · 工号 · 零件 · 料号'
+    : '可搜 · 工号 · 客户 · 产品 · 零件 · 合同号 · 料号 · 客户工程师 · 越侬商务'
 }
 
 // Inline range filter. Idle = chip "📅 交期"; click expands to a preset row

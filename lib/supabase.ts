@@ -14,9 +14,17 @@ function getClient(): SupabaseClient {
       'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.',
     )
   }
+  // Schema is env-driven so a de-identified DEMO build can run against an
+  // isolated `demo` schema IN THE SAME project — every table/function/trigger
+  // mirrored there, the real `public` data untouched. Production sets nothing
+  // → 'public', byte-for-byte as before.
+  const schema = process.env.SUPABASE_DB_SCHEMA || 'public'
   cached = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
-    db: { schema: 'public' },
+    // The client's schema generic is pinned to 'public' at the type level; the
+    // cast lets a demo build target an alternate schema at runtime (supabase-js
+    // just sends it as the Accept-Profile header) without widening every call.
+    db: { schema: schema as 'public' },
   })
   return cached
 }

@@ -18,7 +18,11 @@ import { getUserById } from '@/lib/db'
 // /join is the public "Afterlight" creator waitlist landing — no session
 // required, and its server action (joinWaitlist) POSTs back to /join, so the
 // path must stay open to unauthenticated visitors.
-const PUBLIC_PATHS = ['/login', '/join']
+// '/caiwu-lab' is a temporary, DB-free finance-redesign preview (mock data
+// only, no writes to real tables). Public so it opens without login while we
+// pick a winner — REMOVE this entry when the chosen design is promoted into
+// /finance. See app/caiwu-lab/.
+const PUBLIC_PATHS = ['/login', '/join', '/caiwu-lab']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only

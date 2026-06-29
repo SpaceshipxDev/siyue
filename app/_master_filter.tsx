@@ -31,6 +31,13 @@ import { JobNotesInline } from './_editable'
 import { ReturnChip } from './_returns'
 import { TypeChip, useOptimisticJobType } from './_type_chip'
 import { SearchInput } from './_search'
+import { BRAND } from '@/lib/brand'
+import {
+  CaretIcon,
+  FilterMenuRow,
+  FunnelIcon,
+  type StatusTone,
+} from './_status_filter'
 import { ExportExcelButton } from './_export_excel'
 import { usePersistentState } from './_persist'
 import { StickyHorizontalScrollbar } from './_sticky_hscroll'
@@ -693,6 +700,7 @@ export function MasterSheet({
           q={q}
           setQ={setQ}
           placeholder={searchPlaceholder(jobNoOnly)}
+          hint={searchHint(jobNoOnly)}
         />
         <SortBar
           sortMode={sortMode}
@@ -1017,7 +1025,19 @@ export function MasterSheet({
 }
 
 function searchPlaceholder(jobNoOnly: boolean): string {
-  return jobNoOnly ? '搜索 · 工号 / 零件 / 料号' : '搜索 · 工号 / 客户 / 产品 / 零件 / 合同号 / 料号'
+  // Short teaser — names the few things people reach for most, plus 人名 as the
+  // umbrella for both 客户工程师 and 越侬商务. The full set lives in searchHint,
+  // revealed on focus, so the field never grows into a laundry list.
+  return jobNoOnly ? '搜索 · 工号 / 零件 / 料号' : '搜索 · 工号 / 客户 / 零件 / 人名'
+}
+
+// The complete searchable-field set, revealed under the field while it's
+// focused-and-empty. Keeps every field discoverable without bloating the
+// placeholder — including the two people the omnibox now matches.
+function searchHint(jobNoOnly: boolean): string {
+  return jobNoOnly
+    ? '可搜 · 工号 · 零件 · 料号'
+    : '可搜 · 工号 · 客户 · 产品 · 零件 · 合同号 · 料号 · 客户工程师 · 越侬商务'
 }
 
 // Two text buttons, no container, no fill — just typography. Active label
@@ -1181,89 +1201,8 @@ function HeaderFilter({
   )
 }
 
-type StatusTone = 'pending' | 'warning' | 'success' | 'overdue' | 'info'
-
-const STATUS_TONE_VAR: Record<StatusTone, string> = {
-  pending: 'var(--color-ink-3)',
-  warning: 'var(--color-warning)',
-  success: 'var(--color-success)',
-  overdue: 'var(--color-overdue)',
-  info: 'var(--color-info)',
-}
-
-// One row in a column's filter menu: a tone dot, the label, and the live count
-// pinned right. Active row goes ink + semibold with a check.
-function FilterMenuRow({
-  label,
-  count,
-  tone,
-  active,
-  onClick,
-}: {
-  label: string
-  count: number
-  tone?: StatusTone
-  active: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      role="option"
-      aria-selected={active}
-      onClick={onClick}
-      className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-[13px] normal-case tracking-normal transition-colors hover:bg-[var(--color-bg)] ${
-        active
-          ? 'font-semibold text-[var(--color-ink)]'
-          : 'text-[var(--color-ink-2)]'
-      }`}
-    >
-      <span
-        aria-hidden="true"
-        className="inline-block h-1.5 w-1.5 shrink-0 rounded-[2px]"
-        style={{ background: tone ? STATUS_TONE_VAR[tone] : 'var(--color-ink-4)' }}
-      />
-      <span className="flex-1 text-left">{label}</span>
-      <span
-        className={`mono text-[11px] tabular-nums ${
-          active ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-4)]'
-        }`}
-      >
-        {count}
-      </span>
-      <span
-        className={`w-2 text-[10px] ${active ? 'text-[var(--color-ink)]' : 'text-transparent'}`}
-        aria-hidden="true"
-      >
-        ✓
-      </span>
-    </button>
-  )
-}
-
-// Idle trigger — a quiet downward caret, the universal "open a filter here".
-function CaretIcon() {
-  return (
-    <svg width="9" height="9" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-      <path
-        d="M2 3.5 L5 6.5 L8 3.5"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-// Active trigger — a filled funnel, the spreadsheet "this column is filtered".
-function FunnelIcon() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-      <path d="M1.5 2 H10.5 L7 6.2 V9.5 L5 10.5 V6.2 Z" />
-    </svg>
-  )
-}
+// StatusTone, STATUS_TONE_VAR, FilterMenuRow, CaretIcon, FunnelIcon now live in
+// ./_status_filter so the in-job part filter shares the exact same primitives.
 
 // 收款 column funnel — the twin of HeaderFilter, but slicing by money state
 // instead of work state. This is the "dedicated 财务 view" the boss asked for:
@@ -1555,6 +1494,18 @@ function JobRow({
           >
             <Highlight text={isProduction ? row.product : row.engineer || '—'} q={q} />
           </span>
+          {/* 越侬商务 — OUR salesperson. Shown only when the active query is why
+              this row matched (the name contains the query), so it explains the
+              hit without adding a line to every row on the default board. */}
+          {!isProduction &&
+          q.trim() &&
+          row.yuenongBusiness &&
+          row.yuenongBusiness.toLowerCase().includes(q.trim().toLowerCase()) ? (
+            <span className="label mt-0.5 normal-case tracking-normal text-[11px] text-[var(--color-ink-3)]">
+              <span className="text-[var(--color-ink-4)]">{BRAND.commerceLabel} · </span>
+              <Highlight text={row.yuenongBusiness} q={q} />
+            </span>
+          ) : null}
           {/* 订单备注 — third faint line, commerce only ("公司名称 / 联系人 /
               订单备注" from the floor's dashboard feedback). */}
           {!isProduction && row.notes ? (

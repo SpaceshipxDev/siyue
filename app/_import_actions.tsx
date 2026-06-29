@@ -6,6 +6,17 @@ import { useRouter } from 'next/navigation'
 import { STAGES, type Stage, type JobStatus } from '@/lib/data'
 import { confirmJobAction } from './actions'
 import { mutate } from '@/lib/mutate'
+import { EditableText } from './_editable'
+
+// Shared shape for a 工号 (job number) collision — a live/draft order already
+// holding the number this draft wants. Mirrors lib/db's JobNoConflict, kept
+// local so this client bundle never imports the server-only db module.
+type JobNoConflict = {
+  id: string
+  jobNo: string
+  customer: string
+  status: JobStatus
+}
 
 // Two-step deliberate confirm:
 //   1. Optionally click "→ 发往工段" to expose the station chips, then tap the
@@ -19,18 +30,26 @@ import { mutate } from '@/lib/mutate'
 // are flipped to `done` (not deleted) — upstream stages render ✓ on the
 // rollup so it's clear they were skipped, not absent. Without a chosen
 // station, a plain confirm runs the standard pipeline from 编程.
-export function ConfirmImportButton({ jobId }: { jobId: string }) {
+export function ConfirmImportButton({
+  jobId,
+  conflict,
+}: {
+  jobId: string
+  // Server-computed 工号 collision. When set, 确认导入 is disabled — the user
+  // must rename the 工号 (which router.refresh()es this prop away) before the
+  // draft can enter the board. The page renders the actual caution on the 工号
+  // field; here we only gate the button + explain why.
+  conflict?: JobNoConflict | null
+}) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<Stage | undefined>(undefined)
-  const [conflict, setConflict] = useState<
-    { id: string; jobNo: string; customer: string; status: JobStatus } | null
-  >(null)
   const [error, setError] = useState<string | null>(null)
 
+  const blocked = Boolean(conflict)
+
   const submit = () => {
-    setConflict(null)
     setError(null)
     start(async () => {
       const result = await confirmJobAction(jobId, selected)
@@ -39,7 +58,10 @@ export function ConfirmImportButton({ jobId }: { jobId: string }) {
         return
       }
       if ('conflict' in result) {
-        setConflict(result.conflict)
+        // Lost a race — the 工号 got taken between page load and this confirm.
+        // Refresh so the page recomputes the conflict, lighting up the 工号
+        // caution and disabling this button.
+        router.refresh()
         return
       }
       setError(result.error)
@@ -94,9 +116,10 @@ export function ConfirmImportButton({ jobId }: { jobId: string }) {
       )}
       <button
         type="button"
-        disabled={pending}
+        disabled={pending || blocked}
         onClick={submit}
-        className="px-4 py-2 text-[13px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80 disabled:opacity-50"
+        title={blocked ? '工号重复，请先修改工号' : undefined}
+        className="px-4 py-2 text-[13px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {pending
           ? '导入中…'
@@ -105,28 +128,80 @@ export function ConfirmImportButton({ jobId }: { jobId: string }) {
             : '确认导入'}
       </button>
       </div>
+      {blocked ? (
+        <p className="text-[12px] text-[var(--color-overdue)]">
+          工号重复 · 请先修改上方工号再导入
+        </p>
+      ) : error ? (
+        <p className="text-[12px] text-[var(--color-overdue)]">{error}</p>
+      ) : null}
+    </div>
+  )
+}
+
+// The 工号 field on the import review page. Same inline editor used everywhere
+// else, but it (a) flags a red caution when the parsed 工号 collides with a
+// live order and (b) re-runs the server-side duplicate check on every commit
+// via router.refresh(), so the caution + 确认导入 gate clear the instant the
+// operator renames it to a free number.
+export function ImportJobNoField({
+  jobId,
+  value,
+  conflict,
+  className,
+}: {
+  jobId: string
+  value: string
+  conflict: JobNoConflict | null
+  className?: string
+}) {
+  const router = useRouter()
+  return (
+    <div>
+      <EditableText
+        value={value}
+        mono
+        placeholder="工号"
+        className={
+          conflict ? `${className ?? ''} text-[var(--color-overdue)]` : className
+        }
+        onSave={async (v) => {
+          try {
+            await mutate({ kind: 'updateJob', jobId, patch: { jobNo: v } })
+          } catch (e) {
+            // updateJob rejects a rename INTO another taken 工号 with the
+            // DUP_JOBNO sentinel — translate it to a readable toast rather than
+            // leaking the wire format. (Renaming to a free 工号 is the normal
+            // fix path and never throws.)
+            if (e instanceof Error && e.message.includes('DUP_JOBNO')) {
+              throw new Error('该工号已被占用，请改用其他工号')
+            }
+            throw e
+          }
+          // Recompute the server-side conflict so the caution + 确认导入 gate
+          // reflect the new 工号. /import/[id] is force-dynamic and light.
+          router.refresh()
+        }}
+      />
       {conflict ? (
-        <div className="inline-flex items-center gap-2 rounded-[2px] border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] px-3 py-2 text-[12px] text-[var(--color-ink)]">
-          <span>
-            工号 <span className="mono text-[var(--color-ink)]">{conflict.jobNo}</span>{' '}
-            {conflict.status === 'draft' ? '已有未确认草稿' : '已存在'}
+        <div className="mt-2 flex flex-col gap-1 rounded-[2px] border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] px-2.5 py-2 text-[11px] leading-snug text-[var(--color-ink)]">
+          <span className="font-medium">
+            ⚠ 工号已存在 ·{' '}
+            <span className="mono">{conflict.jobNo}</span>
             {conflict.customer ? (
               <span className="text-[var(--color-ink-2)]"> · {conflict.customer}</span>
             ) : null}
           </span>
-          <Link
-            href={
-              conflict.status === 'draft'
-                ? `/import/${conflict.id}`
-                : `/jobs/${conflict.id}`
-            }
-            className="underline underline-offset-2 text-[var(--color-ink)] hover:opacity-70"
-          >
-            {conflict.status === 'draft' ? '打开草稿 →' : '打开已存在工单 →'}
-          </Link>
+          <span className="text-[var(--color-ink-2)]">
+            改用其他工号后才能导入。
+            <Link
+              href={`/jobs/${conflict.id}`}
+              className="ml-1 underline underline-offset-2 text-[var(--color-ink)] hover:opacity-70"
+            >
+              查看已存在工单 →
+            </Link>
+          </span>
         </div>
-      ) : error ? (
-        <p className="text-[12px] text-[var(--color-overdue)]">{error}</p>
       ) : null}
     </div>
   )

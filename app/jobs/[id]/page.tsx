@@ -58,6 +58,12 @@ import { ExternalBadge } from '@/app/_externalbadge'
 import { ComponentImageUploader } from '@/app/_image_uploader'
 import { StageChips } from '@/app/_stagechips'
 import { ComponentsScrollArea } from '@/app/_components_table'
+import {
+  JobPartFilterProvider,
+  JobPartFilterSummary,
+  JobPartStageFunnel,
+} from '@/app/_part_filter'
+import { PART_STAGE_CODE } from '@/lib/part-status'
 import { ComponentAnchorScroller } from '@/app/_component_anchor'
 import { JobTabs } from './_job_tabs'
 import { SourceFileRow } from '@/app/_source_file'
@@ -148,15 +154,22 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // unreachable for any job whose parts skip stages. While a 退货 is open the
   // denominator scopes to the returned parts, so 总进度 tracks the rework
   // (0% → 100%) instead of sitting at ~95% on the already-shipped rest.
+  // Per-part packed status string (one char per stage, STAGES order) — feeds
+  // the in-job part filter (lib/part-status). Built in the same pass as 总进度
+  // so the per-cell effectiveStageState walk happens exactly once.
+  const partStageCodes: Record<string, string> = {}
   let totalCells = 0
   let doneCells = 0
   for (const { c } of componentRows) {
+    let code = ''
     for (const s of STAGES) {
       const eff = effectiveStageState(c, s, vendors)
+      code += PART_STAGE_CODE[eff.kind]
       if (eff.kind === 'na') continue
       totalCells++
       if (eff.kind === 'done') doneCells++
     }
+    partStageCodes[c.id] = code
   }
   const pct = totalCells === 0 ? 0 : Math.round((doneCells / totalCells) * 100)
 
@@ -540,8 +553,9 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           <JobTabs tabs={jobTabs} />
 
           <div data-jobtab="parts">
-        <div className="mb-3 flex items-baseline justify-between">
-          <div className="flex items-baseline gap-3">
+        <JobPartFilterProvider codes={partStageCodes}>
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <div className="flex items-baseline gap-3 flex-wrap">
             <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
               零件进度
             </h2>
@@ -550,6 +564,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 退货中 · 仅显示退回零件 · 其余 {hiddenCount} 件已出货,已隐藏
               </span>
             )}
+            <JobPartFilterSummary />
           </div>
           <p className="label">
             {!isProduction || canEditFields
@@ -630,11 +645,18 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   <th
                     key={s}
                     data-stage-col={s}
-                    className={`px-2 py-3 text-center whitespace-nowrap ${
+                    // overflow visible so the funnel dropdown isn't clipped by
+                    // .sheet th { overflow:hidden } — same override the master
+                    // board uses for its column filters.
+                    style={{ overflow: 'visible' }}
+                    className={`relative px-2 py-3 text-center whitespace-nowrap ${
                       s === myStage ? 'font-semibold text-[var(--color-ink)]' : ''
                     }`}
                   >
-                    <StageHeader name={s} />
+                    <span className="inline-flex items-center justify-center gap-1">
+                      <StageHeader name={s} />
+                      <JobPartStageFunnel stage={s} />
+                    </span>
                   </th>
                 ))}
                 <th className="px-3 py-3 label whitespace-nowrap">出货记录</th>
@@ -656,7 +678,13 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             </thead>
             <tbody>
               {componentRows.map(({ c, i }) => (
-                <tr key={c.id} id={`c-${c.id}`} className="align-middle">
+                <tr
+                  key={c.id}
+                  id={`c-${c.id}`}
+                  data-part-id={c.id}
+                  data-st={partStageCodes[c.id]}
+                  className="align-middle"
+                >
                     <td
                       className="sticky-col px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]"
                       style={{ left: 0 }}
@@ -907,6 +935,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             </tbody>
           </table>
         </ComponentsScrollArea>
+        </JobPartFilterProvider>
 
         <ActorTrail job={job} vendors={vendors} />
           </div>

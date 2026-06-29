@@ -64,6 +64,10 @@ export type MasterRow = {
    *  docs; same person). Customer-facing PII (scrubbed for production
    *  scopes). Drives the commerce/boss dashboard subtext. */
   engineer?: string
+  /** 越侬商务 — OUR salesperson on this order (the in-house counterpart to
+   *  engineer). Customer-facing context, scrubbed for production scopes.
+   *  Carried so the board can surface a name-search match inline. */
+  yuenongBusiness?: string
   amountCny?: number
   /** Original contract dueDate from the jobs row. Use `effectiveDueDate` for sort/color. */
   dueDate: string
