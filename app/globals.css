@@ -397,27 +397,6 @@ input[type="number"] {
   animation: cell-done-pop 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
-/* Deep-link pulse on a component row when the URL hash points at it
-   (#c-<id>). The row itself is a <tr>; box-shadow on a row only paints
-   reliably via the inset technique, so we fade a warning-soft background
-   over the whole row instead.
-   Two subtleties keep the sticky-column mask intact:
-     1. End at opaque white, NOT transparent. Interpolating background-color
-        to transparent passes through partially-transparent intermediate
-        frames, which let the StageChips column scroll into view beneath the
-        sticky 零件 cell. Going warning-soft → white stays fully opaque
-        every frame; sticky cells already want white anyway.
-     2. No `animation-fill-mode` — once the animation ends the cell snaps
-        back to its CSS-defined background (white for sticky, transparent for
-        non-sticky), so hover and other states resume working. */
-@keyframes row-pulse {
-  0%   { background-color: var(--color-warning-soft); }
-  100% { background-color: var(--color-surface); }
-}
-.is-pulsed > td {
-  animation: row-pulse 1400ms cubic-bezier(0.32, 0.72, 0.18, 1);
-}
-
 /* Smooth row reorders + cell repaints when state changes via useTransition. */
 ::view-transition-group(*) {
   animation-duration: 720ms;

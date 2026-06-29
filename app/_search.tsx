@@ -218,7 +218,7 @@ export function SearchInput({
       )}
       {showHint && (
         <div
-          className="absolute left-0 top-[calc(100%+5px)] z-30 whitespace-nowrap pl-6 text-[11px] leading-none text-[var(--color-ink-4)] pointer-events-none"
+          className="absolute left-0 top-[calc(100%+10px)] z-30 whitespace-nowrap text-[11px] leading-none text-[var(--color-ink-4)] pointer-events-none"
           aria-hidden="true"
         >
           {hint}

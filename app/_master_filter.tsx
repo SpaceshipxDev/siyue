@@ -695,7 +695,7 @@ export function MasterSheet({
         />
       )}
 
-      <div className="mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-3">
+      <div className="mb-7 flex flex-wrap items-baseline gap-x-6 gap-y-3">
         <SearchInput
           q={q}
           setQ={setQ}

@@ -422,9 +422,8 @@ export function DailyFocusBoard({
   }, [menu])
 
   // Deep-link from the 今日重点 strip: /daily#focus-<id> scrolls that row into
-  // view and pulses it, so the boss lands on the panel with the 重点 he clicked
-  // already highlighted (and drills into the 工单 from the row's ↗). Reuses the
-  // same is-pulsed treatment as the job-detail component anchor.
+  // view, so the boss lands on the panel with the 重点 he clicked centered (and
+  // drills into the 工单 from the row's ↗). No highlight — just the scroll.
   useEffect(() => {
     const apply = () => {
       const hash = window.location.hash
@@ -432,9 +431,6 @@ export function DailyFocusBoard({
       const el = document.getElementById(hash.slice(1))
       if (!el) return
       el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-      el.classList.remove('is-pulsed')
-      void el.offsetWidth // force reflow so re-clicking the same row re-pulses
-      el.classList.add('is-pulsed')
     }
     const t = window.setTimeout(apply, 30) // let the seeded rows mount first
     window.addEventListener('hashchange', apply)
