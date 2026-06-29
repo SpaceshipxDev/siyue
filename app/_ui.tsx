@@ -308,11 +308,12 @@ export function RollupCell({ rollup }: { rollup: Rollup }) {
     )
   }
   if (rollup.kind === 'pending') {
-    return (
-      <div className="flex h-full items-center justify-center text-[var(--color-ink-4)]">
-        <span className="mono text-[13px]">—</span>
-      </div>
-    )
+    // Nothing has happened at this stage yet — render a bare cell, no '—'. An
+    // empty cell reads as "nothing to report" and keeps the eye on the cells
+    // that actually carry a signal (✓ / fraction / 外协). The diagonal-slash
+    // 'na' cell above is different — it means the stage isn't in this job's
+    // route at all — so that one stays.
+    return <div className="h-full w-full" aria-hidden="true" />
   }
   if (rollup.kind === 'partial') {
     return (
