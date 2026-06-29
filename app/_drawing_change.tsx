@@ -12,32 +12,50 @@
 // open change. Names the affected parts (each a deep-link to its row, which
 // the ComponentAnchorScroller pulses on arrival) so the floor goes straight
 // to the part instead of scanning the whole sheet.
+//
+// `note` carries a legacy whole-job alarm (raised before this went per-part).
+// We keep showing it read-only so those old notes don't vanish — there's no
+// raise/clear for it anymore; new changes are always per-part.
 export function DrawingChangeBanner({
   parts,
+  note,
 }: {
   parts: { id: string; name: string }[]
+  note?: string
 }) {
-  if (parts.length === 0) return null
+  const hasParts = parts.length > 0
+  if (!hasParts && !note) return null
   return (
     <div
       role="alert"
       className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1.5 border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] rounded-[2px] px-5 py-3.5"
     >
       <span className="label text-[var(--color-overdue)] shrink-0">图纸变更</span>
-      <span className="text-[13px] font-medium text-[var(--color-ink)] shrink-0">
-        {parts.length} 个零件已改图,请核对最新图纸后再加工:
-      </span>
-      <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {parts.map((p) => (
-          <a
-            key={p.id}
-            href={`#c-${p.id}`}
-            className="text-[13px] font-semibold text-[var(--color-overdue)] underline-offset-2 hover:underline"
-          >
-            {p.name?.trim() || '未命名零件'}
-          </a>
-        ))}
-      </span>
+      {hasParts && (
+        <>
+          <span className="text-[13px] font-medium text-[var(--color-ink)] shrink-0">
+            {parts.length} 个零件已改图,请核对最新图纸后再加工:
+          </span>
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {parts.map((p) => (
+              <a
+                key={p.id}
+                href={`#c-${p.id}`}
+                className="text-[13px] font-semibold text-[var(--color-overdue)] underline-offset-2 hover:underline"
+              >
+                {p.name?.trim() || '未命名零件'}
+              </a>
+            ))}
+          </span>
+        </>
+      )}
+      {note ? (
+        <span
+          className={`text-[13px] ${hasParts ? 'text-[var(--color-ink-2)]' : 'font-medium text-[var(--color-ink)]'}`}
+        >
+          {note}
+        </span>
+      ) : null}
     </div>
   )
 }

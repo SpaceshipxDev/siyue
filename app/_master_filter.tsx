@@ -1430,23 +1430,6 @@ function JobRow({
               外协
             </span>
           )}
-          {/* 待外协 — 工程 flagged this job for outsourcing; 商务 hasn't made
-              the vendor block yet. Mutually exclusive with the 外协 chip above
-              (the flag is cleared when the block is created). */}
-          {!row.hasOpenOutsource && row.needsOutsource && (
-            <span
-              className="row-badge"
-              data-tone="warning"
-              title={
-                row.outsourceNote
-                  ? `待外协 · ${row.outsourceNote}`
-                  : '工程已标记需外协，待商务安排'
-              }
-              aria-label="待外协"
-            >
-              待外协
-            </span>
-          )}
           {row.hasOpenInspectionVerdict && (
             <span
               className="row-badge"

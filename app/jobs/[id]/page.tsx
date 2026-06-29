@@ -264,6 +264,11 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             first thing read. Derived from the parts, raised/cleared per-part. */}
         <DrawingChangeBanner
           parts={partsWithDrawingChange.map((c) => ({ id: c.id, name: c.name }))}
+          note={
+            job.drawingChangeOpen
+              ? job.drawingChangeNote?.trim() || undefined
+              : undefined
+          }
         />
         <div className="mb-6 flex items-center justify-between gap-3">
           <BackButton fallback={backFallback} />
