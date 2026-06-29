@@ -986,14 +986,17 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   )
 }
 
-// Per-part 出货记录 (migration 0069). Two layers, by design:
-//   1. a literally-editable free-text note (component.shipmentLog) on top, and
-//   2. the LIVE derived batch audit-log (制作出货单 → Shipment rows, newest
-//      first) read-only beneath it.
-// The auto log always reflects new 出货单 batches — typing in the note never
-// freezes or hides it. Floor users (no edit rights) see both as read-only.
-// Empty state (no note, no shipments) is a single muted dash so the column
-// keeps its width.
+// Per-part 出货记录 (migration 0069). ONE surface, by design: the system
+// generates the batch log (制作出货单 → Shipment rows, newest first, each line
+// "YYYY-MM-DD HH:mm ×N") and that generated text IS the editable field. Click
+// it, type, fix it.
+//   - Untouched (component.shipmentLog == null) the cell shows the LIVE derived
+//     log and stays live as new 出货单 batches land.
+//   - The moment the user edits, their text is stored as the override.
+//   - Clearing the field (empty → null) drops the override and the live log
+//     returns.
+// Floor users (no edit rights) read the same text, read-only. Empty state (no
+// override, no shipments) is a single muted dash so the column keeps its width.
 function ShipmentLogCell({
   jobId,
   componentId,
@@ -1008,41 +1011,33 @@ function ShipmentLogCell({
   canEdit: boolean
 }) {
   const derived = formatShipmentLog([...entries].reverse())
-  if (!canEdit && !value && !derived) {
+  // The displayed/editable text: the hand-edited override if present, otherwise
+  // the live system log.
+  const display = value ?? derived
+  if (!canEdit) {
     return (
-      <td className="px-3 py-3 text-[var(--color-ink-4)] mono text-[11px] align-top">
-        —
+      <td className="px-3 py-3 align-top">
+        {display ? (
+          <pre className="mono text-[11px] leading-snug text-[var(--color-ink-2)] whitespace-pre-wrap font-normal">
+            {display}
+          </pre>
+        ) : (
+          <span className="text-[var(--color-ink-4)] mono text-[11px]">—</span>
+        )}
       </td>
     )
   }
   return (
     <td className="px-3 py-3 align-top">
-      {canEdit ? (
-        <ComponentText
-          jobId={jobId}
-          componentId={componentId}
-          field="shipmentLog"
-          value={value}
-          placeholder="出货记录…"
-          multiline
-          className="mono text-[11px] leading-snug text-[var(--color-ink-2)]"
-        />
-      ) : (
-        value && (
-          <pre className="mono text-[11px] leading-snug text-[var(--color-ink-2)] whitespace-pre-wrap font-normal">
-            {value}
-          </pre>
-        )
-      )}
-      {derived && (
-        <pre
-          className={`mono text-[11px] leading-snug text-[var(--color-ink-3)] whitespace-pre-wrap font-normal${
-            canEdit || value ? ' mt-1' : ''
-          }`}
-        >
-          {derived}
-        </pre>
-      )}
+      <ComponentText
+        jobId={jobId}
+        componentId={componentId}
+        field="shipmentLog"
+        value={display}
+        placeholder="出货记录…"
+        multiline
+        className="mono text-[11px] leading-snug text-[var(--color-ink-2)]"
+      />
     </td>
   )
 }
@@ -1283,12 +1278,12 @@ function JobFinancePanel({
         <p className="label mb-4">开票 / 回款</p>
         <JobMoneyEditor jobId={job.id} amountCny={job.amountCny} />
         <p className="mt-6 text-[12px] text-[var(--color-ink-4)]">
-          全部开票明细见{' '}
+          全部开票 / 收款记录见{' '}
           <a
-            href="/finance?tab=ar"
+            href="/finance?tab=kaipiao"
             className="text-[var(--color-ink-2)] underline decoration-[var(--color-border-strong)] underline-offset-2 hover:text-[var(--color-ink)] hover:decoration-[var(--color-ink)]"
           >
-            应收账款
+            财务
           </a>
           ，单价 / 小计 可在「零件」逐件填写。
         </p>

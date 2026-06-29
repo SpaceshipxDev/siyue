@@ -68,12 +68,17 @@ import {
   updateVendor,
   upsertCustomerByName,
   upsertInspectionReport,
+  createCaiwuRow,
+  updateCaiwuRow,
+  deleteCaiwuRow,
   type BlockPatch,
+  type CaiwuPatch,
   type ComponentPatch,
   type CreateReturnInput,
   type CustomerPatch,
   type AddBlockMemberInput,
   type DailyFocusPatch,
+  type NewCaiwuInput,
   type ExpensePatch,
   type HandoverPatch,
   type JobPatch,
@@ -92,6 +97,7 @@ import {
   canManageOutsource,
   canSeeExpenses,
   canSeeFactoryPulse,
+  canSeeMoney,
   currentUser,
   requireCommerce,
   requireOutsourceManager,
@@ -100,7 +106,7 @@ import {
   type AuthUser,
 } from '@/lib/auth'
 import type { JobType, Stage, Verdict } from '@/lib/data'
-import { JOB_TYPES, STAGES, VERDICTS } from '@/lib/data'
+import { isCaiwuSheet, JOB_TYPES, STAGES, VERDICTS } from '@/lib/data'
 import { isExpenseCategory } from '@/lib/expenses'
 import { isDimRow, type InspectionReportPatch } from '@/lib/inspection-report'
 import { removeInspectionPhotoObject } from '@/lib/inspection-photo'
@@ -366,6 +372,48 @@ function isValidDailyFocusPatch(x: unknown): x is DailyFocusPatch {
   for (const f of ['jobId', 'productText', 'dueText', 'feedback']) {
     if (!isOptString(o[f])) return false
   }
+  return true
+}
+
+// The free-text cell fields a caiwu row carries beyond 工号 / job link. Kept in
+// sync with CAIWU_FIELD_COLS in lib/db.ts.
+const CAIWU_CELL_FIELDS = [
+  'customer',
+  'contact',
+  'date',
+  'orderNo',
+  'qty',
+  'billable',
+  'amount',
+  'tax',
+  'amountIncl',
+  'invoiceNo',
+  'log',
+] as const
+
+function isValidCaiwuInput(x: unknown): x is NewCaiwuInput {
+  if (typeof x !== 'object' || x === null) return false
+  const o = x as Record<string, unknown>
+  if (!isCaiwuSheet(o.sheet)) return false
+  if (o.jobNoText !== undefined && !isString(o.jobNoText)) return false
+  if (!isOptString(o.jobId) || !isOptNumber(o.position)) return false
+  for (const f of CAIWU_CELL_FIELDS) if (!isOptString(o[f])) return false
+  // A row must carry SOMETHING — an empty row is a no-op the client never sends.
+  const hasContent =
+    (typeof o.jobNoText === 'string' && o.jobNoText.trim().length > 0) ||
+    Boolean(o.jobId) ||
+    CAIWU_CELL_FIELDS.some(
+      (f) => typeof o[f] === 'string' && (o[f] as string).trim().length > 0,
+    )
+  return hasContent
+}
+
+function isValidCaiwuPatch(x: unknown): x is CaiwuPatch {
+  if (typeof x !== 'object' || x === null) return false
+  const o = x as Record<string, unknown>
+  if (o.jobNoText !== undefined && !isString(o.jobNoText)) return false
+  if (!isOptNumber(o.position) || !isOptString(o.jobId)) return false
+  for (const f of CAIWU_CELL_FIELDS) if (!isOptString(o[f])) return false
   return true
 }
 
@@ -1673,6 +1721,40 @@ async function dispatch(
       if (!canSeeFactoryPulse(u)) return err('forbidden', 403)
       await deleteDailyFocusItem(itemId)
       revalidatePath('/daily')
+      return Response.json(ok())
+    }
+
+    // === 财务 (caiwu — the two finance spreadsheets) — money, so 商务 only
+    // (canSeeMoney). Production never reaches /finance to begin with. ===
+    case 'createCaiwu': {
+      const input = body.input
+      if (!isValidCaiwuInput(input)) return err('bad createCaiwu args')
+      const u = await requireUser()
+      if (!canSeeMoney(u)) return err('forbidden', 403)
+      const id = await createCaiwuRow(input, u.name)
+      revalidatePath('/finance')
+      return Response.json(ok({ id }))
+    }
+
+    case 'updateCaiwu': {
+      const itemId = body.itemId
+      const patch = body.patch
+      if (!isString(itemId) || !isValidCaiwuPatch(patch))
+        return err('bad updateCaiwu args')
+      const u = await requireUser()
+      if (!canSeeMoney(u)) return err('forbidden', 403)
+      await updateCaiwuRow(itemId, patch)
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    case 'deleteCaiwu': {
+      const itemId = body.itemId
+      if (!isString(itemId)) return err('bad deleteCaiwu args')
+      const u = await requireUser()
+      if (!canSeeMoney(u)) return err('forbidden', 403)
+      await deleteCaiwuRow(itemId)
+      revalidatePath('/finance')
       return Response.json(ok())
     }
 

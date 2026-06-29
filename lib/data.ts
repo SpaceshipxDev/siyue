@@ -624,6 +624,37 @@ export type DailyFocusItem = {
   createdAt: string
 }
 
+// 财务 — one row on a finance clerk's spreadsheet. Two sheets share the shape,
+// switched by `sheet`: 未开票 (orders awaiting invoice, 海康 type) and 已开票
+// (invoices awaiting 收款, 思看 type). Only human-typed facts are stored; 工号 /
+// 客户名称 / 联系人 join live from the linked job (undefined ⇒ live). Nothing is
+// computed — see supabase/migrations/0070_caiwu_rows.sql.
+export type CaiwuSheet = 'weikaipiao' | 'kaipiao'
+
+export type CaiwuRow = {
+  id: string
+  sheet: CaiwuSheet
+  jobId?: string // linked job; undefined for free-text / multi-工号 rows
+  jobNoText: string // 单号 / 内部流水号 as typed (display text when unlinked)
+  customer?: string // 客户名称 override; undefined ⇒ live join
+  contact?: string // 联系人 override; undefined ⇒ live join
+  date?: string // 日期 / 开票日期 — free text ("4月15日")
+  orderNo?: string // 订单号/物料号
+  qty?: string // 下单数量
+  billable?: string // 是否收费
+  amount?: string // 未开票金额 / 订单金额
+  tax?: string // 税金金额
+  amountIncl?: string // 含税金额
+  invoiceNo?: string // 发票号码
+  log?: string // 开票情况 / 收款记录 — the running money log
+  position: number // order within the sheet (fractional — supports insert/move)
+  createdAt: string
+}
+
+export function isCaiwuSheet(x: unknown): x is CaiwuSheet {
+  return x === 'weikaipiao' || x === 'kaipiao'
+}
+
 // Line total for a purchase: 数量 × 单价. Undefined when either side is
 // missing — a half-specified row shows '—' rather than a misleading ¥0.
 export function procurementTotalCny(p: {
