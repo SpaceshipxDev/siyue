@@ -79,6 +79,7 @@ import {
 import { DrawingChangeBanner } from '@/app/_drawing_change'
 import { PartDrawingChange } from '@/app/_part_drawing_change'
 import { ShippingComposerButton } from '@/app/_shipping'
+import { ShipmentHistoryButton } from '@/app/_shipment_history'
 import { JobTypeEditor } from '@/app/_type_chip'
 
 // Intentionally not `force-dynamic`. The page still ends up dynamic because
@@ -289,6 +290,11 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               )
             )}
             <ShippingComposerButton
+              jobId={job.id}
+              components={job.components}
+              shipments={job.shipments}
+            />
+            <ShipmentHistoryButton
               jobId={job.id}
               components={job.components}
               shipments={job.shipments}
@@ -898,6 +904,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       componentId={c.id}
                       value={c.shipmentLog}
                       entries={componentShipmentEntries(c.id, job.shipments)}
+                      totalQty={c.qty}
                       canEdit={canEditFields}
                     />
                     <ActivityCell component={c} />
@@ -988,7 +995,8 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
 
 // Per-part 出货记录 (migration 0069). ONE surface, by design: the system
 // generates the batch log (制作出货单 → Shipment rows, newest first, each line
-// "YYYY-MM-DD HH:mm ×N") and that generated text IS the editable field. Click
+// "YYYY-MM-DD HH:mm N/T" — shipped over part total) and that generated text IS
+// the editable field. Click
 // it, type, fix it.
 //   - Untouched (component.shipmentLog == null) the cell shows the LIVE derived
 //     log and stays live as new 出货单 batches land.
@@ -1002,15 +1010,17 @@ function ShipmentLogCell({
   componentId,
   value,
   entries,
+  totalQty,
   canEdit,
 }: {
   jobId: string
   componentId: string
   value: string | undefined
   entries: ReturnType<typeof componentShipmentEntries>
+  totalQty: number
   canEdit: boolean
 }) {
-  const derived = formatShipmentLog([...entries].reverse())
+  const derived = formatShipmentLog([...entries].reverse(), totalQty)
   // The displayed/editable text: the hand-edited override if present, otherwise
   // the live system log.
   const display = value ?? derived

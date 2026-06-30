@@ -8,5 +8,10 @@ export default async function ShippingPdfLoaderPage(
 ) {
   await requireUser()
   const { id } = await props.params
-  return <PdfLoader rawHref={`/jobs/${id}/print/shipping/pdf/raw`} title="出货单 PDF" />
+  const sp = await props.searchParams
+  const shipmentId = typeof sp.shipment === 'string' ? sp.shipment : undefined
+  const rawHref = shipmentId
+    ? `/jobs/${id}/print/shipping/pdf/raw?shipment=${shipmentId}`
+    : `/jobs/${id}/print/shipping/pdf/raw`
+  return <PdfLoader rawHref={rawHref} title="出货单 PDF" />
 }

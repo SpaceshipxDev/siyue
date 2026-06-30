@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import {
   customerById,
-  latestShipment,
+  selectShipment,
 } from '@/lib/data'
 import {
   getCustomers,
@@ -30,6 +30,8 @@ export default async function ShippingDocPage(
 ) {
   await requireUser()
   const { id } = await props.params
+  const sp = await props.searchParams
+  const shipmentId = typeof sp.shipment === 'string' ? sp.shipment : undefined
   let [job, customers] = await Promise.all([getJob(id), getCustomers()])
   if (!job) notFound()
 
@@ -52,12 +54,11 @@ export default async function ShippingDocPage(
   const customer = customerById(job.customerId, customers)
   const customerName = customer?.name ?? job.customer
 
-  // The 出货单 is the *last* batch printed by 制作出货单. Each picker
-  // submission emits a new shipment row; this page reads the most recent one
-  // and renders its parts/qty list. Older shipments are preserved as audit
-  // history (visible on the 出货记录 column) but only the latest is the
-  // currently-printable doc.
-  const shipment = latestShipment(job)
+  // Each 制作出货单 submission emits a new shipment row. By default this page
+  // prints the latest batch (制作出货单 / 重新打印 land here with no param), but
+  // the 出货记录 history deep-links any past batch via ?shipment=<id> so its
+  // exact 出货单 / PDF is reprintable.
+  const shipment = selectShipment(job, shipmentId)
   const componentById = new Map(job.components.map((c) => [c.id, c]))
   const shippingRows = shipment
     ? shipment.parts
@@ -75,7 +76,13 @@ export default async function ShippingDocPage(
 
   return (
     <>
-      <PrintToolbar pdfHref={`/jobs/${job.id}/print/shipping/pdf`} />
+      <PrintToolbar
+        pdfHref={
+          shipment
+            ? `/jobs/${job.id}/print/shipping/pdf?shipment=${shipment.id}`
+            : `/jobs/${job.id}/print/shipping/pdf`
+        }
+      />
       <article className="doc">
         <header className="border-b border-[var(--color-ink)] pb-3">
           <p className="text-center text-[12px] text-[var(--color-ink-2)] tracking-wide">

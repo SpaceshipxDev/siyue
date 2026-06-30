@@ -852,14 +852,16 @@ export function componentShipmentEntries(
 }
 
 // Single newline-separated string for the 出货记录 column: each line reads
-// "YYYY-MM-DD HH:mm ×N". Empty string when the part has nothing shipped yet
-// so callers can branch on falsiness.
+// "YYYY-MM-DD HH:mm N/T" — this batch's shipped qty over the part's total qty
+// (the qty column). Empty string when the part has nothing shipped yet so
+// callers can branch on falsiness.
 export function formatShipmentLog(
   entries: Array<{ qty: number; createdAt: string }>,
+  totalQty: number,
 ): string {
   if (entries.length === 0) return ''
   return entries
-    .map((e) => `${formatShipmentTimestamp(e.createdAt)} ×${e.qty}`)
+    .map((e) => `${formatShipmentTimestamp(e.createdAt)} ${e.qty}/${totalQty}`)
     .join('\n')
 }
 
@@ -992,6 +994,20 @@ export function latestShipment(job: Job): Shipment | undefined {
     if (job.shipments[i].createdAt > best.createdAt) best = job.shipments[i]
   }
   return best
+}
+
+// Pick a specific shipment to print. The 出货记录 history deep-links each past
+// batch (?shipment=<id>); everything else (制作出货单 / 重新打印) prints the
+// latest. Falls back to the latest when the id is absent or no longer exists.
+export function selectShipment(
+  job: Job,
+  id?: string | null,
+): Shipment | undefined {
+  if (id) {
+    const found = job.shipments.find((s) => s.id === id)
+    if (found) return found
+  }
+  return latestShipment(job)
 }
 
 // Job has shipped iff every in-route part is done at 出货. Returns can only

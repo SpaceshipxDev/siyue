@@ -3,7 +3,7 @@ import { Document, Image, Page, Text, View } from '@react-pdf/renderer'
 import type { Customer, Job } from './../data'
 import {
   customerById,
-  latestShipment,
+  selectShipment,
 } from './../data'
 import { BRAND } from './../brand'
 import { COLOR, styles } from './styles'
@@ -30,17 +30,19 @@ export function ShippingDocPDF({
   job,
   customers,
   images,
+  shipmentId,
 }: {
   job: Job
   customers: Customer[]
   images: Map<string, ImageSource>
+  shipmentId?: string
 }) {
   const customer = customerById(job.customerId, customers)
   const customerName = customer?.name ?? job.customer
 
-  // PDF mirrors the print page: the most recent shipment is the printable
-  // batch. Older shipments are audit history and are not re-rendered.
-  const shipment = latestShipment(job)
+  // PDF mirrors the print page: prints the latest batch by default, or the
+  // specific past batch the 出货记录 history deep-linked via ?shipment=<id>.
+  const shipment = selectShipment(job, shipmentId)
   const componentById = new Map(job.components.map((c) => [c.id, c]))
   const shippingRows = shipment
     ? shipment.parts

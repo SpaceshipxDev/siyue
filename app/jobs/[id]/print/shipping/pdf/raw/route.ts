@@ -23,11 +23,13 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: RouteContext<'/jobs/[id]/print/shipping/pdf/raw'>,
 ) {
   await requireUser()
   const { id } = await ctx.params
+  const shipmentId =
+    new URL(req.url).searchParams.get('shipment') ?? undefined
   let [job, customers] = await Promise.all([getJob(id), getCustomers()])
   if (!job) notFound()
 
@@ -51,7 +53,7 @@ export async function GET(
   const images = await fetchImages(job.components.map((c) => c.imageUrl))
 
   const pdf = await renderToBuffer(
-    ShippingDocPDF({ job, customers, images }),
+    ShippingDocPDF({ job, customers, images, shipmentId }),
   )
 
   // Inline so it opens in the browser's PDF viewer; Save still works from there.
