@@ -779,9 +779,9 @@ export function MasterSheet({
           <colgroup>
             <col style={{ width: 56 }} />
             <col style={{ width: 230 }} />
+            <col style={{ width: 140 }} />
             <col style={{ width: 220 }} />
             {showMoney && <col style={{ width: 120 }} />}
-            <col style={{ width: 140 }} />
             {STAGES.map((s) => {
               const isHighlighted = s === highlightStage
               // Highlighted column gets extra width for the action button +
@@ -826,6 +826,7 @@ export function MasterSheet({
             <tr className="text-[var(--color-ink-2)]">
               <th className="px-3 py-3 text-center label whitespace-nowrap">#</th>
               <th className="px-4 py-3 label whitespace-nowrap">工号</th>
+              <th className="px-4 py-3 label whitespace-nowrap">交期</th>
               <th className="px-4 py-3 label whitespace-nowrap">
                 {isProduction ? '产品' : '客户 / 工程师'}
               </th>
@@ -834,7 +835,6 @@ export function MasterSheet({
                   金额
                 </th>
               )}
-              <th className="px-4 py-3 label whitespace-nowrap">交期</th>
               {STAGES.map((s, si) => {
                 const isHighlighted = s === highlightStage
                 const colStatus = statusByStage[s]
@@ -1460,6 +1460,14 @@ function JobRow({
         </div>
       </td>
       <td className="px-4 py-3">
+        <DueCell
+          date={effDue}
+          state={ds}
+          daysOff={days}
+          secondaryDate={row.secondaryDueDate}
+        />
+      </td>
+      <td className="px-4 py-3">
         <div className="flex flex-col leading-tight">
           {!isProduction && (
             <span className="text-[13px] font-medium text-[var(--color-ink)]">
@@ -1526,14 +1534,6 @@ function JobRow({
           </div>
         </td>
       )}
-      <td className="px-4 py-3">
-        <DueCell
-          date={effDue}
-          state={ds}
-          daysOff={days}
-          secondaryDate={row.secondaryDueDate}
-        />
-      </td>
       {STAGES.map((stage) => {
         const isHighlighted = stage === highlightStage
         // Highlighted column when actionable: never changes color on hover
