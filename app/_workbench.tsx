@@ -454,12 +454,22 @@ function WorkbenchRow({
           href={detailHref}
           className="flex flex-1 min-w-0 items-center gap-5 px-2 py-3 hover:bg-[#f7f5ee] transition-colors"
         >
+          <div className="w-[110px] shrink-0">
+            <DueCell
+              date={effDue}
+              state={ds}
+              daysOff={days}
+              secondaryDate={row.secondaryDueDate}
+            />
+          </div>
+
           <div className="w-[230px] shrink-0">
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-col gap-1">
               {/* Type chip BEFORE 工号 — same order as the master grid.
-                  Chip + jobNo stay glued on one line (`flex-nowrap`
-                  inner row); secondary badges (外协 / 退货) wrap to a
-                  second line if present. */}
+                  Chip + jobNo stay glued on line 1 (`flex-nowrap`); all
+                  alert tags (外协 / 检验异常 / 图纸变更 / 退货) cluster on
+                  the line below, left-aligned — never dangling to the
+                  right of the 工号. */}
               <div className="flex items-center gap-2 flex-nowrap">
                 <TypeChip
                   jobType={jobType}
@@ -473,38 +483,45 @@ function WorkbenchRow({
                   <Highlight text={row.jobNo} q={q} />
                 </span>
               </div>
-              {row.hasOpenOutsource && (
-                <span
-                  className="row-badge"
-                  data-tone="info"
-                  title="此工单有零件正在外协"
-                >
-                  外协
-                </span>
+              {(row.hasOpenOutsource ||
+                row.hasOpenInspectionVerdict ||
+                row.drawingChangeOpen ||
+                row.activeReturn) && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {row.hasOpenOutsource && (
+                    <span
+                      className="row-badge"
+                      data-tone="info"
+                      title="此工单有零件正在外协"
+                    >
+                      外协
+                    </span>
+                  )}
+                  {row.hasOpenInspectionVerdict && (
+                    <span
+                      className="row-badge"
+                      data-tone="overdue"
+                      title="此工单有零件检验未过 (重做/返修/外修)"
+                    >
+                      检验异常
+                    </span>
+                  )}
+                  {row.drawingChangeOpen && (
+                    <span
+                      className="row-badge"
+                      data-tone="overdue"
+                      title={
+                        row.drawingChangeNote
+                          ? `图纸变更 · ${row.drawingChangeNote}`
+                          : '客户已修改图纸,请核对最新图纸后再加工'
+                      }
+                    >
+                      图纸变更
+                    </span>
+                  )}
+                  {row.activeReturn && <ReturnChip ret={row.activeReturn} />}
+                </div>
               )}
-              {row.hasOpenInspectionVerdict && (
-                <span
-                  className="row-badge"
-                  data-tone="overdue"
-                  title="此工单有零件检验未过 (重做/返修/外修)"
-                >
-                  检验异常
-                </span>
-              )}
-              {row.drawingChangeOpen && (
-                <span
-                  className="row-badge"
-                  data-tone="overdue"
-                  title={
-                    row.drawingChangeNote
-                      ? `图纸变更 · ${row.drawingChangeNote}`
-                      : '客户已修改图纸,请核对最新图纸后再加工'
-                  }
-                >
-                  图纸变更
-                </span>
-              )}
-              {row.activeReturn && <ReturnChip ret={row.activeReturn} />}
             </div>
           </div>
 
@@ -526,15 +543,6 @@ function WorkbenchRow({
             {tab === 'upstream' && (
               <UpstreamHint row={row} stage={stage} />
             )}
-          </div>
-
-          <div className="w-[110px] shrink-0">
-            <DueCell
-              date={effDue}
-              state={ds}
-              daysOff={days}
-              secondaryDate={row.secondaryDueDate}
-            />
           </div>
         </Link>
 
