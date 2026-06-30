@@ -35,7 +35,7 @@ export async function StationReportAsync({
 
   if (rows.length === 0) {
     return (
-      <section className="mb-6">
+      <section className="mt-12 mb-6">
         <ReportHeader href={reportHref} />
         <p className="py-10 text-center text-[13px] text-[var(--color-ink-3)]">
           今日此工段暂无产出
@@ -45,7 +45,7 @@ export async function StationReportAsync({
   }
 
   return (
-    <section className="mb-6">
+    <section className="mt-12 mb-6">
       <ReportHeader href={reportHref} />
       <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)]">
         <div
@@ -99,7 +99,7 @@ export async function StationReportAsync({
 export function StationReportFallback({ stage }: { stage: Stage }) {
   void stage
   return (
-    <section className="mb-6">
+    <section className="mt-12 mb-6">
       <ReportHeader />
       <div className="py-10 text-center text-[13px] text-[var(--color-ink-3)]">
         加载中…
