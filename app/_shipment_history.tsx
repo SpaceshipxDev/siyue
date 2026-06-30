@@ -171,7 +171,7 @@ function ShipmentHistoryDialog({
                           {formatShipmentTimestamp(r.createdAt)}
                         </span>
                         {i === 0 && (
-                          <span className="label text-[10px] leading-none text-[var(--color-success)]">
+                          <span className="text-[10px] leading-none font-medium tracking-[0.14em] text-[var(--color-success)]">
                             最新
                           </span>
                         )}
