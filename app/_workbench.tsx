@@ -454,15 +454,6 @@ function WorkbenchRow({
           href={detailHref}
           className="flex flex-1 min-w-0 items-center gap-5 px-2 py-3 hover:bg-[#f7f5ee] transition-colors"
         >
-          <div className="w-[110px] shrink-0">
-            <DueCell
-              date={effDue}
-              state={ds}
-              daysOff={days}
-              secondaryDate={row.secondaryDueDate}
-            />
-          </div>
-
           <div className="w-[230px] shrink-0">
             <div className="flex flex-col gap-1">
               {/* Type chip BEFORE 工号 — same order as the master grid.
@@ -523,6 +514,15 @@ function WorkbenchRow({
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="w-[110px] shrink-0">
+            <DueCell
+              date={effDue}
+              state={ds}
+              daysOff={days}
+              secondaryDate={row.secondaryDueDate}
+            />
           </div>
 
           <div className="flex-1 min-w-0">
