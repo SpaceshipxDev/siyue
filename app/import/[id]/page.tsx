@@ -31,6 +31,8 @@ import {
 import { ParsingPoller } from '@/app/_import_status'
 import { SourceFileRow } from '@/app/_source_file'
 import { StageChips } from '@/app/_stagechips'
+import { StagePlanBand } from '@/app/_stage_plan'
+import { PLANNABLE_STAGES } from '@/lib/data'
 import type { Component, JobStatus } from '@/lib/data'
 
 export const dynamic = 'force-dynamic'
@@ -163,6 +165,20 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
               {job.components.length}
             </p>
           </div>
+        </div>
+
+        {/* 排产 · 计划交期 — plan each 工段's finish date up front, the moment
+            the order lands. Optional; every station later reads its own date in
+            its queue. Import has no stage grid, so this compact strip is the
+            setter here (job detail sets the same values on the column headers). */}
+        <div className="mb-8">
+          <p className="label mb-2.5">排产 · 计划交期</p>
+          <StagePlanBand
+            jobId={job.id}
+            stagePlan={job.stagePlan ?? {}}
+            stages={PLANNABLE_STAGES.map((s) => ({ stage: s, kind: 'pending' as const }))}
+            canEdit
+          />
         </div>
 
         <div className="mb-6">

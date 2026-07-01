@@ -81,6 +81,7 @@ type JobRow = {
   amountCny?: number
   dueDate: string
   secondaryDueDate?: string
+  stagePlan?: Partial<Record<Stage, string>>
   notes?: string
   status?: JobStatus
   sourceFile?: string
@@ -472,6 +473,8 @@ function fromJob(r: AnyRow): JobRow {
     amountCny: r.amount_cny == null ? undefined : Number(r.amount_cny),
     dueDate: r.due_date as string,
     secondaryDueDate: (r.secondary_due_date as string | null) ?? undefined,
+    stagePlan:
+      (r.stage_plan as Partial<Record<Stage, string>> | null) ?? undefined,
     notes: (r.notes as string | null) ?? undefined,
     status: (r.status as JobStatus | null) ?? undefined,
     sourceFile: (r.source_file as string | null) ?? undefined,
@@ -513,6 +516,7 @@ function toJob(r: JobRow) {
     amount_cny: r.amountCny ?? null,
     due_date: r.dueDate,
     secondary_due_date: r.secondaryDueDate ?? null,
+    stage_plan: r.stagePlan ?? {},
     notes: r.notes ?? null,
     status: r.status ?? 'ready',
     source_file: r.sourceFile ?? null,
@@ -1467,6 +1471,7 @@ function composeJob(job: JobRow, snap: DbSnapshot): Job {
     amountCny: job.amountCny,
     dueDate: job.dueDate,
     secondaryDueDate: job.secondaryDueDate,
+    stagePlan: job.stagePlan,
     notes: job.notes,
     status: job.status,
     sourceFile: job.sourceFile,
@@ -1969,6 +1974,7 @@ type MasterBoardTableRow = {
   active_return_due_date: string | null
   active_return_reason: ReturnReason | null
   cells: unknown
+  stage_plan: unknown
 }
 
 export type MasterRowsPageOptions = {
@@ -2394,6 +2400,18 @@ function masterCellFromBoardJson(v: unknown): MasterCell | undefined {
   }
 }
 
+// 计划交期 (排产) jsonb → typed map. Keeps only real Stage keys with a
+// non-empty string value; anything else (legacy junk, '{}') → {}.
+function stagePlanFromJson(v: unknown): Partial<Record<Stage, string>> {
+  const raw = asRecord(v)
+  const out: Partial<Record<Stage, string>> = {}
+  for (const stage of STAGES) {
+    const val = raw[stage]
+    if (typeof val === 'string' && val) out[stage] = val
+  }
+  return out
+}
+
 function masterRowFromBoardTable(row: MasterBoardTableRow): MasterRow {
   const cells: Partial<Record<Stage, MasterCell>> = {}
   const rawCells = asRecord(row.cells)
@@ -2401,6 +2419,7 @@ function masterRowFromBoardTable(row: MasterBoardTableRow): MasterRow {
     const cell = masterCellFromBoardJson(rawCells[stage])
     if (cell) cells[stage] = cell
   }
+  const stagePlan = stagePlanFromJson(row.stage_plan)
   const amountCny = numberOrUndefined(row.amount_cny)
   const externalSpendCny = numberOrZero(row.external_spend_cny)
   return {
@@ -2414,6 +2433,7 @@ function masterRowFromBoardTable(row: MasterBoardTableRow): MasterRow {
     dueDate: row.due_date,
     effectiveDueDate: row.effective_due_date,
     secondaryDueDate: row.secondary_due_date ?? undefined,
+    stagePlan,
     notes: row.notes ?? undefined,
     status: row.status ?? 'ready',
     createdAt: row.created_at ?? undefined,
@@ -2458,7 +2478,7 @@ async function getMasterRowsFromBoardTable(
   if (!ready) return null
   const PAGE = 1000
   const COLS =
-    'job_id, position, job_no, job_no_sort_key, job_intake_date, customer, product, engineer, yuenong_business, amount_cny, due_date, effective_due_date, secondary_due_date, notes, status, created_at, pinned_at, job_type, is_product, paused_at, pause_reason, needs_outsource, outsource_note, drawing_change_open, drawing_change_note, has_open_outsource, has_open_inspection_verdict, external_spend_cny, margin_cny, is_shipped, component_count, search_haystack, active_return_id, active_return_due_date, active_return_reason, cells'
+    'job_id, position, job_no, job_no_sort_key, job_intake_date, customer, product, engineer, yuenong_business, amount_cny, due_date, effective_due_date, secondary_due_date, notes, status, created_at, pinned_at, job_type, is_product, paused_at, pause_reason, needs_outsource, outsource_note, drawing_change_open, drawing_change_note, has_open_outsource, has_open_inspection_verdict, external_spend_cny, margin_cny, is_shipped, component_count, search_haystack, active_return_id, active_return_due_date, active_return_reason, cells, stage_plan'
 
   const build = (countMode: 'exact' | undefined) => {
     let q = supabase
@@ -2510,7 +2530,7 @@ async function getMasterRowsPageFromBoardTable(
   const keyset = decodeMasterRowsCursor(opts.cursor)
   const offsetCursor = keyset ? 0 : Math.max(0, Number(opts.cursor ?? 0) || 0)
   const COLS =
-    'job_id, position, job_no, job_no_sort_key, job_intake_date, customer, product, engineer, yuenong_business, amount_cny, due_date, effective_due_date, secondary_due_date, notes, status, created_at, pinned_at, job_type, is_product, paused_at, pause_reason, needs_outsource, outsource_note, drawing_change_open, drawing_change_note, has_open_outsource, has_open_inspection_verdict, external_spend_cny, margin_cny, is_shipped, component_count, search_haystack, active_return_id, active_return_due_date, active_return_reason, cells'
+    'job_id, position, job_no, job_no_sort_key, job_intake_date, customer, product, engineer, yuenong_business, amount_cny, due_date, effective_due_date, secondary_due_date, notes, status, created_at, pinned_at, job_type, is_product, paused_at, pause_reason, needs_outsource, outsource_note, drawing_change_open, drawing_change_note, has_open_outsource, has_open_inspection_verdict, external_spend_cny, margin_cny, is_shipped, component_count, search_haystack, active_return_id, active_return_due_date, active_return_reason, cells, stage_plan'
 
   let q = supabase
     .from('master_board_rows')
@@ -2677,7 +2697,7 @@ async function getMasterRowsScoped(scope: MasterRowsScope): Promise<MasterRow[]>
   // pause_reason in 0050. All ride the extended list so a DB behind the running
   // code falls back to JOBS_COLS_BASE (rendering without the 二次交期 / 待外协 /
   // 图纸变更 / 暂停 extras) rather than 500'ing the whole master grid.
-  const JOBS_COLS = `${JOBS_COLS_BASE}, needs_outsource, outsource_note, secondary_due_date, drawing_change_open, drawing_change_note, paused_at, pause_reason, yuenong_business`
+  const JOBS_COLS = `${JOBS_COLS_BASE}, needs_outsource, outsource_note, secondary_due_date, stage_plan, drawing_change_open, drawing_change_note, paused_at, pause_reason, yuenong_business`
 
   const buildJobsQuery = () => supabase.from('jobs') as unknown as SupabaseQuery
   const filterJobs = (q: SupabaseQuery): SupabaseQuery => {
@@ -2809,6 +2829,7 @@ async function getMasterRowsScoped(scope: MasterRowsScope): Promise<MasterRow[]>
       dueDate: r.due_date as string,
       effectiveDueDate: r.due_date as string, // overridden below if open return
       secondaryDueDate: (r.secondary_due_date as string | null) ?? undefined,
+      stagePlan: stagePlanFromJson(r.stage_plan),
       notes: (r.notes as string | null) ?? undefined,
       status: ((r.status as JobStatus | null) ?? 'ready') as JobStatus,
       createdAt: (r.created_at as string | null) ?? undefined,
@@ -4185,6 +4206,9 @@ export type JobPatch = {
   product?: string
   dueDate?: string
   secondaryDueDate?: string | null
+  // 计划交期 (排产) is intentionally NOT a JobPatch field: it is a per-工段 map
+  // and is written ONLY through setJobStagePlan (single-key atomic merge), so
+  // the generic whole-row updateJob can never clobber sibling stages.
   amountCny?: number | null
   notes?: string | null
   createdBy?: string | null
@@ -4258,6 +4282,36 @@ export async function updateJob(jobId: string, patch: JobPatch): Promise<void> {
       update.drawing_change_at = patch.drawingChangeAt
     if (Object.keys(update).length === 0) return
     const { error } = await supabase.from('jobs').update(update).eq('id', jobId)
+    if (error) throw error
+  })
+}
+
+// 计划交期 (排产) — set or clear ONE 工段's planned date, merged into the job's
+// holistic stage_plan map. Read-modify-write under the global write lock so
+// per-stage edits to the same job never clobber one another: the client sends
+// only its own stage (never the whole, possibly-stale map — see
+// app/_stage_plan.tsx). A null / empty value DROPS the key (never persists '').
+// The jobs UPDATE fires refresh_master_board_jobs, so the board mirror follows.
+export async function setJobStagePlan(
+  jobId: string,
+  stage: Stage,
+  value: string | null,
+): Promise<void> {
+  await withWriteLock(async () => {
+    const { data, error: readErr } = await supabase
+      .from('jobs')
+      .select('stage_plan')
+      .eq('id', jobId)
+      .maybeSingle()
+    if (readErr) throw readErr
+    if (!data) throw new Error('工单不存在')
+    const map = stagePlanFromJson(data.stage_plan)
+    if (value && value.length) map[stage] = value
+    else delete map[stage]
+    const { error } = await supabase
+      .from('jobs')
+      .update({ stage_plan: map })
+      .eq('id', jobId)
     if (error) throw error
   })
 }

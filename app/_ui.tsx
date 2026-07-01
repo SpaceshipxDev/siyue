@@ -171,6 +171,7 @@ export function DueCell({
   state,
   daysOff,
   secondaryDate,
+  plan,
 }: {
   date: string
   state: DueState
@@ -179,6 +180,11 @@ export function DueCell({
   // present. Display-only: it carries no urgency tone (the primary date owns
   // color/sort), so it stays ink-3 regardless of how far off it is.
   secondaryDate?: string
+  // 本工段计划 — THIS station's own planned finish, shown only in the per-station
+  // queue (the boss grid passes none). Display-only: it never drives the row's
+  // stripe or the list sort — the contract 交期 still owns all of that. Sits
+  // above 二次交期 because a worker's own deadline outranks a second ship date.
+  plan?: { label: string; sub?: string; toneClass: string }
 }) {
   const tone =
     state === 'overdue'
@@ -202,6 +208,15 @@ export function DueCell({
         {date}
       </span>
       <span className="label mt-0.5 whitespace-nowrap">{sub}</span>
+      {plan && (
+        <span
+          className={`mono text-[11px] whitespace-nowrap mt-0.5 ${plan.toneClass}`}
+          title="本工段计划交期"
+        >
+          {plan.label}
+          {plan.sub ? ` · ${plan.sub}` : ''}
+        </span>
+      )}
       {secondaryDate && (
         <span
           className="mono text-[11px] whitespace-nowrap text-[var(--color-ink-3)] mt-0.5"

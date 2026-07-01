@@ -70,6 +70,10 @@ export type CompactMasterRow = [
   // 越侬商务 — appended last so adding it never reshuffles the positional
   // indices above. Customer-facing → null when scrubbed for production.
   yuenongBusiness: WireValue<string>,
+  // 计划交期 (排产) — appended after yuenongBusiness (index 34). Internal
+  // scheduling, not customer PII, so never scrubbed. Always an object ({} when
+  // no plan); a stale client that predates this slot reads undefined → {}.
+  stagePlan: Partial<Record<Stage, string>>,
 ]
 
 function canSeeCustomerData(scope: Scope): boolean {
@@ -185,6 +189,7 @@ export function toMasterWireRows(rows: MasterRow[], scope: Scope): CompactMaster
       r.outstandingCny ?? null,
       r.overdueDays ?? null,
       r.yuenongBusiness ?? null,
+      r.stagePlan ?? {},
     ]
   })
 }
@@ -231,6 +236,7 @@ export function expandMasterWireRows(rows: CompactMasterRow[]): MasterRow[] {
       outstandingCny: r[31] ?? undefined,
       overdueDays: r[32] ?? undefined,
       yuenongBusiness: r[33] ?? undefined,
+      stagePlan: r[34] ?? {},
     }
   })
 }

@@ -5,8 +5,10 @@ import Link from 'next/link'
 import {
   daysFromToday,
   dueState,
+  fmtPlanLabel,
   jobIntakeDate,
   jobNoSortKey,
+  stagePlanState,
   type JobType,
   type Stage,
 } from '@/lib/data'
@@ -15,12 +17,14 @@ import {
   rowIsMineAtStage,
   rowIsUpstreamOfStage,
   rowMostRecentFinishedAt,
+  rowRollupStage,
   rowStageCounts,
   rowTimerAtStage,
   rowUpstreamActiveStages,
   type MasterRow,
 } from '@/lib/master'
 import { DueCell } from './_ui'
+import { planToneClass } from './_stage_plan'
 import { JobStageActionButton } from './_cell'
 import { JobNotesInline } from './_editable'
 import { ReturnChip } from './_returns'
@@ -425,6 +429,24 @@ function WorkbenchRow({
   const effDue = row.effectiveDueDate
   const ds = dueState(effDue)
   const days = daysFromToday(effDue)
+  // 本工段计划 — this station's OWN planned finish for the job. Display-only: it
+  // never touches the left stripe or the queue sort (those stay keyed off the
+  // contract 交期). Hidden once this station is done — no live deadline left.
+  const planVal = row.stagePlan?.[stage]
+  const planStatus = stagePlanState(planVal, rowRollupStage(row, stage).kind)
+  const planLine =
+    planVal && planStatus && planStatus.tone !== 'done'
+      ? {
+          label: `本工段 ${fmtPlanLabel(planVal)}`,
+          sub:
+            planStatus.tone === 'slipping'
+              ? `逾期 ${Math.abs(planStatus.daysOff)} 天`
+              : planStatus.tone === 'due'
+                ? '今日'
+                : `${planStatus.daysOff} 天后`,
+          toneClass: planToneClass(planStatus.tone),
+        }
+      : undefined
   // Row's left-edge stripe paints time pressure only (overdue/today).
   // 加急 is carried by the chip — keeps the two signals visually
   // independent so the worker reads "burning today" + "boss escalated"
@@ -522,6 +544,7 @@ function WorkbenchRow({
               state={ds}
               daysOff={days}
               secondaryDate={row.secondaryDueDate}
+              plan={planLine}
             />
           </div>
 

@@ -63,6 +63,7 @@ import {
   updateProcurement,
   updateProcurementProduct,
   updateJob,
+  setJobStagePlan,
   updateOutsourceBlock,
   updateShipmentFinance,
   updateVendor,
@@ -536,6 +537,31 @@ async function dispatch(
         return err('bad updateJob args')
       await requirePartRouteEditor()
       await updateJob(jobId, patch as JobPatch)
+      revalidateJob(jobId)
+      return Response.json(ok())
+    }
+
+    // 计划交期 (排产) — set/clear ONE 工段's planned finish date. Single-stage on
+    // purpose: the server merges it into the holistic map atomically, so the
+    // client never ships (and can never clobber) the whole map.
+    case 'setStagePlan': {
+      const jobId = body.jobId
+      const stage = body.stage
+      const value = body.value
+      if (!isString(jobId) || !isStage(stage))
+        return err('bad setStagePlan args')
+      if (value !== null && value !== undefined && !isString(value))
+        return err('bad stage plan value')
+      // Only accept YYYY-MM-DD or YYYY-MM-DDTHH:mm so a stray/garbage string
+      // can never land in the plan map. Empty/null clears (handled below).
+      if (
+        isString(value) &&
+        value !== '' &&
+        !/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(value)
+      )
+        return err('bad stage plan date')
+      await requirePartRouteEditor()
+      await setJobStagePlan(jobId, stage, isString(value) ? value : null)
       revalidateJob(jobId)
       return Response.json(ok())
     }

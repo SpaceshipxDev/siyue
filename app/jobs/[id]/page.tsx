@@ -19,6 +19,8 @@ import {
   jobReturnedQtyByPart,
   latestComponentActivity,
   openDrawingChange,
+  PLANNABLE_STAGES,
+  rollupStage,
   vendorById,
   type Job,
   type Stage,
@@ -64,6 +66,7 @@ import {
   JobPartFilterSummary,
   JobPartStageFunnel,
 } from '@/app/_part_filter'
+import { StagePlanBand } from '@/app/_stage_plan'
 import { PART_STAGE_CODE } from '@/lib/part-status'
 import { ComponentAnchorScroller } from '@/app/_component_anchor'
 import { JobTabs } from './_job_tabs'
@@ -177,6 +180,13 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
     partStageCodes[c.id] = code
   }
   const pct = totalCells === 0 ? 0 : Math.round((doneCells / totalCells) * 100)
+
+  // 排产 — the plannable 工段 this job actually routes through, each with its
+  // job-level rollup (for slip-tinting). Drives the 排产 band above the parts.
+  const planStages = PLANNABLE_STAGES.map((s) => ({
+    stage: s,
+    kind: rollupStage(job, s).kind,
+  })).filter((x) => x.kind !== 'na')
 
   const externalSpend = jobExternalSpend(job)
   const margin = jobMargin(job)
@@ -557,6 +567,25 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           <JobTabs tabs={jobTabs} />
 
           <div data-jobtab="parts">
+        {/* 排产 · 计划交期 — the job's per-工段 schedule as one clean band above
+            the parts table (never crammed into the grid columns). Each station
+            reads its own date here in its queue. */}
+        {planStages.length > 0 && (
+          <section className="mb-7">
+            <div className="mb-2.5 flex items-baseline gap-2.5">
+              <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
+                排产
+              </h2>
+              <span className="label">各工段计划完成日</span>
+            </div>
+            <StagePlanBand
+              jobId={job.id}
+              stagePlan={job.stagePlan ?? {}}
+              stages={planStages}
+              canEdit={canEditFields}
+            />
+          </section>
+        )}
         <JobPartFilterProvider codes={partStageCodes}>
         <div className="mb-3 flex items-baseline justify-between gap-3">
           <div className="flex items-baseline gap-3 flex-wrap">

@@ -30,6 +30,14 @@ export const OUTSOURCEABLE_STAGES: Stage[] = PRODUCTION_STAGES.filter(
   (s) => s !== '工程',
 )
 
+// 计划交期 / 排产 — the stages a job can carry a PLANNED finish date for. 检验
+// is a verdict gate with no in-house duration and 出货's plan would just be the
+// contract 交期, so neither is plannable. Order follows STAGES so a plan strip
+// reads left-to-right the way parts actually flow.
+export const PLANNABLE_STAGES: Stage[] = PRODUCTION_STAGES.filter(
+  (s) => s !== '检验',
+)
+
 export type StageStatus = 'pending' | 'in_progress' | 'done'
 
 // 检验 verdicts — the inspector's four buttons. OK finishes the stage and the
@@ -722,6 +730,13 @@ export type Job = {
   // feeds dueState/color/sort (those stay keyed off dueDate). Blank for every
   // legacy job; the floor adds it by hand. See migration 0044.
   secondaryDueDate?: string
+  // 计划交期 (排产) — optional PLANNED finish date for each 工段, holistic for
+  // the whole job (one plan for all parts). Keyed by Stage; value is
+  // 'YYYY-MM-DD', or 'YYYY-MM-DDTHH:mm' when a specific hour is pinned. Purely
+  // for visibility/planning: it NEVER feeds dueState / color / sort / queue
+  // order — the contract dueDate still owns all of that. Stages with no plan
+  // are absent from the map. See migration NNNN_stage_plan + PLANNABLE_STAGES.
+  stagePlan?: Partial<Record<Stage, string>>
   notes?: string
   status?: JobStatus
   sourceFile?: string
@@ -1227,6 +1242,58 @@ export function daysFromToday(dueDate: string, ref: string = today()): number {
   const t = Date.UTC(y1, m1 - 1, d1)
   const u = Date.UTC(y2, m2 - 1, d2)
   return Math.round((u - t) / 86_400_000)
+}
+
+// --- 计划交期 (排产) helpers ------------------------------------------------
+// A plan value is 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:mm'. These split helpers keep
+// the day-math (dueState/daysFromToday parse a bare YYYY-MM-DD) safe from the
+// optional time suffix.
+export function planDatePart(plan: string): string {
+  return plan.slice(0, 10)
+}
+
+export function planTimePart(plan: string): string | undefined {
+  return plan.length >= 16 ? plan.slice(11, 16) : undefined
+}
+
+// Human label for a plan value: '5/20' or '5/20 14:00' — no leading zeros on
+// the date (matches the DatePop trigger style), HH:mm when an hour is pinned.
+export function fmtPlanLabel(plan: string | undefined): string {
+  if (!plan) return '—'
+  const [, m, d] = planDatePart(plan).split('-').map(Number)
+  const base = `${m}/${d}`
+  const t = planTimePart(plan)
+  return t ? `${base} ${t}` : base
+}
+
+export type StagePlanTone = 'slipping' | 'due' | 'soon' | 'onTrack' | 'done'
+
+// A stage's status vs its plan, for tinting. Returns null when there's nothing
+// to show — no plan set, or the stage isn't in this job's route (na). 'done'
+// means the stage is finished (target met; never a slip regardless of date).
+// Otherwise it compares the plan's DATE to today, day-granular on purpose so
+// the color matches dueState and a pinned hour never flips the tint mid-day —
+// the hour is shown for planning, the day drives urgency.
+export function stagePlanState(
+  plan: string | undefined,
+  rollupKind: RollupKind,
+  ref: string = today(),
+): { tone: StagePlanTone; daysOff: number } | null {
+  if (!plan) return null
+  if (rollupKind === 'na') return null
+  if (rollupKind === 'done') return { tone: 'done', daysOff: 0 }
+  const date = planDatePart(plan)
+  const ds = dueState(date, ref)
+  const daysOff = daysFromToday(date, ref)
+  const tone: StagePlanTone =
+    ds === 'overdue'
+      ? 'slipping'
+      : ds === 'today'
+        ? 'due'
+        : ds === 'soon'
+          ? 'soon'
+          : 'onTrack'
+  return { tone, daysOff }
 }
 
 export function formatCny(amount?: number | null): string {
