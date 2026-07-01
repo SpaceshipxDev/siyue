@@ -475,6 +475,7 @@ type ExportOrder = {
   jobId: string
   jobNo: string
   customer: string
+  amountCny: number
   finishes: number
   pieces: number
   valueCny: number
@@ -562,6 +563,25 @@ function ExportButton({
       const wsWorker = XLSX.utils.aoa_to_sheet([wHead, ...wBody])
       wsWorker['!cols'] = wHead.map((h) => ({ wch: h === '姓名' ? 16 : 10 }))
       XLSX.utils.book_append_sheet(wb, wsWorker, '人员汇总')
+
+      // 工单汇总 — per-order money + output: 订单金额 alongside 完成零件 / 件数.
+      const ojHead = ['工号', '客户', ...(showMoney ? ['订单金额'] : []), '完成零件', '件数', ...(showMoney ? ['经手金额'] : [])]
+      const ojBody: (string | number)[][] = orders.map((o) => [
+        o.jobNo,
+        o.customer,
+        ...(showMoney ? [Math.round(o.amountCny)] : []),
+        o.finishes,
+        o.pieces,
+        ...(showMoney ? [Math.round(o.valueCny)] : []),
+      ])
+      const ojTot = orders.reduce(
+        (a, o) => ({ amt: a.amt + o.amountCny, f: a.f + o.finishes, p: a.p + o.pieces, v: a.v + o.valueCny }),
+        { amt: 0, f: 0, p: 0, v: 0 },
+      )
+      ojBody.push(['合计', '', ...(showMoney ? [Math.round(ojTot.amt)] : []), ojTot.f, ojTot.p, ...(showMoney ? [Math.round(ojTot.v)] : [])])
+      const wsOrder = XLSX.utils.aoa_to_sheet([ojHead, ...ojBody])
+      wsOrder['!cols'] = ojHead.map((h) => ({ wch: h === '客户' ? 22 : h === '工号' ? 16 : 10 }))
+      XLSX.utils.book_append_sheet(wb, wsOrder, '工单汇总')
 
       // ── 报工明细 — 工单 foremost, its components spanning underneath. 工号/客户
       // sit on the order's first row; blank on the rest so each order reads as a

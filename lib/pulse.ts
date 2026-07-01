@@ -657,6 +657,8 @@ export type OrderDetail = {
   jobId: string
   jobNo: string
   customer: string
+  /** 订单金额 — the order's contract value (jobs.amount_cny), NOT throughput. */
+  amountCny: number
   finishes: number
   pieces: number
   valueCny: number
@@ -703,6 +705,7 @@ export async function getStationDetailByOrder(
         jobId,
         jobNo: (e.job_no as string | null) ?? '',
         customer: (e.customer as string | null) ?? '',
+        amountCny: 0,
         finishes: 0,
         pieces: 0,
         valueCny: 0,
@@ -726,6 +729,19 @@ export async function getStationDetailByOrder(
       unpriced: Boolean(e.is_unpriced),
     })
   }
+  // Attach each order's 订单金额 (jobs.amount_cny) — one chunked lookup.
+  const jobIds = [...map.keys()]
+  const amountRows = await fetchInChunks(jobIds, async (chunk) => {
+    const r = await supabase.from('jobs').select('id, amount_cny').in('id', chunk)
+    if (r.error) {
+      if (isSchemaLagError(r.error)) return []
+      throw r.error
+    }
+    return (r.data ?? []) as AnyRow[]
+  })
+  const amtById = new Map(amountRows.map((a) => [a.id as string, Number(a.amount_cny ?? 0)]))
+  for (const o of map.values()) o.amountCny = amtById.get(o.jobId) ?? 0
+
   const orders = [...map.values()].sort((a, b) =>
     a.jobNo < b.jobNo ? -1 : a.jobNo > b.jobNo ? 1 : 0,
   )

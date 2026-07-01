@@ -55,6 +55,7 @@ export async function GET(request: Request): Promise<Response> {
       const { orders, truncated } = await getStationDetailByOrder(stage, window)
       if (!showMoney) {
         for (const o of orders) {
+          o.amountCny = 0
           o.valueCny = 0
           for (const c of o.components) c.valueCny = 0
         }
