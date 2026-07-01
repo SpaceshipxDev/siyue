@@ -177,7 +177,7 @@ export function ReportClient({
             from={from}
             to={to}
             showMoney={showMoney}
-            people={people}
+            hasData={people.length > 0}
             stuck={stuck}
           />
         </div>
@@ -471,43 +471,82 @@ function Step({ dir, onClick, disabled }: { dir: number; onClick: () => void; di
 
 // --- 导出报表 ----------------------------------------------------------------
 
+type ExportOrder = {
+  jobNo: string
+  customer: string
+  finishes: number
+  pieces: number
+  valueCny: number
+  components: {
+    ts: string
+    stage: Stage
+    actorName: string
+    partName: string
+    partNo?: string
+    qty: number
+    valueCny: number
+    unpriced: boolean
+  }[]
+}
+
 function ExportButton({
   stage,
   from,
   to,
   showMoney,
-  people,
+  hasData,
   stuck,
 }: {
   stage: Stage | null
   from: string
   to: string
   showMoney: boolean
-  people: Person[]
+  hasData: boolean
   stuck: StuckPart[]
 }) {
   const [busy, setBusy] = useState(false)
-  const disabled = busy || people.length === 0
+  const disabled = busy || !hasData
 
   const onExport = async () => {
     if (disabled) return
     setBusy(true)
     try {
+      // Fetch the full 工单→component detail (paginated server-side) so a month
+      // export is complete, not the flat per-person count.
+      const q = new URLSearchParams({ from, to, mode: 'export' })
+      if (stage) q.set('stage', stage)
+      const res = await fetch(`/api/report?${q.toString()}`, { cache: 'no-store' }).then((r) => r.json())
+      const orders: ExportOrder[] = res?.ok ? res.orders ?? [] : []
+
       const XLSX = await import('xlsx')
       const wb = XLSX.utils.book_new()
 
-      const head = ['姓名', '完成零件', '件数', '开始', ...(showMoney ? ['经手金额', '未定价'] : []), '最后活动']
-      const body = people.map((p) => [
-        p.actorName,
-        p.finishes,
-        p.pieces,
-        p.starts,
-        ...(showMoney ? [Math.round(p.valueCny), p.unpriced] : []),
-        p.lastActiveTs ? fmtTs(p.lastActiveTs) : '',
-      ])
+      // 报工明细 — 工单 foremost, its components spanning underneath. 工号/客户
+      // sit on the order's first row; blank on the rest so each order reads as a
+      // header with its 零件 listed below it. A blank row separates orders.
+      const head = ['工号', '客户', '零件', '料号', '数量', '工段', '经手人', '完成时间', ...(showMoney ? ['经手金额'] : [])]
+      const body: (string | number)[][] = []
+      orders.forEach((o, oi) => {
+        if (oi > 0) body.push([]) // spacer between orders
+        o.components.forEach((c, ci) => {
+          body.push([
+            ci === 0 ? o.jobNo : '',
+            ci === 0 ? o.customer : '',
+            c.partName,
+            c.partNo ?? '',
+            c.qty,
+            c.stage,
+            c.actorName,
+            fmtTs(c.ts),
+            ...(showMoney ? [c.unpriced ? '未定价' : Math.round(c.valueCny)] : []),
+          ])
+        })
+      })
       const ws = XLSX.utils.aoa_to_sheet([head, ...body])
-      ws['!cols'] = head.map((h) => ({ wch: h === '姓名' ? 16 : h === '最后活动' ? 14 : 10 }))
-      XLSX.utils.book_append_sheet(wb, ws, '报工')
+      ws['!cols'] = head.map((h) =>
+        h === '客户' || h === '零件' ? { wch: 22 } : h === '工号' ? { wch: 16 } : h === '完成时间' ? { wch: 14 } : { wch: 10 },
+      )
+      XLSX.utils.book_append_sheet(wb, ws, '报工明细')
 
       if (stage && stuck.length > 0) {
         const sHead = ['工号', '客户', '零件', '料号', '数量', '已完成', '在此天数']
@@ -529,7 +568,7 @@ function ExportButton({
       type="button"
       onClick={onExport}
       disabled={disabled}
-      title="导出本周期报工为 Excel"
+      title="导出本周期报表为 Excel（按工单）"
       className={`inline-flex items-baseline gap-1.5 rounded-[2px] border px-2.5 py-[5px] text-[10px] tracking-[0.14em] uppercase transition-colors ${
         disabled
           ? 'border-[var(--color-border)] text-[var(--color-ink-4)] cursor-default'

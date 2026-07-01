@@ -167,13 +167,26 @@ export async function requirePulseViewer(): Promise<AuthUser> {
   redirect(landingPathFor(u))
 }
 
-// 报工 viewer gate — commerce ONLY. Stricter than requirePulseViewer: the
-// per-person merit scoreboard is a 商务 read, and the 工程 head is
-// deliberately excluded (it's also hidden from their nav). 工程 head and
-// floor workers alike bounce to their landing page on a direct URL hit.
+// 报工 viewers: every 商务, PLUS a hand-picked allowlist of production users the
+// boss has explicitly granted the per-person scoreboard. Kept as an id set (not
+// a role/stage) precisely because the grant is per-person — e.g. 于海伟 sees 报工
+// while the rest of 工程 does not. Add ids here to grant more.
+const REPORT_VIEWER_USER_IDS = new Set<string>([
+  'u-mose92lt-a0cutz', // 于海伟 (production / 工程)
+])
+
+// Can this user see the 报工 scoreboard + its export? Drives both the page/API
+// guards and whether the 报工 nav tab is rendered for them.
+export function canSeeReport(u: AuthUser): boolean {
+  return u.role === 'commerce' || REPORT_VIEWER_USER_IDS.has(u.id)
+}
+
+// 报工 viewer gate. 商务 always; specific granted production users (see
+// REPORT_VIEWER_USER_IDS) too. Everyone else bounces to their landing page on a
+// direct URL hit.
 export async function requireReportViewer(): Promise<AuthUser> {
   const u = await requireUser()
-  if (u.role === 'commerce') return u
+  if (canSeeReport(u)) return u
   redirect(landingPathFor(u))
 }
 

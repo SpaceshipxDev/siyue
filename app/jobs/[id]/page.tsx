@@ -35,6 +35,7 @@ import {
   canManageOutsource,
   canSeeCustomerData,
   canSeeMoney,
+  canSeeReport,
   requireUser,
 } from '@/lib/auth'
 import { scrubJob, scrubVendors } from '@/lib/dto'
@@ -266,6 +267,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
         role={user.role}
         defaultStage={user.defaultStage}
         userName={user.name}
+        canSeeReport={canSeeReport(user)}
       />
 
       <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">

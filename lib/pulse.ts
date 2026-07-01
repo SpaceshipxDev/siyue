@@ -635,3 +635,99 @@ export async function getStationFinishes(
 
   return { workers, jobs, totals: { finishes: tf, pieces: tp, valueCny: tv, unpriced: tu }, truncated }
 }
+
+// --- 报表 export detail — 工单-first, components underneath ------------------
+//
+// The useful 报表: for the stage + window, every finished component grouped by
+// its 工单 (YNMX order foremost), so the export reads order → 零件 rows with
+// 数量 / 工段 / 经手人 / 完成时间. Paginated (PostgREST caps a single response at
+// ~1000 rows) so a full month is complete, not silently truncated at 1000.
+
+export type OrderComponent = {
+  ts: string
+  stage: Stage
+  actorName: string
+  partName: string
+  partNo?: string
+  qty: number
+  valueCny: number
+  unpriced: boolean
+}
+export type OrderDetail = {
+  jobId: string
+  jobNo: string
+  customer: string
+  finishes: number
+  pieces: number
+  valueCny: number
+  components: OrderComponent[]
+}
+
+export async function getStationDetailByOrder(
+  stage: Stage | undefined,
+  window: { from: string; to: string },
+): Promise<{ orders: OrderDetail[]; truncated: boolean }> {
+  const PAGE = 1000
+  const CAP = 20000 // safety ceiling on the export payload
+  const rows: AnyRow[] = []
+  for (let offset = 0; offset < CAP; offset += PAGE) {
+    let q = supabase
+      .from('worker_stage_events')
+      .select(
+        'ts, actor_name, stage, part_name, part_no, part_qty, value_cny, is_unpriced, job_id, job_no, customer',
+      )
+      .eq('kind', 'finished')
+      .gte('ts', window.from)
+      .lt('ts', window.to)
+      .order('job_no', { ascending: true })
+      .order('ts', { ascending: true })
+      .range(offset, offset + PAGE - 1)
+    if (stage) q = q.eq('stage', stage)
+    const r = await q
+    if (r.error) {
+      if (isSchemaLagError(r.error)) break
+      throw r.error
+    }
+    const batch = (r.data ?? []) as AnyRow[]
+    rows.push(...batch)
+    if (batch.length < PAGE) break
+  }
+  const truncated = rows.length >= CAP
+
+  const map = new Map<string, OrderDetail>()
+  for (const e of rows) {
+    const jobId = e.job_id as string
+    let o = map.get(jobId)
+    if (!o) {
+      o = {
+        jobId,
+        jobNo: (e.job_no as string | null) ?? '',
+        customer: (e.customer as string | null) ?? '',
+        finishes: 0,
+        pieces: 0,
+        valueCny: 0,
+        components: [],
+      }
+      map.set(jobId, o)
+    }
+    const qty = Number(e.part_qty ?? 0)
+    const val = Number(e.value_cny ?? 0)
+    o.finishes += 1
+    o.pieces += qty
+    o.valueCny += val
+    o.components.push({
+      ts: e.ts as string,
+      stage: e.stage as Stage,
+      actorName: ((e.actor_name as string | null) ?? '—') || '—',
+      partName: (e.part_name as string | null) ?? '部件',
+      partNo: (e.part_no as string | null) ?? undefined,
+      qty,
+      valueCny: val,
+      unpriced: Boolean(e.is_unpriced),
+    })
+  }
+  const orders = [...map.values()].sort((a, b) =>
+    a.jobNo < b.jobNo ? -1 : a.jobNo > b.jobNo ? 1 : 0,
+  )
+  return { orders, truncated }
+}

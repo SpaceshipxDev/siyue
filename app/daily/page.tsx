@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { TopBar } from '@/app/_ui'
-import { canSeeFactoryPulse, landingPathFor, requireUser } from '@/lib/auth'
+import { canSeeFactoryPulse, landingPathFor, requireUser, canSeeReport } from '@/lib/auth'
 import { getDailyFocusItems, getMasterRows } from '@/lib/db'
 import { scrubMasterRow } from '@/lib/dto'
 import { today } from '@/lib/today'
@@ -74,6 +74,7 @@ export default async function DailyFocusPage({
         role={user.role}
         defaultStage={user.defaultStage}
         userName={user.name}
+        canSeeReport={canSeeReport(user)}
       />
       <main className="px-4 md:px-10 py-8">
         <DailyFocusBoard

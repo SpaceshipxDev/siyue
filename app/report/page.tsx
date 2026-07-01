@@ -1,5 +1,5 @@
 import { STAGES, type Stage } from '@/lib/data'
-import { requireReportViewer } from '@/lib/auth'
+import { requireReportViewer, canSeeMoney, canSeeReport } from '@/lib/auth'
 import { today } from '@/lib/today'
 import { ReportClient } from './_cockpit'
 import { TopBar } from '../_ui'
@@ -39,6 +39,7 @@ export default async function ReportPage({
         role={user.role}
         defaultStage={user.defaultStage}
         userName={user.name}
+        canSeeReport={canSeeReport(user)}
       />
       <main className="mx-auto w-full max-w-[1100px] px-4 md:px-10 py-8 md:py-12 flex-1">
         <header className="mb-8">
@@ -50,7 +51,7 @@ export default async function ReportPage({
           initialGran={gran}
           initialAnchor={anchor}
           todayStr={todayStr}
-          showMoney={true}
+          showMoney={canSeeMoney(user)}
         />
       </main>
     </div>

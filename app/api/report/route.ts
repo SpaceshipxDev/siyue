@@ -1,34 +1,35 @@
-import { currentUser } from '@/lib/auth'
+import { currentUser, canSeeReport, canSeeMoney } from '@/lib/auth'
 import { STAGES, type Stage } from '@/lib/data'
 import { shanghaiRangeWindow } from '@/lib/today'
 import {
   getWorkerOutput,
   getStationStuck,
   getWorkerTimeline,
+  getStationDetailByOrder,
 } from '@/lib/pulse'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 // 报工 data API — powers the /report client view so switching station / period
-// and expanding a person never triggers a full-page navigation (the old page
-// re-ran the whole scoreboard server-side on every click — "slow as fuck").
+// and expanding a person never triggers a full-page navigation.
 //
-//   GET /api/report?from=&to=[&stage=]              → { people, stuck }
-//   GET /api/report?from=&to=&w=<name>[&stage=]     → { jobs }  (one worker's drill)
+//   GET /api/report?from=&to=[&stage=]            → { people, stuck }       (summary)
+//   GET /api/report?from=&to=&w=<name>[&stage=]   → { jobs }                (one worker's drill)
+//   GET /api/report?from=&to=&mode=export[&stage=]→ { orders, truncated }   (工单→components 报表)
 //
-// Commerce-only, like the page guard (requireReportViewer). Aggregates come
-// from worker_output (tiny + cascade-excluded via migration 0072), so a month
-// window returns a handful of rows — the export downstream is always complete.
+// Viewers: every 商务 + explicitly-granted production users (canSeeReport, e.g.
+// 于海伟). ¥ (value_cny) is scrubbed for anyone without money visibility.
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const STUCK_DAYS = 5
 
 export async function GET(request: Request): Promise<Response> {
   const user = await currentUser()
-  if (!user || user.role !== 'commerce') {
+  if (!user || !canSeeReport(user)) {
     return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 })
   }
+  const showMoney = canSeeMoney(user)
 
   const sp = new URL(request.url).searchParams
   const from = sp.get('from')
@@ -49,7 +50,22 @@ export async function GET(request: Request): Promise<Response> {
   const worker = sp.get('w')
 
   try {
-    // Per-worker drill-down (expanded inline on the client).
+    // 报表 export: 工单-first, components underneath.
+    if (sp.get('mode') === 'export') {
+      const { orders, truncated } = await getStationDetailByOrder(stage, window)
+      if (!showMoney) {
+        for (const o of orders) {
+          o.valueCny = 0
+          for (const c of o.components) c.valueCny = 0
+        }
+      }
+      return Response.json(
+        { ok: true, orders, truncated, showMoney },
+        { headers: { 'cache-control': 'no-store' } },
+      )
+    }
+
+    // Per-worker drill-down (expanded inline on the client), grouped by 工单.
     if (worker) {
       const events = await getWorkerTimeline({
         actorName: worker,
@@ -58,7 +74,6 @@ export async function GET(request: Request): Promise<Response> {
         stage,
         limit: 500,
       })
-      // Group by 工单 so the client renders "完成{工段} · 零件 ×N" under each job.
       const jobMap = new Map<
         string,
         {
@@ -87,13 +102,13 @@ export async function GET(request: Request): Promise<Response> {
         }
         j.finishes += 1
         j.pieces += e.partQty
-        j.valueCny += e.valueCny
+        j.valueCny += showMoney ? e.valueCny : 0
         j.components.push({
           ts: e.ts,
           stage: e.stage,
           partName: e.partName,
           qty: e.partQty,
-          valueCny: e.valueCny,
+          valueCny: showMoney ? e.valueCny : 0,
           unpriced: e.unpriced,
           imageUrl: e.imageUrl,
         })
@@ -107,8 +122,9 @@ export async function GET(request: Request): Promise<Response> {
       getWorkerOutput(window, stage),
       stage ? getStationStuck(stage, STUCK_DAYS) : Promise.resolve([]),
     ])
+    if (!showMoney) for (const p of people) p.valueCny = 0
     return Response.json(
-      { ok: true, people, stuck, stuckDays: STUCK_DAYS },
+      { ok: true, people, stuck, stuckDays: STUCK_DAYS, showMoney },
       { headers: { 'cache-control': 'no-store' } },
     )
   } catch (e) {

@@ -30,7 +30,7 @@ type Tab = { key: TabKey; label: string; href: string }
 // 工程 head (PMC in shop terms) runs the boss-style holistic nav: drills
 // into 外协, /退货, and every station to see what's happening across the
 // floor — same shape as commerce (no money visibility).
-function tabsForRole(role: Role, defaultStage?: string): Tab[] {
+function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): Tab[] {
   if (role === 'production') {
     if (defaultStage === '工程') {
       // 工程 head's home tab IS bare / (their holistic master view), not
@@ -43,8 +43,9 @@ function tabsForRole(role: Role, defaultStage?: string): Tab[] {
         { key: '现场', label: '现场', href: '/pulse' },
         { key: '交接', label: '交接', href: '/handover' },
         { key: '采购', label: '采购', href: '/procurement' },
-        // 报工 deliberately omitted — the per-person merit scoreboard is a 商务
-        // read only; 工程 head doesn't see it (gate: requireReportViewer).
+        // 报工 shown only for explicitly-granted 工程 users (canSeeReport — e.g.
+        // 于海伟); the rest of 工程 don't get it. Gate: requireReportViewer.
+        ...(canSeeReport ? [{ key: '报工' as TabKey, label: '报工', href: '/report' }] : []),
         { key: '外协', label: '外协', href: '/station/outsource' },
         ...STAGES.filter((s) => s !== '工程').map((s) => ({
           key: s as TabKey,
@@ -89,6 +90,7 @@ export function TopBar({
   role,
   defaultStage,
   userName,
+  canSeeReport = false,
 }: {
   title: string
   subtitle?: string
@@ -98,8 +100,10 @@ export function TopBar({
   role: Role
   defaultStage?: string
   userName: string
+  /** Granted the 报工 tab (all 商务, plus allowlisted production e.g. 于海伟). */
+  canSeeReport?: boolean
 }) {
-  const tabs = tabsForRole(role, defaultStage)
+  const tabs = tabsForRole(role, defaultStage, canSeeReport)
   const isCommerce = role === 'commerce'
   // 工程 head's "home" is the holistic master view at bare / (same as
    // commerce). Other production stations land on their station-filtered

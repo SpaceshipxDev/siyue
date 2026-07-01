@@ -1,5 +1,5 @@
 import { TopBar } from '@/app/_ui'
-import { requireUser, canSeeFactoryPulse, landingPathFor } from '@/lib/auth'
+import { requireUser, canSeeFactoryPulse, landingPathFor, canSeeReport } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { getAllUsers, getHandovers, getJobNoIndex } from '@/lib/db'
 import { today } from '@/lib/today'
@@ -32,6 +32,7 @@ export default async function HandoverPage() {
         role={user.role}
         defaultStage={user.defaultStage}
         userName={user.name}
+        canSeeReport={canSeeReport(user)}
       />
       <main className="px-4 md:px-10 py-8">
         <HandoverBoard

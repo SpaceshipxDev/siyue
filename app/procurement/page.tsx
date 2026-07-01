@@ -1,5 +1,5 @@
 import { TopBar } from '@/app/_ui'
-import { requireUser } from '@/lib/auth'
+import { requireUser, canSeeReport } from '@/lib/auth'
 import { getProcurements, getProcurementProducts } from '@/lib/db'
 import { today } from '@/lib/today'
 import { ProcurementBoard } from './_procurement'
@@ -27,6 +27,7 @@ export default async function ProcurementPage() {
         role={user.role}
         defaultStage={user.defaultStage}
         userName={user.name}
+        canSeeReport={canSeeReport(user)}
       />
       <main className="px-4 md:px-10 py-8">
         <ProcurementBoard

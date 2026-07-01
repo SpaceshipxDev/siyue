@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation'
 import { findJobNoConflict, getJob, parseJobNoConflictError } from '@/lib/db'
 import {
   canEditProductionFields,
+  canSeeReport,
   landingPathFor,
   requireUser,
   type AuthUser,
@@ -82,6 +83,7 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
         role={user.role}
         defaultStage={user.defaultStage}
         userName={user.name}
+        canSeeReport={canSeeReport(user)}
       />
 
       <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">
@@ -425,6 +427,7 @@ function ParsingScreen({
         role={user.role}
         defaultStage={user.defaultStage}
         userName={user.name}
+        canSeeReport={canSeeReport(user)}
       />
 
       <main className="mx-auto w-full max-w-[900px] px-4 md:px-10 py-8 md:py-16 flex-1">

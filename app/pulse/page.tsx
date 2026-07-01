@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import Link from 'next/link'
 import { STAGES, formatCny, type Stage } from '@/lib/data'
-import { canSeeMoney, requirePulseViewer } from '@/lib/auth'
+import { canSeeMoney, requirePulseViewer, canSeeReport } from '@/lib/auth'
 import {
   formatEventTs,
   getStationEvents,
@@ -68,6 +68,7 @@ export default async function PulsePage({
         role={user.role}
         defaultStage={user.defaultStage}
         userName={user.name}
+        canSeeReport={canSeeReport(user)}
       />
       <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-8 md:py-12 flex-1">
         <header className="mb-8 md:mb-12 flex items-baseline justify-between gap-6">

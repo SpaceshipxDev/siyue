@@ -1,5 +1,5 @@
 import { getJobsComponents, getMasterRows, listClosedReturns } from '@/lib/db'
-import { requirePartRouteEditor } from '@/lib/auth'
+import { requirePartRouteEditor, canSeeReport } from '@/lib/auth'
 import { TopBar } from '@/app/_ui'
 import { ReturnsView, type ReturnsListJob } from './_view'
 import type { MasterRow } from '@/lib/master'
@@ -34,6 +34,7 @@ export default async function ReturnsPage() {
         role={user.role}
         defaultStage={user.defaultStage}
         userName={user.name}
+        canSeeReport={canSeeReport(user)}
       />
       <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">
         <ReturnsView

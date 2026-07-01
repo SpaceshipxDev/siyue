@@ -1,6 +1,6 @@
 import { daysFromToday, formatCny, isBlockClosed } from '@/lib/data'
 import { getOutsourceBlockRows, getVendors } from '@/lib/db'
-import { requireOutsourceManager } from '@/lib/auth'
+import { requireOutsourceManager, canSeeReport } from '@/lib/auth'
 import { Pill, TopBar } from '@/app/_ui'
 import { OutsourceBoard } from './_board'
 
@@ -29,6 +29,7 @@ export default async function OutsourcePage() {
         role={user.role}
         defaultStage={user.defaultStage}
         userName={user.name}
+        canSeeReport={canSeeReport(user)}
         right={
           <div className="flex items-center gap-2">
             <Pill tone="overdue" label="逾期" value={overdueCount} />
