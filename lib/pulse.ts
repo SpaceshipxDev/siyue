@@ -360,3 +360,278 @@ export function formatEventTs(ts: string, now: Date = new Date()): string {
   const dd = String(d.getDate()).padStart(2, '0')
   return `${mo}-${dd} ${hh}:${mm}`
 }
+
+// === 报工 per-station cockpit reads (the /report?stage=<X> view) ===
+//
+// One station answers three questions a human actually asks standing at it:
+//   ① 停留超期 — which components have been sitting here too long (bottleneck)
+//   ② 本工段人员 — who worked here this period, and (drill) exactly what they did
+//   ③ 流经工单 — which jobs flowed through here this period
+// All derived from part_stages; ② + ③ share ONE query (worker_stage_events),
+// grouped in JS so the client can expand people → jobs → components instantly
+// without a round-trip. Cascade back-fills are excluded upstream in the view /
+// RPC (migration 0071), so a shipper no longer pollutes a station's numbers.
+
+/** A component that has been sitting in_progress at a station past the age cut. */
+export type StuckPart = {
+  partId: string
+  partName: string
+  partNo?: string
+  jobId: string
+  jobNo: string
+  customer: string
+  qty: number
+  doneQty?: number
+  /** ISO instant work began at this stage. */
+  startedAt: string
+  /** Whole days since startedAt (floor), for the "在此 N 天" tag. */
+  daysHere: number
+  imageUrl?: string
+}
+
+// Split an id list into chunks so a `.in(col, ids)` never overflows undici's
+// ~16KB request-header limit (see project memory / getOutsourceBlockRows).
+async function fetchInChunks<T>(
+  ids: string[],
+  run: (chunk: string[]) => Promise<T[]>,
+): Promise<T[]> {
+  const CHUNK = 100
+  const out: T[] = []
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    out.push(...(await run(ids.slice(i, i + CHUNK))))
+  }
+  return out
+}
+
+// Components stuck in_progress at `stage` for at least `minDays`, longest first.
+// Bounded — a station rarely has more than a few dozen genuinely stuck parts.
+export async function getStationStuck(
+  stage: Stage,
+  minDays: number,
+  now: Date = new Date(),
+): Promise<StuckPart[]> {
+  const cutoffIso = new Date(now.getTime() - minDays * 86_400_000).toISOString()
+  const ps = await supabase
+    .from('part_stages')
+    .select('part_id, started_at, done_qty')
+    .eq('stage', stage)
+    .eq('status', 'in_progress')
+    .lt('started_at', cutoffIso)
+    .order('started_at', { ascending: true })
+    .limit(300)
+  if (ps.error) {
+    if (isSchemaLagError(ps.error)) return []
+    throw ps.error
+  }
+  const rows = (ps.data ?? []) as AnyRow[]
+  if (rows.length === 0) return []
+
+  const partIds = rows.map((r) => r.part_id as string)
+  const parts = await fetchInChunks(partIds, async (chunk) => {
+    const r = await supabase
+      .from('parts')
+      .select('id, name, qty, part_no, image_url, job_id')
+      .in('id', chunk)
+    if (r.error) throw r.error
+    return (r.data ?? []) as AnyRow[]
+  })
+  const partById = new Map(parts.map((p) => [p.id as string, p]))
+
+  const jobIds = [...new Set(parts.map((p) => p.job_id as string))]
+  const jobs = await fetchInChunks(jobIds, async (chunk) => {
+    const r = await supabase
+      .from('jobs')
+      .select('id, job_no, customer')
+      .in('id', chunk)
+    if (r.error) throw r.error
+    return (r.data ?? []) as AnyRow[]
+  })
+  const jobById = new Map(jobs.map((j) => [j.id as string, j]))
+
+  const out: StuckPart[] = []
+  for (const row of rows) {
+    const p = partById.get(row.part_id as string)
+    if (!p) continue
+    const j = jobById.get(p.job_id as string)
+    const startedAt = row.started_at as string
+    const daysHere = Math.floor(
+      (now.getTime() - new Date(startedAt).getTime()) / 86_400_000,
+    )
+    out.push({
+      partId: p.id as string,
+      partName: (p.name as string | null) ?? '部件',
+      partNo: (p.part_no as string | null) ?? undefined,
+      jobId: p.job_id as string,
+      jobNo: (j?.job_no as string | null) ?? '',
+      customer: (j?.customer as string | null) ?? '',
+      qty: Number(p.qty ?? 0),
+      doneQty: row.done_qty == null ? undefined : Number(row.done_qty),
+      startedAt,
+      daysHere,
+      imageUrl: (p.image_url as string | null) ?? undefined,
+    })
+  }
+  return out
+}
+
+// --- ② 本工段人员 + drill-down, and ③ 流经工单 — one query, grouped in JS ---
+
+export type StationComponent = {
+  ts: string
+  partName: string
+  partNo?: string
+  qty: number
+  valueCny: number
+  unpriced: boolean
+  imageUrl?: string
+  jobId: string
+  jobNo: string
+  customer: string
+}
+
+/** One job's worth of a worker's finishes at this station (drill-down group). */
+export type StationWorkerJob = {
+  jobId: string
+  jobNo: string
+  customer: string
+  finishes: number
+  pieces: number
+  valueCny: number
+  components: StationComponent[]
+}
+
+export type StationWorker = {
+  actorName: string
+  finishes: number
+  pieces: number
+  valueCny: number
+  unpriced: number
+  lastActiveTs?: string
+  jobs: StationWorkerJob[]
+}
+
+/** ③ A job that flowed through this station in the window. */
+export type StationFlowJob = {
+  jobId: string
+  jobNo: string
+  customer: string
+  finishes: number
+  pieces: number
+  valueCny: number
+  /** Distinct workers who finished a part of this job here. */
+  workers: number
+}
+
+export type StationFinishes = {
+  workers: StationWorker[]
+  jobs: StationFlowJob[]
+  totals: { finishes: number; pieces: number; valueCny: number; unpriced: number }
+  /** True if the raw event cap was hit (some finishes omitted from drill-downs). */
+  truncated: boolean
+}
+
+// Every finish event at `stage` within the window, grouped into the per-worker
+// (→ per-job → per-component) tree the cockpit renders, plus the per-job flow
+// list and headline totals. Reads worker_stage_events (cascade-excluded post
+// 0071); capped so a huge month can't ship an unbounded payload to the client.
+export async function getStationFinishes(
+  stage: Stage,
+  window: { from: string; to: string },
+): Promise<StationFinishes> {
+  const CAP = 3000
+  const r = await supabase
+    .from('worker_stage_events')
+    .select(
+      'ts, actor_name, part_name, part_qty, value_cny, is_unpriced, job_id, job_no, customer, part_no, image_url',
+    )
+    .eq('kind', 'finished')
+    .eq('stage', stage)
+    .gte('ts', window.from)
+    .lt('ts', window.to)
+    .order('ts', { ascending: false })
+    .limit(CAP + 1)
+  if (r.error) {
+    if (isSchemaLagError(r.error)) {
+      return { workers: [], jobs: [], totals: { finishes: 0, pieces: 0, valueCny: 0, unpriced: 0 }, truncated: false }
+    }
+    throw r.error
+  }
+  const all = (r.data ?? []) as AnyRow[]
+  const truncated = all.length > CAP
+  const events = truncated ? all.slice(0, CAP) : all
+
+  // Worker → job → components, plus the flat per-job flow rollup.
+  const workerMap = new Map<string, StationWorker>()
+  const jobMap = new Map<string, StationFlowJob & { _actors: Set<string> }>()
+  let tf = 0
+  let tp = 0
+  let tv = 0
+  let tu = 0
+
+  for (const e of events) {
+    const actor = ((e.actor_name as string | null) ?? '—') || '—'
+    const jobId = e.job_id as string
+    const jobNo = (e.job_no as string | null) ?? ''
+    const customer = (e.customer as string | null) ?? ''
+    const qty = Number(e.part_qty ?? 0)
+    const value = Number(e.value_cny ?? 0)
+    const unpriced = Boolean(e.is_unpriced)
+    const ts = e.ts as string
+
+    tf += 1
+    tp += qty
+    tv += value
+    if (unpriced) tu += 1
+
+    // worker
+    let w = workerMap.get(actor)
+    if (!w) {
+      w = { actorName: actor, finishes: 0, pieces: 0, valueCny: 0, unpriced: 0, lastActiveTs: ts, jobs: [] }
+      workerMap.set(actor, w)
+    }
+    w.finishes += 1
+    w.pieces += qty
+    w.valueCny += value
+    if (unpriced) w.unpriced += 1
+    if (!w.lastActiveTs || ts > w.lastActiveTs) w.lastActiveTs = ts
+    let wj = w.jobs.find((x) => x.jobId === jobId)
+    if (!wj) {
+      wj = { jobId, jobNo, customer, finishes: 0, pieces: 0, valueCny: 0, components: [] }
+      w.jobs.push(wj)
+    }
+    wj.finishes += 1
+    wj.pieces += qty
+    wj.valueCny += value
+    wj.components.push({
+      ts,
+      partName: (e.part_name as string | null) ?? '部件',
+      partNo: (e.part_no as string | null) ?? undefined,
+      qty,
+      valueCny: value,
+      unpriced,
+      imageUrl: (e.image_url as string | null) ?? undefined,
+      jobId,
+      jobNo,
+      customer,
+    })
+
+    // job flow
+    let jf = jobMap.get(jobId)
+    if (!jf) {
+      jf = { jobId, jobNo, customer, finishes: 0, pieces: 0, valueCny: 0, workers: 0, _actors: new Set() }
+      jobMap.set(jobId, jf)
+    }
+    jf.finishes += 1
+    jf.pieces += qty
+    jf.valueCny += value
+    jf._actors.add(actor)
+  }
+
+  const workers = [...workerMap.values()].sort((a, b) => b.finishes - a.finishes || b.valueCny - a.valueCny)
+  for (const w of workers) w.jobs.sort((a, b) => b.finishes - a.finishes)
+  const jobs: StationFlowJob[] = [...jobMap.values()]
+    .map(({ _actors, ...j }) => ({ ...j, workers: _actors.size }))
+    .sort((a, b) => b.finishes - a.finishes)
+
+  return { workers, jobs, totals: { finishes: tf, pieces: tp, valueCny: tv, unpriced: tu }, truncated }
+}
