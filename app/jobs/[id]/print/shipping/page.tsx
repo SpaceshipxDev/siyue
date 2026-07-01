@@ -3,6 +3,7 @@ import {
   customerById,
   selectShipment,
 } from '@/lib/data'
+import { formatShipDate } from '@/lib/ship-date'
 import {
   getCustomers,
   getJob,
@@ -17,7 +18,6 @@ import { PrintToolbar } from '@/app/_print'
 import {
   ComponentText,
   CustomerText,
-  JobDueDate,
   JobNotes,
   JobShippingText,
   NameCombobox,
@@ -70,9 +70,14 @@ export default async function ShippingDocPage(
     : []
   const shippingStarted = shippingRows.length > 0
   const totalShipped = shippingRows.reduce((s, r) => s + r.qty, 0)
-  // 出货单号 prints the 销售单号 (工单号) verbatim — the shipping note carries
+  // 交货单号 prints the 销售单号 (工单号) verbatim — the delivery note carries
   // the sales-order number itself, not the internal per-day shipment doc_no.
   const docNo = job.jobNo
+  // 送货日期 = when this batch actually shipped (mirrors the PDF). Read-only:
+  // it's the shipment's timestamp, not the order's editable 交期.
+  const shipDate = formatShipDate(shipment?.createdAt)
+  // 制单人 = whoever made this delivery note; falls back to the order creator.
+  const preparedBy = job.createdBy || shipment?.createdBy || ''
 
   return (
     <>
@@ -85,26 +90,20 @@ export default async function ShippingDocPage(
       />
       <article className="doc">
         <header className="border-b border-[var(--color-ink)] pb-3">
-          <p className="text-center text-[12px] text-[var(--color-ink-2)] tracking-wide">
+          <p className="text-center text-[13px] text-[var(--color-ink)] tracking-wide">
             {BRAND.legalName}
           </p>
-          <h1 className="text-center text-[28px] font-semibold tracking-tight mt-1">
-            出货单
+          <h1 className="text-center text-[26px] font-semibold tracking-[0.2em] mt-2">
+            交货单
           </h1>
-          <p className="text-center text-[10px] text-[var(--color-ink-3)] tracking-[0.18em] uppercase mt-0.5">
-            Shipping Note
-          </p>
         </header>
 
         <section className="grid grid-cols-2 gap-x-10 gap-y-3 py-5 text-[14px] font-medium border-b border-[var(--color-border)]">
           <Field
-            label="出货单号"
+            label="交货单号"
             value={<span className="mono">{docNo || '—'}</span>}
           />
-          <Field
-            label="送货日期"
-            value={<JobDueDate jobId={job.id} value={job.dueDate} className="mono" />}
-          />
+          <div />
           <Field
             label="客户名称"
             value={
@@ -116,14 +115,8 @@ export default async function ShippingDocPage(
             }
           />
           <Field
-            label="制单人"
-            value={
-              <JobShippingText
-                jobId={job.id}
-                field="createdBy"
-                value={job.createdBy}
-              />
-            }
+            label="送货日期"
+            value={<span className="mono">{shipDate}</span>}
           />
           <Field
             label="联系人"
@@ -136,12 +129,12 @@ export default async function ShippingDocPage(
             }
           />
           <Field
-            label="合同编号"
+            label="制单人"
             value={
               <JobShippingText
                 jobId={job.id}
-                field="contractNo"
-                value={job.contractNo}
+                field="createdBy"
+                value={preparedBy}
               />
             }
           />
@@ -154,6 +147,22 @@ export default async function ShippingDocPage(
                 field="phone"
                 value={customer?.phone}
                 className="mono"
+              />
+            }
+          />
+          <Field
+            label="货品总数"
+            value={
+              <span className="mono">{shippingStarted ? totalShipped : '—'}</span>
+            }
+          />
+          <Field
+            label="合同编号"
+            value={
+              <JobShippingText
+                jobId={job.id}
+                field="contractNo"
+                value={job.contractNo}
               />
             }
           />
@@ -188,9 +197,9 @@ export default async function ShippingDocPage(
                   <th style={{ width: 36 }}>序号</th>
                   <th style={{ width: 64 }}>产品图片</th>
                   <th>产品名称</th>
+                  <th style={{ width: 96 }}>料号</th>
                   <th style={{ width: 96 }}>材质</th>
-                  <th style={{ width: 80, textAlign: 'right' }}>出货数量</th>
-                  <th>料号</th>
+                  <th style={{ width: 80, textAlign: 'right' }}>交货数量</th>
                   <th style={{ width: 110 }}>备注</th>
                 </tr>
               </thead>
@@ -213,10 +222,6 @@ export default async function ShippingDocPage(
                       )}
                     </td>
                     <td className="font-medium">{c.name}</td>
-                    <td className="text-[var(--color-ink-2)]">{c.material ?? '—'}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>
-                      {qty}
-                    </td>
                     <td className="mono text-[var(--color-ink-2)]">
                       <ComponentText
                         jobId={job.id}
@@ -226,17 +231,21 @@ export default async function ShippingDocPage(
                         placeholder="—"
                       />
                     </td>
+                    <td className="text-[var(--color-ink-2)]">{c.material ?? '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>
+                      {qty}
+                    </td>
                     <td className="text-[var(--color-ink-2)]">{stripProcessMethodFromNotes(c.notes)}</td>
                   </tr>
                 ))}
                 <tr>
-                  <td colSpan={4} className="label" style={{ textAlign: 'right' }}>
+                  <td colSpan={5} className="label" style={{ textAlign: 'right' }}>
                     合计
                   </td>
                   <td className="mono font-semibold" style={{ textAlign: 'right' }}>
                     {totalShipped}
                   </td>
-                  <td colSpan={2} />
+                  <td />
                 </tr>
               </tbody>
             </table>
@@ -277,7 +286,7 @@ function Field({
     <div
       className={`flex items-baseline gap-3 ${colSpan === 2 ? 'col-span-2' : ''}`}
     >
-      <span className="label shrink-0 min-w-[64px]">{label}</span>
+      <span className="shrink-0 min-w-[72px] text-[var(--color-ink)]">{label}</span>
       <span className="flex-1 border-b border-[var(--color-border)] pb-0.5 min-h-[18px]">
         {value || <span>&nbsp;</span>}
       </span>

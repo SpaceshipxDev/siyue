@@ -5,6 +5,7 @@ import {
   customerById,
   selectShipment,
 } from './../data'
+import { formatShipDate } from './../ship-date'
 import { BRAND } from './../brand'
 import { COLOR, styles } from './styles'
 import { DocFooter } from './footer'
@@ -82,19 +83,6 @@ const S = StyleSheet.create({
   },
 })
 
-// 送货日期 = the batch's actual ship date (出库时间), not the order's 交期.
-// Formatted YYYY-MM-DD in the factory's timezone to match 越侬's template.
-function formatShipDate(iso?: string): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(d)
-}
 
 export function ShippingDocPDF({
   job,
