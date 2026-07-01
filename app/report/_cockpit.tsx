@@ -472,6 +472,7 @@ function Step({ dir, onClick, disabled }: { dir: number; onClick: () => void; di
 // --- 导出报表 ----------------------------------------------------------------
 
 type ExportOrder = {
+  jobId: string
   jobNo: string
   customer: string
   finishes: number
@@ -521,7 +522,48 @@ function ExportButton({
       const XLSX = await import('xlsx')
       const wb = XLSX.utils.book_new()
 
-      // 报工明细 — 工单 foremost, its components spanning underneath. 工号/客户
+      // ── 汇总 — the month-end stats PMC reads first. Derived from the same
+      // detail so the numbers always reconcile with 报工明细. ────────────────
+      const byStage = new Map<Stage, { finishes: number; pieces: number; jobs: Set<string>; workers: Set<string>; valueCny: number }>()
+      const byWorker = new Map<string, { finishes: number; pieces: number; valueCny: number }>()
+      for (const o of orders) {
+        for (const c of o.components) {
+          let s = byStage.get(c.stage)
+          if (!s) { s = { finishes: 0, pieces: 0, jobs: new Set(), workers: new Set(), valueCny: 0 }; byStage.set(c.stage, s) }
+          s.finishes += 1; s.pieces += c.qty; s.jobs.add(o.jobId); s.workers.add(c.actorName); s.valueCny += c.valueCny
+          let w = byWorker.get(c.actorName)
+          if (!w) { w = { finishes: 0, pieces: 0, valueCny: 0 }; byWorker.set(c.actorName, w) }
+          w.finishes += 1; w.pieces += c.qty; w.valueCny += c.valueCny
+        }
+      }
+
+      // 工段汇总 — per-station monthly output (the cross-tab for 全部; one row for
+      // a single station). 完成零件 / 件数 / 工单数 / 人数 / ¥.
+      const stageHead = ['工段', '完成零件', '件数', '工单数', '人数', ...(showMoney ? ['经手金额'] : [])]
+      const stageRows: (string | number)[][] = STAGES.filter((s) => byStage.has(s)).map((s) => {
+        const v = byStage.get(s)!
+        return [s, v.finishes, v.pieces, v.jobs.size, v.workers.size, ...(showMoney ? [Math.round(v.valueCny)] : [])]
+      })
+      const stageTot = stageRows.reduce(
+        (a, r) => ({ f: a.f + Number(r[1]), p: a.p + Number(r[2]), v: a.v + (showMoney ? Number(r[5]) : 0) }),
+        { f: 0, p: 0, v: 0 },
+      )
+      stageRows.push(['合计', stageTot.f, stageTot.p, '', '', ...(showMoney ? [stageTot.v] : [])])
+      const wsStage = XLSX.utils.aoa_to_sheet([stageHead, ...stageRows])
+      wsStage['!cols'] = stageHead.map(() => ({ wch: 10 }))
+      XLSX.utils.book_append_sheet(wb, wsStage, '工段汇总')
+
+      // 人员汇总 — per-person output (产量 / 计件基数), most productive first.
+      const workerRows = [...byWorker.entries()].sort((a, b) => b[1].finishes - a[1].finishes)
+      const wHead = ['姓名', '完成零件', '件数', ...(showMoney ? ['经手金额'] : [])]
+      const wBody: (string | number)[][] = workerRows.map(([name, v]) => [name, v.finishes, v.pieces, ...(showMoney ? [Math.round(v.valueCny)] : [])])
+      const wTot = workerRows.reduce((a, [, v]) => ({ f: a.f + v.finishes, p: a.p + v.pieces, v: a.v + v.valueCny }), { f: 0, p: 0, v: 0 })
+      wBody.push(['合计', wTot.f, wTot.p, ...(showMoney ? [Math.round(wTot.v)] : [])])
+      const wsWorker = XLSX.utils.aoa_to_sheet([wHead, ...wBody])
+      wsWorker['!cols'] = wHead.map((h) => ({ wch: h === '姓名' ? 16 : 10 }))
+      XLSX.utils.book_append_sheet(wb, wsWorker, '人员汇总')
+
+      // ── 报工明细 — 工单 foremost, its components spanning underneath. 工号/客户
       // sit on the order's first row; blank on the rest so each order reads as a
       // header with its 零件 listed below it. A blank row separates orders.
       const head = ['工号', '客户', '零件', '料号', '数量', '工段', '经手人', '完成时间', ...(showMoney ? ['经手金额'] : [])]
