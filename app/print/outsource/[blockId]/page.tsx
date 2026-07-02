@@ -11,6 +11,7 @@ import { requireOutsourceManager } from '@/lib/auth'
 import { BRAND } from '@/lib/brand'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { PrintToolbar } from '@/app/_print'
+import { nowStampShanghai } from '@/lib/today'
 import {
   BlockMemberUnitPrice,
   ComponentQty,
@@ -38,8 +39,7 @@ export default async function OutsourceDocPage(
   const docNo =
     info.block.docNo ?? (await ensureOutsourceDocNo(info.block.id))
 
-  const now = new Date()
-  const createdAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  const createdAt = nowStampShanghai()
 
   const recipientAddress = info.block.recipientAddress ?? BRAND.address
   const recipientName =

@@ -349,15 +349,20 @@ export function formatEventTs(ts: string, now: Date = new Date()): string {
   const diffMin = Math.floor(diffMs / 60_000)
   if (diffMin < 1) return '刚刚'
   if (diffMin < 60) return `${diffMin} 分钟前`
+  // Clock parts in factory time (Asia/Shanghai, fixed +08:00 — no DST), not
+  // the machine's local timezone: shift the instant by +8h, read UTC fields.
+  const SH = 8 * 60 * 60 * 1000
+  const sd = new Date(d.getTime() + SH)
+  const sn = new Date(now.getTime() + SH)
   const sameDay =
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
+    sd.getUTCFullYear() === sn.getUTCFullYear() &&
+    sd.getUTCMonth() === sn.getUTCMonth() &&
+    sd.getUTCDate() === sn.getUTCDate()
+  const hh = String(sd.getUTCHours()).padStart(2, '0')
+  const mm = String(sd.getUTCMinutes()).padStart(2, '0')
   if (sameDay) return `${hh}:${mm}`
-  const mo = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
+  const mo = String(sd.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(sd.getUTCDate()).padStart(2, '0')
   return `${mo}-${dd} ${hh}:${mm}`
 }
 

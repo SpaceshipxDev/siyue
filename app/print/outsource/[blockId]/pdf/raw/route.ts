@@ -5,6 +5,7 @@ import { ensureOutsourceDocNo, getOutsourceBlock, getVendors } from '@/lib/db'
 import { contentDisposition } from '@/lib/content-disposition'
 import { fetchImages } from '@/lib/pdf/images'
 import { OutsourceDocPDF } from '@/lib/pdf/outsource'
+import { nowStampShanghai } from '@/lib/today'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -24,14 +25,7 @@ export async function GET(
 
   const docNo = info.block.docNo ?? (await ensureOutsourceDocNo(blockId))
 
-  const now = new Date()
-  const createdAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
-    2,
-    '0',
-  )}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(
-    2,
-    '0',
-  )}:${String(now.getMinutes()).padStart(2, '0')}`
+  const createdAt = nowStampShanghai()
 
   const images = await fetchImages(info.block.members.map((m) => m.imageUrl))
 

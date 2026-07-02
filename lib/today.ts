@@ -23,6 +23,15 @@ export type Granularity = 'day' | 'week' | 'month'
 
 const SH_OFFSET_MS = 8 * 60 * 60 * 1000
 
+// 'YYYY-MM-DD HH:mm' for the current instant in Asia/Shanghai. For stamping
+// printed documents etc. — never use local Date getters for display; they
+// render in whatever timezone the server/browser happens to run in.
+export function nowStampShanghai(): string {
+  const d = new Date(Date.now() + SH_OFFSET_MS)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`
+}
+
 // UTC instant of Asia/Shanghai local midnight for the given Y/M/D. Month is
 // 0-based (Date.UTC convention); over/underflow normalizes (d=0 → last day
 // of prev month, m=12 → Jan next year), which the window math below relies on.

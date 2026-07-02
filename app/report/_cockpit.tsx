@@ -727,7 +727,10 @@ function readout(anchor: string, gran: Gran): string {
   return `${fm}月${fd}日 – ${tm}月${td}日`
 }
 function fmtTs(ts: string): string {
-  const dt = new Date(ts)
-  if (Number.isNaN(dt.getTime())) return ''
-  return `${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`
+  const t = new Date(ts).getTime()
+  if (Number.isNaN(t)) return ''
+  // Render in factory time (Asia/Shanghai, fixed +08:00 — no DST), not the
+  // viewer's browser timezone: shift the instant by +8h and read UTC fields.
+  const dt = new Date(t + 8 * 60 * 60 * 1000)
+  return `${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())} ${pad(dt.getUTCHours())}:${pad(dt.getUTCMinutes())}`
 }
