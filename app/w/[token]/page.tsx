@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
+import { cookies } from 'next/headers'
 import {
-  blockActivityLabel,
   blockClosedAt,
   daysFromToday,
   formatCny,
@@ -15,30 +15,22 @@ import {
 } from '@/lib/db'
 import { BRAND } from '@/lib/brand'
 import { proxiedStorageUrl } from '@/lib/storage-url'
-import {
-  portalAck,
-  portalDelayReason,
-  portalPromise,
-  portalShipped,
-} from './_actions'
-import { DEMO_TOKEN, demoBlocks, demoVendor } from './_demo'
+import { portalAck, portalDelayReason, portalPromise, portalShipped } from './_actions'
+import { DEMO_COOKIE, DEMO_TOKEN, demoBlocks, demoVendor } from './_demo'
 
-// 外协厂商门户 — the vendor's side of the 外协 loop. One stable link per
-// vendor, opened inside WeChat. No login, no install, no typing: everything
-// the vendor is asked for is a single tap, and everything they get (part
-// photos, quantities, dates, their money) is worth the open on its own.
+// 外协厂商门户 — the vendor's ledger. One row per 单, and every row carries
+// the same three answer cells, master-board style:
 //
-// Design constraints this page lives by:
-//   • Renders fully server-side — must work in decade-old WeChat webviews,
-//     so all interactions are plain <form> POSTs to server actions.
-//   • Big type, big targets, 中文 only. The reader is a 45–60 y.o. shop boss
-//     on a phone, in a noisy workshop, with 10 seconds of patience.
-//   • Shows nothing about the factory's end customers.
+//   零件 | 交期 | 收 | 报期 | 发
+//
+// Green ✓ = answered (with its date underneath, like the factory's own stage
+// grid). Black = the next thing to tap. Tap the 零件 cell to open the row:
+// full part list with photos, 备注, the date chips, and the rare corrections.
+// Server-rendered, plain <form> POSTs and plain links — no JS required, so it
+// works in any WeChat webview.
 
 export const dynamic = 'force-dynamic'
 
-// Title carries the vendor's own name so a WeChat 收藏/浮窗 of the link reads
-// as "my board", not as generic software.
 export async function generateMetadata({
   params,
 }: {
@@ -53,7 +45,7 @@ export async function generateMetadata({
   }
 }
 
-// '2026-07-08' → '7月8日'; with weekday: '7月8日周三'.
+// '2026-07-08' → '7月8日' (+周三 with weekday).
 function mdCn(ymd?: string, withWeekday = false): string {
   if (!ymd || !/^\d{4}-\d{2}-\d{2}/.test(ymd)) return ymd ?? ''
   const [y, m, d] = ymd.slice(0, 10).split('-').map(Number)
@@ -63,33 +55,63 @@ function mdCn(ymd?: string, withWeekday = false): string {
   return `${base}周${wd}`
 }
 
+// '2026-07-08' → '07-08' — the master board's compact cell date.
+function mdCell(ymd?: string): string {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}/.test(ymd)) return ''
+  return ymd.slice(5, 10)
+}
+
+// ISO timestamp → Shanghai-local 'MM-DD'.
+function tsCell(iso?: string): string {
+  if (!iso) return ''
+  return new Date(iso)
+    .toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' })
+    .slice(5)
+}
+
 function addDays(ymd: string, days: number): string {
   const [y, m, d] = ymd.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
 }
 
+// The row's identity is its first part — vendors think in parts, never in
+// our internal stage ranges (全程 / 手工→打磨 must never leak here).
+function rowTitle(block: OutsourceBlock): string {
+  const first = block.members[0]?.name?.trim()
+  if (first) return first
+  return block.activity?.trim().replace(/^外发/, '') || '外协件'
+}
+
 export default async function VendorPortalPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ token: string }>
+  searchParams: Promise<{ p?: string }>
 }) {
   const { token } = await params
+  const { p: openId } = await searchParams
   const isDemo = token === DEMO_TOKEN
   const vendor = isDemo ? demoVendor() : await getVendorByPortalToken(token)
   if (!vendor) return <InvalidLink />
 
-  const blocks = isDemo ? demoBlocks() : await getVendorPortalBlocks(vendor.id)
+  let blocks: OutsourceBlock[]
+  if (isDemo) {
+    // Demo taps really answer — state lives in a cookie so the demo behaves
+    // exactly like the live thing without touching a single row.
+    const jar = await cookies()
+    blocks = applyDemoCookie(demoBlocks(), jar.get(DEMO_COOKIE)?.value)
+  } else {
+    blocks = await getVendorPortalBlocks(vendor.id)
+  }
+
   const open = blocks
     .filter((b) => !isBlockClosed(b))
     .sort((a, b) => a.expectedReturn.localeCompare(b.expectedReturn))
   const closed = blocks
     .filter((b) => isBlockClosed(b))
-    .sort((a, b) =>
-      (blockClosedAt(b) ?? '').localeCompare(blockClosedAt(a) ?? ''),
-    )
+    .sort((a, b) => (blockClosedAt(b) ?? '').localeCompare(blockClosedAt(a) ?? ''))
 
-  // 已读 stamp — the 外协台 renders this as "已读 M-D". Best-effort: a
-  // pre-migration DB just skips it.
   if (!isDemo) {
     try {
       await stampVendorBlocksSeen(
@@ -97,7 +119,7 @@ export default async function VendorPortalPage({
         open.map((b) => b.id),
       )
     } catch {
-      /* column not there yet */
+      /* pre-migration DB */
     }
   }
 
@@ -106,54 +128,57 @@ export default async function VendorPortalPage({
   const lastMonth = addDays(`${thisMonth}-01`, -1).slice(0, 7)
   const monthSum = (ym: string) => {
     const rows = blocks.filter((b) => (b.sentDate ?? '').startsWith(ym))
-    const amount = rows.reduce((s, b) => s + (b.amountCny ?? 0), 0)
-    return { count: rows.length, amount }
+    return {
+      count: rows.length,
+      amount: rows.reduce((s, b) => s + (b.amountCny ?? 0), 0),
+    }
   }
   const cur = monthSum(thisMonth)
   const prev = monthSum(lastMonth)
-  const overdueCount = open.filter(
-    (b) => daysFromToday(b.expectedReturn) < 0,
-  ).length
+  const overdueCount = open.filter((b) => daysFromToday(b.expectedReturn) < 0).length
 
   return (
-    <main className="mx-auto w-full max-w-[560px] px-4 pb-16 pt-6">
-      {/* Identity: who is asking, who is being asked. */}
-      <p className="text-[12px] tracking-[0.14em] text-[var(--color-ink-3)]">
-        {BRAND.shortName} · 外协协作
+    <main className="mx-auto w-full max-w-[560px] px-3 pb-16 pt-6">
+      <p className="px-1 text-[12px] tracking-[0.14em] text-[var(--color-ink-3)]">
+        {BRAND.shortName} · 外协
       </p>
-      <h1 className="mt-1 text-[26px] font-semibold tracking-tight">
+      <h1 className="mt-1 px-1 text-[26px] font-semibold tracking-tight">
         {vendor.name}
       </h1>
-      <p className="mt-1.5 text-[14px] text-[var(--color-ink-2)]">
-        在制 <b className="mono">{open.length}</b> 单
+      <p className="mt-1 px-1 text-[13px] text-[var(--color-ink-2)]">
+        在制 <b className="mono">{open.length}</b>
         {overdueCount > 0 ? (
-          <>
-            {' · '}
-            <span className="text-[var(--color-overdue)]">
-              逾期 <b className="mono">{overdueCount}</b> 单
-            </span>
-          </>
+          <span className="text-[var(--color-overdue)]">
+            {' '}
+            · 逾期 <b className="mono">{overdueCount}</b>
+          </span>
         ) : null}
-        {' · '}本月 <b className="mono">{cur.count}</b> 单{' '}
-        <b className="mono">{formatCny(cur.amount)}</b>
+        {' · '}本月 <b className="mono">{formatCny(cur.amount)}</b>
       </p>
 
-      {/* Open blocks, most urgent first. */}
-      <div className="mt-6 flex flex-col gap-4">
+      {/* The ledger. */}
+      <div className="mt-4 overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <div className="grid grid-cols-[minmax(0,1fr)_58px_44px_54px_44px] items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5">
+          <span className={hdr}>零件</span>
+          <span className={`${hdr} text-center`}>交期</span>
+          <span className={`${hdr} text-center`}>收</span>
+          <span className={`${hdr} text-center`}>报期</span>
+          <span className={`${hdr} text-center`}>发</span>
+        </div>
         {open.length === 0 ? (
-          <div className="rounded-[2px] border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)] py-12 text-center text-[14px] text-[var(--color-ink-3)]">
+          <p className="py-10 text-center text-[14px] text-[var(--color-ink-3)]">
             当前没有在制的外协单
-          </div>
+          </p>
         ) : (
-          open.map((b) => <BlockCard key={b.id} block={b} token={token} />)
+          open.map((b) => (
+            <Row key={b.id} block={b} token={token} expanded={openId === b.id} />
+          ))
         )}
       </div>
 
       {/* 对账 — the vendor's own reason to keep this link. */}
-      <section className="mt-10">
-        <p className="text-[12px] tracking-[0.14em] text-[var(--color-ink-3)]">
-          对账
-        </p>
+      <section className="mt-8 px-1">
+        <p className="text-[12px] tracking-[0.14em] text-[var(--color-ink-3)]">对账</p>
         <div className="mt-2 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
           <div className="flex items-baseline justify-between border-b border-[var(--color-border)] px-4 py-3">
             <span className="text-[14px]">本月 ({Number(thisMonth.slice(5))}月)</span>
@@ -175,9 +200,8 @@ export default async function VendorPortalPage({
         </p>
       </section>
 
-      {/* History, collapsed — proof & dispute protection, not daily reading. */}
       {closed.length > 0 ? (
-        <details className="mt-8">
+        <details className="mt-8 px-1">
           <summary className="cursor-pointer select-none text-[14px] text-[var(--color-ink-2)]">
             已完成 {closed.length} 单
           </summary>
@@ -188,11 +212,10 @@ export default async function VendorPortalPage({
                 className="flex items-baseline justify-between gap-3 border-b border-[var(--color-border)] py-2.5 last:border-b-0"
               >
                 <span className="min-w-0 truncate text-[13px]">
-                  {blockActivityLabel(b)}
-                  <span className="text-[var(--color-ink-3)]">
-                    {' '}
-                    · {b.members.reduce((s, m) => s + m.qty, 0)}件
-                  </span>
+                  {rowTitle(b)}
+                  {b.members.length > 1 ? (
+                    <span className="text-[var(--color-ink-3)]"> 等{b.members.length}件</span>
+                  ) : null}
                 </span>
                 <span className="shrink-0 text-[13px] text-[var(--color-ink-3)]">
                   {b.amountCny != null ? `${formatCny(b.amountCny)} · ` : ''}
@@ -209,10 +232,8 @@ export default async function VendorPortalPage({
         </details>
       ) : null}
 
-      <footer className="mt-12 border-t border-[var(--color-border)] pt-4">
-        <p className="text-[12px] text-[var(--color-ink-3)]">
-          {BRAND.softwareCredit}
-        </p>
+      <footer className="mt-12 border-t border-[var(--color-border)] px-1 pt-4">
+        <p className="text-[12px] text-[var(--color-ink-3)]">{BRAND.softwareCredit}</p>
         <p className="mt-1 text-[12px] text-[var(--color-ink-3)]">
           自己的厂也想这样接单、跟单？访问 {BRAND.domain}
         </p>
@@ -220,6 +241,9 @@ export default async function VendorPortalPage({
     </main>
   )
 }
+
+const hdr =
+  'text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--color-ink-3)]'
 
 function InvalidLink() {
   return (
@@ -232,22 +256,29 @@ function InvalidLink() {
   )
 }
 
-// One outsource block, one ledger row — Excel logic, not letter logic. Every
-// card carries the SAME three cells: ① 收到 → ② 交期 → ③ 发货. Green cell =
-// done, black cell = tap this next, grey cell = later. No status sentences,
-// no undo links: tapping a green ①/③ cell un-fills it (fat-finger safe —
-// tap again to re-fill), and the date cell re-opens via 改交期 below.
-function BlockCard({ block, token }: { block: OutsourceBlock; token: string }) {
+// One 单 = one ledger line + its three answer cells. Tap the 零件 cell to
+// open the detail drawer (photos, 备注, chips, corrections).
+function Row({
+  block,
+  token,
+  expanded,
+}: {
+  block: OutsourceBlock
+  token: string
+  expanded: boolean
+}) {
   const daysLeft = daysFromToday(block.expectedReturn)
   const overdue = daysLeft < 0
   const dueSoon = !overdue && daysLeft <= 2
-  const totalQty = block.members.reduce((s, m) => s + m.qty, 0)
   const acked = Boolean(block.vendorAckAt)
   const shipped = Boolean(block.vendorShippedAt)
   const promised = block.vendorPromisedDate
   const promisedLate = promised != null && promised > block.expectedReturn
-  // Which cell is "next"? 1 = 收到, 2 = 交期, 3 = 发货, 4 = all answered.
-  const step = !acked ? 1 : shipped ? 4 : !promised ? 2 : 3
+  const totalQty = block.members.reduce((s, m) => s + m.qty, 0)
+  const first = block.members[0]
+  const rowHref = expanded
+    ? `/w/${token}#b-${block.id}`
+    : `/w/${token}?p=${block.id}#b-${block.id}`
 
   const dueTone = overdue
     ? 'text-[var(--color-overdue)]'
@@ -255,185 +286,221 @@ function BlockCard({ block, token }: { block: OutsourceBlock; token: string }) {
       ? 'text-[var(--color-warning)]'
       : 'text-[var(--color-ink)]'
 
-  // Part rows read like spreadsheet lines: 图 · 名称 ×数量 · 材料. Long
-  // dispatches fold everything past the third row.
-  const inlineMembers = block.members.slice(0, 3)
-  const foldedMembers = block.members.slice(3)
-
-  const memberLi = (m: OutsourceBlock['members'][number]) => (
-    <li key={m.componentId} className="flex items-center gap-2.5">
-      {m.imageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={portalImgSrc(m.imageUrl, token)}
-          alt=""
-          loading="lazy"
-          className="h-11 w-11 shrink-0 rounded-[2px] border border-[var(--color-border)] object-cover"
-        />
-      ) : (
-        <span className="h-11 w-11 shrink-0 rounded-[2px] border border-dashed border-[var(--color-border)]" />
-      )}
-      <p className="min-w-0 flex-1 truncate text-[15px] leading-tight">
-        {m.name} <span className="mono text-[var(--color-ink-2)]">×{m.qty}</span>
-        {m.material ? (
-          <span className="ml-2 text-[12px] text-[var(--color-ink-3)]">
-            {m.material}
-          </span>
-        ) : null}
-      </p>
-    </li>
-  )
-
   return (
-    <section
+    <div
       id={`b-${block.id}`}
-      className={`scroll-mt-4 overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] ${
+      className={`scroll-mt-4 border-b border-[var(--color-border)] last:border-b-0 ${
         overdue ? 'border-l-[3px] border-l-[var(--color-overdue)]' : ''
       }`}
     >
-      {/* 活 · 件数 · 钱 — one line, no document prose. */}
-      <div className="flex items-baseline justify-between gap-3 px-4 pt-3">
-        <span className="text-[13px] font-medium tracking-[0.06em] text-[var(--color-ink-2)]">
-          {activityShort(block)} · {totalQty}件
-        </span>
-        <span className="mono shrink-0 text-[15px]">
-          {block.amountCny != null ? formatCny(block.amountCny) : (
-            <span className="text-[var(--color-ink-3)]">¥待定</span>
+      <div className="grid grid-cols-[minmax(0,1fr)_58px_44px_54px_44px] items-center gap-1 px-2 py-2">
+        {/* 零件 — identity + the way into the drawer. */}
+        <a href={rowHref} className="flex min-w-0 items-center gap-2">
+          {first?.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={portalImgSrc(first.imageUrl, token)}
+              alt=""
+              loading="lazy"
+              className="h-10 w-10 shrink-0 rounded-[2px] border border-[var(--color-border)] object-cover"
+            />
+          ) : (
+            <span className="h-10 w-10 shrink-0 rounded-[2px] border border-dashed border-[var(--color-border)]" />
           )}
+          <span className="min-w-0">
+            <span className="block truncate text-[14px] font-medium leading-tight">
+              {rowTitle(block)}
+              {block.members.length > 1 ? (
+                <span className="font-normal text-[var(--color-ink-3)]">
+                  {' '}
+                  等{block.members.length}件
+                </span>
+              ) : null}
+            </span>
+            <span className="mono block text-[11px] text-[var(--color-ink-3)]">
+              {totalQty > 0 ? `×${totalQty}` : ''}
+              {block.amountCny != null ? `  ${formatCny(block.amountCny)}` : ''}
+            </span>
+          </span>
+        </a>
+
+        {/* 交期 — the factory's required date. */}
+        <span className="text-center leading-tight">
+          <span className={`mono block text-[14px] font-semibold ${dueTone}`}>
+            {mdCell(block.expectedReturn)}
+          </span>
+          <span
+            className={`block text-[10px] ${overdue ? 'text-[var(--color-overdue)]' : 'text-[var(--color-ink-3)]'}`}
+          >
+            {overdue ? `已过${-daysLeft}天` : daysLeft === 0 ? '今天' : `剩${daysLeft}天`}
+          </span>
         </span>
-      </div>
 
-      <ul className="mt-2 flex flex-col gap-1.5 px-4">
-        {inlineMembers.map(memberLi)}
-      </ul>
-      {foldedMembers.length > 0 ? (
-        <details className="px-4">
-          <summary className="cursor-pointer select-none py-1.5 text-[13px] text-[var(--color-ink-3)]">
-            还有 {foldedMembers.length} 件 ▾
-          </summary>
-          <ul className="flex flex-col gap-1.5 pb-1">
-            {foldedMembers.map(memberLi)}
-          </ul>
-        </details>
-      ) : null}
-      {block.notes ? (
-        <p className="mt-1.5 px-4 text-[13px] leading-snug text-[var(--color-ink-2)]">
-          {block.notes}
-        </p>
-      ) : null}
-
-      {/* The date, spreadsheet-big. */}
-      <p className={`mt-2.5 px-4 text-[20px] font-semibold tracking-tight ${dueTone}`}>
-        {mdCn(block.expectedReturn, true)}交
-        <span className="ml-2 text-[13px] font-medium">
-          {overdue
-            ? `已过 ${-daysLeft} 天`
-            : daysLeft === 0
-              ? '今天'
-              : `剩 ${daysLeft} 天`}
-        </span>
-      </p>
-
-      {/* The three cells. */}
-      <div className="mt-2.5 px-2.5 pb-2.5">
-        <div className="grid grid-cols-3 gap-1">
+        {/* 收 */}
+        {acked ? (
+          <DoneCell date={tsCell(block.vendorAckAt)} />
+        ) : (
           <form action={portalAck} className="contents">
             <input type="hidden" name="token" value={token} />
             <input type="hidden" name="blockId" value={block.id} />
-            <input type="hidden" name="on" value={acked ? '0' : '1'} />
-            <button type="submit" className={cellCls(acked ? 'done' : 'now')}>
-              {acked ? '✓ 已收到' : '① 收到'}
+            <button type="submit" className={askCell}>
+              收
             </button>
           </form>
+        )}
 
-          <div
-            className={cellCls(
-              promised ? (promisedLate ? 'late' : 'done') : step === 2 ? 'now' : 'idle',
-            )}
+        {/* 报期 */}
+        {promised ? (
+          <a
+            href={rowHref}
+            className={`flex min-h-[44px] flex-col items-center justify-center rounded-[2px] leading-tight ${
+              promisedLate
+                ? 'bg-[var(--color-warning-soft)] text-[var(--color-warning)]'
+                : 'bg-[var(--color-success-soft)] text-[var(--color-success)]'
+            }`}
           >
-            {promised
-              ? `✓ ${mdCn(promised)}交`
-              : step === 2
-                ? '② 几号交?'
-                : '② 交期'}
-          </div>
+            <span className="mono text-[13px] font-semibold">{mdCell(promised)}</span>
+            <span className="text-[10px]">{promisedLate ? '晚交' : '按期'}</span>
+          </a>
+        ) : (
+          <a href={rowHref} className={acked && !shipped ? askCell : idleCell}>
+            报期
+          </a>
+        )}
 
+        {/* 发 */}
+        {shipped ? (
+          <DoneCell date={tsCell(block.vendorShippedAt)} />
+        ) : acked ? (
           <form action={portalShipped} className="contents">
             <input type="hidden" name="token" value={token} />
             <input type="hidden" name="blockId" value={block.id} />
-            <input type="hidden" name="on" value={shipped ? '0' : '1'} />
-            <button
-              type="submit"
-              className={cellCls(shipped ? 'done' : step === 3 ? 'now' : 'idle')}
-            >
-              {shipped ? '✓ 已发出' : '③ 发货'}
+            <button type="submit" className={promised ? askCell : idleCell}>
+              发
             </button>
           </form>
-        </div>
+        ) : (
+          <span className={`${idleCell} opacity-50`}>发</span>
+        )}
+      </div>
 
-        {/* 交期 input — visible exactly when the black cell asks for it. */}
-        {step === 2 ? <PromiseChips block={block} token={token} /> : null}
+      {expanded ? (
+        <div className="border-t border-dashed border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-3">
+          {/* Full part list, with photos. */}
+          <ul className="flex flex-col gap-1.5">
+            {block.members.map((m) => (
+              <li key={m.componentId} className="flex items-center gap-2.5">
+                {m.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={portalImgSrc(m.imageUrl, token)}
+                    alt=""
+                    loading="lazy"
+                    className="h-12 w-12 shrink-0 rounded-[2px] border border-[var(--color-border)] object-cover"
+                  />
+                ) : (
+                  <span className="h-12 w-12 shrink-0 rounded-[2px] border border-dashed border-[var(--color-border)]" />
+                )}
+                <p className="min-w-0 flex-1 truncate text-[14px]">
+                  {m.name} <span className="mono text-[var(--color-ink-2)]">×{m.qty}</span>
+                  {m.material ? (
+                    <span className="ml-2 text-[12px] text-[var(--color-ink-3)]">
+                      {m.material}
+                    </span>
+                  ) : null}
+                </p>
+              </li>
+            ))}
+          </ul>
+          {block.notes ? (
+            <p className="mt-2 text-[13px] leading-snug text-[var(--color-ink-2)]">
+              {block.notes}
+            </p>
+          ) : null}
 
-        {/* Late promise → one-tap reason. */}
-        {promised && promisedLate && !shipped ? (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1">
-            <span className="px-1 text-[12px] text-[var(--color-ink-3)]">
-              原因:
-            </span>
-            {['材料未到', '排队中', '图纸问题', '其他'].map((r) => (
-              <form key={r} action={portalDelayReason} className="contents">
+          {/* 交期 chips — the row's main question, answered in one tap. */}
+          {!shipped ? (
+            <div className="mt-3">
+              <p className="text-[13px] font-medium">
+                {promised ? '改交期：' : overdue ? '几号能交？' : '交期没问题吧？'}
+              </p>
+              <PromiseChips block={block} token={token} />
+            </div>
+          ) : null}
+
+          {/* Late promise → one-tap reason. */}
+          {promised && promisedLate && !shipped ? (
+            <div className="mt-2 flex flex-wrap items-center gap-1">
+              <span className="text-[12px] text-[var(--color-ink-3)]">原因:</span>
+              {['材料未到', '排队中', '图纸问题', '其他'].map((r) => (
+                <form key={r} action={portalDelayReason} className="contents">
+                  <input type="hidden" name="token" value={token} />
+                  <input type="hidden" name="blockId" value={block.id} />
+                  <input type="hidden" name="reason" value={r} />
+                  <button
+                    type="submit"
+                    className={`min-h-[34px] rounded-[2px] border px-2.5 text-[13px] active:opacity-70 ${
+                      block.vendorDelayReason === r
+                        ? 'border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-surface)]'
+                        : 'border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-ink-2)]'
+                    }`}
+                  >
+                    {r}
+                  </button>
+                </form>
+              ))}
+            </div>
+          ) : null}
+
+          {/* Rare corrections + close. */}
+          <div className="mt-3 flex items-center gap-4">
+            {acked ? (
+              <form action={portalAck} className="contents">
                 <input type="hidden" name="token" value={token} />
                 <input type="hidden" name="blockId" value={block.id} />
-                <input type="hidden" name="reason" value={r} />
-                <button
-                  type="submit"
-                  className={`min-h-[34px] rounded-[2px] border px-2.5 text-[13px] active:opacity-70 ${
-                    block.vendorDelayReason === r
-                      ? 'border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-surface)]'
-                      : 'border-[var(--color-border-strong)] text-[var(--color-ink-2)]'
-                  }`}
-                >
-                  {r}
+                <input type="hidden" name="on" value="0" />
+                <button type="submit" className={undoLink}>
+                  撤销收到
                 </button>
               </form>
-            ))}
+            ) : null}
+            {shipped ? (
+              <form action={portalShipped} className="contents">
+                <input type="hidden" name="token" value={token} />
+                <input type="hidden" name="blockId" value={block.id} />
+                <input type="hidden" name="on" value="0" />
+                <button type="submit" className={undoLink}>
+                  撤销发货
+                </button>
+              </form>
+            ) : null}
+            <a href={`/w/${token}#b-${block.id}`} className="ml-auto text-[13px] text-[var(--color-ink-2)]">
+              收起 ▴
+            </a>
           </div>
-        ) : null}
-
-        {/* Rare correction path, kept tiny. */}
-        {promised && !shipped ? (
-          <details className="mt-1">
-            <summary className="cursor-pointer select-none px-1 py-1 text-[12px] text-[var(--color-ink-3)] underline underline-offset-4">
-              改交期
-            </summary>
-            <PromiseChips block={block} token={token} />
-          </details>
-        ) : null}
-      </div>
-    </section>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
-type CellState = 'done' | 'late' | 'now' | 'idle'
-function cellCls(state: CellState): string {
-  const base =
-    'flex min-h-[50px] w-full items-center justify-center rounded-[2px] px-1 text-[15px] font-medium active:opacity-70'
-  const tones: Record<CellState, string> = {
-    done: 'border border-[var(--color-success)]/25 bg-[var(--color-success-soft)] text-[var(--color-success)]',
-    late: 'border border-[var(--color-warning)]/25 bg-[var(--color-warning-soft)] text-[var(--color-warning)]',
-    now: 'bg-[var(--color-ink)] text-[var(--color-surface)]',
-    idle: 'border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-ink-3)]',
-  }
-  return `${base} ${tones[state]}`
+const askCell =
+  'flex min-h-[44px] w-full items-center justify-center rounded-[2px] bg-[var(--color-ink)] text-[14px] font-medium text-[var(--color-surface)] active:opacity-70'
+const idleCell =
+  'flex min-h-[44px] w-full items-center justify-center rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] text-[13px] text-[var(--color-ink-3)] active:opacity-70'
+const undoLink =
+  'text-[12px] text-[var(--color-ink-3)] underline underline-offset-4'
+
+function DoneCell({ date }: { date: string }) {
+  return (
+    <span className="flex min-h-[44px] flex-col items-center justify-center rounded-[2px] bg-[var(--color-success-soft)] leading-tight text-[var(--color-success)]">
+      <span className="text-[14px]">✓</span>
+      {date ? <span className="mono text-[10px]">{date}</span> : null}
+    </span>
+  )
 }
 
-// 外发氧化 → 氧化: the verb the vendor thinks in, without our 外发 prefix.
-function activityShort(block: OutsourceBlock): string {
-  return blockActivityLabel(block).replace(/^外发/, '')
-}
-
-// The 交期 answer row: three one-tap dates + the system date wheel. Overdue
-// asks from today (今天/明天/后天); on-track offers 按期 first.
+// Three one-tap dates + the system date wheel. Overdue asks from today.
 function PromiseChips({ block, token }: { block: OutsourceBlock; token: string }) {
   const t = today()
   const overdue = block.expectedReturn < t
@@ -459,7 +526,7 @@ function PromiseChips({ block, token }: { block: OutsourceBlock; token: string }
           <input type="hidden" name="date" value={c.date} />
           <button
             type="submit"
-            className="min-h-[44px] flex-1 basis-[22%] whitespace-nowrap rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[14px] active:opacity-70"
+            className="min-h-[44px] flex-1 basis-[26%] whitespace-nowrap rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[14px] active:opacity-70"
           >
             {c.label}
           </button>
@@ -480,9 +547,8 @@ function PromiseChips({ block, token }: { block: OutsourceBlock; token: string }
   )
 }
 
-// Native date input on purpose: inside a phone webview it opens the system
-// wheel — the one date control every vendor already knows. Commit is the
-// explicit 确定 button, never the input itself.
+// Native date input on purpose: in a phone webview it opens the system wheel.
+// Commit is the explicit 确定 button, never the input itself.
 function DatePickForm({
   token,
   blockId,
@@ -517,6 +583,31 @@ function DatePickForm({
       </button>
     </form>
   )
+}
+
+// Demo cookie → block-state overlay. Format: {[blockId]: {a?,p?,r?,s?}}.
+function applyDemoCookie(blocks: OutsourceBlock[], raw?: string): OutsourceBlock[] {
+  if (!raw) return blocks
+  let state: Record<string, { a?: string; p?: string; r?: string; s?: string }>
+  try {
+    state = JSON.parse(decodeURIComponent(raw))
+  } catch {
+    return blocks
+  }
+  return blocks.map((b) => {
+    const s = state[b.id]
+    if (!s) return b
+    return {
+      ...b,
+      vendorAckAt: s.a ?? b.vendorAckAt,
+      vendorPromisedDate: s.p ?? b.vendorPromisedDate,
+      vendorDelayReason: s.r ?? b.vendorDelayReason,
+      vendorShippedAt: s.s ?? b.vendorShippedAt,
+      ...(s.a === '' ? { vendorAckAt: undefined } : {}),
+      ...(s.p === '' ? { vendorPromisedDate: undefined, vendorDelayReason: undefined } : {}),
+      ...(s.s === '' ? { vendorShippedAt: undefined } : {}),
+    }
+  })
 }
 
 // Member images live behind the session-gated /api/img proxy; the portal has

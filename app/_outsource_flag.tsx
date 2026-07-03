@@ -41,7 +41,7 @@ export function OutsourceFlag({
           {state}
         </span>
         <p className="mt-2 text-[11px] text-[var(--color-ink-3)]">
-          见下方 外协 · 送出 / 回厂
+          见下表 · 勾选零件即可送出
         </p>
       </div>
     )

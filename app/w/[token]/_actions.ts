@@ -2,7 +2,9 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { getVendorByPortalToken, setBlockVendorState } from '@/lib/db'
+import { DEMO_COOKIE, DEMO_TOKEN } from './_demo'
 
 // Portal server actions — the vendor's three one-tap answers. No session:
 // identity IS the token, re-verified on every call, and every write is
@@ -22,8 +24,6 @@ function str(fd: FormData, key: string): string {
 }
 
 async function requireVendor(token: string) {
-  // Demo board (/w/demo): taps navigate but never write — there is no row.
-  if (token === 'demo') redirect('/w/demo')
   const vendor = token ? await getVendorByPortalToken(token) : undefined
   if (!vendor) redirect('/w/invalid')
   return vendor!
@@ -34,12 +34,38 @@ function backTo(token: string, blockId: string): never {
   redirect(`/w/${token}#b-${blockId}`)
 }
 
+// Demo taps answer for real — into a cookie instead of the DB, so the demo
+// board behaves exactly like a live one without touching a single row.
+// Empty-string fields mean "cleared" (applyDemoCookie maps them to undefined).
+async function demoUpdate(
+  blockId: string,
+  patch: Partial<Record<'a' | 'p' | 'r' | 's', string>>,
+): Promise<never> {
+  const jar = await cookies()
+  let state: Record<string, Record<string, string>> = {}
+  try {
+    state = JSON.parse(decodeURIComponent(jar.get(DEMO_COOKIE)?.value ?? '{}'))
+  } catch {
+    /* fresh */
+  }
+  state[blockId] = { ...state[blockId], ...patch }
+  jar.set(DEMO_COOKIE, encodeURIComponent(JSON.stringify(state)), {
+    path: `/w/${DEMO_TOKEN}`,
+    maxAge: 60 * 60 * 24,
+    sameSite: 'lax',
+  })
+  redirect(`/w/${DEMO_TOKEN}#b-${blockId}`)
+}
+
 // 确认收到 — goods physically arrived at the vendor's shop. on='0' undoes a
 // fat-finger tap.
 export async function portalAck(formData: FormData): Promise<void> {
   const token = str(formData, 'token')
   const blockId = str(formData, 'blockId')
   const on = str(formData, 'on') !== '0'
+  if (token === DEMO_TOKEN) {
+    await demoUpdate(blockId, { a: on ? new Date().toISOString() : '' })
+  }
   const vendor = await requireVendor(token)
   if (blockId) await setBlockVendorState(vendor.id, blockId, { acked: on })
   backTo(token, blockId)
@@ -53,6 +79,13 @@ export async function portalPromise(formData: FormData): Promise<void> {
   const blockId = str(formData, 'blockId')
   const date = str(formData, 'date').trim()
   const expected = str(formData, 'expected').trim()
+  if (token === DEMO_TOKEN) {
+    const valid = /^\d{4}-\d{2}-\d{2}$/.test(date)
+    await demoUpdate(blockId, {
+      p: valid ? date : '',
+      ...(valid && expected && date <= expected ? { r: '' } : {}),
+    })
+  }
   const vendor = await requireVendor(token)
   if (blockId) {
     if (!date) {
@@ -77,6 +110,9 @@ export async function portalDelayReason(formData: FormData): Promise<void> {
   const token = str(formData, 'token')
   const blockId = str(formData, 'blockId')
   const reason = str(formData, 'reason').trim()
+  if (token === DEMO_TOKEN) {
+    await demoUpdate(blockId, { r: REASONS.has(reason) ? reason : '' })
+  }
   const vendor = await requireVendor(token)
   if (blockId && REASONS.has(reason)) {
     await setBlockVendorState(vendor.id, blockId, { delayReason: reason })
@@ -89,6 +125,9 @@ export async function portalShipped(formData: FormData): Promise<void> {
   const token = str(formData, 'token')
   const blockId = str(formData, 'blockId')
   const on = str(formData, 'on') !== '0'
+  if (token === DEMO_TOKEN) {
+    await demoUpdate(blockId, { s: on ? new Date().toISOString() : '' })
+  }
   const vendor = await requireVendor(token)
   if (blockId) await setBlockVendorState(vendor.id, blockId, { shipped: on })
   backTo(token, blockId)

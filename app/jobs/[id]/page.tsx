@@ -10,7 +10,6 @@ import {
   formatShipmentLog,
   isBlockClosed,
   isBlockingVerdict,
-  isMemberFullyReturned,
   jobComponentsTotal,
   jobExternalSpend,
   jobIsShipped,
@@ -23,7 +22,6 @@ import {
   rollupStage,
   vendorById,
   type Job,
-  type Stage,
   type Vendor,
 } from '@/lib/data'
 import { ensureVendorPortalTokens, getJob, getVendors } from '@/lib/db'
@@ -56,7 +54,7 @@ import {
   JobShippingText,
   JobText,
 } from '@/app/_editable'
-import { BlockRow, NewBlockForm } from '@/app/_routing'
+import { WaixieTable } from './_waixie'
 import { OutsourceFlag } from '@/app/_outsource_flag'
 import { ExternalBadge } from '@/app/_externalbadge'
 import { ComponentImageUploader } from '@/app/_image_uploader'
@@ -195,30 +193,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   const externalSpend = jobExternalSpend(job)
   const margin = jobMargin(job)
   const componentsTotal = jobComponentsTotal(job)
-
-  // New-outsource-block picker. Scoped the same way: while a return is open,
-  // only the returned parts are sendable — the rest are at the customer.
-  // openStages/openVendorName surface "this part has units still out" as a
-  // faint hint beside the checkbox — informational, never a filter; the
-  // server's overlap check is the real guard (warn-and-confirm).
-  const componentOptions = componentRows.map(({ c }) => {
-    const openStageSet = new Set<Stage>()
-    let openVendorName: string | undefined
-    for (const b of c.outsourceBlocks ?? []) {
-      const member = b.members.find((m) => m.componentId === c.id)
-      if (!member || isMemberFullyReturned(member)) continue
-      for (const s of b.stages) openStageSet.add(s)
-      openVendorName =
-        openVendorName ?? vendorById(b.vendorId, vendors)?.name ?? b.vendorId
-    }
-    return {
-      id: c.id,
-      name: c.name,
-      qty: c.qty,
-      openStages: STAGES.filter((s) => openStageSet.has(s)),
-      openVendorName,
-    }
-  })
 
   // A block now spans N components — dedupe by block.id so the per-job list
   // shows one row per shipment with all members.
@@ -995,12 +969,29 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   initialNote={job.outsourceNote}
                 />
               </div>
-              <ExternalSection
-                jobId={job.id}
-                vendors={vendors}
-                componentOptions={componentOptions}
-                blockRows={blockRows}
-              />
+              <section className="mt-8">
+                <div className="mb-3 flex items-baseline justify-between">
+                  <h3 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
+                    外协
+                  </h3>
+                  <p className="label text-[var(--color-ink-3)]">
+                    {blockRows.filter((r) => !isBlockClosed(r.block)).length} 在外 ·{' '}
+                    {blockRows.filter((r) => isBlockClosed(r.block)).length} 已回
+                  </p>
+                </div>
+                <WaixieTable
+                  jobId={job.id}
+                  vendors={vendors}
+                  components={job.components.map((c) => ({
+                    id: c.id,
+                    name: c.name,
+                    qty: c.qty,
+                    material: c.material,
+                    imageUrl: c.imageUrl,
+                    blocks: c.outsourceBlocks ?? [],
+                  }))}
+                />
+              </section>
             </div>
           )}
 
@@ -1135,67 +1126,6 @@ function DueDelta({
     return <span className="label text-[var(--color-warning)]">今日</span>
   }
   return <span className="label text-[var(--color-ink-3)]">{days} 天后</span>
-}
-
-function ExternalSection({
-  jobId,
-  vendors,
-  componentOptions,
-  blockRows,
-}: {
-  jobId: string
-  vendors: Vendor[]
-  componentOptions: {
-    id: string
-    name: string
-    qty: number
-    openStages?: Stage[]
-    openVendorName?: string
-  }[]
-  blockRows: {
-    block: NonNullable<Job['components'][number]['outsourceBlocks']>[number]
-  }[]
-}) {
-  return (
-    <section className="mt-12 grid grid-cols-1 gap-10">
-      <div>
-        <div className="mb-3 flex items-baseline justify-between">
-          <h3 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
-            外协 · 送出 / 回厂
-          </h3>
-          <p className="label text-[var(--color-ink-3)]">
-            {blockRows.filter((r) => !isBlockClosed(r.block)).length} 在外 ·{' '}
-            {blockRows.filter((r) => isBlockClosed(r.block)).length} 已回
-          </p>
-        </div>
-        {blockRows.length === 0 ? (
-          <p className="text-[12px] text-[var(--color-ink-3)] py-3 border-y border-[var(--color-border)]">
-            尚无外协记录
-          </p>
-        ) : (
-          <div className="border-y border-[var(--color-border)]">
-            {blockRows.map((r) => (
-              <BlockRow
-                key={r.block.id}
-                jobId={jobId}
-                block={r.block}
-                vendor={vendorById(r.block.vendorId, vendors)}
-                vendors={vendors}
-                componentOptions={componentOptions}
-              />
-            ))}
-          </div>
-        )}
-        <div className="mt-4">
-          <NewBlockForm
-            jobId={jobId}
-            components={componentOptions}
-            vendors={vendors}
-          />
-        </div>
-      </div>
-    </section>
-  )
 }
 
 function ActorTrail({

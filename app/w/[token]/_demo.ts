@@ -11,6 +11,11 @@ import { today } from '@/lib/today'
 
 export const DEMO_TOKEN = 'demo'
 
+// Demo answers persist in this cookie (per visitor, per browser) so the demo
+// board behaves exactly like the live one — taps fill cells — without ever
+// touching a real row. See applyDemoCookie / demoStateUpdate.
+export const DEMO_COOKIE = 'wdemo'
+
 function addDays(ymd: string, days: number): string {
   const [y, m, d] = ymd.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
