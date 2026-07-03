@@ -163,6 +163,9 @@ type VendorRow = {
   name: string
   notes?: string
   address?: string
+  // Portal link token (migration 0073). Never written via toVendor — only
+  // ensureVendorPortalTokens mints it, so vendor edits can't clobber it.
+  portalToken?: string
 }
 
 type CustomerRow = {
@@ -188,6 +191,13 @@ type OutsourceBlockRow = {
   recipientContactName?: string
   recipientContactPhone?: string
   isRush?: boolean
+  // Vendor-reported portal state (migration 0073). Read-only from the
+  // factory's side; written only by the /w/<token> portal actions.
+  vendorSeenAt?: string
+  vendorAckAt?: string
+  vendorPromisedDate?: string
+  vendorDelayReason?: string
+  vendorShippedAt?: string
 }
 
 type OutsourceBlockPartRow = {
@@ -648,9 +658,17 @@ function fromBlock(r: AnyRow): OutsourceBlockRow {
     recipientContactName: (r.recipient_contact_name as string | null) ?? undefined,
     recipientContactPhone: (r.recipient_contact_phone as string | null) ?? undefined,
     isRush: Boolean(r.is_rush),
+    vendorSeenAt: (r.vendor_seen_at as string | null) ?? undefined,
+    vendorAckAt: (r.vendor_ack_at as string | null) ?? undefined,
+    vendorPromisedDate: (r.vendor_promised_date as string | null) ?? undefined,
+    vendorDelayReason: (r.vendor_delay_reason as string | null) ?? undefined,
+    vendorShippedAt: (r.vendor_shipped_at as string | null) ?? undefined,
   }
 }
 
+// NOTE: deliberately does NOT serialize the vendor_* portal columns —
+// toBlock feeds inserts/seed-upserts, and vendor state must only ever be
+// written by the portal actions (setBlockVendorState).
 function toBlock(r: OutsourceBlockRow) {
   return {
     id: r.id,
@@ -709,6 +727,7 @@ function fromVendor(r: AnyRow): VendorRow {
     name: r.name as string,
     notes: (r.notes as string | null) ?? undefined,
     address: (r.address as string | null) ?? undefined,
+    portalToken: (r.portal_token as string | null) ?? undefined,
   }
 }
 
@@ -1525,6 +1544,11 @@ function composeJob(job: JobRow, snap: DbSnapshot): Job {
           recipientContactName: b.recipientContactName,
           recipientContactPhone: b.recipientContactPhone,
           isRush: b.isRush,
+          vendorSeenAt: b.vendorSeenAt,
+          vendorAckAt: b.vendorAckAt,
+          vendorPromisedDate: b.vendorPromisedDate,
+          vendorDelayReason: b.vendorDelayReason,
+          vendorShippedAt: b.vendorShippedAt,
           members: blockMembers(snap, b.id),
         }))
       return {
@@ -1856,6 +1880,11 @@ export async function getOutsourceBlockRows(): Promise<
         recipientContactName: (b.recipient_contact_name as string | null) ?? undefined,
         recipientContactPhone: (b.recipient_contact_phone as string | null) ?? undefined,
         isRush: Boolean(b.is_rush),
+        vendorSeenAt: (b.vendor_seen_at as string | null) ?? undefined,
+        vendorAckAt: (b.vendor_ack_at as string | null) ?? undefined,
+        vendorPromisedDate: (b.vendor_promised_date as string | null) ?? undefined,
+        vendorDelayReason: (b.vendor_delay_reason as string | null) ?? undefined,
+        vendorShippedAt: (b.vendor_shipped_at as string | null) ?? undefined,
         members,
       },
     })
@@ -5385,7 +5414,210 @@ export async function getVendors(): Promise<Vendor[]> {
     name: v.name,
     notes: v.notes,
     address: v.address,
+    portalToken: v.portalToken,
   }))
+}
+
+// === 外协厂商门户 (vendor portal, /w/<token>) ===
+//
+// One stable unguessable token per vendor. The 外协台 mints tokens lazily on
+// render (ensureVendorPortalTokens); the public portal resolves them back to
+// a vendor with getVendorByPortalToken. Vendor-reported state writes go
+// through setBlockVendorState, which scopes every UPDATE by vendor_id so a
+// leaked token can never touch another vendor's blocks.
+
+// Mint portal tokens for any vendor that doesn't have one yet. Runs on the
+// 外协台 page load — 43 vendors today, one UPDATE each the first time, then
+// no-ops forever. Race-safe: the guarded `is('portal_token', null)` update
+// means concurrent renders can't double-mint; we re-read the row afterwards
+// so whichever token won is the one we hand back. On a pre-migration DB
+// (column missing) this swallows the error and returns vendors unchanged, so
+// the 外协台 still renders — the share buttons just stay hidden.
+export async function ensureVendorPortalTokens(
+  vendors: Vendor[],
+): Promise<Vendor[]> {
+  const missing = vendors.filter((v) => !v.portalToken)
+  if (missing.length === 0) return vendors
+  const minted = new Map<string, string>()
+  try {
+    for (const v of missing) {
+      const token = crypto.randomUUID().replace(/-/g, '')
+      const upd = await supabase
+        .from('vendors')
+        .update({ portal_token: token })
+        .eq('id', v.id)
+        .is('portal_token', null)
+      if (upd.error) throw upd.error
+      const sel = await supabase
+        .from('vendors')
+        .select('portal_token')
+        .eq('id', v.id)
+        .limit(1)
+      if (sel.error) throw sel.error
+      const won = (sel.data?.[0]?.portal_token as string | null) ?? undefined
+      if (won) minted.set(v.id, won)
+    }
+  } catch {
+    return vendors
+  }
+  return vendors.map((v) =>
+    v.portalToken ? v : { ...v, portalToken: minted.get(v.id) },
+  )
+}
+
+export async function getVendorByPortalToken(
+  token: string,
+): Promise<Vendor | undefined> {
+  const t = token.trim()
+  // Tokens are 32-hex UUIDs; anything shorter is junk — refuse early so a
+  // scanner probing /w/x doesn't cost a DB roundtrip per guess shape.
+  if (!/^[0-9a-f]{32}$/i.test(t)) return undefined
+  const { data, error } = await supabase
+    .from('vendors')
+    .select('*')
+    .eq('portal_token', t)
+    .limit(1)
+  if (error) throw error
+  const r = data?.[0]
+  if (!r) return undefined
+  const v = fromVendor(r)
+  return {
+    id: v.id,
+    name: v.name,
+    notes: v.notes,
+    address: v.address,
+    portalToken: v.portalToken,
+  }
+}
+
+// Every outsource block ever sent to this vendor, composed to the same
+// OutsourceBlock shape the 外协台 uses — but deliberately WITHOUT the owning
+// job's customer/product/jobNo. The vendor sees their own work (parts,
+// photos, quantities, dates, their prices) and nothing about whose end
+// customer it is.
+export async function getVendorPortalBlocks(
+  vendorId: string,
+): Promise<OutsourceBlock[]> {
+  const PAGE = 1000
+  const blocksRows: AnyRow[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from('outsource_blocks')
+      .select('*')
+      .eq('vendor_id', vendorId)
+      .range(from, from + PAGE - 1)
+    if (error) throw error
+    blocksRows.push(...((data ?? []) as AnyRow[]))
+    if (!data || data.length < PAGE) break
+  }
+  if (blocksRows.length === 0) return []
+
+  const blockIds = blocksRows.map((b) => b.id as string)
+  const blockPartsRows = (await selectAllIn(
+    'outsource_block_parts',
+    'block_id',
+    blockIds,
+  )) as AnyRow[]
+  const partIds = Array.from(
+    new Set(blockPartsRows.map((bp) => bp.part_id as string)),
+  )
+  const partsRows = (await selectAllIn('parts', 'id', partIds)) as AnyRow[]
+  const partById = new Map<string, AnyRow>()
+  for (const p of partsRows) partById.set(p.id as string, p)
+  const blockPartsByBlock = new Map<string, AnyRow[]>()
+  for (const bp of blockPartsRows) {
+    const arr = blockPartsByBlock.get(bp.block_id as string) ?? []
+    arr.push(bp)
+    blockPartsByBlock.set(bp.block_id as string, arr)
+  }
+
+  return blocksRows.map((b) => {
+    const members = (blockPartsByBlock.get(b.id as string) ?? [])
+      .slice()
+      .sort((a, c) => Number(a.position ?? 0) - Number(c.position ?? 0))
+      .map((bp) => {
+        const part = partById.get(bp.part_id as string)
+        const pid = (bp.part_id as string) ?? ''
+        const componentId = part
+          ? (part.id as string).split(':').slice(1).join(':') || (part.id as string)
+          : `__orphan__:${pid}`
+        return {
+          componentId,
+          name: part ? ((part.name as string) ?? '') : '零件',
+          qty:
+            bp.qty != null
+              ? Number(bp.qty)
+              : part
+                ? Number(part.qty ?? 0)
+                : 0,
+          material: part ? ((part.material as string | null) ?? undefined) : undefined,
+          imageUrl: part ? ((part.image_url as string | null) ?? undefined) : undefined,
+          returnedQty: bp.returned_qty == null ? 0 : Number(bp.returned_qty),
+          returnedAt: (bp.returned_at as string | null) ?? undefined,
+          unitPriceCny:
+            bp.unit_price_cny == null ? undefined : Number(bp.unit_price_cny),
+        }
+      })
+    const block = fromBlock(b)
+    return { ...block, members }
+  })
+}
+
+// Stamp "the vendor's portal rendered these open blocks just now" — the 已读
+// signal the 外协台 shows. Only the open blocks the page actually displayed;
+// archived history doesn't need read-receipts.
+export async function stampVendorBlocksSeen(
+  vendorId: string,
+  blockIds: string[],
+): Promise<void> {
+  if (blockIds.length === 0) return
+  const now = new Date().toISOString()
+  const CHUNK = 100
+  for (let i = 0; i < blockIds.length; i += CHUNK) {
+    const { error } = await supabase
+      .from('outsource_blocks')
+      .update({ vendor_seen_at: now })
+      .eq('vendor_id', vendorId)
+      .in('id', blockIds.slice(i, i + CHUNK))
+    if (error) throw error
+  }
+}
+
+export type VendorBlockStatePatch = {
+  // true → stamp now(); false → clear. Undefined leaves the field alone.
+  acked?: boolean
+  shipped?: boolean
+  // 'YYYY-MM-DD' promise, or null to clear (back to 按期).
+  promisedDate?: string | null
+  delayReason?: string | null
+}
+
+// The ONLY write path for vendor_* columns. Scoped by vendor_id in the WHERE
+// so a request can never state-stamp a block belonging to a different vendor,
+// even if it guesses block ids.
+export async function setBlockVendorState(
+  vendorId: string,
+  blockId: string,
+  patch: VendorBlockStatePatch,
+): Promise<void> {
+  const update: AnyRow = {}
+  const now = new Date().toISOString()
+  if (patch.acked !== undefined) update.vendor_ack_at = patch.acked ? now : null
+  if (patch.shipped !== undefined)
+    update.vendor_shipped_at = patch.shipped ? now : null
+  if (patch.promisedDate !== undefined)
+    update.vendor_promised_date = patch.promisedDate
+  if (patch.delayReason !== undefined) {
+    const trimmed = patch.delayReason?.trim()
+    update.vendor_delay_reason = trimmed ? trimmed : null
+  }
+  if (Object.keys(update).length === 0) return
+  const { error } = await supabase
+    .from('outsource_blocks')
+    .update(update)
+    .eq('id', blockId)
+    .eq('vendor_id', vendorId)
+  if (error) throw error
 }
 
 export async function createVendor(input: {

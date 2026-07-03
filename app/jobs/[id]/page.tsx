@@ -26,7 +26,7 @@ import {
   type Stage,
   type Vendor,
 } from '@/lib/data'
-import { getJob, getVendors } from '@/lib/db'
+import { ensureVendorPortalTokens, getJob, getVendors } from '@/lib/db'
 import { getContractFiles } from '@/lib/contract-file'
 import { BRAND } from '@/lib/brand'
 import {
@@ -100,12 +100,15 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // load (the caiwu tab must add zero latency to the floor's hot path). The
   // 开票/回款 state is lazy-loaded by JobMoneyEditor itself, so it never touches
   // the server critical path at all.
-  const [rawJob, rawVendors, contractFiles] = await Promise.all([
+  const [rawJob, fetchedVendors, contractFiles] = await Promise.all([
     getJob(id),
     getVendors(),
     showMoney ? getContractFiles(id) : Promise.resolve([]),
   ])
   if (!rawJob) notFound()
+  // Portal tokens power the 微信 share button on each 委外 row. No-op once
+  // every vendor has one (the common case) — see ensureVendorPortalTokens.
+  const rawVendors = await ensureVendorPortalTokens(fetchedVendors)
   // Only `ready` jobs live on the production board. A draft/parsing/failed job
   // reached here via a stale link or a 工号-conflict button — send it to the
   // import review screen, the mirror of /import/[id]'s `ready → /jobs` bounce.

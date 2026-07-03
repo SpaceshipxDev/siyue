@@ -99,6 +99,10 @@ export type Vendor = {
   name: string
   notes?: string
   address?: string
+  // Stable unguessable token behind the vendor's portal link
+  // (siyue.ai/w/<token>). Generated lazily server-side the first time the
+  // 外协台 renders (ensureVendorPortalTokens); undefined until then.
+  portalToken?: string
 }
 
 export type CustomerId = string
@@ -227,7 +231,21 @@ export type OutsourceBlock = {
   recipientAddress?: string
   recipientContactName?: string
   recipientContactPhone?: string
+  // Vendor-reported state from the portal (siyue.ai/w/<token>). All optional —
+  // absence means the vendor hasn't said anything yet. See migration 0073.
+  vendorSeenAt?: string
+  vendorAckAt?: string
+  vendorPromisedDate?: string
+  vendorDelayReason?: string
+  vendorShippedAt?: string
   members: OutsourceBlockMember[]
+}
+
+// How many days later than 要求交期 the vendor's own promised date is.
+// 0 / negative = on time or early; undefined = vendor hasn't promised.
+export function vendorPromiseDelayDays(block: OutsourceBlock): number | undefined {
+  if (!block.vendorPromisedDate) return undefined
+  return daysFromToday(block.vendorPromisedDate, block.expectedReturn)
 }
 
 // The label to render anywhere we used to render `外协 · {stage range}`.

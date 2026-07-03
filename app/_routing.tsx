@@ -30,6 +30,7 @@ import {
   OutsourceBlockDate,
   OutsourceBlockNotes,
 } from './_editable'
+import { BlockShareButton, VendorStateChip } from './_vendor_share'
 
 function fieldStyles(): string {
   return 'bg-transparent border border-[var(--color-border)] rounded-[2px] px-2 py-1 text-[13px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50'
@@ -1153,6 +1154,7 @@ export function BlockRow({
         </div>
 
         <div className="ml-auto flex items-center gap-2 shrink-0">
+          <BlockShareButton vendor={vendor} block={block} />
           {!closed && pendingMembers.length > 0 ? (
             <button
               type="button"
@@ -1227,6 +1229,7 @@ export function BlockRow({
             已回 {totalReturnedUnits}/{totalQty}
           </span>
         ) : null}
+        {!closed ? <VendorStateChip block={block} /> : null}
       </div>
 
       {/* Line 3 — notes. Things-style: borderless, hint when empty. */}

@@ -13,6 +13,7 @@ import {
 } from '@/lib/data'
 import { Pill } from '@/app/_ui'
 import { BlockRow, VendorAddressEditor } from '@/app/_routing'
+import { VendorShareButton } from '@/app/_vendor_share'
 import { Highlight, SearchInput } from '@/app/_search'
 
 // Everything a single outsource block can be found by, flattened to one
@@ -339,6 +340,14 @@ function VendorGroup({
             </span>
           ) : null}
           {group.vendor ? <VendorAddressEditor vendor={group.vendor} /> : null}
+          {group.vendor ? (
+            <VendorShareButton
+              vendor={group.vendor}
+              openBlocks={group.rows
+                .filter((r) => !isBlockClosed(r.block))
+                .map((r) => r.block)}
+            />
+          ) : null}
         </div>
         <div className="flex items-baseline gap-4">
           {group.overdue > 0 ? (

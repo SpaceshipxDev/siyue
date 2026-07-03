@@ -22,7 +22,10 @@ import { getUserById } from '@/lib/db'
 // only, no writes to real tables). Public so it opens without login while we
 // pick a winner — REMOVE this entry when the chosen design is promoted into
 // /finance. See app/caiwu-lab/.
-const PUBLIC_PATHS = ['/login', '/join', '/caiwu-lab']
+// '/w' is the vendor portal (外协厂商门户) — one unguessable token per vendor
+// IS the auth (verified server-side by getVendorByPortalToken on every page
+// render, action, and image fetch), so the path itself must stay open.
+const PUBLIC_PATHS = ['/login', '/join', '/caiwu-lab', '/w']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only

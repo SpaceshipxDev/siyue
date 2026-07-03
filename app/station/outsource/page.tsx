@@ -1,5 +1,9 @@
 import { daysFromToday, formatCny, isBlockClosed } from '@/lib/data'
-import { getOutsourceBlockRows, getVendors } from '@/lib/db'
+import {
+  ensureVendorPortalTokens,
+  getOutsourceBlockRows,
+  getVendors,
+} from '@/lib/db'
 import { requireOutsourceManager, canSeeReport } from '@/lib/auth'
 import { Pill, TopBar } from '@/app/_ui'
 import { OutsourceBoard } from './_board'
@@ -8,7 +12,13 @@ export const dynamic = 'force-dynamic'
 
 export default async function OutsourcePage() {
   const user = await requireOutsourceManager()
-  const [all, vendors] = await Promise.all([getOutsourceBlockRows(), getVendors()])
+  const [all, rawVendors] = await Promise.all([
+    getOutsourceBlockRows(),
+    getVendors(),
+  ])
+  // Mint portal tokens for any vendor still missing one, so every 复制微信消息
+  // button on the board has a link ready. One-time backfill, then no-ops.
+  const vendors = await ensureVendorPortalTokens(rawVendors)
   const open = all.filter((r) => !isBlockClosed(r.block))
   const archived = all.filter((r) => isBlockClosed(r.block))
 
@@ -19,6 +29,8 @@ export default async function OutsourcePage() {
     (r) => daysFromToday(r.block.expectedReturn) < 0,
   ).length
   const pendingPriceCount = open.filter((r) => r.block.amountCny == null).length
+  // Vendor-reported (portal) rollups — the "do I need to phone anyone" strip.
+  const shippedBackCount = open.filter((r) => r.block.vendorShippedAt).length
 
   return (
     <div className="flex-1 flex flex-col">
@@ -33,6 +45,9 @@ export default async function OutsourcePage() {
         right={
           <div className="flex items-center gap-2">
             <Pill tone="overdue" label="逾期" value={overdueCount} />
+            {shippedBackCount > 0 ? (
+              <Pill tone="success" label="已发回" value={shippedBackCount} />
+            ) : null}
             {pendingPriceCount > 0 ? (
               <Pill tone="warning" label="待补金额" value={pendingPriceCount} />
             ) : null}
