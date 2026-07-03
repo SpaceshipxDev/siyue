@@ -30,7 +30,7 @@ import {
   OutsourceBlockDate,
   OutsourceBlockNotes,
 } from '@/app/_editable'
-import { BlockShareButton, VendorStateChip } from '@/app/_vendor_share'
+import { BlockShareButton } from '@/app/_vendor_share'
 
 // 外协 tab — two ledgers, one sheet.
 //
@@ -97,9 +97,52 @@ function activityDisplay(a?: string): string {
   return t.replace(/^外发/, '')
 }
 
+// ISO timestamp → Shanghai-local 'MM-DD' (vendor_seen/shipped are timestamps).
+function tsShort(iso?: string): string {
+  if (!iso) return ''
+  return new Date(iso)
+    .toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' })
+    .slice(5)
+}
+
+// Whole days between two YYYY-MM-DD dates (a − b).
+function dayDiff(a: string, b: string): number {
+  const [ay, am, ad] = a.split('-').map(Number)
+  const [by, bm, bd] = b.split('-').map(Number)
+  return Math.round((Date.UTC(ay, am - 1, ad) - Date.UTC(by, bm - 1, bd)) / 86400000)
+}
+
 const th =
   'px-3 py-2 text-left text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--color-ink-3)] whitespace-nowrap'
 const td = 'px-3 py-2.5 align-middle whitespace-nowrap'
+// Supplier-status columns — same grid grammar as the master board's stage
+// strip: bordered cells, ✓+date when answered, colored bg when off-track.
+const thStatus =
+  'px-2 py-2 text-center text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--color-ink-3)] whitespace-nowrap border-l border-[var(--color-border)]'
+const tdStatus = 'p-0 border-l border-[var(--color-border)] align-middle'
+const statusInner =
+  'flex min-h-[48px] h-full w-full flex-col items-center justify-center gap-0.5 leading-none'
+
+function CellDone({ date }: { date?: string }) {
+  return (
+    <span className={statusInner}>
+      <span className="text-[15px] font-semibold leading-none text-[var(--color-success)]">
+        ✓
+      </span>
+      {date ? (
+        <span className="mono text-[10px] text-[var(--color-ink-3)]">{date}</span>
+      ) : null}
+    </span>
+  )
+}
+
+function CellDim({ hint }: { hint?: string }) {
+  return (
+    <span className={statusInner} title={hint}>
+      <span className="mono text-[13px] text-[var(--color-ink-4)]">—</span>
+    </span>
+  )
+}
 
 function PartImg({ src, size = 'h-10 w-10' }: { src?: string; size?: string }) {
   if (!src)
@@ -360,9 +403,14 @@ export function WaixieTable({
               <tr className="border-b border-[var(--color-border)]">
                 <th className={`${th} w-[56px]`}>图</th>
                 <th className={th}>零件</th>
-                <th className={`${th} w-[64px] text-right`}>数</th>
-                <th className={`${th} w-[80px] text-right`}>单价</th>
-                <th className={th}>收</th>
+                <th className={`${th} w-[60px] text-right`}>数</th>
+                <th className={`${th} w-[72px] text-right`}>单价</th>
+                <th className={`${thStatus} w-[64px]`}>已读</th>
+                <th className={`${thStatus} w-[84px]`} title="厂商回的交期">
+                  厂商诺期
+                </th>
+                <th className={`${thStatus} w-[64px]`}>已发货</th>
+                <th className={`${thStatus} w-[104px]`}>收</th>
               </tr>
             </thead>
             {blocks.map((b) => (
@@ -439,7 +487,7 @@ export function WaixieTable({
               />
             ) : null}
             <label className="flex items-center gap-1.5 text-[13px]">
-              <span className="text-[var(--color-ink-3)]">回厂</span>
+              <span className="text-[var(--color-ink-3)]">交期</span>
               <DatePop
                 value={expectedReturn}
                 onChange={setExpectedReturn}
@@ -582,11 +630,18 @@ function BlockGroup({
     .filter((c) => !block.members.some((m) => m.componentId === c.id))
     .map((c) => ({ id: c.id, name: c.name, qty: c.qty }))
 
+  const promise = block.vendorPromisedDate
+  const promiseLate = !!promise && promise > block.expectedReturn
+  const promiseLateDays = promiseLate ? dayDiff(promise!, block.expectedReturn) : 0
+  const qtySum = block.members.reduce((s, m) => s + m.qty, 0)
+  const returnedSum = block.members.reduce((s, m) => s + memberReturnedQty(m), 0)
+
   return (
     <tbody className="border-t border-[var(--color-border)]">
-      {/* 单 header — every field edits in place. */}
-      <tr>
-        <td colSpan={5} className="bg-[var(--color-bg)] px-3 py-2">
+      {/* 单 header — metadata on the left (all editable in place), supplier
+          status cells on the right, exactly like a master-board row. */}
+      <tr className="bg-[var(--color-bg)]">
+        <td colSpan={4} className="px-3 py-2">
           <div
             className={`flex flex-wrap items-center gap-x-4 gap-y-1 ${closed ? 'opacity-70' : ''}`}
           >
@@ -636,7 +691,7 @@ function BlockGroup({
               />
             </span>
             <span className="flex items-baseline gap-1 text-[12px]">
-              <span className="text-[var(--color-ink-4)]">回</span>
+              <span className="text-[var(--color-ink-4)]">交期</span>
               <OutsourceBlockDate
                 blockId={block.id}
                 jobId={jobId}
@@ -663,27 +718,88 @@ function BlockGroup({
                 className="mono text-[12px] text-[var(--color-ink)] [field-sizing:content] min-w-[3ch]"
               />
             </span>
-            {!closed ? <VendorStateChip block={block} /> : null}
             <span className="ml-auto flex items-center gap-2">
-              {closed ? (
-                <span className="text-[12px] font-medium text-[var(--color-success)]">
-                  ✓ 已回 <span className="mono">{mdShort(blockClosedAt(block))}</span>
-                </span>
-              ) : pendingMembers.length > 0 ? (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={receiveAll}
-                  title="全部零件今天收回"
-                  className="rounded-[2px] border border-[var(--color-success)] px-2.5 py-[3px] text-[12px] text-[var(--color-success)] hover:bg-[var(--color-success-soft)] disabled:opacity-40"
-                >
-                  全收
-                </button>
-              ) : null}
               <BlockShareButton vendor={vendor} block={block} />
               <BlockKebab blockId={block.id} pending={busy} onDelete={del} />
             </span>
           </div>
+        </td>
+
+        {/* 已读 — did the vendor even open the link. */}
+        <td className={tdStatus}>
+          {block.vendorSeenAt ? (
+            <CellDone date={tsShort(block.vendorSeenAt)} />
+          ) : (
+            <CellDim hint="厂商还没点开链接" />
+          )}
+        </td>
+
+        {/* 厂商诺期 — the date they committed to; amber when later than 交期. */}
+        <td
+          className={`${tdStatus} ${
+            promiseLate && !closed ? 'bg-[var(--color-warning-soft)]' : ''
+          }`}
+        >
+          {promise ? (
+            <span
+              className={statusInner}
+              title={
+                promiseLate
+                  ? `比要求晚${promiseLateDays}天${block.vendorDelayReason ? ` · ${block.vendorDelayReason}` : ''}`
+                  : '厂商诺按期交'
+              }
+            >
+              <span
+                className={`mono text-[12px] font-semibold ${
+                  promiseLate ? 'text-[var(--color-warning)]' : 'text-[var(--color-success)]'
+                }`}
+              >
+                {mdShort(promise)}
+              </span>
+              <span
+                className={`text-[10px] ${
+                  promiseLate ? 'text-[var(--color-warning)]' : 'text-[var(--color-success)]'
+                }`}
+              >
+                {promiseLate
+                  ? (block.vendorDelayReason ?? `晚${promiseLateDays}天`)
+                  : '按期'}
+              </span>
+            </span>
+          ) : (
+            <CellDim hint="厂商还没回交期" />
+          )}
+        </td>
+
+        {/* 已发货 — vendor says the goods are on the way back. */}
+        <td className={tdStatus}>
+          {block.vendorShippedAt ? (
+            <CellDone date={tsShort(block.vendorShippedAt)} />
+          ) : (
+            <CellDim hint="厂商还没报发货" />
+          )}
+        </td>
+
+        {/* 收 — the factory's own cell; 全收 acts right here. */}
+        <td className={tdStatus}>
+          {closed ? (
+            <CellDone date={mdShort(blockClosedAt(block))} />
+          ) : (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={receiveAll}
+              title="全部零件今天收回"
+              className={`${statusInner} transition-colors hover:bg-[var(--color-success-soft)] disabled:opacity-40`}
+            >
+              <span className="text-[12px] font-medium text-[var(--color-success)]">
+                全收
+              </span>
+              <span className="mono text-[10px] text-[var(--color-ink-3)]">
+                {returnedSum}/{qtySum}
+              </span>
+            </button>
+          )}
         </td>
       </tr>
 
@@ -700,7 +816,7 @@ function BlockGroup({
 
       {/* 备注 + 加零件 — one quiet line under the parts. */}
       <tr>
-        <td colSpan={5} className="pb-2.5 pl-[68px] pr-3">
+        <td colSpan={8} className="pb-2.5 pl-[68px] pr-3">
           <div className="flex items-start gap-4">
             <OutsourceBlockNotes
               blockId={block.id}
@@ -814,12 +930,19 @@ function MemberRow({
           className="mono w-[60px] text-right text-[13px]"
         />
       </td>
-      <td className={td}>
-        <span className="flex items-center gap-2">
+      {/* 已读/诺期/发货 are 单-level — parts only carry their own 收 cell. */}
+      <td colSpan={3} className={tdStatus} />
+      <td className={tdStatus}>
+        <span className={`${statusInner} px-1`}>
           {done ? (
-            <span className="text-[13px] font-medium text-[var(--color-success)]">
-              ✓ <span className="mono text-[12px]">{mdShort(m.returnedAt)}</span>
-            </span>
+            <>
+              <span className="text-[15px] font-semibold leading-none text-[var(--color-success)]">
+                ✓
+              </span>
+              <span className="mono text-[10px] text-[var(--color-ink-3)]">
+                {mdShort(m.returnedAt)}
+              </span>
+            </>
           ) : receiving ? (
             <span className="inline-flex items-center gap-1.5">
               <input
@@ -855,47 +978,47 @@ function MemberRow({
             </span>
           ) : (
             <>
+              <span className="inline-flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setRQty(String(remaining))
+                    setRDate(today())
+                    setReceiving(true)
+                  }}
+                  className="rounded-[2px] border border-[var(--color-border-strong)] px-2.5 py-1 text-[12px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] disabled:opacity-40"
+                >
+                  收
+                </button>
+                {armed ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={removeMember}
+                    className="text-[11px] font-medium text-[var(--color-overdue)]"
+                  >
+                    确认撤掉？
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setArmed(true)}
+                    title="把这个零件从外协单撤掉"
+                    className="px-1 text-[13px] leading-none text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
               {returned > 0 ? (
-                <span className="mono text-[12px] text-[var(--color-warning)]">
+                <span className="mono text-[10px] text-[var(--color-warning)]">
                   已收{returned}/{m.qty}
                 </span>
               ) : null}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  setRQty(String(remaining))
-                  setRDate(today())
-                  setReceiving(true)
-                }}
-                className="rounded-[2px] border border-[var(--color-border-strong)] px-2.5 py-1 text-[12px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] disabled:opacity-40"
-              >
-                收
-              </button>
             </>
           )}
-          {!done && !receiving ? (
-            armed ? (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={removeMember}
-                className="text-[12px] font-medium text-[var(--color-overdue)]"
-              >
-                确认撤掉？
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => setArmed(true)}
-                title="把这个零件从外协单撤掉"
-                className="px-1 text-[13px] leading-none text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
-              >
-                ×
-              </button>
-            )
-          ) : null}
         </span>
       </td>
     </tr>
@@ -1003,7 +1126,7 @@ function PickRow({
               </span>
             ) : (
               <span className="mono ml-2 text-[12px] text-[var(--color-ink-3)]">
-                回 {mdShort(block.expectedReturn)}
+                交期 {mdShort(block.expectedReturn)}
               </span>
             )}
           </span>
