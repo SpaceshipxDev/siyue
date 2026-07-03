@@ -1,11 +1,13 @@
 'use client'
 
 import { useMemo, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   ACTIVITY_DEFAULT_STAGES,
   OUTSOURCE_ACTIVITIES,
+  blockClosedAt,
   daysFromToday,
-  formatCny,
+  isBlockClosed,
   isMemberFullyReturned,
   memberRemainingQty,
   memberReturnedQty,
@@ -19,15 +21,28 @@ import { proxiedStorageUrl } from '@/lib/storage-url'
 import { BRAND } from '@/lib/brand'
 import { DatePop } from '@/app/_datepop'
 import { showToast } from '@/app/_toast'
+import { AddMembersRow, BlockKebab, BlockStagesEditor } from '@/app/_routing'
+import {
+  BlockMemberQty,
+  BlockMemberUnitPrice,
+  NameCombobox,
+  OutsourceBlockAmount,
+  OutsourceBlockDate,
+  OutsourceBlockNotes,
+} from '@/app/_editable'
+import { BlockShareButton, VendorStateChip } from '@/app/_vendor_share'
 
-// 外协 tab, rebuilt as the same ledger the 零件 tab is: one row per component,
-// fixed columns, conditional color, zero prose. Tick rows → a single action
-// line (做什么 · 厂商 · 回厂 · ¥) → 送出 → the WeChat handoff takes over the
-// screen, because sending the vendor their link IS the point of the flow.
+// 外协 tab — two ledgers, one sheet.
 //
-// A component's 外协 life is readable straight across its row:
-//   数 · 单价 · 做什么 · 厂商 · 寄→回 · 状态(在外/已回/—) · 收
-// exactly like scanning a stage column on the master board.
+// Top: 外协单. Each dispatch is a group — a header line (单号 · 厂商 · 做什么 ·
+// 工序 · 寄/回 · ¥ · 厂商回话 · 微信/⋯) over its part rows, exactly like a
+// merged group row in Excel. Every field on the header edits in place; 收
+// happens on the part row (or 全收 on the header) and refreshes the page data
+// immediately.
+//
+// Bottom: 送新单. One row per part with a checkbox — tick → fill one line
+// (做什么 · 厂商 · 回厂 · ¥) → 送出 → the WeChat handoff banner takes over,
+// because sending the vendor their link IS the point of the flow.
 
 export type WaixieComponent = {
   id: string
@@ -38,10 +53,12 @@ export type WaixieComponent = {
   blocks: OutsourceBlock[]
 }
 
+type Member = OutsourceBlock['members'][number]
+
 type RowState =
   | { kind: 'none' }
-  | { kind: 'out'; block: OutsourceBlock; member: OutsourceBlock['members'][number] }
-  | { kind: 'back'; block: OutsourceBlock; member: OutsourceBlock['members'][number] }
+  | { kind: 'out'; block: OutsourceBlock; member: Member }
+  | { kind: 'back'; block: OutsourceBlock; member: Member }
 
 function rowState(c: WaixieComponent): RowState {
   // Newest open membership wins; otherwise newest returned one; otherwise
@@ -76,13 +93,31 @@ function mdCn(ymd?: string): string {
 
 function activityDisplay(a?: string): string {
   const t = a?.trim()
-  if (!t) return '—'
+  if (!t) return ''
   return t.replace(/^外发/, '')
 }
 
 const th =
   'px-3 py-2 text-left text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--color-ink-3)] whitespace-nowrap'
 const td = 'px-3 py-2.5 align-middle whitespace-nowrap'
+
+function PartImg({ src, size = 'h-10 w-10' }: { src?: string; size?: string }) {
+  if (!src)
+    return (
+      <span
+        className={`inline-block ${size} rounded-[2px] border border-dashed border-[var(--color-border)]`}
+      />
+    )
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={proxiedStorageUrl(src)}
+      alt=""
+      loading="lazy"
+      className={`${size} rounded-[2px] border border-[var(--color-border)] object-cover`}
+    />
+  )
+}
 
 export function WaixieTable({
   jobId,
@@ -93,6 +128,7 @@ export function WaixieTable({
   components: WaixieComponent[]
   vendors: Vendor[]
 }) {
+  const router = useRouter()
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [qtys, setQtys] = useState<Record<string, string>>({})
   const [prices, setPrices] = useState<Record<string, string>>({})
@@ -117,6 +153,31 @@ export function WaixieTable({
     expectedReturn: string
   } | null>(null)
 
+  // One entry per 外协单, open ones first (nearest 回厂 on top), closed ones
+  // after (newest return on top) — the same order a paper stack would sit in.
+  const blocks = useMemo(() => {
+    const seen = new Set<string>()
+    const list: OutsourceBlock[] = []
+    for (const c of components) {
+      for (const b of c.blocks) {
+        if (seen.has(b.id)) continue
+        seen.add(b.id)
+        list.push(b)
+      }
+    }
+    return list.sort((a, z) => {
+      const ac = isBlockClosed(a)
+      const zc = isBlockClosed(z)
+      if (ac !== zc) return ac ? 1 : -1
+      if (!ac) return a.expectedReturn.localeCompare(z.expectedReturn)
+      return (blockClosedAt(z) ?? '').localeCompare(blockClosedAt(a) ?? '')
+    })
+  }, [components])
+
+  const byId = useMemo(
+    () => new Map(components.map((c) => [c.id, c])),
+    [components],
+  )
   const rows = useMemo(
     () => components.map((c) => ({ c, state: rowState(c) })),
     [components],
@@ -234,6 +295,7 @@ export function WaixieTable({
         expectedReturn,
       })
       clearBar()
+      router.refresh()
     })
   }
 
@@ -243,7 +305,7 @@ export function WaixieTable({
       `【${BRAND.shortName} · 外协】${activityDisplay(sent.activity)} ${sent.totalQty}件 · 要求 ${mdCn(sent.expectedReturn)} 交`,
       ...(sent.portalToken
         ? [
-            '点开确认收货、回交期（免登录，链接固定可收藏）：',
+            '点开回交期、报发货（免登录，链接固定可收藏）：',
             `${window.location.origin}/w/${sent.portalToken}`,
           ]
         : []),
@@ -290,10 +352,46 @@ export function WaixieTable({
         </div>
       ) : null}
 
-      {/* Create bar — appears the moment a row is ticked. One line, like
-          filling the header of a paper 外协单. */}
+      {/* ===== 外协单 — one group per dispatch. ===== */}
+      {blocks.length > 0 ? (
+        <div className="mb-8 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="border-b border-[var(--color-border)]">
+                <th className={`${th} w-[56px]`}>图</th>
+                <th className={th}>零件</th>
+                <th className={`${th} w-[64px] text-right`}>数</th>
+                <th className={`${th} w-[80px] text-right`}>单价</th>
+                <th className={th}>收</th>
+              </tr>
+            </thead>
+            {blocks.map((b) => (
+              <BlockGroup
+                key={b.id}
+                jobId={jobId}
+                block={b}
+                vendors={vendors}
+                byId={byId}
+                components={components}
+                onChanged={() => router.refresh()}
+              />
+            ))}
+          </table>
+        </div>
+      ) : null}
+
+      {/* ===== 送新单 — tick parts, fill one line, 送出. ===== */}
+      <div className="mb-2 flex items-baseline justify-between">
+        <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-[var(--color-ink-3)]">
+          送新单
+        </p>
+        <p className="text-[12px] text-[var(--color-ink-4)]">
+          勾选零件 → 填一行 → 送出
+        </p>
+      </div>
+
       {selected.size > 0 ? (
-        <div className="mb-4 rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-surface)] px-4 py-3">
+        <div className="mb-3 rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-surface)] px-4 py-3">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <span className="text-[14px] font-semibold">
               外协 {selected.size} 件 →
@@ -400,24 +498,19 @@ export function WaixieTable({
       <div className="overflow-x-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
         <table className="w-full border-collapse">
           <thead>
-            <tr className="border-b border-[var(--color-border)] bg-[var(--color-bg)]">
+            <tr className="border-b border-[var(--color-border)]">
               <th className={`${th} w-[36px]`}></th>
               <th className={`${th} w-[56px]`}>图</th>
               <th className={th}>零件</th>
               <th className={`${th} text-right`}>数</th>
               <th className={`${th} text-right`}>单价</th>
-              <th className={th}>做什么</th>
-              <th className={th}>厂商</th>
-              <th className={th}>寄 → 回</th>
-              <th className={th}>状态</th>
-              <th className={`${th} w-[110px]`}>收</th>
+              <th className={th}>外协状态</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(({ c, state }) => (
-              <WaixieRow
+              <PickRow
                 key={c.id}
-                jobId={jobId}
                 c={c}
                 state={state}
                 vendors={vendors}
@@ -433,15 +526,385 @@ export function WaixieTable({
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-[12px] text-[var(--color-ink-3)]">
-        勾选零件 → 填一行 → 送出。收件在行末点 收。
-      </p>
     </div>
   )
 }
 
-function WaixieRow({
+// ===== One 外协单 group: header line + its part rows + 备注. =====
+
+function BlockGroup({
   jobId,
+  block,
+  vendors,
+  byId,
+  components,
+  onChanged,
+}: {
+  jobId: string
+  block: OutsourceBlock
+  vendors: Vendor[]
+  byId: Map<string, WaixieComponent>
+  components: WaixieComponent[]
+  onChanged: () => void
+}) {
+  const [busy, start] = useTransition()
+  const closed = isBlockClosed(block)
+  const vendor = vendors.find((v) => v.id === block.vendorId)
+  const overdueDays = closed ? 0 : -daysFromToday(block.expectedReturn)
+  const pendingMembers = block.members.filter((m) => !isMemberFullyReturned(m))
+  // Full "外发打印" here, not the stripped "打印" — a bare verb in the header
+  // line reads like a button.
+  const act = block.activity?.trim() ?? ''
+
+  const receiveAll = () => {
+    if (pendingMembers.length === 0) return
+    start(async () => {
+      await mutate({
+        kind: 'setBlockMembersReturnedQty',
+        blockId: block.id,
+        items: pendingMembers.map((m) => ({ componentId: m.componentId, qty: m.qty })),
+        date: today(),
+        jobId,
+      })
+      showToast('已全部收回')
+      onChanged()
+    })
+  }
+
+  const del = () => {
+    start(async () => {
+      await mutate({ kind: 'deleteOutsourceBlock', blockId: block.id, jobId })
+      onChanged()
+    })
+  }
+
+  const addOptions = components
+    .filter((c) => !block.members.some((m) => m.componentId === c.id))
+    .map((c) => ({ id: c.id, name: c.name, qty: c.qty }))
+
+  return (
+    <tbody className="border-t border-[var(--color-border)]">
+      {/* 单 header — every field edits in place. */}
+      <tr>
+        <td colSpan={5} className="bg-[var(--color-bg)] px-3 py-2">
+          <div
+            className={`flex flex-wrap items-center gap-x-4 gap-y-1 ${closed ? 'opacity-70' : ''}`}
+          >
+            {block.docNo ? (
+              <span
+                className="mono shrink-0 whitespace-nowrap text-[12px] font-medium text-[var(--color-ink-2)]"
+                title="外协单号"
+              >
+                {block.docNo}
+              </span>
+            ) : null}
+            <span className="w-[130px] shrink-0">
+              <NameCombobox
+                target={{ kind: 'vendor', blockId: block.id, jobId }}
+                value={vendor?.name ?? block.vendorId}
+                options={vendors.map((v) => ({ id: v.id, name: v.name }))}
+                className="text-[13px] font-semibold text-[var(--color-ink)]"
+              />
+            </span>
+            {act ? (
+              <span className="shrink-0 whitespace-nowrap text-[13px] text-[var(--color-ink)]">
+                {act}
+              </span>
+            ) : null}
+            <span className="flex items-baseline gap-1 text-[12px] text-[var(--color-ink-2)]">
+              <span className="text-[var(--color-ink-4)]">工序</span>
+              <BlockStagesEditor
+                blockId={block.id}
+                jobId={jobId}
+                stages={block.stages}
+                activity={block.activity}
+                vendors={vendors}
+                disabled={busy}
+                onSaved={onChanged}
+              />
+            </span>
+            <span className="flex items-baseline gap-1 text-[12px]">
+              <span className="text-[var(--color-ink-4)]">寄</span>
+              <OutsourceBlockDate
+                blockId={block.id}
+                jobId={jobId}
+                field="sentDate"
+                value={block.sentDate}
+                formatLabel={mdShort}
+                hideIcon
+                className="mono text-[12px] text-[var(--color-ink-2)]"
+              />
+            </span>
+            <span className="flex items-baseline gap-1 text-[12px]">
+              <span className="text-[var(--color-ink-4)]">回</span>
+              <OutsourceBlockDate
+                blockId={block.id}
+                jobId={jobId}
+                field="expectedReturn"
+                value={block.expectedReturn}
+                formatLabel={mdShort}
+                hideIcon
+                className={`mono text-[12px] font-medium ${
+                  overdueDays > 0 ? 'text-[var(--color-overdue)]' : 'text-[var(--color-ink)]'
+                }`}
+              />
+              {!closed && overdueDays > 0 ? (
+                <span className="text-[12px] font-medium text-[var(--color-overdue)]">
+                  逾期{overdueDays}天
+                </span>
+              ) : null}
+            </span>
+            <span className="flex items-baseline gap-0.5 text-[12px]">
+              <span className="mono text-[var(--color-ink-4)]">¥</span>
+              <OutsourceBlockAmount
+                blockId={block.id}
+                jobId={jobId}
+                value={block.amountCny}
+                className="mono text-[12px] text-[var(--color-ink)] [field-sizing:content] min-w-[3ch]"
+              />
+            </span>
+            {!closed ? <VendorStateChip block={block} /> : null}
+            <span className="ml-auto flex items-center gap-2">
+              {closed ? (
+                <span className="text-[12px] font-medium text-[var(--color-success)]">
+                  ✓ 已回 <span className="mono">{mdShort(blockClosedAt(block))}</span>
+                </span>
+              ) : pendingMembers.length > 0 ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={receiveAll}
+                  title="全部零件今天收回"
+                  className="rounded-[2px] border border-[var(--color-success)] px-2.5 py-[3px] text-[12px] text-[var(--color-success)] hover:bg-[var(--color-success-soft)] disabled:opacity-40"
+                >
+                  全收
+                </button>
+              ) : null}
+              <BlockShareButton vendor={vendor} block={block} />
+              <BlockKebab blockId={block.id} pending={busy} onDelete={del} />
+            </span>
+          </div>
+        </td>
+      </tr>
+
+      {block.members.map((m) => (
+        <MemberRow
+          key={m.componentId}
+          jobId={jobId}
+          block={block}
+          m={m}
+          comp={byId.get(m.componentId)}
+          onChanged={onChanged}
+        />
+      ))}
+
+      {/* 备注 + 加零件 — one quiet line under the parts. */}
+      <tr>
+        <td colSpan={5} className="pb-2.5 pl-[68px] pr-3">
+          <div className="flex items-start gap-4">
+            <OutsourceBlockNotes
+              blockId={block.id}
+              jobId={jobId}
+              value={block.notes}
+              className="min-w-[200px] flex-1 text-[12px] text-[var(--color-ink-2)]"
+            />
+            {!closed ? (
+              <AddMembersRow
+                blockId={block.id}
+                jobId={jobId}
+                stages={block.stages}
+                componentOptions={addOptions}
+                vendors={vendors}
+                onAdded={onChanged}
+              />
+            ) : null}
+          </div>
+        </td>
+      </tr>
+    </tbody>
+  )
+}
+
+// One part on a 外协单 — 图 · 零件 · 数(可改) · 单价(可改) · 收.
+function MemberRow({
+  jobId,
+  block,
+  m,
+  comp,
+  onChanged,
+}: {
+  jobId: string
+  block: OutsourceBlock
+  m: Member
+  comp?: WaixieComponent
+  onChanged: () => void
+}) {
+  const [receiving, setReceiving] = useState(false)
+  const [rQty, setRQty] = useState('')
+  const [rDate, setRDate] = useState(today())
+  const [armed, setArmed] = useState(false)
+  const [busy, start] = useTransition()
+
+  const returned = memberReturnedQty(m)
+  const remaining = memberRemainingQty(m)
+  const done = isMemberFullyReturned(m)
+
+  const commitReceive = () => {
+    const n = Math.max(1, Math.min(remaining, Math.floor(Number(rQty)) || remaining))
+    start(async () => {
+      await mutate({
+        kind: 'setBlockMembersReturnedQty',
+        blockId: block.id,
+        items: [{ componentId: m.componentId, qty: returned + n }],
+        date: rDate,
+        jobId,
+      })
+      setReceiving(false)
+      setRQty('')
+      showToast(`已收 ${m.name} ×${n}`)
+      onChanged()
+    })
+  }
+
+  const removeMember = () => {
+    setArmed(false)
+    start(async () => {
+      await mutate({
+        kind: 'removeOutsourceBlockMember',
+        blockId: block.id,
+        componentId: m.componentId,
+        jobId,
+      })
+      onChanged()
+    })
+  }
+
+  return (
+    <tr className="border-t border-[var(--color-border)]">
+      <td className={td}>
+        <PartImg src={m.imageUrl ?? comp?.imageUrl} />
+      </td>
+      <td className={`${td} max-w-[240px]`}>
+        <p className="truncate text-[14px] font-medium">{m.name}</p>
+        {(m.material ?? comp?.material) ? (
+          <p className="truncate text-[11px] text-[var(--color-ink-3)]">
+            {m.material ?? comp?.material}
+          </p>
+        ) : null}
+      </td>
+      <td className={`${td} text-right`}>
+        {done ? (
+          <span className="mono text-[13px] text-[var(--color-ink-2)]">{m.qty}</span>
+        ) : (
+          <BlockMemberQty
+            blockId={block.id}
+            componentId={m.componentId}
+            jobId={jobId}
+            value={m.qty}
+            className="mono w-[52px] text-right text-[13px]"
+          />
+        )}
+      </td>
+      <td className={`${td} text-right`}>
+        <BlockMemberUnitPrice
+          blockId={block.id}
+          componentId={m.componentId}
+          jobId={jobId}
+          value={m.unitPriceCny}
+          className="mono w-[60px] text-right text-[13px]"
+        />
+      </td>
+      <td className={td}>
+        <span className="flex items-center gap-2">
+          {done ? (
+            <span className="text-[13px] font-medium text-[var(--color-success)]">
+              ✓ <span className="mono text-[12px]">{mdShort(m.returnedAt)}</span>
+            </span>
+          ) : receiving ? (
+            <span className="inline-flex items-center gap-1.5">
+              <input
+                value={rQty}
+                onChange={(e) => setRQty(e.target.value)}
+                placeholder={String(remaining)}
+                inputMode="numeric"
+                autoFocus
+                className="mono w-[44px] rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-1 py-0.5 text-right text-[13px]"
+              />
+              <DatePop
+                value={rDate}
+                onChange={(v) => v && setRDate(v)}
+                formatLabel={mdShort}
+                disabled={busy}
+              />
+              <button
+                type="button"
+                disabled={busy}
+                onClick={commitReceive}
+                className="rounded-[2px] bg-[var(--color-ink)] px-2.5 py-1 text-[12px] text-[var(--color-surface)] active:opacity-70"
+              >
+                ✓
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setReceiving(false)}
+                className="px-1 text-[12px] text-[var(--color-ink-3)]"
+              >
+                ×
+              </button>
+            </span>
+          ) : (
+            <>
+              {returned > 0 ? (
+                <span className="mono text-[12px] text-[var(--color-warning)]">
+                  已收{returned}/{m.qty}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setRQty(String(remaining))
+                  setRDate(today())
+                  setReceiving(true)
+                }}
+                className="rounded-[2px] border border-[var(--color-border-strong)] px-2.5 py-1 text-[12px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] disabled:opacity-40"
+              >
+                收
+              </button>
+            </>
+          )}
+          {!done && !receiving ? (
+            armed ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={removeMember}
+                className="text-[12px] font-medium text-[var(--color-overdue)]"
+              >
+                确认撤掉？
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setArmed(true)}
+                title="把这个零件从外协单撤掉"
+                className="px-1 text-[13px] leading-none text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+              >
+                ×
+              </button>
+            )
+          ) : null}
+        </span>
+      </td>
+    </tr>
+  )
+}
+
+// ===== 送新单 picker row — the part's whole 外协 history in one glance. =====
+
+function PickRow({
   c,
   state,
   vendors,
@@ -453,7 +916,6 @@ function WaixieRow({
   setPrice,
   pending,
 }: {
-  jobId: string
   c: WaixieComponent
   state: RowState
   vendors: Vendor[]
@@ -465,42 +927,14 @@ function WaixieRow({
   setPrice: (v: string) => void
   pending: boolean
 }) {
-  const [receiving, setReceiving] = useState(false)
-  const [receiveQty, setReceiveQty] = useState('')
-  const [busy, start] = useTransition()
-
   const block = state.kind === 'none' ? undefined : state.block
   const member = state.kind === 'none' ? undefined : state.member
   const out = state.kind === 'out'
   const back = state.kind === 'back'
-
   const overdueDays = out && block ? -daysFromToday(block.expectedReturn) : 0
-  const promise = out ? block?.vendorPromisedDate : undefined
-  const promiseLate = !!(promise && block && promise > block.expectedReturn)
-
   const vendorName = block
     ? (vendors.find((v) => v.id === block.vendorId)?.name ?? block.vendorId)
     : ''
-
-  const remaining = member ? memberRemainingQty(member) : 0
-
-  const commitReceive = () => {
-    if (!block || !member) return
-    const n = Math.max(1, Math.min(remaining, Math.floor(Number(receiveQty)) || remaining))
-    start(async () => {
-      await mutate({
-        kind: 'setBlockMembersReturnedQty',
-        blockId: block.id,
-        items: [{ componentId: c.id, qty: memberReturnedQty(member) + n }],
-        date: today(),
-        jobId,
-      })
-      setReceiving(false)
-      setReceiveQty('')
-      showToast(`已收 ${c.name} ×${n}`)
-    })
-  }
-
   const dim = 'text-[var(--color-ink-4)]'
 
   return (
@@ -519,19 +953,9 @@ function WaixieRow({
         />
       </td>
       <td className={td}>
-        {c.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={proxiedStorageUrl(c.imageUrl)}
-            alt=""
-            loading="lazy"
-            className="h-10 w-10 rounded-[2px] border border-[var(--color-border)] object-cover"
-          />
-        ) : (
-          <span className="inline-block h-10 w-10 rounded-[2px] border border-dashed border-[var(--color-border)]" />
-        )}
+        <PartImg src={c.imageUrl} />
       </td>
-      <td className={`${td} max-w-[220px]`}>
+      <td className={`${td} max-w-[240px]`}>
         <p className="truncate text-[14px] font-medium">{c.name}</p>
         {c.material ? (
           <p className="truncate text-[11px] text-[var(--color-ink-3)]">{c.material}</p>
@@ -547,20 +971,7 @@ function WaixieRow({
             className="mono w-[48px] rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-1 py-0.5 text-right text-[13px]"
           />
         ) : (
-          <span className="mono text-[13px]">
-            {out && member ? (
-              <>
-                {memberReturnedQty(member) > 0 ? (
-                  <span className="text-[var(--color-warning)]">
-                    {memberReturnedQty(member)}/
-                  </span>
-                ) : null}
-                {member.qty}
-              </>
-            ) : (
-              c.qty
-            )}
-          </span>
+          <span className="mono text-[13px]">{c.qty}</span>
         )}
       </td>
       <td className={`${td} text-right`}>
@@ -573,41 +984,8 @@ function WaixieRow({
             className="mono w-[56px] rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-1 py-0.5 text-right text-[13px]"
           />
         ) : member?.unitPriceCny != null ? (
-          <span className="mono text-[13px]">{formatCny(member.unitPriceCny)}</span>
-        ) : (
-          <span className={dim}>—</span>
-        )}
-      </td>
-      <td className={td}>
-        {block ? (
-          <span className={`text-[13px] ${back ? 'text-[var(--color-ink-3)]' : ''}`}>
-            {activityDisplay(block.activity)}
-          </span>
-        ) : (
-          <span className={dim}>—</span>
-        )}
-      </td>
-      <td className={td}>
-        {block ? (
-          <span className={`text-[13px] ${back ? 'text-[var(--color-ink-3)]' : ''}`}>
-            {vendorName}
-          </span>
-        ) : (
-          <span className={dim}>—</span>
-        )}
-      </td>
-      <td className={td}>
-        {block ? (
-          <span className={`mono text-[12px] ${back ? 'text-[var(--color-ink-3)]' : 'text-[var(--color-ink-2)]'}`}>
-            {mdShort(block.sentDate)} → {mdShort(block.expectedReturn)}
-            {promise && promise !== block.expectedReturn ? (
-              <span
-                className={promiseLate ? 'text-[var(--color-warning)]' : 'text-[var(--color-success)]'}
-              >
-                {' '}
-                诺{mdShort(promise)}
-              </span>
-            ) : null}
+          <span className="mono text-[13px] text-[var(--color-ink-3)]">
+            ¥{member.unitPriceCny}
           </span>
         ) : (
           <span className={dim}>—</span>
@@ -615,17 +993,20 @@ function WaixieRow({
       </td>
       <td className={td}>
         {out && block ? (
-          overdueDays > 0 ? (
-            <span className="text-[13px] font-medium text-[var(--color-overdue)]">
-              逾期 {overdueDays} 天
+          <span className="text-[13px]">
+            <span className="font-medium text-[var(--color-warning)]">
+              在外 · {vendorName}
             </span>
-          ) : block.vendorShippedAt ? (
-            <span className="text-[13px] font-medium text-[var(--color-success)]">
-              已发回
-            </span>
-          ) : (
-            <span className="text-[13px] text-[var(--color-warning)]">在外</span>
-          )
+            {overdueDays > 0 ? (
+              <span className="ml-2 font-medium text-[var(--color-overdue)]">
+                逾期{overdueDays}天
+              </span>
+            ) : (
+              <span className="mono ml-2 text-[12px] text-[var(--color-ink-3)]">
+                回 {mdShort(block.expectedReturn)}
+              </span>
+            )}
+          </span>
         ) : back && member ? (
           <span className="text-[13px] text-[var(--color-success)]">
             ✓ 已回 <span className="mono text-[12px]">{mdShort(member.returnedAt)}</span>
@@ -633,50 +1014,6 @@ function WaixieRow({
         ) : (
           <span className={dim}>—</span>
         )}
-      </td>
-      <td className={td}>
-        {out && remaining > 0 ? (
-          receiving ? (
-            <span className="inline-flex items-center gap-1">
-              <input
-                value={receiveQty}
-                onChange={(e) => setReceiveQty(e.target.value)}
-                placeholder={String(remaining)}
-                inputMode="numeric"
-                autoFocus
-                className="mono w-[44px] rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-1 py-0.5 text-right text-[13px]"
-              />
-              <button
-                type="button"
-                disabled={busy}
-                onClick={commitReceive}
-                className="rounded-[2px] bg-[var(--color-ink)] px-2 py-1 text-[12px] text-[var(--color-surface)] active:opacity-70"
-              >
-                ✓
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => setReceiving(false)}
-                className="px-1 text-[12px] text-[var(--color-ink-3)]"
-              >
-                ×
-              </button>
-            </span>
-          ) : (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setReceiveQty(String(remaining))
-                setReceiving(true)
-              }}
-              className="rounded-[2px] border border-[var(--color-border-strong)] px-2.5 py-1 text-[12px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]"
-            >
-              收
-            </button>
-          )
-        ) : null}
       </td>
     </tr>
   )

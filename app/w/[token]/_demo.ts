@@ -2,7 +2,7 @@ import type { OutsourceBlock, Vendor } from '@/lib/data'
 import { today } from '@/lib/today'
 
 // /w/demo — a fully fictional vendor board. Two jobs:
-//   1. Verification: every card state (未确认 / 逾期追问 / 迟诺+原因 / 已发货 /
+//   1. Verification: every card state (待回交期 / 逾期追问 / 迟诺+原因 / 已发货 /
 //      已完成) renders without touching a single real row.
 //   2. Sales: the link we can send any prospect factory — "这就是你外协厂看到
 //      的界面" — with zero real data behind it.
@@ -48,7 +48,7 @@ export function demoBlocks(): OutsourceBlock[] {
     ...b,
   })
   return [
-    // 新到货 — the first tap (确认收到).
+    // 新单，还没回交期 — the "来得及吗？" question card.
     mk(
       1,
       {
@@ -91,7 +91,7 @@ export function demoBlocks(): OutsourceBlock[] {
       },
       [{ componentId: 'd3a', name: '装饰圈', qty: 2, material: '黄铜' }],
     ),
-    // 已发货 — waiting on the factory's 收件.
+    // 已发货 — a receipt line waiting on the factory's 收件.
     mk(
       4,
       {

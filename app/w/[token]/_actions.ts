@@ -6,7 +6,8 @@ import { cookies } from 'next/headers'
 import { getVendorByPortalToken, setBlockVendorState } from '@/lib/db'
 import { DEMO_COOKIE, DEMO_TOKEN } from './_demo'
 
-// Portal server actions — the vendor's three one-tap answers. No session:
+// Portal server actions — the vendor's one-tap answers (交期 + 发货 are the
+// two the v4 cards render; 收到-ack stays for legacy data). No session:
 // identity IS the token, re-verified on every call, and every write is
 // additionally scoped by vendor_id inside setBlockVendorState so a forged
 // blockId can't cross vendors.

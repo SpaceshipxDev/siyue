@@ -15,19 +15,20 @@ import {
 } from '@/lib/db'
 import { BRAND } from '@/lib/brand'
 import { proxiedStorageUrl } from '@/lib/storage-url'
-import { portalAck, portalDelayReason, portalPromise, portalShipped } from './_actions'
+import { portalDelayReason, portalPromise, portalShipped } from './_actions'
 import { DEMO_COOKIE, DEMO_TOKEN, demoBlocks, demoVendor } from './_demo'
 
-// 外协厂商门户 — the vendor's ledger. One row per 单, and every row carries
-// the same three answer cells, master-board style:
+// 外协厂商门户 — a stack of cards, one per 单, each asking exactly ONE
+// question:
 //
-//   零件 | 交期 | 收 | 报期 | 发
+//   没回交期的 →  "能按期吗？/ 几号能交？"  + 三个日期一按就答
+//   回了交期的 →  一个大按钮「货已发出」
+//   已发货的   →  一行收据，等厂里收件
 //
-// Green ✓ = answered (with its date underneath, like the factory's own stage
-// grid). Black = the next thing to tap. Tap the 零件 cell to open the row:
-// full part list with photos, 备注, the date chips, and the rare corrections.
+// Answer them top to bottom and the page goes quiet — that's the whole app.
 // Server-rendered, plain <form> POSTs and plain links — no JS required, so it
-// works in any WeChat webview.
+// works in any WeChat webview. The vendor's own payoff lives at the bottom:
+// 已完成 history + 对账 totals.
 
 export const dynamic = 'force-dynamic'
 
@@ -41,7 +42,7 @@ export async function generateMetadata({
     token === DEMO_TOKEN ? demoVendor() : await getVendorByPortalToken(token)
   return {
     title: vendor ? `${vendor.name} · 外协单` : '外协单 · 思跃',
-    description: '外协协作 — 确认收货 · 交期回复 · 对账',
+    description: '外协协作 — 回交期 · 报发货 · 对账',
   }
 }
 
@@ -52,21 +53,13 @@ function mdCn(ymd?: string, withWeekday = false): string {
   const base = `${m}月${d}日`
   if (!withWeekday) return base
   const wd = '日一二三四五六'[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]
-  return `${base}周${wd}`
+  return `${base} 周${wd}`
 }
 
-// '2026-07-08' → '07-08' — the master board's compact cell date.
-function mdCell(ymd?: string): string {
-  if (!ymd || !/^\d{4}-\d{2}-\d{2}/.test(ymd)) return ''
-  return ymd.slice(5, 10)
-}
-
-// ISO timestamp → Shanghai-local 'MM-DD'.
-function tsCell(iso?: string): string {
+// ISO timestamp → Shanghai-local '7月2日'.
+function tsCn(iso?: string): string {
   if (!iso) return ''
-  return new Date(iso)
-    .toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' })
-    .slice(5)
+  return mdCn(new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }))
 }
 
 function addDays(ymd: string, days: number): string {
@@ -74,23 +67,24 @@ function addDays(ymd: string, days: number): string {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
 }
 
-// The row's identity is its first part — vendors think in parts, never in
-// our internal stage ranges (全程 / 手工→打磨 must never leak here).
+// A 单's identity is its first part — vendors think in parts, never in our
+// internal stage ranges (全程 / 手工→打磨 must never leak here).
 function rowTitle(block: OutsourceBlock): string {
   const first = block.members[0]?.name?.trim()
   if (first) return first
   return block.activity?.trim().replace(/^外发/, '') || '外协件'
 }
 
+function activityCn(block: OutsourceBlock): string {
+  return block.activity?.trim().replace(/^外发/, '') ?? ''
+}
+
 export default async function VendorPortalPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ token: string }>
-  searchParams: Promise<{ p?: string }>
 }) {
   const { token } = await params
-  const { p: openId } = await searchParams
   const isDemo = token === DEMO_TOKEN
   const vendor = isDemo ? demoVendor() : await getVendorByPortalToken(token)
   if (!vendor) return <InvalidLink />
@@ -105,12 +99,21 @@ export default async function VendorPortalPage({
     blocks = await getVendorPortalBlocks(vendor.id)
   }
 
-  const open = blocks
-    .filter((b) => !isBlockClosed(b))
-    .sort((a, b) => a.expectedReturn.localeCompare(b.expectedReturn))
+  const open = blocks.filter((b) => !isBlockClosed(b))
   const closed = blocks
     .filter((b) => isBlockClosed(b))
     .sort((a, b) => (blockClosedAt(b) ?? '').localeCompare(blockClosedAt(a) ?? ''))
+
+  // The three piles, in the order the vendor should deal with them.
+  const shipped = open
+    .filter((b) => b.vendorShippedAt)
+    .sort((a, b) => (b.vendorShippedAt ?? '').localeCompare(a.vendorShippedAt ?? ''))
+  const promised = open
+    .filter((b) => !b.vendorShippedAt && b.vendorPromisedDate)
+    .sort((a, b) => (a.vendorPromisedDate ?? '').localeCompare(b.vendorPromisedDate ?? ''))
+  const needAnswer = open
+    .filter((b) => !b.vendorShippedAt && !b.vendorPromisedDate)
+    .sort((a, b) => a.expectedReturn.localeCompare(b.expectedReturn))
 
   if (!isDemo) {
     try {
@@ -135,46 +138,71 @@ export default async function VendorPortalPage({
   }
   const cur = monthSum(thisMonth)
   const prev = monthSum(lastMonth)
-  const overdueCount = open.filter((b) => daysFromToday(b.expectedReturn) < 0).length
 
   return (
-    <main className="mx-auto w-full max-w-[560px] px-3 pb-16 pt-6">
-      <p className="px-1 text-[12px] tracking-[0.14em] text-[var(--color-ink-3)]">
-        {BRAND.shortName} · 外协
-      </p>
+    <main className="mx-auto w-full max-w-[560px] px-3 pb-16 pt-5">
+      <div className="flex items-baseline justify-between px-1">
+        <p className="text-[12px] tracking-[0.14em] text-[var(--color-ink-3)]">
+          {BRAND.shortName} · 外协
+        </p>
+        <p className="text-[12px] text-[var(--color-ink-3)]">今天 {mdCn(t, true)}</p>
+      </div>
       <h1 className="mt-1 px-1 text-[26px] font-semibold tracking-tight">
         {vendor.name}
       </h1>
-      <p className="mt-1 px-1 text-[13px] text-[var(--color-ink-2)]">
-        在制 <b className="mono">{open.length}</b>
-        {overdueCount > 0 ? (
-          <span className="text-[var(--color-overdue)]">
+      <p className="mt-1 px-1 text-[14px] text-[var(--color-ink-2)]">
+        在制 <b className="mono">{open.length}</b> 单
+        {needAnswer.length > 0 ? (
+          <span className="font-medium text-[var(--color-overdue)]">
             {' '}
-            · 逾期 <b className="mono">{overdueCount}</b>
+            · <b className="mono">{needAnswer.length}</b> 单等你回交期 ↓
           </span>
+        ) : open.length > 0 ? (
+          <span className="text-[var(--color-success)]"> · 交期都已回 ✓</span>
         ) : null}
-        {' · '}本月 <b className="mono">{formatCny(cur.amount)}</b>
       </p>
 
-      {/* The ledger. */}
-      <div className="mt-4 overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
-        <div className="grid grid-cols-[minmax(0,1fr)_58px_44px_54px_44px] items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5">
-          <span className={hdr}>零件</span>
-          <span className={`${hdr} text-center`}>交期</span>
-          <span className={`${hdr} text-center`}>收</span>
-          <span className={`${hdr} text-center`}>报期</span>
-          <span className={`${hdr} text-center`}>发</span>
+      {open.length === 0 ? (
+        <div className="mt-5 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] py-10 text-center">
+          <p className="text-[15px] text-[var(--color-ink-2)]">当前没有在制的外协单</p>
         </div>
-        {open.length === 0 ? (
-          <p className="py-10 text-center text-[14px] text-[var(--color-ink-3)]">
-            当前没有在制的外协单
-          </p>
-        ) : (
-          open.map((b) => (
-            <Row key={b.id} block={b} token={token} expanded={openId === b.id} />
-          ))
-        )}
-      </div>
+      ) : null}
+
+      {/* ① 回交期 — one tap answers the only question that matters. */}
+      {needAnswer.length > 0 ? (
+        <section className="mt-6">
+          <SectionLabel>请回交期 · {needAnswer.length} 单</SectionLabel>
+          <div className="mt-2 flex flex-col gap-3">
+            {needAnswer.map((b) => (
+              <QuestionCard key={b.id} block={b} token={token} />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {/* ② 生产中 — promised; the one button left is 货已发出. */}
+      {promised.length > 0 ? (
+        <section className="mt-7">
+          <SectionLabel>生产中 · {promised.length} 单</SectionLabel>
+          <div className="mt-2 flex flex-col gap-3">
+            {promised.map((b) => (
+              <PromisedCard key={b.id} block={b} token={token} />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {/* ③ 已发货 — receipts until the factory checks them in. */}
+      {shipped.length > 0 ? (
+        <section className="mt-7">
+          <SectionLabel>已发货 · 等厂里收件</SectionLabel>
+          <div className="mt-2 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+            {shipped.map((b) => (
+              <ShippedLine key={b.id} block={b} token={token} />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {/* 对账 — the vendor's own reason to keep this link. */}
       <section className="mt-8 px-1">
@@ -242,8 +270,13 @@ export default async function VendorPortalPage({
   )
 }
 
-const hdr =
-  'text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--color-ink-3)]'
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="px-1 text-[12px] font-medium tracking-[0.14em] text-[var(--color-ink-3)]">
+      {children}
+    </p>
+  )
+}
 
 function InvalidLink() {
   return (
@@ -256,293 +289,285 @@ function InvalidLink() {
   )
 }
 
-// One 单 = one ledger line + its three answer cells. Tap the 零件 cell to
-// open the detail drawer (photos, 备注, chips, corrections).
-function Row({
-  block,
-  token,
-  expanded,
-}: {
-  block: OutsourceBlock
-  token: string
-  expanded: boolean
-}) {
-  const daysLeft = daysFromToday(block.expectedReturn)
-  const overdue = daysLeft < 0
-  const dueSoon = !overdue && daysLeft <= 2
-  const acked = Boolean(block.vendorAckAt)
-  const shipped = Boolean(block.vendorShippedAt)
-  const promised = block.vendorPromisedDate
-  const promisedLate = promised != null && promised > block.expectedReturn
-  const totalQty = block.members.reduce((s, m) => s + m.qty, 0)
-  const first = block.members[0]
-  const rowHref = expanded
-    ? `/w/${token}#b-${block.id}`
-    : `/w/${token}?p=${block.id}#b-${block.id}`
+// ===== Shared card top: the goods, exactly as packed. =====
 
-  const dueTone = overdue
-    ? 'text-[var(--color-overdue)]'
-    : dueSoon
-      ? 'text-[var(--color-warning)]'
-      : 'text-[var(--color-ink)]'
-
+function PartImg({ src, token }: { src?: string; token: string }) {
+  if (!src)
+    return (
+      <span className="h-9 w-9 shrink-0 rounded-[2px] border border-dashed border-[var(--color-border)]" />
+    )
   return (
-    <div
-      id={`b-${block.id}`}
-      className={`scroll-mt-4 border-b border-[var(--color-border)] last:border-b-0 ${
-        overdue ? 'border-l-[3px] border-l-[var(--color-overdue)]' : ''
-      }`}
-    >
-      <div className="grid grid-cols-[minmax(0,1fr)_58px_44px_54px_44px] items-center gap-1 px-2 py-2">
-        {/* 零件 — identity + the way into the drawer. */}
-        <a href={rowHref} className="flex min-w-0 items-center gap-2">
-          {first?.imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={portalImgSrc(first.imageUrl, token)}
-              alt=""
-              loading="lazy"
-              className="h-10 w-10 shrink-0 rounded-[2px] border border-[var(--color-border)] object-cover"
-            />
-          ) : (
-            <span className="h-10 w-10 shrink-0 rounded-[2px] border border-dashed border-[var(--color-border)]" />
-          )}
-          <span className="min-w-0">
-            <span className="block truncate text-[14px] font-medium leading-tight">
-              {rowTitle(block)}
-              {block.members.length > 1 ? (
-                <span className="font-normal text-[var(--color-ink-3)]">
-                  {' '}
-                  等{block.members.length}件
-                </span>
-              ) : null}
-            </span>
-            <span className="mono block text-[11px] text-[var(--color-ink-3)]">
-              {totalQty > 0 ? `×${totalQty}` : ''}
-              {block.amountCny != null ? `  ${formatCny(block.amountCny)}` : ''}
-            </span>
-          </span>
-        </a>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={portalImgSrc(src, token)}
+      alt=""
+      loading="lazy"
+      className="h-9 w-9 shrink-0 rounded-[2px] border border-[var(--color-border)] object-cover"
+    />
+  )
+}
 
-        {/* 交期 — the factory's required date. */}
-        <span className="text-center leading-tight">
-          <span className={`mono block text-[14px] font-semibold ${dueTone}`}>
-            {mdCell(block.expectedReturn)}
-          </span>
-          <span
-            className={`block text-[10px] ${overdue ? 'text-[var(--color-overdue)]' : 'text-[var(--color-ink-3)]'}`}
-          >
-            {overdue ? `已过${-daysLeft}天` : daysLeft === 0 ? '今天' : `剩${daysLeft}天`}
-          </span>
-        </span>
-
-        {/* 收 */}
-        {acked ? (
-          <DoneCell date={tsCell(block.vendorAckAt)} />
-        ) : (
-          <form action={portalAck} className="contents">
-            <input type="hidden" name="token" value={token} />
-            <input type="hidden" name="blockId" value={block.id} />
-            <button type="submit" className={askCell}>
-              收
-            </button>
-          </form>
-        )}
-
-        {/* 报期 */}
-        {promised ? (
-          <a
-            href={rowHref}
-            className={`flex min-h-[44px] flex-col items-center justify-center rounded-[2px] leading-tight ${
-              promisedLate
-                ? 'bg-[var(--color-warning-soft)] text-[var(--color-warning)]'
-                : 'bg-[var(--color-success-soft)] text-[var(--color-success)]'
-            }`}
-          >
-            <span className="mono text-[13px] font-semibold">{mdCell(promised)}</span>
-            <span className="text-[10px]">{promisedLate ? '晚交' : '按期'}</span>
-          </a>
-        ) : (
-          <a href={rowHref} className={acked && !shipped ? askCell : idleCell}>
-            报期
-          </a>
-        )}
-
-        {/* 发 */}
-        {shipped ? (
-          <DoneCell date={tsCell(block.vendorShippedAt)} />
-        ) : acked ? (
-          <form action={portalShipped} className="contents">
-            <input type="hidden" name="token" value={token} />
-            <input type="hidden" name="blockId" value={block.id} />
-            <button type="submit" className={promised ? askCell : idleCell}>
-              发
-            </button>
-          </form>
-        ) : (
-          <span className={`${idleCell} opacity-50`}>发</span>
-        )}
-      </div>
-
-      {expanded ? (
-        <div className="border-t border-dashed border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-3">
-          {/* Full part list, with photos. */}
-          <ul className="flex flex-col gap-1.5">
-            {block.members.map((m) => (
-              <li key={m.componentId} className="flex items-center gap-2.5">
-                {m.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={portalImgSrc(m.imageUrl, token)}
-                    alt=""
-                    loading="lazy"
-                    className="h-12 w-12 shrink-0 rounded-[2px] border border-[var(--color-border)] object-cover"
-                  />
-                ) : (
-                  <span className="h-12 w-12 shrink-0 rounded-[2px] border border-dashed border-[var(--color-border)]" />
-                )}
-                <p className="min-w-0 flex-1 truncate text-[14px]">
-                  {m.name} <span className="mono text-[var(--color-ink-2)]">×{m.qty}</span>
-                  {m.material ? (
-                    <span className="ml-2 text-[12px] text-[var(--color-ink-3)]">
-                      {m.material}
-                    </span>
-                  ) : null}
-                </p>
-              </li>
-            ))}
-          </ul>
-          {block.notes ? (
-            <p className="mt-2 text-[13px] leading-snug text-[var(--color-ink-2)]">
-              {block.notes}
+function CardTop({ block, token }: { block: OutsourceBlock; token: string }) {
+  const act = activityCn(block)
+  const shown = block.members.slice(0, 5)
+  const more = block.members.length - shown.length
+  return (
+    <div className="p-3.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          {shown.map((m) => (
+            <div key={m.componentId} className="flex min-w-0 items-center gap-2.5">
+              <PartImg src={m.imageUrl} token={token} />
+              <p className="min-w-0 truncate text-[15px] font-medium leading-tight">
+                {m.name} <span className="mono font-normal text-[var(--color-ink-2)]">×{m.qty}</span>
+                {m.material ? (
+                  <span className="ml-1.5 text-[12px] font-normal text-[var(--color-ink-3)]">
+                    {m.material}
+                  </span>
+                ) : null}
+              </p>
+            </div>
+          ))}
+          {more > 0 ? (
+            <p className="pl-[46px] text-[12px] text-[var(--color-ink-3)]">
+              还有 {more} 件…
             </p>
           ) : null}
-
-          {/* 交期 chips — the row's main question, answered in one tap. */}
-          {!shipped ? (
-            <div className="mt-3">
-              <p className="text-[13px] font-medium">
-                {promised ? '改交期：' : overdue ? '几号能交？' : '交期没问题吧？'}
-              </p>
-              <PromiseChips block={block} token={token} />
-            </div>
-          ) : null}
-
-          {/* Late promise → one-tap reason. */}
-          {promised && promisedLate && !shipped ? (
-            <div className="mt-2 flex flex-wrap items-center gap-1">
-              <span className="text-[12px] text-[var(--color-ink-3)]">原因:</span>
-              {['材料未到', '排队中', '图纸问题', '其他'].map((r) => (
-                <form key={r} action={portalDelayReason} className="contents">
-                  <input type="hidden" name="token" value={token} />
-                  <input type="hidden" name="blockId" value={block.id} />
-                  <input type="hidden" name="reason" value={r} />
-                  <button
-                    type="submit"
-                    className={`min-h-[34px] rounded-[2px] border px-2.5 text-[13px] active:opacity-70 ${
-                      block.vendorDelayReason === r
-                        ? 'border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-surface)]'
-                        : 'border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-ink-2)]'
-                    }`}
-                  >
-                    {r}
-                  </button>
-                </form>
-              ))}
-            </div>
-          ) : null}
-
-          {/* Rare corrections + close. */}
-          <div className="mt-3 flex items-center gap-4">
-            {acked ? (
-              <form action={portalAck} className="contents">
-                <input type="hidden" name="token" value={token} />
-                <input type="hidden" name="blockId" value={block.id} />
-                <input type="hidden" name="on" value="0" />
-                <button type="submit" className={undoLink}>
-                  撤销收到
-                </button>
-              </form>
-            ) : null}
-            {shipped ? (
-              <form action={portalShipped} className="contents">
-                <input type="hidden" name="token" value={token} />
-                <input type="hidden" name="blockId" value={block.id} />
-                <input type="hidden" name="on" value="0" />
-                <button type="submit" className={undoLink}>
-                  撤销发货
-                </button>
-              </form>
-            ) : null}
-            <a href={`/w/${token}#b-${block.id}`} className="ml-auto text-[13px] text-[var(--color-ink-2)]">
-              收起 ▴
-            </a>
-          </div>
         </div>
+        {block.docNo ? (
+          <span className="mono shrink-0 text-[10px] text-[var(--color-ink-4)]">
+            {block.docNo}
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-2 text-[12px] text-[var(--color-ink-3)]">
+        {act ? `${act} · ` : ''}
+        {mdCn(block.sentDate)}寄出
+        {block.amountCny != null ? ` · ${formatCny(block.amountCny)}` : ''}
+      </p>
+      {block.notes ? (
+        <p className="mt-1 text-[13px] leading-snug text-[var(--color-ink-2)]">
+          “{block.notes}”
+        </p>
       ) : null}
     </div>
   )
 }
 
-const askCell =
-  'flex min-h-[44px] w-full items-center justify-center rounded-[2px] bg-[var(--color-ink)] text-[14px] font-medium text-[var(--color-surface)] active:opacity-70'
-const idleCell =
-  'flex min-h-[44px] w-full items-center justify-center rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] text-[13px] text-[var(--color-ink-3)] active:opacity-70'
-const undoLink =
-  'text-[12px] text-[var(--color-ink-3)] underline underline-offset-4'
+// ===== ① The question card — 几号能交？ =====
 
-function DoneCell({ date }: { date: string }) {
-  return (
-    <span className="flex min-h-[44px] flex-col items-center justify-center rounded-[2px] bg-[var(--color-success-soft)] leading-tight text-[var(--color-success)]">
-      <span className="text-[14px]">✓</span>
-      {date ? <span className="mono text-[10px]">{date}</span> : null}
-    </span>
-  )
-}
+const chipClass =
+  'flex min-h-[52px] flex-col items-center justify-center rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] leading-tight active:opacity-60'
 
-// Three one-tap dates + the system date wheel. Overdue asks from today.
-function PromiseChips({ block, token }: { block: OutsourceBlock; token: string }) {
+function QuestionCard({ block, token }: { block: OutsourceBlock; token: string }) {
   const t = today()
   const overdue = block.expectedReturn < t
+  const lateDays = overdue ? -daysFromToday(block.expectedReturn) : 0
   const base = overdue ? t : block.expectedReturn
   const chips: Array<{ date: string; label: string }> = overdue
     ? [
-        { date: base, label: `今天 ${mdCn(base)}` },
-        { date: addDays(base, 1), label: `明天 ${mdCn(addDays(base, 1))}` },
-        { date: addDays(base, 2), label: `后天 ${mdCn(addDays(base, 2))}` },
+        { date: base, label: '今天' },
+        { date: addDays(base, 1), label: '明天' },
+        { date: addDays(base, 2), label: '后天' },
       ]
     : [
-        { date: base, label: `按期 ${mdCn(base)}` },
-        { date: addDays(base, 1), label: mdCn(addDays(base, 1)) },
-        { date: addDays(base, 2), label: mdCn(addDays(base, 2)) },
+        { date: base, label: '✓ 按期' },
+        { date: addDays(base, 1), label: '晚1天' },
+        { date: addDays(base, 2), label: '晚2天' },
       ]
+
   return (
-    <div className="mt-1.5 flex flex-wrap gap-1">
-      {chips.map((c) => (
-        <form key={c.date} action={portalPromise} className="contents">
+    <div
+      id={`b-${block.id}`}
+      className={`scroll-mt-4 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] ${
+        overdue ? 'border-l-[3px] border-l-[var(--color-overdue)]' : ''
+      }`}
+    >
+      <CardTop block={block} token={token} />
+      <div className="border-t border-[var(--color-border)] p-3.5">
+        {overdue ? (
+          <>
+            <p className="text-[14px] font-medium text-[var(--color-overdue)]">
+              原定 {mdCn(block.expectedReturn)} 交 · 已超 {lateDays} 天
+            </p>
+            <p className="mt-0.5 text-[17px] font-semibold">几号能交？</p>
+          </>
+        ) : (
+          <p className="text-[15px]">
+            要求 <b className="font-semibold">{mdCn(block.expectedReturn, true)}</b> 交 —{' '}
+            <span className="font-semibold">来得及吗？</span>
+          </p>
+        )}
+        <div className="mt-2.5 grid grid-cols-3 gap-1.5">
+          {chips.map((c) => (
+            <form key={c.date} action={portalPromise} className="contents">
+              <input type="hidden" name="token" value={token} />
+              <input type="hidden" name="blockId" value={block.id} />
+              <input type="hidden" name="expected" value={block.expectedReturn} />
+              <input type="hidden" name="date" value={c.date} />
+              <button type="submit" className={chipClass}>
+                <span className="text-[15px] font-medium">{c.label}</span>
+                <span className="mono mt-0.5 text-[11px] text-[var(--color-ink-3)]">
+                  {mdCn(c.date)}
+                </span>
+              </button>
+            </form>
+          ))}
+        </div>
+        <details className="mt-1.5">
+          <summary className="flex min-h-[40px] cursor-pointer select-none list-none items-center justify-center rounded-[2px] border border-[var(--color-border)] text-[14px] text-[var(--color-ink-2)] active:opacity-60">
+            其他日期 ▾
+          </summary>
+          <DatePickForm
+            token={token}
+            blockId={block.id}
+            expected={block.expectedReturn}
+            defaultDate={overdue ? addDays(t, 1) : block.expectedReturn}
+          />
+        </details>
+        <form action={portalShipped} className="mt-3 text-center">
           <input type="hidden" name="token" value={token} />
           <input type="hidden" name="blockId" value={block.id} />
-          <input type="hidden" name="expected" value={block.expectedReturn} />
-          <input type="hidden" name="date" value={c.date} />
           <button
             type="submit"
-            className="min-h-[44px] flex-1 basis-[26%] whitespace-nowrap rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[14px] active:opacity-70"
+            className="text-[13px] text-[var(--color-ink-3)] underline underline-offset-4"
           >
-            {c.label}
+            货已经发出了？点此报发货
           </button>
         </form>
-      ))}
-      <details className="min-w-0 flex-1 basis-[18%]">
-        <summary className="flex min-h-[44px] cursor-pointer select-none list-none items-center justify-center whitespace-nowrap rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[14px]">
-          选日期
-        </summary>
-        <DatePickForm
-          token={token}
-          blockId={block.id}
-          expected={block.expectedReturn}
-          defaultDate={overdue ? addDays(t, 1) : block.expectedReturn}
-        />
-      </details>
+      </div>
+    </div>
+  )
+}
+
+// ===== ② Promised — one big button left: 货已发出. =====
+
+function PromisedCard({ block, token }: { block: OutsourceBlock; token: string }) {
+  const t = today()
+  const p = block.vendorPromisedDate!
+  const late = p > block.expectedReturn
+  const lateDays = late
+    ? Math.round(
+        (Date.UTC(...(p.split('-').map(Number) as [number, number, number])) -
+          Date.UTC(
+            ...(block.expectedReturn.split('-').map(Number) as [number, number, number]),
+          )) /
+          86400000,
+      )
+    : 0
+  const promiseOver = p < t
+  const promiseOverDays = promiseOver ? -daysFromToday(p) : 0
+
+  return (
+    <div
+      id={`b-${block.id}`}
+      className={`scroll-mt-4 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] ${
+        promiseOver ? 'border-l-[3px] border-l-[var(--color-overdue)]' : ''
+      }`}
+    >
+      <CardTop block={block} token={token} />
+      <div className="border-t border-[var(--color-border)] p-3.5">
+        <p className="text-[14px]">
+          {late ? (
+            <span className="font-medium text-[var(--color-warning)]">
+              已答 {mdCn(p, true)} 交 · 比要求晚{lateDays}天
+            </span>
+          ) : (
+            <span className="font-medium text-[var(--color-success)]">
+              已答 {mdCn(p, true)} 交 · 按期 ✓
+            </span>
+          )}
+          {promiseOver ? (
+            <span className="ml-2 font-semibold text-[var(--color-overdue)]">
+              已过 {promiseOverDays} 天！
+            </span>
+          ) : null}
+        </p>
+
+        {late && !block.vendorShippedAt ? (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[13px] text-[var(--color-ink-3)]">晚交原因？</span>
+            {['材料未到', '排队中', '图纸问题', '其他'].map((r) => (
+              <form key={r} action={portalDelayReason} className="contents">
+                <input type="hidden" name="token" value={token} />
+                <input type="hidden" name="blockId" value={block.id} />
+                <input type="hidden" name="reason" value={r} />
+                <button
+                  type="submit"
+                  className={`min-h-[36px] rounded-[2px] border px-3 text-[13px] active:opacity-60 ${
+                    block.vendorDelayReason === r
+                      ? 'border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-surface)]'
+                      : 'border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-ink-2)]'
+                  }`}
+                >
+                  {r}
+                </button>
+              </form>
+            ))}
+          </div>
+        ) : null}
+
+        <form action={portalShipped} className="mt-3">
+          <input type="hidden" name="token" value={token} />
+          <input type="hidden" name="blockId" value={block.id} />
+          <button
+            type="submit"
+            className="flex min-h-[48px] w-full items-center justify-center rounded-[2px] bg-[var(--color-ink)] text-[16px] font-medium text-[var(--color-surface)] active:opacity-70"
+          >
+            货已发出 ✓
+          </button>
+        </form>
+
+        <details className="mt-2">
+          <summary className="w-fit cursor-pointer select-none list-none text-[13px] text-[var(--color-ink-3)] underline underline-offset-4">
+            改交期
+          </summary>
+          <DatePickForm
+            token={token}
+            blockId={block.id}
+            expected={block.expectedReturn}
+            defaultDate={p}
+          />
+        </details>
+      </div>
+    </div>
+  )
+}
+
+// ===== ③ Shipped — a receipt line until the factory checks it in. =====
+
+function ShippedLine({ block, token }: { block: OutsourceBlock; token: string }) {
+  return (
+    <div
+      id={`b-${block.id}`}
+      className="flex scroll-mt-4 items-center gap-2.5 border-b border-[var(--color-border)] px-3.5 py-3 last:border-b-0"
+    >
+      <span className="text-[15px] text-[var(--color-success)]">✓</span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[14px] font-medium">
+          {rowTitle(block)}
+          {block.members.length > 1 ? (
+            <span className="font-normal text-[var(--color-ink-3)]">
+              {' '}
+              等{block.members.length}件
+            </span>
+          ) : null}
+        </p>
+        <p className="text-[12px] text-[var(--color-ink-3)]">
+          已发货 {tsCn(block.vendorShippedAt)} · 等厂里收件
+        </p>
+      </div>
+      <form action={portalShipped} className="shrink-0">
+        <input type="hidden" name="token" value={token} />
+        <input type="hidden" name="blockId" value={block.id} />
+        <input type="hidden" name="on" value="0" />
+        <button
+          type="submit"
+          className="text-[12px] text-[var(--color-ink-3)] underline underline-offset-4"
+        >
+          撤销
+        </button>
+      </form>
     </div>
   )
 }
@@ -579,7 +604,7 @@ function DatePickForm({
         type="submit"
         className="min-h-[40px] shrink-0 rounded-[2px] bg-[var(--color-ink)] px-4 text-[14px] text-[var(--color-surface)] active:opacity-70"
       >
-        确定
+        这天能交 ✓
       </button>
     </form>
   )

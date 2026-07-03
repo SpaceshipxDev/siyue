@@ -1538,7 +1538,7 @@ function MemberRemoveButton({
 // the same checkbox-chip multi-select as the create form. Saving goes through
 // setOutsourceBlockStages — added stages pause in-house work + get route rows
 // server-side; removed stages just stop being covered (derivation is live).
-function BlockStagesEditor({
+export function BlockStagesEditor({
   blockId,
   jobId,
   stages,
@@ -1693,7 +1693,7 @@ function BlockStagesEditor({
 // Collapsed to a faint one-liner; expands into a checkbox picker of the
 // job's parts not already on this dispatch. Quantities/prices stay editable
 // in the member list afterwards — this row only appends membership.
-function AddMembersRow({
+export function AddMembersRow({
   blockId,
   jobId,
   stages,
@@ -1831,7 +1831,7 @@ function AddMembersRow({
 // Kebab menu — print + arming-confirm delete, both moved off the row to
 // stop the deletion text link from sitting at full weight next to print.
 // Click ⋯ to open; click outside (or pick an item) to close.
-function BlockKebab({
+export function BlockKebab({
   blockId,
   pending,
   onDelete,
