@@ -42,15 +42,15 @@ const HEADERS = [
   '备注',
 ]
 
-// Char-ish widths tuned to the original's proportions.
-const COL_WIDTHS = [6, 14, 20, 16, 7, 6, 14, 12, 28, 28]
+// Column widths lifted from the customer's own file (YNMX-26-6-23-260.xlsx).
+const COL_WIDTHS = [7, 14.125, 20.06, 18.51, 8.375, 8.375, 10.5, 15.375, 17.125, 13.5]
 
 // Image box (px) inside the 零件图片 column; row height set to match.
 const IMG_W = 80
-const IMG_H = 56
-const PART_ROW_HEIGHT = 46 // points (≈ IMG_H px + breathing room)
+const IMG_H = 64
+const PART_ROW_HEIGHT = 55 // points, matching the customer's data rows
 
-const THIN = { style: 'thin' as const, color: { argb: 'FFBFBFBF' } }
+const THIN = { style: 'thin' as const, color: { argb: 'FF000000' } }
 const ALL_BORDERS = { top: THIN, left: THIN, bottom: THIN, right: THIN }
 
 // Chinese production docs render in 宋体 (SimSun) — WPS/Excel's CJK default.
@@ -77,17 +77,24 @@ export async function buildProductionOrderWorkbook(
   ws.mergeCells('A1:J1')
   const title = ws.getCell('A1')
   title.value = '越侬生产单'
-  title.font = { name: FONT, size: 16, bold: true }
+  title.font = { name: FONT, size: 20, bold: true }
   title.alignment = { horizontal: 'center', vertical: 'middle' }
-  ws.getRow(1).height = 28
+  ws.getRow(1).height = 38
 
   // ── Header block (rows 2–4) ──────────────────────────────────────────
-  const labelStyle = (cell: ExcelJS.Cell) => {
-    cell.font = { name: FONT, size: 11, bold: true }
-    cell.alignment = { horizontal: 'center', vertical: 'middle' }
-  }
-  const valueStyle = (cell: ExcelJS.Cell) => {
-    cell.font = { name: FONT, size: 11 }
+  // Sizes copied from the customer's file: 单号/交期 row all bold 18,
+  // 备注 value bold 15 red, 分组/商务 labels bold 15, their values bold 17.
+  const headerCell = (
+    cell: ExcelJS.Cell,
+    size: number,
+    opts: { red?: boolean } = {},
+  ) => {
+    cell.font = {
+      name: FONT,
+      size,
+      bold: true,
+      ...(opts.red ? { color: { argb: 'FFFF0000' } } : {}),
+    }
     cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
   }
 
@@ -103,34 +110,45 @@ export async function buildProductionOrderWorkbook(
   ws.mergeCells('G4:H4')
   ws.mergeCells('I2:J4') // mirrors the original's top-right header slot (left empty)
 
-  labelStyle(ws.getCell('A2'))
+  headerCell(ws.getCell('A2'), 18)
   ws.getCell('A2').value = '销售单号：'
-  valueStyle(ws.getCell('C2'))
+  headerCell(ws.getCell('C2'), 18)
   ws.getCell('C2').value = job.jobNo || ''
-  labelStyle(ws.getCell('E2'))
+  headerCell(ws.getCell('E2'), 18)
   ws.getCell('E2').value = '交期：'
-  valueStyle(ws.getCell('G2'))
+  headerCell(ws.getCell('G2'), 18)
   ws.getCell('G2').value = job.dueDate || ''
 
-  labelStyle(ws.getCell('A3'))
+  headerCell(ws.getCell('A3'), 18)
   ws.getCell('A3').value = '备 注'
-  valueStyle(ws.getCell('C3'))
+  headerCell(ws.getCell('C3'), 15, { red: true })
   ws.getCell('C3').value = job.notes || ''
-  labelStyle(ws.getCell('E3'))
+  headerCell(ws.getCell('E3'), 15)
   ws.getCell('E3').value = '项目分组：'
-  valueStyle(ws.getCell('G3'))
+  headerCell(ws.getCell('G3'), 17)
   ws.getCell('G3').value = job.isProduct ? '产品' : '手板'
-  labelStyle(ws.getCell('E4'))
+  headerCell(ws.getCell('E4'), 15)
   ws.getCell('E4').value = '跟单商务：'
-  valueStyle(ws.getCell('G4'))
+  headerCell(ws.getCell('G4'), 17)
   ws.getCell('G4').value = job.yuenongBusiness || ''
+
+  // Full grid over the title + header block, borders on every constituent
+  // cell so merged regions keep their outlines.
+  ws.getRow(2).height = 38
+  ws.getRow(3).height = 38
+  ws.getRow(4).height = 30
+  for (let r = 1; r <= 4; r++) {
+    for (let col = 1; col <= HEADERS.length; col++) {
+      ws.getRow(r).getCell(col).border = ALL_BORDERS
+    }
+  }
 
   // ── Column headers (row 5) ───────────────────────────────────────────
   const headerRow = ws.getRow(5)
   HEADERS.forEach((label, i) => {
     const cell = headerRow.getCell(i + 1)
     cell.value = label
-    cell.font = { name: FONT, size: 11, bold: true }
+    cell.font = { name: FONT, size: 11 }
     cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
     cell.border = ALL_BORDERS
   })
@@ -156,12 +174,7 @@ export async function buildProductionOrderWorkbook(
       const cell = row.getCell(col)
       cell.border = ALL_BORDERS
       cell.font = { name: FONT, size: 11 }
-      const center = col - 1 !== COL.spec && col - 1 !== COL.notes
-      cell.alignment = {
-        horizontal: center ? 'center' : 'left',
-        vertical: 'middle',
-        wrapText: true,
-      }
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
     }
 
     // Embedded photo anchored one-per-cell in the 零件图片 column.
