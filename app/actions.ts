@@ -342,6 +342,11 @@ export async function confirmJobAction(
 
 export async function deleteJobAction(jobId: string): Promise<void> {
   await requireCommerce()
+  // A confirmed 单号 can never be deleted — it carries production history the
+  // factory relies on. Delete exists only to clean up unconfirmed imports
+  // (drafts / failed parses), which is what the inbox and import screens use.
+  const job = await getJob(jobId)
+  if (job?.status === 'ready') throw new Error('已确认的工单不可删除')
   await deleteJob(jobId)
   // Page-scoped (not 'layout') — keeps the response RSC payload small so it
   // survives cross-border HTTP/2 paths for mainland users. The inbox list also

@@ -22,6 +22,8 @@ import {
   rollupStage,
   vendorById,
   type Job,
+  type PlanKey,
+  type RollupKind,
   type Vendor,
 } from '@/lib/data'
 import { ensureVendorPortalTokens, getJob, getVendors } from '@/lib/db'
@@ -40,7 +42,6 @@ import { scrubJob, scrubVendors } from '@/lib/dto'
 import { StageHeader, TopBar, type TabKey } from '@/app/_ui'
 import { EffectiveStageCell } from '@/app/_stagecell'
 import { BackButton } from '@/app/_back'
-import { DeleteJobButton } from '@/app/_delete_job'
 import {
   ComponentLineTotal,
   ComponentNotes,
@@ -185,10 +186,24 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
 
   // 排产 — the plannable 工段 this job actually routes through, each with its
   // job-level rollup (for slip-tinting). Drives the 排产 band above the parts.
-  const planStages = PLANNABLE_STAGES.map((s) => ({
-    stage: s,
-    kind: rollupStage(job, s).kind,
-  })).filter((x) => x.kind !== 'na')
+  const planStages: { stage: PlanKey; kind: RollupKind }[] = PLANNABLE_STAGES.map(
+    (s) => ({ stage: s, kind: rollupStage(job, s).kind }),
+  ).filter((x) => x.kind !== 'na')
+  // 外协 gets ONE job-level plan slot at the end of the band. Shown once the
+  // job touches outsourcing (flagged, in flight, or returned) — or whenever a
+  // date is already set, so a saved plan can never silently disappear.
+  const outsourceStateForPlan = jobOutsourceState(job)
+  if (outsourceStateForPlan || job.stagePlan?.['外协']) {
+    planStages.push({
+      stage: '外协',
+      kind:
+        outsourceStateForPlan === '已回'
+          ? 'done'
+          : outsourceStateForPlan === '外协中'
+            ? 'partial'
+            : 'pending',
+    })
+  }
 
   const externalSpend = jobExternalSpend(job)
   const margin = jobMargin(job)
@@ -288,21 +303,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               components={job.components}
               shipments={job.shipments}
             />
-            {!isProduction && (
-              <span
-                aria-hidden
-                className="hidden md:inline-block h-4 w-px bg-[var(--color-border)] mx-1"
-              />
-            )}
-            {!isProduction && (
-              <DeleteJobButton
-                jobId={job.id}
-                jobNo={job.jobNo}
-                customer={job.customer}
-                product={job.product}
-                componentCount={job.components.length}
-              />
-            )}
           </div>
         </div>
         <div className="mb-8 grid grid-cols-2 md:grid-cols-12 gap-4 md:gap-8 border-b border-[var(--color-border)] pb-8">
