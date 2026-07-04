@@ -31,6 +31,7 @@ import {
   OutsourceBlockNotes,
 } from '@/app/_editable'
 import { BlockShareButton } from '@/app/_vendor_share'
+import { SearchSelect } from '@/app/_search_select'
 
 // 外协 tab — two ledgers, one sheet.
 //
@@ -446,46 +447,44 @@ export function WaixieTable({
             </span>
             <label className="flex items-center gap-1.5 text-[13px]">
               <span className="text-[var(--color-ink-3)]">做什么</span>
-              <select
+              <SearchSelect
+                options={OUTSOURCE_ACTIVITIES.map((a) => ({
+                  id: a,
+                  label: activityDisplay(a),
+                }))}
                 value={activity}
-                onChange={(e) => setActivity(e.target.value as OutsourceActivity)}
+                onChange={(id) => setActivity(id as OutsourceActivity)}
+                placeholder="选择…"
+                searchPlaceholder="搜索工序…"
                 disabled={pending}
-                className="min-h-[34px] rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[13px]"
-              >
-                <option value="">选择…</option>
-                {OUTSOURCE_ACTIVITIES.map((a) => (
-                  <option key={a} value={a}>
-                    {activityDisplay(a)}
-                  </option>
-                ))}
-              </select>
+                triggerClass="w-[120px]"
+              />
             </label>
             <label className="flex items-center gap-1.5 text-[13px]">
               <span className="text-[var(--color-ink-3)]">厂商</span>
-              <select
-                value={vendorId}
-                onChange={(e) => setVendorId(e.target.value)}
+              <SearchSelect
+                options={vendorsSorted.map((v) => ({ id: v.id, label: v.name }))}
+                value={creatingVendor ? '' : vendorId}
+                onChange={(id) => {
+                  setVendorId(id)
+                  setNewVendorName('')
+                }}
+                placeholder="选择…"
+                searchPlaceholder={`搜索 ${vendorsSorted.length} 家厂商…`}
+                createLabel="新增厂商"
+                onCreate={(name) => {
+                  setVendorId('__new__')
+                  setNewVendorName(name)
+                }}
                 disabled={pending}
-                className="min-h-[34px] max-w-[160px] rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[13px]"
-              >
-                <option value="">选择…</option>
-                {vendorsSorted.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-                <option value="__new__">+ 新增厂商…</option>
-              </select>
-            </label>
-            {creatingVendor ? (
-              <input
-                value={newVendorName}
-                onChange={(e) => setNewVendorName(e.target.value)}
-                placeholder="厂商名称"
-                disabled={pending}
-                className="min-h-[34px] w-[140px] rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[13px]"
+                triggerClass="w-[160px]"
+                triggerLabel={
+                  creatingVendor && newVendorName
+                    ? `${newVendorName} · 新`
+                    : undefined
+                }
               />
-            ) : null}
+            </label>
             <label className="flex items-center gap-1.5 text-[13px]">
               <span className="text-[var(--color-ink-3)]">交期</span>
               <DatePop
@@ -642,83 +641,93 @@ function BlockGroup({
           status cells on the right, exactly like a master-board row. */}
       <tr className="bg-[var(--color-bg)]">
         <td colSpan={4} className="px-3 py-2">
+          {/* Two lines, clear hierarchy: WHO/WHAT on top (vendor + activity),
+              the quiet ledger line below (单号 · 工序 · 寄 → 交期 · ¥). Same
+              fields as before, all still editable in place — just no longer
+              one run-on strip where every token fought for the same baseline. */}
           <div
-            className={`flex flex-wrap items-center gap-x-4 gap-y-1 ${closed ? 'opacity-70' : ''}`}
+            className={`flex items-start justify-between gap-3 ${closed ? 'opacity-70' : ''}`}
           >
-            {block.docNo ? (
-              <span
-                className="mono shrink-0 whitespace-nowrap text-[12px] font-medium text-[var(--color-ink-2)]"
-                title="外协单号"
-              >
-                {block.docNo}
-              </span>
-            ) : null}
-            <span className="w-[130px] shrink-0">
-              <NameCombobox
-                target={{ kind: 'vendor', blockId: block.id, jobId }}
-                value={vendor?.name ?? block.vendorId}
-                options={vendors.map((v) => ({ id: v.id, name: v.name }))}
-                className="text-[13px] font-semibold text-[var(--color-ink)]"
-              />
-            </span>
-            {act ? (
-              <span className="shrink-0 whitespace-nowrap text-[13px] text-[var(--color-ink)]">
-                {act}
-              </span>
-            ) : null}
-            <span className="flex items-baseline gap-1 text-[12px] text-[var(--color-ink-2)]">
-              <span className="text-[var(--color-ink-4)]">工序</span>
-              <BlockStagesEditor
-                blockId={block.id}
-                jobId={jobId}
-                stages={block.stages}
-                activity={block.activity}
-                vendors={vendors}
-                disabled={busy}
-                onSaved={onChanged}
-              />
-            </span>
-            <span className="flex items-baseline gap-1 text-[12px]">
-              <span className="text-[var(--color-ink-4)]">寄</span>
-              <OutsourceBlockDate
-                blockId={block.id}
-                jobId={jobId}
-                field="sentDate"
-                value={block.sentDate}
-                formatLabel={mdShort}
-                hideIcon
-                className="mono text-[12px] text-[var(--color-ink-2)]"
-              />
-            </span>
-            <span className="flex items-baseline gap-1 text-[12px]">
-              <span className="text-[var(--color-ink-4)]">交期</span>
-              <OutsourceBlockDate
-                blockId={block.id}
-                jobId={jobId}
-                field="expectedReturn"
-                value={block.expectedReturn}
-                formatLabel={mdShort}
-                hideIcon
-                className={`mono text-[12px] font-medium ${
-                  overdueDays > 0 ? 'text-[var(--color-overdue)]' : 'text-[var(--color-ink)]'
-                }`}
-              />
-              {!closed && overdueDays > 0 ? (
-                <span className="text-[12px] font-medium text-[var(--color-overdue)]">
-                  逾期{overdueDays}天
+            <div className="min-w-0">
+              <div className="flex items-center gap-2.5">
+                <span className="w-[150px] shrink-0">
+                  <NameCombobox
+                    target={{ kind: 'vendor', blockId: block.id, jobId }}
+                    value={vendor?.name ?? block.vendorId}
+                    options={vendors.map((v) => ({ id: v.id, name: v.name }))}
+                    className="text-[14px] font-semibold text-[var(--color-ink)]"
+                  />
                 </span>
-              ) : null}
-            </span>
-            <span className="flex items-baseline gap-0.5 text-[12px]">
-              <span className="mono text-[var(--color-ink-4)]">¥</span>
-              <OutsourceBlockAmount
-                blockId={block.id}
-                jobId={jobId}
-                value={block.amountCny}
-                className="mono text-[12px] text-[var(--color-ink)] [field-sizing:content] min-w-[3ch]"
-              />
-            </span>
-            <span className="ml-auto flex items-center gap-2">
+                {act ? (
+                  <span className="shrink-0 whitespace-nowrap text-[13px] text-[var(--color-ink-2)]">
+                    {act}
+                  </span>
+                ) : null}
+                {!closed && overdueDays > 0 ? (
+                  <span className="shrink-0 text-[12px] font-medium text-[var(--color-overdue)]">
+                    逾期{overdueDays}天
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-0.5">
+                {block.docNo ? (
+                  <span
+                    className="mono whitespace-nowrap text-[11px] text-[var(--color-ink-3)]"
+                    title="外协单号"
+                  >
+                    {block.docNo}
+                  </span>
+                ) : null}
+                <span className="flex items-baseline gap-1 text-[12px] text-[var(--color-ink-2)]">
+                  <span className="text-[var(--color-ink-4)]">工序</span>
+                  <BlockStagesEditor
+                    blockId={block.id}
+                    jobId={jobId}
+                    stages={block.stages}
+                    activity={block.activity}
+                    vendors={vendors}
+                    disabled={busy}
+                    onSaved={onChanged}
+                  />
+                </span>
+                <span className="flex items-baseline gap-1 text-[12px]">
+                  <span className="text-[var(--color-ink-4)]">寄</span>
+                  <OutsourceBlockDate
+                    blockId={block.id}
+                    jobId={jobId}
+                    field="sentDate"
+                    value={block.sentDate}
+                    formatLabel={mdShort}
+                    hideIcon
+                    className="mono text-[12px] text-[var(--color-ink-2)]"
+                  />
+                </span>
+                <span className="flex items-baseline gap-1 text-[12px]">
+                  <span className="text-[var(--color-ink-4)]">交期</span>
+                  <OutsourceBlockDate
+                    blockId={block.id}
+                    jobId={jobId}
+                    field="expectedReturn"
+                    value={block.expectedReturn}
+                    formatLabel={mdShort}
+                    hideIcon
+                    className={`mono text-[12px] font-medium ${
+                      overdueDays > 0 ? 'text-[var(--color-overdue)]' : 'text-[var(--color-ink)]'
+                    }`}
+                  />
+                </span>
+                <span className="flex items-baseline gap-0.5 text-[12px]">
+                  <span className="mono text-[var(--color-ink-4)]">¥</span>
+                  <OutsourceBlockAmount
+                    blockId={block.id}
+                    jobId={jobId}
+                    value={block.amountCny}
+                    className="mono text-[12px] text-[var(--color-ink)] [field-sizing:content] min-w-[3ch]"
+                  />
+                </span>
+              </div>
+            </div>
+            <span className="flex shrink-0 items-center gap-2">
               <BlockShareButton vendor={vendor} block={block} />
               <BlockKebab blockId={block.id} pending={busy} onDelete={del} />
             </span>

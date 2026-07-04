@@ -30,6 +30,9 @@ function rowHaystack(r: OpenBlockRow, vendors: Vendor[]): string {
     v?.notes ?? '',
     r.block.docNo ?? '',
     blockActivityLabel(r.block),
+    // 工序 — so "喷漆" / "操机" as a search token narrows to blocks
+    // covering that stage, not just ones whose activity mentions it.
+    ...r.block.stages,
     r.block.notes ?? '',
   ]
   for (const m of r.block.members) {
