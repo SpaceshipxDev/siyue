@@ -25,7 +25,10 @@ import { getUserById } from '@/lib/db'
 // '/w' is the vendor portal (外协厂商门户) — one unguessable token per vendor
 // IS the auth (verified server-side by getVendorByPortalToken on every page
 // render, action, and image fetch), so the path itself must stay open.
-const PUBLIC_PATHS = ['/login', '/join', '/caiwu-lab', '/w']
+// '/x/demo' is the public sandbox of the /x sheet — pure localStorage, no DB
+// reads or writes, shareable with prospect factories. The real /x stays
+// session-gated (it is NOT in this list; prefix matching is exact-or-slash).
+const PUBLIC_PATHS = ['/login', '/join', '/caiwu-lab', '/w', '/x/demo']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only
