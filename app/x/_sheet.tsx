@@ -37,11 +37,16 @@ import {
  *          everyone else's taps in. Optimistic local apply + op replay on
  *          poll keeps typing latency at zero.
  *
- * The design contract (ledger, not letter): rows are parts, left columns are
- * whatever the factory pasted, the right strip is the journey. Tap a stage
- * cell → ✓ + date + who (that IS 报工). Click the row number → 重点 star.
- * Everything else is Excel muscle memory: arrows, Enter, type-to-replace,
- * ⌘V anywhere.
+ * The grammar (ledger, not letter):
+ *   · rows are parts; left columns are whatever the factory pasted; the right
+ *     strip is the journey. Tap a stage cell → ✓ + date + who (报工).
+ *   · the 单 header row is the AGGREGATE: same stage columns, showing k/N
+ *     fractions — visible collapsed or expanded, so the boss reads order-wide
+ *     progress without opening anything.
+ *   · Excel muscle memory is law: click=select, click-again/Enter/type=edit,
+ *     drag/shift=range, ⌘C copies TSV back out to WPS, ⌘X cuts, ⌘D fills
+ *     down, Backspace clears the range, headerless ⌘V overwrites in place,
+ *     column edges drag to resize.
  */
 
 type Mode = 'demo' | 'live'
@@ -49,10 +54,13 @@ type Mode = 'demo' | 'live'
 type Sel = { rowId: string; ck: string } | null // ck: 'num' | colId | `s:${stage}`
 type EditCell = { rowId: string; colId: string; init: string } | null
 type Undo = { text: string; ops: Op[] } | null
+type SortKey = 'manual' | 'due' | 'id'
+type FilterKey = 'all' | 'open' | 'late'
 
 const LS_STATE = 'x:demo:v1'
 const LS_ME = 'x:me'
 const LS_COLLAPSED = 'x:collapsed'
+const LS_VIEW = 'x:view'
 
 const CSS = `
 @keyframes xRowIn { from { opacity: 0; transform: translateY(5px) } to { opacity: 1; transform: none } }
@@ -67,8 +75,10 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
   const [st, setSt] = useState<SheetState | null>(boot ?? null)
   const [me, setMe] = useState(bootMe ?? '我')
   const [sel, setSel] = useState<Sel>(null)
+  const [selEnd, setSelEnd] = useState<Sel>(null)
   const [edit, setEdit] = useState<EditCell>(null)
   const [q, setQ] = useState('')
+  const [view, setView] = useState<{ sort: SortKey; filter: FilterKey }>({ sort: 'manual', filter: 'all' })
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [lightbox, setLightbox] = useState<string | null>(null)
   const [undo, setUndo] = useState<Undo>(null)
@@ -77,14 +87,17 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
   const [delGroupArm, setDelGroupArm] = useState<string | null>(null)
   const [flash, setFlash] = useState<Set<string>>(new Set())
   const [uploading, setUploading] = useState<Record<string, string>>({})
+  const [colW, setColW] = useState<Record<string, number>>({}) // live drag override
 
   const stRef = useRef(st)
   const selRef = useRef(sel)
+  const selEndRef = useRef(selEnd)
   const editRef = useRef(edit)
   const lightboxRef = useRef(lightbox)
   const meRef = useRef(me)
   useEffect(() => { stRef.current = st }, [st])
   useEffect(() => { selRef.current = sel }, [sel])
+  useEffect(() => { selEndRef.current = selEnd }, [selEnd])
   useEffect(() => { lightboxRef.current = lightbox }, [lightbox])
   useEffect(() => { meRef.current = me }, [me])
 
@@ -105,6 +118,8 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const pickTarget = useRef<string | null>(null)
+  const dragging = useRef(false)
+  const resizing = useRef<{ id: string; startX: number; startW: number } | null>(null)
 
   // ------------------------------------------------------------------ store
   const persistSoon = useCallback(() => {
@@ -162,7 +177,6 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
         queue.current.push(...ops)
         void flush()
       } else {
-        // stRef updates in an effect after render; persist on the next tick.
         setTimeout(persistSoon, 0)
       }
     },
@@ -182,12 +196,29 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
     if (savedMe) setMe(savedMe)
   }, [mode])
 
-  // Collapsed groups are per-device view state, both modes.
+  // Per-device view state (collapse / sort / filter), both modes.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS_COLLAPSED)
       if (raw) setCollapsed(new Set(JSON.parse(raw) as string[]))
     } catch {}
+    try {
+      const raw = localStorage.getItem(LS_VIEW)
+      if (raw) {
+        const v = JSON.parse(raw) as { sort?: SortKey; filter?: FilterKey }
+        setView({
+          sort: v.sort === 'due' || v.sort === 'id' ? v.sort : 'manual',
+          filter: v.filter === 'open' || v.filter === 'late' ? v.filter : 'all',
+        })
+      }
+    } catch {}
+  }, [])
+  const setViewPersist = useCallback((patch: Partial<{ sort: SortKey; filter: FilterKey }>) => {
+    setView((prev) => {
+      const next = { ...prev, ...patch }
+      try { localStorage.setItem(LS_VIEW, JSON.stringify(next)) } catch {}
+      return next
+    })
   }, [])
   const toggleCollapsed = useCallback((gid: string) => {
     setCollapsed((prev) => {
@@ -201,8 +232,7 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
     })
   }, [])
 
-  // Live poll — cheap version check every 3.5s + on tab focus. Server state
-  // replaces local, with any un-acked local ops replayed on top.
+  // Live poll — cheap version check every 3.5s + on tab focus.
   useEffect(() => {
     if (mode !== 'live') return
     let stopped = false
@@ -230,16 +260,46 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
     }
   }, [mode])
 
+  // Global mouseup ends range-drag and column-resize.
+  useEffect(() => {
+    const onUp = () => {
+      dragging.current = false
+      if (resizing.current) {
+        const { id } = resizing.current
+        const w = colWRef.current[id]
+        resizing.current = null
+        if (w) {
+          dispatch([{ type: 'resizeColumn', id, w: Math.min(600, Math.max(48, Math.round(w))) }])
+          setColW((m) => {
+            const next = { ...m }
+            delete next[id]
+            return next
+          })
+        }
+      }
+    }
+    const onMove = (e: MouseEvent) => {
+      const rz = resizing.current
+      if (!rz) return
+      e.preventDefault()
+      const w = Math.min(600, Math.max(48, rz.startW + (e.clientX - rz.startX)))
+      setColW((m) => ({ ...m, [rz.id]: w }))
+    }
+    window.addEventListener('mouseup', onUp)
+    window.addEventListener('mousemove', onMove)
+    return () => {
+      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('mousemove', onMove)
+    }
+  }, [dispatch])
+  const colWRef = useRef(colW)
+  useEffect(() => { colWRef.current = colW }, [colW])
+
   // ------------------------------------------------------- derived structure
-  const imgCol = useMemo(() => st?.columns.find((c) => c.kind === 'img') ?? null, [st])
   const textCols = useMemo(() => st?.columns.filter((c) => c.kind === 'text') ?? [], [st])
   const stages = st?.stages ?? []
   const today = factoryToday()
 
-  const groupsSorted = useMemo(
-    () => (st ? [...st.groups].sort((a, b) => a.pos - b.pos) : []),
-    [st],
-  )
   const rowsByGroup = useMemo(() => {
     const m = new Map<string, Row[]>()
     if (!st) return m
@@ -252,11 +312,45 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
     return m
   }, [st])
 
+  const groupsSorted = useMemo(() => {
+    if (!st) return []
+    const gs = [...st.groups].sort((a, b) => a.pos - b.pos)
+    if (view.sort === 'due') {
+      gs.sort((a, b) => {
+        const da = parseDayLike(a.due)
+        const db = parseDayLike(b.due)
+        if (da && db) return da < db ? -1 : da > db ? 1 : a.pos - b.pos
+        if (da) return -1
+        if (db) return 1
+        return a.pos - b.pos
+      })
+    } else if (view.sort === 'id') {
+      gs.sort((a, b) => {
+        if (a.orderNo && b.orderNo)
+          return a.orderNo.localeCompare(b.orderNo, 'zh', { numeric: true }) || a.pos - b.pos
+        if (a.orderNo) return -1
+        if (b.orderNo) return 1
+        return a.pos - b.pos
+      })
+    }
+    return gs
+  }, [st, view.sort])
+
   const query = q.trim().toLowerCase()
   const visible = useMemo(() => {
     const out: Array<{ group: Group; rows: Row[]; all: Row[]; hiddenByCollapse: boolean }> = []
     for (const g of groupsSorted) {
       const all = rowsByGroup.get(g.id) ?? []
+      // status filter first
+      if (view.filter !== 'all') {
+        const allDone = all.length > 0 && all.every((r) => rowDone(r, stages))
+        if (view.filter === 'open' && (allDone || all.length === 0)) continue
+        if (view.filter === 'late') {
+          const day = parseDayLike(g.due)
+          const late = !!day && !allDone && dayDiff(day, today) < 0
+          if (!late) continue
+        }
+      }
       if (!query) {
         out.push({ group: g, rows: all, all, hiddenByCollapse: collapsed.has(g.id) })
         continue
@@ -272,9 +366,9 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
       if (gMatch || rows.length) out.push({ group: g, rows, all, hiddenByCollapse: false })
     }
     return out
-  }, [groupsSorted, rowsByGroup, query, collapsed])
+  }, [groupsSorted, rowsByGroup, query, collapsed, view.filter, stages, today])
 
-  // Flat visible row list + column key order — the keyboard nav space.
+  // Flat visible row list + column key order — the keyboard/range space.
   const navRef = useRef<{ rows: Row[]; cols: string[] }>({ rows: [], cols: [] })
   navRef.current = {
     rows: visible.flatMap((v) => (v.hiddenByCollapse ? [] : v.rows)),
@@ -284,6 +378,38 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
       ...stages.map((s) => `s:${s}`),
     ],
   }
+
+  // Selection rectangle over TEXT columns (ranges never cover stage/img/num).
+  const textColIds = useMemo(() => textCols.map((c) => c.id), [textCols])
+  const rect = (() => {
+    if (!sel || !selEnd || !st) return null
+    const rows = navRef.current.rows
+    const r1 = rows.findIndex((r) => r.id === sel.rowId)
+    const r2 = rows.findIndex((r) => r.id === selEnd.rowId)
+    const c1 = textColIds.indexOf(sel.ck)
+    const c2 = textColIds.indexOf(selEnd.ck)
+    if (r1 < 0 || r2 < 0 || c1 < 0 || c2 < 0) return null
+    return {
+      rTop: Math.min(r1, r2),
+      rBot: Math.max(r1, r2),
+      cL: Math.min(c1, c2),
+      cR: Math.max(c1, c2),
+    }
+  })()
+  const rectRef = useRef(rect)
+  rectRef.current = rect
+  const rangeCells = useMemo(() => {
+    if (!rect) return null
+    const rows = navRef.current.rows
+    const set = new Set<string>()
+    for (let r = rect.rTop; r <= rect.rBot; r++) {
+      for (let c = rect.cL; c <= rect.cR; c++) {
+        set.add(`${rows[r].id}|${textColIds[c]}`)
+      }
+    }
+    return set
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel, selEnd, st, query, collapsed, view, textColIds])
 
   // ----------------------------------------------------------------- actions
   const commitCell = useCallback(
@@ -313,19 +439,17 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
     [dispatch],
   )
 
-  const showUndo = useCallback(
-    (text: string, ops: Op[]) => {
-      setUndo({ text, ops })
-      if (undoTimer.current) clearTimeout(undoTimer.current)
-      undoTimer.current = setTimeout(() => setUndo(null), 6000)
-    },
-    [],
-  )
+  const showUndo = useCallback((text: string, ops: Op[]) => {
+    setUndo({ text, ops })
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    undoTimer.current = setTimeout(() => setUndo(null), 6000)
+  }, [])
 
   const deleteRow = useCallback(
     (row: Row) => {
       dispatch([{ type: 'delRow', id: row.id }])
       setSel(null)
+      setSelEnd(null)
       showUndo('已删除 1 行', [{ type: 'addRows', rows: [row] }])
     },
     [dispatch, showUndo],
@@ -354,10 +478,11 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
       const firstText = s.columns.find((c) => c.kind === 'text')
       if (firstText) {
         setSel({ rowId: row.id, ck: firstText.id })
+        setSelEnd(null)
         setEditSync({ rowId: row.id, colId: firstText.id, init: '' })
       }
     },
-    [dispatch],
+    [dispatch, setEditSync],
   )
 
   const addGroup = useCallback(() => {
@@ -383,7 +508,10 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
       setFlashIds([...plan.rowIds, plan.groupId])
       const s = stRef.current
       const firstText = s?.columns.find((c) => c.kind === 'text')
-      if (plan.rowIds.length && firstText) setSel({ rowId: plan.rowIds[0], ck: firstText.id })
+      if (plan.rowIds.length && firstText) {
+        setSel({ rowId: plan.rowIds[0], ck: firstText.id })
+        setSelEnd(null)
+      }
       showToast(
         `已添加 ${plan.rowIds.length} 行${plan.liftedNote ? ` · ${plan.liftedNote}` : ''}`,
         'success',
@@ -391,6 +519,138 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
     },
     [dispatch],
   )
+
+  // Excel-style overwrite fill: headerless grid lands on the anchor cell,
+  // spilling right across text columns and down the anchor's 单 — appending
+  // fresh rows to the group when it runs out. A 1×1 clipboard over a selected
+  // range fills the whole range (Excel's repeat-fill).
+  const overwriteFill = useCallback(
+    (anchor: { rowId: string; ck: string }, grid: string[][], imgs: (string | null)[]) => {
+      const s = stRef.current
+      if (!s) return
+      const ids = s.columns.filter((c) => c.kind === 'text').map((c) => c.id)
+      const aC = ids.indexOf(anchor.ck)
+      const anchorRow = s.rows.find((r) => r.id === anchor.rowId)
+      if (aC < 0 || !anchorRow) return
+      const ops: Op[] = []
+      const rectNow = rectRef.current
+
+      if (grid.length === 1 && grid[0].length === 1 && rectNow) {
+        const v = grid[0][0]
+        const rows = navRef.current.rows
+        for (let r = rectNow.rTop; r <= rectNow.rBot; r++) {
+          const patch: Record<string, string> = {}
+          for (let c = rectNow.cL; c <= rectNow.cR; c++) patch[ids[c]] = v
+          ops.push({ type: 'setCells', rowId: rows[r].id, patch })
+        }
+        dispatch(ops)
+        showToast(`已填 ${rectNow.rBot - rectNow.rTop + 1}×${rectNow.cR - rectNow.cL + 1}`, 'success')
+        return
+      }
+
+      const imgCol = s.columns.find((c) => c.kind === 'img')
+      const groupRows = s.rows
+        .filter((r) => r.groupId === anchorRow.groupId)
+        .sort((a, b) => a.pos - b.pos)
+      const startIdx = groupRows.findIndex((r) => r.id === anchorRow.id)
+      let maxPos = groupRows.reduce((m, r) => Math.max(m, r.pos), 0)
+      const newRows: Row[] = []
+      grid.forEach((line, i) => {
+        const target = groupRows[startIdx + i]
+        const patch: Record<string, string> = {}
+        line.forEach((val, j) => {
+          const colId = ids[aC + j]
+          if (colId) patch[colId] = val
+        })
+        const img = imgs[i]
+        if (img && imgCol) patch[imgCol.id] = img
+        if (target) {
+          ops.push({ type: 'setCells', rowId: target.id, patch })
+        } else {
+          maxPos += 1
+          const cells: Record<string, string> = {}
+          for (const [k, v] of Object.entries(patch)) if (v !== '') cells[k] = v
+          newRows.push({ id: rid(), groupId: anchorRow.groupId, cells, stageDone: {}, flag: false, pos: maxPos })
+        }
+      })
+      if (newRows.length) ops.push({ type: 'addRows', rows: newRows })
+      dispatch(ops)
+      if (newRows.length) setFlashIds(newRows.map((r) => r.id))
+      showToast(`已填 ${grid.length} 行${newRows.length ? ` · 新增 ${newRows.length} 行` : ''}`, 'success')
+    },
+    [dispatch],
+  )
+
+  // Range clipboard helpers — the visible rectangle as TSV, straight back
+  // into WPS/Excel. Copy/cut/clear/fill-down all speak the same rect.
+  const rangeOrCell = useCallback((): { rows: Row[]; colIds: string[] } | null => {
+    const s = stRef.current
+    if (!s) return null
+    const ids = s.columns.filter((c) => c.kind === 'text').map((c) => c.id)
+    const rectNow = rectRef.current
+    if (rectNow) {
+      const rows = navRef.current.rows.slice(rectNow.rTop, rectNow.rBot + 1)
+      return { rows, colIds: ids.slice(rectNow.cL, rectNow.cR + 1) }
+    }
+    const cur = selRef.current
+    if (!cur || !ids.includes(cur.ck)) return null
+    const row = s.rows.find((r) => r.id === cur.rowId)
+    if (!row) return null
+    return { rows: [row], colIds: [cur.ck] }
+  }, [])
+
+  const copyRange = useCallback(async (): Promise<boolean> => {
+    const r = rangeOrCell()
+    if (!r) return false
+    const tsv = r.rows
+      .map((row) => r.colIds.map((c) => (row.cells[c] ?? '').replace(/[\t\n]/g, ' ')).join('\t'))
+      .join('\n')
+    try {
+      await navigator.clipboard.writeText(tsv)
+      showToast(`已复制 ${r.rows.length}×${r.colIds.length}`, 'success')
+      return true
+    } catch {
+      showToast('复制失败 — 浏览器不允许', 'warning')
+      return false
+    }
+  }, [rangeOrCell])
+
+  const clearRange = useCallback(() => {
+    const r = rangeOrCell()
+    if (!r) return
+    const ops: Op[] = []
+    for (const row of r.rows) {
+      const patch: Record<string, string> = {}
+      let any = false
+      for (const c of r.colIds) {
+        if (row.cells[c]) {
+          patch[c] = ''
+          any = true
+        }
+      }
+      if (any) ops.push({ type: 'setCells', rowId: row.id, patch })
+    }
+    dispatch(ops)
+  }, [rangeOrCell, dispatch])
+
+  const fillDown = useCallback(() => {
+    const rectNow = rectRef.current
+    const s = stRef.current
+    if (!rectNow || !s) return
+    const ids = s.columns.filter((c) => c.kind === 'text').map((c) => c.id)
+    const rows = navRef.current.rows
+    const top = rows[rectNow.rTop]
+    const ops: Op[] = []
+    for (let r = rectNow.rTop + 1; r <= rectNow.rBot; r++) {
+      const patch: Record<string, string> = {}
+      for (let c = rectNow.cL; c <= rectNow.cR; c++) {
+        patch[ids[c]] = top.cells[ids[c]] ?? ''
+      }
+      ops.push({ type: 'setCells', rowId: rows[r].id, patch })
+    }
+    dispatch(ops)
+    showToast('已向下填充', 'success')
+  }, [dispatch])
 
   // --------------------------------------------------------------- images
   const setRowImage = useCallback(
@@ -442,8 +702,6 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
       const startRow = s.rows.find((r) => r.id === startRowId)
       const ops: Op[] = []
       if (startRow) {
-        // Fill from the selected row downward: replace its image, then land in
-        // following empty slots; overflow appends fresh rows to the group.
         const groupRows = s.rows
           .filter((r) => r.groupId === startRow.groupId)
           .sort((a, b) => a.pos - b.pos)
@@ -462,7 +720,6 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
         }
         if (extra.length) ops.push({ type: 'addRows', rows: extra })
       } else {
-        // No target — the photos ARE the new 单 (boss photographs N parts).
         const gid = rid()
         const maxPos = s.groups.reduce((m, g) => Math.max(m, g.pos), 0)
         ops.push({ type: 'addGroup', group: { id: gid, title: '', orderNo: '', due: '', pos: maxPos + 1 } })
@@ -512,20 +769,14 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
       e.preventDefault()
 
       const cur = selRef.current
-      // 1×1 paste into a selected text cell = just set the value.
-      if (
-        parsed.grid.length === 1 &&
-        parsed.grid[0].length === 1 &&
-        !parsed.headerLabels &&
-        cur &&
-        cur.ck !== 'num' &&
-        !cur.ck.startsWith('s:')
-      ) {
-        const col = s.columns.find((c) => c.id === cur.ck)
-        if (col?.kind === 'text') {
-          commitCell(cur.rowId, col.id, parsed.grid[0][0])
-          return
-        }
+      const isTextAnchor =
+        !!cur && s.columns.some((c) => c.kind === 'text' && c.id === cur.ck)
+
+      // Headerless data on a selected text cell = Excel overwrite-fill.
+      // A header row = "these are new parts" = import (insert rows).
+      if (cur && isTextAnchor && !parsed.headerLabels) {
+        overwriteFill({ rowId: cur.rowId, ck: cur.ck }, parsed.grid, parsed.imgs)
+        return
       }
       const curRow = cur ? s.rows.find((r) => r.id === cur.rowId) : undefined
       const plan = planPaste(
@@ -537,7 +788,7 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
     }
     document.addEventListener('paste', onPaste)
     return () => document.removeEventListener('paste', onPaste)
-  }, [handleImageFiles, runPastePlan, commitCell])
+  }, [handleImageFiles, runPastePlan, overwriteFill])
 
   // -------------------------------------------------------------- keyboard
   useEffect(() => {
@@ -553,9 +804,27 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
       if (!s) return
       const cur = selRef.current
       const { rows, cols } = navRef.current
+      const ids = s.columns.filter((c) => c.kind === 'text').map((c) => c.id)
+
+      // Clipboard verbs work off the range (or single cell) without needing
+      // arrow-key focus first.
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'C')) {
+        void copyRange()
+        return
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'x' || e.key === 'X')) {
+        void copyRange().then((ok) => { if (ok) clearRange() })
+        return
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault()
+        fillDown()
+        return
+      }
 
       if (e.key === 'Escape') {
-        setSel(null)
+        if (selEndRef.current) setSelEnd(null)
+        else setSel(null)
         return
       }
       if (!cur) return
@@ -564,23 +833,41 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
       if (ri < 0 || ci < 0) return
       const row = rows[ri]
 
-      const move = (dr: number, dc: number) => {
-        e.preventDefault()
-        const nr = Math.min(rows.length - 1, Math.max(0, ri + dr))
-        const nc = Math.min(cols.length - 1, Math.max(0, ci + dc))
-        const next = { rowId: rows[nr].id, ck: cols[nc] }
-        setSel(next)
+      const scrollTo = (rowId: string, ck: string) => {
         requestAnimationFrame(() => {
           document
-            .querySelector(`[data-cell="${next.rowId}|${cssEscape(next.ck)}"]`)
+            .querySelector(`[data-cell="${rowId}|${cssEscape(ck)}"]`)
             ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
         })
       }
 
-      if (e.key === 'ArrowDown') return move(1, 0)
-      if (e.key === 'ArrowUp') return move(-1, 0)
-      if (e.key === 'ArrowRight') return move(0, 1)
-      if (e.key === 'ArrowLeft') return move(0, -1)
+      const move = (dr: number, dc: number) => {
+        e.preventDefault()
+        const nr = Math.min(rows.length - 1, Math.max(0, ri + dr))
+        const nc = Math.min(cols.length - 1, Math.max(0, ci + dc))
+        setSel({ rowId: rows[nr].id, ck: cols[nc] })
+        setSelEnd(null)
+        scrollTo(rows[nr].id, cols[nc])
+      }
+
+      // Shift+arrows grow the rectangle (text columns only).
+      const extend = (dr: number, dc: number) => {
+        e.preventDefault()
+        if (!ids.includes(cur.ck)) return
+        const end = selEndRef.current ?? cur
+        const eri = rows.findIndex((r) => r.id === end.rowId)
+        const eci = ids.indexOf(end.ck)
+        if (eri < 0 || eci < 0) return
+        const nr = Math.min(rows.length - 1, Math.max(0, eri + dr))
+        const nc = Math.min(ids.length - 1, Math.max(0, eci + dc))
+        setSelEnd({ rowId: rows[nr].id, ck: ids[nc] })
+        scrollTo(rows[nr].id, ids[nc])
+      }
+
+      if (e.key === 'ArrowDown') return e.shiftKey ? extend(1, 0) : move(1, 0)
+      if (e.key === 'ArrowUp') return e.shiftKey ? extend(-1, 0) : move(-1, 0)
+      if (e.key === 'ArrowRight') return e.shiftKey ? extend(0, 1) : move(0, 1)
+      if (e.key === 'ArrowLeft') return e.shiftKey ? extend(0, -1) : move(0, -1)
       if (e.key === 'Tab') return move(0, e.shiftKey ? -1 : 1)
 
       if (e.key === 'Enter') {
@@ -611,6 +898,10 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
           deleteRow(row)
           return
         }
+        if (rectRef.current) {
+          clearRange()
+          return
+        }
         if (cur.ck === 'num') return
         if (cur.ck.startsWith('s:')) {
           if (row.stageDone[cur.ck.slice(2)]) tapStage(row, cur.ck.slice(2))
@@ -632,7 +923,7 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [dispatch, tapStage, deleteRow, commitCell, openPicker])
+  }, [dispatch, tapStage, deleteRow, commitCell, openPicker, setEditSync, copyRange, clearRange, fillDown])
 
   // ------------------------------------------------------------------ render
   const totalCols = 1 + (st?.columns.length ?? 0) + 1 + stages.length
@@ -647,7 +938,31 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
   }
 
   const isEmpty = st.groups.length === 0
-  const minWidth = 44 + 56 + textCols.length * 112 + 30 + stages.length * 58
+  const widthOf = (c: Col) => colW[c.id] ?? c.w ?? (c.kind === 'img' ? 56 : undefined)
+  const minWidth =
+    44 + 30 +
+    st.columns.reduce((m, c) => m + (widthOf(c) ?? 112), 0) +
+    stages.length * 58
+
+  const selectCell = (rowId: string, ck: string) => {
+    setSel({ rowId, ck })
+    setSelEnd(null)
+    setEditSync(null)
+  }
+  const pressCell = (rowId: string, ck: string) => {
+    selectCell(rowId, ck)
+    dragging.current = true
+  }
+  const enterCell = (rowId: string, ck: string) => {
+    if (dragging.current) setSelEnd({ rowId, ck })
+  }
+  const shiftSelect = (rowId: string, ck: string) => {
+    if (!selRef.current) setSel({ rowId, ck })
+    setSelEnd({ rowId, ck })
+  }
+  const startResize = (colId: string, th: HTMLElement, x: number) => {
+    resizing.current = { id: colId, startX: x, startW: th.offsetWidth }
+  }
 
   return (
     <div className="flex h-dvh flex-col bg-[var(--color-surface)]">
@@ -666,7 +981,7 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
           onKeyDown={(e) => {
             if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
           }}
-          className="w-[120px] bg-transparent text-[15px] font-semibold tracking-tight outline-none placeholder:text-[var(--color-ink-4)] sm:w-[170px]"
+          className="w-[110px] bg-transparent text-[15px] font-semibold tracking-tight outline-none placeholder:text-[var(--color-ink-4)] sm:w-[150px]"
           placeholder="生产表"
         />
         {mode === 'demo' && (
@@ -711,6 +1026,7 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
                 try { localStorage.removeItem(LS_STATE) } catch {}
                 setSt(emptySheet())
                 setSel(null)
+                setSelEnd(null)
               }}
               className="text-[11px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
             >
@@ -731,6 +1047,41 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
         )}
       </header>
 
+      {/* ------------------------------------------------ sort / filter bar */}
+      {!isEmpty && (
+        <div className="flex h-[34px] shrink-0 items-center gap-1.5 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3">
+          <span className="select-none text-[10px] uppercase tracking-[0.12em] text-[var(--color-ink-4)]">排序</span>
+          {(
+            [
+              ['manual', '手动'],
+              ['due', '交期'],
+              ['id', '单号'],
+            ] as Array<[SortKey, string]>
+          ).map(([k, label]) => (
+            <ViewChip key={k} active={view.sort === k} onClick={() => setViewPersist({ sort: k })}>
+              {label}
+            </ViewChip>
+          ))}
+          <span className="mx-1.5 h-4 w-px bg-[var(--color-border)]" />
+          {(
+            [
+              ['all', '全部'],
+              ['open', '未完'],
+              ['late', '超期'],
+            ] as Array<[FilterKey, string]>
+          ).map(([k, label]) => (
+            <ViewChip key={k} active={view.filter === k} onClick={() => setViewPersist({ filter: k })}>
+              {label}
+            </ViewChip>
+          ))}
+          {(view.filter !== 'all' || query) && (
+            <span className="ml-auto select-none font-mono text-[11px] tabular-nums text-[var(--color-ink-3)]">
+              {visible.length} 单
+            </span>
+          )}
+        </div>
+      )}
+
       {/* ------------------------------------------------ body */}
       {isEmpty ? (
         <EmptyState
@@ -742,13 +1093,13 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
       ) : (
         <div className="flex-1 overflow-auto overscroll-none">
           <table
-            className="w-full border-separate border-spacing-0"
+            className="w-full select-none border-separate border-spacing-0"
             style={{ tableLayout: 'fixed', minWidth }}
           >
             <colgroup>
               <col style={{ width: 44 }} />
               {st.columns.map((c) => (
-                <col key={c.id} style={c.kind === 'img' ? { width: 56 } : undefined} />
+                <col key={c.id} style={widthOf(c) ? { width: widthOf(c) } : undefined} />
               ))}
               <col style={{ width: 30 }} />
               {stages.map((s) => (
@@ -760,9 +1111,12 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
                 <th className={TH} />
                 {st.columns.map((c) =>
                   c.kind === 'img' ? (
-                    <th key={c.id} className={TH}>{c.label || '图'}</th>
+                    <th key={c.id} className={`${TH} ${TDL} relative`}>
+                      {c.label || '图'}
+                      <ResizeHandle onDown={(el, x) => startResize(c.id, el, x)} />
+                    </th>
                   ) : (
-                    <th key={c.id} className={`${TH} group/th`}>
+                    <th key={c.id} className={`${TH} ${TDL} relative`}>
                       {hdrEdit?.colId === c.id ? (
                         <span className="flex items-center gap-1">
                           <input
@@ -795,15 +1149,16 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
                         <button
                           onDoubleClick={() => setHdrEdit({ colId: c.id, init: c.label })}
                           className="block w-full cursor-text truncate text-left uppercase tracking-[0.12em]"
-                          title="双击改列名"
+                          title="双击改列名 · 拖右边界调宽"
                         >
                           {c.label || <span className="text-[var(--color-ink-4)]">列</span>}
                         </button>
                       )}
+                      <ResizeHandle onDown={(el, x) => startResize(c.id, el, x)} />
                     </th>
                   ),
                 )}
-                <th className={TH}>
+                <th className={`${TH} ${TDL}`}>
                   <button
                     onClick={() => {
                       const col: Col = { id: `c-${rid().slice(0, 8)}`, label: '', kind: 'text' }
@@ -838,7 +1193,7 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
                   all={all}
                   stages={stages}
                   today={today}
-                  totalCols={totalCols}
+                  leftSpan={1 + st.columns.length + 1}
                   collapsed={hiddenByCollapse}
                   flash={flash.has(group.id)}
                   armed={delGroupArm === group.id}
@@ -857,10 +1212,14 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
                       stages={stages}
                       today={today}
                       sel={sel && sel.rowId === row.id ? sel.ck : null}
+                      rangeCells={rangeCells}
                       edit={edit && edit.rowId === row.id ? edit : null}
                       flash={flash.has(row.id)}
                       uploadingUrl={uploading[row.id] ?? null}
-                      onSelect={(ck) => { setSel({ rowId: row.id, ck }); setEditSync(null) }}
+                      onPress={(ck) => pressCell(row.id, ck)}
+                      onEnter={(ck) => enterCell(row.id, ck)}
+                      onShiftSelect={(ck) => shiftSelect(row.id, ck)}
+                      onSelect={(ck) => selectCell(row.id, ck)}
                       onEditStart={(colId, init) => setEditSync({ rowId: row.id, colId, init })}
                       onEditCommit={(colId, v, moveDown) => {
                         commitCell(row.id, colId, v)
@@ -895,6 +1254,15 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
                 )}
               </tbody>
             ))}
+            {visible.length === 0 && (
+              <tbody>
+                <tr>
+                  <td colSpan={totalCols} className="px-4 py-8 text-center text-[12px] text-[var(--color-ink-4)]">
+                    没有匹配的单
+                  </td>
+                </tr>
+              </tbody>
+            )}
           </table>
 
           {!query && (
@@ -906,7 +1274,7 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
                 ＋ 新单
               </button>
               <p className="mt-4 select-none text-[10px] leading-relaxed text-[var(--color-ink-4)]">
-                ⌘V 粘贴追加(选中某行=贴进那一单,没选=另起一单) · 点工序格=报工✓ · 行号=重点★ · 长按行号=删行 · 图片可直接拖到行上
+                ⌘V 粘贴(带表头=新增零件行 · 不带表头=从选中格覆盖填入) · 拖动/Shift=框选 → ⌘C 复制回Excel · ⌘X 剪切 · ⌘D 向下填充 · 点工序格=报工✓ · 行号=重点★ · 长按行号=删行 · 拖列边=调宽
               </p>
             </div>
           )}
@@ -959,25 +1327,57 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
 }
 
 // ---------------------------------------------------------------------------
-// header th style
 const TH =
   'sticky top-0 z-10 h-8 border-b border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-left text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--color-ink-3)] whitespace-nowrap'
+// Vertical grid line — every column except the leftmost carries one. This is
+// what makes it read as a spreadsheet instead of a list.
+const TDL = 'border-l border-[var(--color-border)]'
 
 function cssEscape(s: string): string {
   return s.replace(/["\\]/g, '\\$&')
 }
 
+function ViewChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`h-6 rounded-[2px] border px-2 text-[11px] leading-none transition-colors ${
+        active
+          ? 'border-[var(--color-ink)] bg-[var(--color-ink)] font-medium text-white'
+          : 'border-[var(--color-border)] text-[var(--color-ink-3)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-ink)]'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function ResizeHandle({ onDown }: { onDown: (th: HTMLElement, x: number) => void }) {
+  return (
+    <span
+      onMouseDown={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        const th = (e.target as HTMLElement).closest('th')
+        if (th) onDown(th, e.clientX)
+      }}
+      className="absolute -right-[3px] top-0 z-20 h-full w-[7px] cursor-col-resize"
+      title="拖动调整列宽"
+    />
+  )
+}
+
 // ---------------------------------------------------------------------------
 
 function GroupHeader({
-  group, all, stages, today, totalCols, collapsed, flash, armed,
+  group, all, stages, today, leftSpan, collapsed, flash, armed,
   onToggle, onEdit, onArm, onDelete,
 }: {
   group: Group
   all: Row[]
   stages: string[]
   today: string
-  totalCols: number
+  leftSpan: number
   collapsed: boolean
   flash: boolean
   armed: boolean
@@ -1002,7 +1402,7 @@ function GroupHeader({
 
   return (
     <tr className={flash ? 'x-row-in' : undefined}>
-      <td colSpan={totalCols} className="border-b border-[var(--color-border)] bg-[var(--color-bg)] px-1.5">
+      <td colSpan={leftSpan} className="border-b border-[var(--color-border)] bg-[var(--color-bg)] px-1.5">
         <div className="flex h-10 items-center gap-2">
           <button
             onClick={onToggle}
@@ -1052,7 +1452,7 @@ function GroupHeader({
             </span>
           )}
           <span className={`ml-auto shrink-0 font-mono text-[11px] tabular-nums ${allDone ? 'font-semibold text-[var(--color-success)]' : 'text-[var(--color-ink-3)]'}`}>
-            {allDone ? '✓ ' : ''}{doneCount}/{all.length}
+            {allDone ? '✓ ' : ''}{doneCount}/{all.length} 件
           </span>
           {armed ? (
             <span className="flex shrink-0 items-center gap-2 text-[11px]">
@@ -1071,6 +1471,34 @@ function GroupHeader({
           )}
         </div>
       </td>
+      {/* Order-wide progress, one fraction per stage — the aggregate strip.
+          Visible collapsed AND expanded: the 单 row is the higher-order Excel
+          row, exactly like the master board's job row above its parts. */}
+      {stages.map((s, i) => {
+        const k = all.filter((r) => !!r.stageDone[s]).length
+        const full = all.length > 0 && k === all.length
+        return (
+          <td
+            key={s}
+            title={`${s} ${k}/${all.length}`}
+            className={`border-b border-l bg-[var(--color-bg)] p-0 text-center ${
+              i === 0 ? 'border-l-[var(--color-border-strong)]' : 'border-l-[var(--color-border)]'
+            } border-b-[var(--color-border)]`}
+          >
+            {all.length === 0 ? (
+              <span className="text-[11px] text-[var(--color-ink-4)]">·</span>
+            ) : full ? (
+              <span className="text-[13px] font-semibold text-[var(--color-success)]">✓</span>
+            ) : k === 0 ? (
+              <span className="text-[11px] text-[var(--color-ink-4)]">·</span>
+            ) : (
+              <span className="font-mono text-[10.5px] font-medium tabular-nums text-[var(--color-ink-2)]">
+                {k}/{all.length}
+              </span>
+            )}
+          </td>
+        )
+      })}
     </tr>
   )
 }
@@ -1078,9 +1506,9 @@ function GroupHeader({
 // ---------------------------------------------------------------------------
 
 function RowTr({
-  row, index, cols, stages, today, sel, edit, flash, uploadingUrl,
-  onSelect, onEditStart, onEditCommit, onEditCancel, onTapStage, onFlag,
-  onDelete, onLightbox, onPick, onDropFiles,
+  row, index, cols, stages, today, sel, rangeCells, edit, flash, uploadingUrl,
+  onPress, onEnter, onShiftSelect, onSelect, onEditStart, onEditCommit, onEditCancel,
+  onTapStage, onFlag, onDelete, onLightbox, onPick, onDropFiles,
 }: {
   row: Row
   index: number
@@ -1088,9 +1516,13 @@ function RowTr({
   stages: string[]
   today: string
   sel: string | null
+  rangeCells: Set<string> | null
   edit: { colId: string; init: string } | null
   flash: boolean
   uploadingUrl: string | null
+  onPress: (ck: string) => void
+  onEnter: (ck: string) => void
+  onShiftSelect: (ck: string) => void
   onSelect: (ck: string) => void
   onEditStart: (colId: string, init: string) => void
   onEditCommit: (colId: string, v: string, moveDown: boolean) => void
@@ -1105,6 +1537,10 @@ function RowTr({
   const done = rowDone(row, stages)
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const held = useRef(false)
+  // Suppresses the click-to-edit that would otherwise fire from the SAME
+  // physical click that just selected the cell (mousedown selects → click
+  // sees "already selected" → would edit immediately).
+  const pressedHere = useRef<string | null>(null)
 
   const startHold = () => {
     held.current = false
@@ -1168,7 +1604,7 @@ function RowTr({
             <td
               key={c.id}
               data-cell={`${row.id}|${c.id}`}
-              className="relative border-b border-[var(--color-border)] p-1"
+              className={`relative border-b border-[var(--color-border)] p-1 ${TDL}`}
               onClick={() => {
                 if (src && !uploadingUrl) onLightbox(src)
                 else if (sel === c.id) onPick()
@@ -1194,19 +1630,35 @@ function RowTr({
         }
         const v = row.cells[c.id] ?? ''
         const editing = edit?.colId === c.id
+        const inRange = rangeCells?.has(`${row.id}|${c.id}`) ?? false
         return (
           <td
             key={c.id}
             data-cell={`${row.id}|${c.id}`}
-            className="relative h-11 cursor-default border-b border-[var(--color-border)] px-2 text-[13px]"
-            // Excel grammar: first click selects, click-again (or dblclick, or
-            // just typing) edits. Selection must happen in the click phase —
-            // selecting on mousedown re-renders before the click event lands,
-            // which made every first click fall straight into edit mode.
-            onClick={() => {
+            className={`relative h-11 cursor-cell border-b border-[var(--color-border)] px-2 text-[13px] ${TDL} ${
+              inRange ? 'bg-[var(--color-info-soft)]' : ''
+            }`}
+            onMouseDown={(e) => {
+              if (editing || e.shiftKey || e.button !== 0) return
+              if (sel !== c.id) {
+                pressedHere.current = c.id
+                onPress(c.id)
+              } else {
+                pressedHere.current = null
+              }
+            }}
+            onMouseEnter={() => onEnter(c.id)}
+            onClick={(e) => {
               if (editing) return
+              if (e.shiftKey) {
+                onShiftSelect(c.id)
+                return
+              }
+              if (pressedHere.current === c.id) {
+                pressedHere.current = null
+                return
+              }
               if (sel === c.id) onEditStart(c.id, v)
-              else onSelect(c.id)
             }}
             onDoubleClick={() => {
               if (!editing) onEditStart(c.id, v)
@@ -1244,7 +1696,7 @@ function RowTr({
       })}
 
       {/* +col spacer */}
-      <td className="border-b border-[var(--color-border)]" />
+      <td className={`border-b border-[var(--color-border)] ${TDL}`} />
 
       {/* stage strip */}
       {stages.map((s, i) => {
@@ -1325,6 +1777,7 @@ function StagesPanel({
   onSave: (next: string[]) => void
 }) {
   const [val, setVal] = useState(stages.join(' '))
+  const parse = () => val.split(/[\s,，、]+/).map((s) => s.trim()).filter(Boolean).slice(0, 20)
   return (
     <>
       <div className="fixed inset-0 z-30" onClick={onClose} />
@@ -1338,7 +1791,7 @@ function StagesPanel({
           onChange={(e) => setVal(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
-              const next = val.split(/[\s,，、]+/).map((s) => s.trim()).filter(Boolean).slice(0, 20)
+              const next = parse()
               if (next.length) onSave(next)
             }
             if (e.key === 'Escape') onClose()
@@ -1354,7 +1807,7 @@ function StagesPanel({
           </button>
           <button
             onClick={() => {
-              const next = val.split(/[\s,，、]+/).map((s) => s.trim()).filter(Boolean).slice(0, 20)
+              const next = parse()
               if (next.length) onSave(next)
             }}
             className="h-7 rounded-[2px] bg-[var(--color-ink)] px-3 text-[11px] font-medium text-white hover:opacity-90"

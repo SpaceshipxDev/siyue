@@ -6,7 +6,9 @@
 // is what makes optimistic UI + poll-reconcile + undo all trivial.
 
 export type ColKind = 'img' | 'text'
-export type Col = { id: string; label: string; kind: ColKind }
+// w = user-dragged width in px (undefined → auto share). Lives in the shared
+// column schema on purpose: the boss lays the sheet out once, everyone sees it.
+export type Col = { id: string; label: string; kind: ColKind; w?: number }
 
 export type Group = {
   id: string
@@ -75,6 +77,8 @@ export type Op =
   | { type: 'delGroup'; id: string }
   | { type: 'addRows'; rows: Row[] }
   | { type: 'editCell'; rowId: string; colId: string; value: string }
+  | { type: 'setCells'; rowId: string; patch: Record<string, string> } // batch cells of one row ('' deletes)
+  | { type: 'resizeColumn'; id: string; w: number }
   | { type: 'setStage'; rowId: string; stage: string; done: StageDone | null }
   | { type: 'setFlag'; rowId: string; flag: boolean }
   | { type: 'delRow'; id: string }
@@ -127,6 +131,24 @@ export function applyOp(s: SheetState, op: Op): SheetState {
           else cells[op.colId] = op.value
           return { ...r, cells }
         }),
+      }
+    case 'setCells':
+      return {
+        ...s,
+        rows: s.rows.map((r) => {
+          if (r.id !== op.rowId) return r
+          const cells = { ...r.cells }
+          for (const [k, v] of Object.entries(op.patch)) {
+            if (v === '') delete cells[k]
+            else cells[k] = v
+          }
+          return { ...r, cells }
+        }),
+      }
+    case 'resizeColumn':
+      return {
+        ...s,
+        columns: s.columns.map((c) => (c.id === op.id ? { ...c, w: op.w } : c)),
       }
     case 'setStage':
       return {

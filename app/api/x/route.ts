@@ -24,6 +24,8 @@ const OP_TYPES = new Set([
   'delGroup',
   'addRows',
   'editCell',
+  'setCells',
+  'resizeColumn',
   'setStage',
   'setFlag',
   'delRow',

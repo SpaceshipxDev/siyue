@@ -254,6 +254,38 @@ async function applyOne(sheet: SheetRow, op: Op): Promise<void> {
       await supabase.from('x_rows').update({ cells }).eq('id', op.rowId)
       return
     }
+    case 'setCells': {
+      const { data } = await supabase
+        .from('x_rows')
+        .select('cells')
+        .eq('id', op.rowId)
+        .eq('sheet_id', sheet.id)
+        .single()
+      if (!data) return
+      const cells = { ...(data.cells ?? {}) } as Record<string, string>
+      const entries = Object.entries(op.patch ?? {}).slice(0, 100)
+      for (const [k, v] of entries) {
+        const key = clip(k, 64)
+        if (typeof v !== 'string' || v === '') delete cells[key]
+        else cells[key] = v.slice(0, 200000)
+      }
+      await supabase.from('x_rows').update({ cells }).eq('id', op.rowId)
+      return
+    }
+    case 'resizeColumn': {
+      const w = Math.round(Number(op.w))
+      if (!Number.isFinite(w)) return
+      const fresh = await currentColumns(sheet.id)
+      await supabase
+        .from('x_sheets')
+        .update({
+          columns: fresh.map((c) =>
+            c.id === op.id ? { ...c, w: Math.min(600, Math.max(40, w)) } : c,
+          ),
+        })
+        .eq('id', sheet.id)
+      return
+    }
     case 'setStage': {
       const { data } = await supabase
         .from('x_rows')
