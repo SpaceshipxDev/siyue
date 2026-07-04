@@ -7,8 +7,8 @@ import { showToast } from '@/app/_toast'
 import {
   fmtPlanLabel,
   stagePlanState,
+  type PlanKey,
   type RollupKind,
-  type Stage,
   type StagePlanTone,
 } from '@/lib/data'
 
@@ -46,7 +46,7 @@ function StagePlanDate({
   canEdit,
 }: {
   jobId: string
-  stage: Stage
+  stage: PlanKey
   value?: string
   rollupKind: RollupKind
   canEdit: boolean
@@ -110,8 +110,8 @@ export function StagePlanBand({
   canEdit,
 }: {
   jobId: string
-  stagePlan: Partial<Record<Stage, string>>
-  stages: { stage: Stage; kind: RollupKind }[]
+  stagePlan: Partial<Record<PlanKey, string>>
+  stages: { stage: PlanKey; kind: RollupKind }[]
   canEdit: boolean
 }) {
   if (!stages.length) return null

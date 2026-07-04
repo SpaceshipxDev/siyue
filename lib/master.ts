@@ -7,7 +7,7 @@
 // The grid renders per (row, stage) cells; this module mirrors that shape
 // 1:1 so the page handler never iterates components in JS.
 
-import type { JobStatus, JobType, ReturnReason, Stage } from './data'
+import type { JobStatus, JobType, PlanKey, ReturnReason, Stage } from './data'
 import { STAGES, dueState } from './data'
 import { today } from './today'
 import type { OrderMoneyStatus } from './order-money'
@@ -76,11 +76,11 @@ export type MasterRow = {
   /** 二次交期 — optional second delivery date. Display-only; never feeds
    *  effectiveDueDate / color / sort. Blank for legacy rows. */
   secondaryDueDate?: string
-  /** 计划交期 (排产) — per-工段 planned finish date, holistic for the job.
-   *  Keyed by Stage; value 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:mm'. Display/planning
-   *  only — NEVER feeds effectiveDueDate / color / sort / queue order. Empty
-   *  ({}) for legacy rows. Surfaces the station's own deadline in its queue. */
-  stagePlan: Partial<Record<Stage, string>>
+  /** 计划交期 (排产) — per-工段 planned finish date (plus the job-level 外协
+   *  key), holistic for the job. Keyed by PlanKey; value 'YYYY-MM-DD' or
+   *  'YYYY-MM-DDTHH:mm'. Display/planning only — NEVER feeds effectiveDueDate
+   *  / color / sort / queue order. Empty ({}) for legacy rows. */
+  stagePlan: Partial<Record<PlanKey, string>>
   notes?: string
   status: JobStatus
   createdAt?: string

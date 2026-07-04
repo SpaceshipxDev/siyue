@@ -38,6 +38,12 @@ export const PLANNABLE_STAGES: Stage[] = PRODUCTION_STAGES.filter(
   (s) => s !== '检验',
 )
 
+// 外协 carries one job-level planned return date alongside the in-house 工段
+// plans — same stage_plan map, one extra key. Deliberately NOT a Stage: it has
+// no station, no queue, no rollup column; only the 排产 band and the master
+// board's 外协 badge read it.
+export type PlanKey = Stage | '外协'
+
 export type StageStatus = 'pending' | 'in_progress' | 'done'
 
 // 检验 verdicts — the inspector's four buttons. OK finishes the stage and the
@@ -749,12 +755,12 @@ export type Job = {
   // legacy job; the floor adds it by hand. See migration 0044.
   secondaryDueDate?: string
   // 计划交期 (排产) — optional PLANNED finish date for each 工段, holistic for
-  // the whole job (one plan for all parts). Keyed by Stage; value is
-  // 'YYYY-MM-DD', or 'YYYY-MM-DDTHH:mm' when a specific hour is pinned. Purely
-  // for visibility/planning: it NEVER feeds dueState / color / sort / queue
-  // order — the contract dueDate still owns all of that. Stages with no plan
-  // are absent from the map. See migration NNNN_stage_plan + PLANNABLE_STAGES.
-  stagePlan?: Partial<Record<Stage, string>>
+  // the whole job (one plan for all parts). Keyed by PlanKey (工段 or 外协);
+  // value is 'YYYY-MM-DD', or 'YYYY-MM-DDTHH:mm' when a specific hour is
+  // pinned. Purely for visibility/planning: it NEVER feeds dueState / color /
+  // sort / queue order — the contract dueDate still owns all of that. Keys
+  // with no plan are absent from the map. See migration 0071_stage_plan.
+  stagePlan?: Partial<Record<PlanKey, string>>
   notes?: string
   status?: JobStatus
   sourceFile?: string

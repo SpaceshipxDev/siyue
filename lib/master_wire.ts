@@ -1,4 +1,4 @@
-import { STAGES, type JobStatus, type JobType, type ReturnReason, type Stage } from './data'
+import { STAGES, type JobStatus, type JobType, type PlanKey, type ReturnReason, type Stage } from './data'
 import type { MasterActiveReturn, MasterCell, MasterRow } from './master'
 import type { OrderMoneyStatus } from './order-money'
 
@@ -73,7 +73,7 @@ export type CompactMasterRow = [
   // 计划交期 (排产) — appended after yuenongBusiness (index 34). Internal
   // scheduling, not customer PII, so never scrubbed. Always an object ({} when
   // no plan); a stale client that predates this slot reads undefined → {}.
-  stagePlan: Partial<Record<Stage, string>>,
+  stagePlan: Partial<Record<PlanKey, string>>,
 ]
 
 function canSeeCustomerData(scope: Scope): boolean {

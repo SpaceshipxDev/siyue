@@ -282,7 +282,17 @@ export function StageHeader({ name }: { name: string }) {
   )
 }
 
-export function RollupCell({ rollup }: { rollup: Rollup }) {
+export function RollupCell({
+  rollup,
+  plan,
+}: {
+  rollup: Rollup
+  // 计划交期 (排产) — this stage's planned finish, shown as a small second line
+  // in cells that aren't done yet (a done cell already shows its actual date).
+  // Display-only: never feeds sort/filter/urgency. Tone follows planToneClass —
+  // strong ink for a live commitment, red only when the plan has slipped.
+  plan?: { label: string; toneClass: string }
+}) {
   // No part in this job needs the stage. Render a diagonal slash across the
   // cell — visually unmistakable as "crossed out / not applicable", and
   // distinct from the en-dash that means "not started yet."
@@ -331,9 +341,19 @@ export function RollupCell({ rollup }: { rollup: Rollup }) {
     // (faintest ink) so the cell reads as "in this job's route, not started"
     // rather than blank-and-ambiguous. Distinct from the diagonal-slash 'na'
     // cell above, which means the stage isn't in this job's route at all.
+    // With a plan set, the planned date rides under it — the same sub-line
+    // slot a done cell uses for its actual date.
     return (
-      <div className="flex h-full items-center justify-center text-[var(--color-ink-4)]">
+      <div className="flex h-full flex-col items-center justify-center gap-0.5 leading-none text-[var(--color-ink-4)]">
         <span className="mono text-[13px]">—</span>
+        {plan && (
+          <span
+            className={`mono text-[10px] ${plan.toneClass}`}
+            title="计划交期"
+          >
+            {plan.label}
+          </span>
+        )}
       </div>
     )
   }
@@ -347,6 +367,14 @@ export function RollupCell({ rollup }: { rollup: Rollup }) {
         <span className="mono text-[11px] text-[var(--color-warning)]">
           {rollup.done}/{rollup.total}
         </span>
+        {plan && (
+          <span
+            className={`mono text-[10px] ${plan.toneClass}`}
+            title="计划交期"
+          >
+            {plan.label}
+          </span>
+        )}
         {outsourced > 0 && <OutsourceCorner count={outsourced} />}
       </div>
     )

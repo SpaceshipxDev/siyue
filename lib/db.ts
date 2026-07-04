@@ -25,6 +25,7 @@ import type {
   JobType,
   OutsourceBlock,
   PartPhoto,
+  PlanKey,
   Procurement,
   ProcurementProduct,
   ProcurementStatus,
@@ -2431,10 +2432,12 @@ function masterCellFromBoardJson(v: unknown): MasterCell | undefined {
 
 // 计划交期 (排产) jsonb → typed map. Keeps only real Stage keys with a
 // non-empty string value; anything else (legacy junk, '{}') → {}.
-function stagePlanFromJson(v: unknown): Partial<Record<Stage, string>> {
+function stagePlanFromJson(v: unknown): Partial<Record<PlanKey, string>> {
   const raw = asRecord(v)
-  const out: Partial<Record<Stage, string>> = {}
-  for (const stage of STAGES) {
+  const out: Partial<Record<PlanKey, string>> = {}
+  // 外协 rides in the same jsonb map as the 工段 keys — see PlanKey.
+  const keys: readonly PlanKey[] = [...STAGES, '外协']
+  for (const stage of keys) {
     const val = raw[stage]
     if (typeof val === 'string' && val) out[stage] = val
   }
@@ -4323,7 +4326,7 @@ export async function updateJob(jobId: string, patch: JobPatch): Promise<void> {
 // The jobs UPDATE fires refresh_master_board_jobs, so the board mirror follows.
 export async function setJobStagePlan(
   jobId: string,
-  stage: Stage,
+  stage: PlanKey,
   value: string | null,
 ): Promise<void> {
   await withWriteLock(async () => {

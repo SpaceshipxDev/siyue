@@ -7,9 +7,11 @@ import {
   STAGES,
   daysFromToday,
   dueState,
+  fmtPlanLabel,
   formatCny,
   jobIntakeDate,
   jobNoSortKey,
+  stagePlanState,
   type Stage,
 } from '@/lib/data'
 import {
@@ -28,6 +30,7 @@ import { DueCell, MoneyCell, RollupCell } from './_ui'
 import { ORDER_STATUS_LABEL } from '@/lib/order-money'
 import { JobStageActionButton } from './_cell'
 import { JobNotesInline } from './_editable'
+import { planToneClass } from './_stage_plan'
 import { ReturnChip } from './_returns'
 import { TypeChip, useOptimisticJobType } from './_type_chip'
 import { SearchInput } from './_search'
@@ -1420,16 +1423,31 @@ function JobRow({
               <Highlight text={row.jobNo} q={q} />
             </Link>
           </div>
-          {row.hasOpenOutsource && (
-            <span
-              className="row-badge"
-              data-tone="info"
-              title="此工单有零件正在外协"
-              aria-label="此工单有外协"
-            >
-              外协
-            </span>
-          )}
+          {row.hasOpenOutsource &&
+            (() => {
+              // 外协's job-level 计划时间 rides inside the badge itself — one
+              // element, date = plan, red = the planned return has slipped.
+              const wxPlan = row.stagePlan?.['外协']
+              // MM-DD, not the M/D plan shorthand — next to n/m rollup cells
+              // a "7/3" date reads as a count.
+              const wxDate = wxPlan ? wxPlan.slice(5, 10) : ''
+              const slipped =
+                wxPlan && dueState(wxPlan.slice(0, 10)) === 'overdue'
+              return (
+                <span
+                  className="row-badge"
+                  data-tone={slipped ? 'overdue' : 'info'}
+                  title={
+                    wxPlan
+                      ? `此工单有零件正在外协 · 计划 ${wxDate}`
+                      : '此工单有零件正在外协'
+                  }
+                  aria-label="此工单有外协"
+                >
+                  外协{wxDate ? ` ${wxDate}` : ''}
+                </span>
+              )
+            })()}
           {row.hasOpenInspectionVerdict && (
             <span
               className="row-badge"
@@ -1536,6 +1554,19 @@ function JobRow({
       )}
       {STAGES.map((stage) => {
         const isHighlighted = stage === highlightStage
+        const rollup = rowRollupStage(row, stage)
+        // 计划交期 — the stage's planned finish rides in the cell as a small
+        // second line until the stage is done (a done cell shows its actual
+        // date instead). Read-only here; edited in the job's 排产 band.
+        const planned = row.stagePlan?.[stage]
+        const planSt = stagePlanState(planned, rollup.kind)
+        const plan =
+          planned && planSt && planSt.tone !== 'done'
+            ? {
+                label: fmtPlanLabel(planned),
+                toneClass: planToneClass(planSt.tone),
+              }
+            : undefined
         // Highlighted column when actionable: never changes color on hover
         // (the button paints its own state). Other columns keep the brown
         // hover so the row is clickable to job detail.
@@ -1561,13 +1592,12 @@ function JobRow({
         // brown and navigated to /jobs/[id] instead of giving the head a way
         // to interact with the stage. The head's column owns stage actions.
         if (isHighlighted && highlightIsActionable) {
-          const rollup = rowRollupStage(row, stage)
           const cnts = rowStageCounts(row, stage)
           const totalCounted = cnts.inProgress + cnts.pending + cnts.done
           if (totalCounted === 0) {
             return (
               <td key={stage} className="p-0 h-[78px]" style={cellBgStyle}>
-                <RollupCell rollup={rollup} />
+                <RollupCell rollup={rollup} plan={plan} />
               </td>
             )
           }
@@ -1594,7 +1624,7 @@ function JobRow({
               className={`block h-full w-full ${hoverCls} transition-colors`}
               aria-label={`${row.jobNo} · ${stage}`}
             >
-              <RollupCell rollup={rowRollupStage(row, stage)} />
+              <RollupCell rollup={rollup} plan={plan} />
             </Link>
           </td>
         )

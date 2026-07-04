@@ -106,7 +106,7 @@ import {
   requireUser,
   type AuthUser,
 } from '@/lib/auth'
-import type { JobType, Stage, Verdict } from '@/lib/data'
+import type { JobType, PlanKey, Stage, Verdict } from '@/lib/data'
 import { isCaiwuSheet, JOB_TYPES, STAGES, VERDICTS } from '@/lib/data'
 import { isExpenseCategory } from '@/lib/expenses'
 import { isDimRow, type InspectionReportPatch } from '@/lib/inspection-report'
@@ -213,6 +213,11 @@ function isStage(x: unknown): x is Stage {
   // 喷漆丝印 → 喷漆/丝印 split (migration 0040) showed how a hand-copied stage
   // list silently drifts out of sync with lib/data.ts.
   return isString(x) && (STAGES as readonly string[]).includes(x)
+}
+
+// stage_plan keys: any 工段 plus the job-level 外协 slot (see PlanKey).
+function isPlanKey(x: unknown): x is PlanKey {
+  return isStage(x) || x === '外协'
 }
 
 function isVerdict(x: unknown): x is Verdict {
@@ -548,7 +553,7 @@ async function dispatch(
       const jobId = body.jobId
       const stage = body.stage
       const value = body.value
-      if (!isString(jobId) || !isStage(stage))
+      if (!isString(jobId) || !isPlanKey(stage))
         return err('bad setStagePlan args')
       if (value !== null && value !== undefined && !isString(value))
         return err('bad stage plan value')
