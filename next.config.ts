@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Mount the whole app under a sub-path for the /demo sales build
+  // (siyue.ai/demo, a second pm2 process). Set at build time and inlined
+  // into the client bundle. Must be `undefined` (not '') for the default
+  // no-op: the basePath docs say the default is an empty string, but the
+  // config expects the key absent — passing '' is not the documented
+  // no-op, whereas `|| undefined` leaves prod builds untouched.
+  basePath: process.env.NEXT_PUBLIC_BASE_PATH || undefined,
   experimental: {
     viewTransition: true,
     // Order workbooks (报价单/生产单) carry embedded part photos and routinely

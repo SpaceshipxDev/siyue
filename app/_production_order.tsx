@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useState } from 'react'
+import { withBase } from '@/lib/base-path'
 
 // 生产单 export row — the "file out" twin of the 源文件 "file in" row, sharing
 // its exact geometry so the two stack into one tidy documents zone. Clicking
@@ -27,7 +28,7 @@ export function ProductionOrderRow({
     setError(null)
     setPending(true)
     try {
-      const r = await fetch(`/jobs/${jobId}/production-order`)
+      const r = await fetch(withBase(`/jobs/${jobId}/production-order`))
       if (!r.ok) throw new Error(`导出失败 (${r.status})`)
       const blob = await r.blob()
       const url = URL.createObjectURL(blob)

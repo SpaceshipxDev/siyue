@@ -79,6 +79,32 @@ export async function proxy(request: NextRequest) {
   const session = await decrypt(token)
 
   if (!session) {
+    // Demo auto-login (the /demo sales build). With DEMO_MODE=1 and a
+    // seeded DEMO_USER_ID, mint a commerce session on the fly so a
+    // prospect lands straight in the app with no PIN. We set the cookie on
+    // BOTH the request (so this same render's DB-backed currentUser()
+    // already sees it — no login bounce on first hit) and the response (so
+    // the browser keeps it). /login stays exempt so the real login form is
+    // still reachable inside the demo. This whole branch is inert in prod:
+    // DEMO_MODE is unset, so the original redirect path below runs.
+    const demoUserId = process.env.DEMO_USER_ID
+    if (process.env.DEMO_MODE === '1' && demoUserId && pathname !== '/login') {
+      const demoToken = await encrypt({
+        sub: demoUserId,
+        role: 'commerce',
+        ds: undefined,
+      })
+      request.cookies.set(SESSION_COOKIE, demoToken)
+      const res = NextResponse.next({ request: { headers: request.headers } })
+      res.cookies.set(SESSION_COOKIE, demoToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 30,
+      })
+      return res
+    }
     if (isPublic) return NextResponse.next()
     const url = request.nextUrl.clone()
     url.pathname = '/login'
@@ -145,6 +171,13 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
+    // Bare '/' listed explicitly: under a basePath build (the /demo sales
+    // demo), the broad regex below compiles to `^/demo(?:/(...))…` whose
+    // path group REQUIRES a slash after the basePath — so `/demo` itself
+    // (the exact URL a prospect opens) would bypass the proxy and never get
+    // the demo auto-login. In prod (no basePath) this entry is a harmless
+    // duplicate of the broad pattern.
+    '/',
     // Skip _next, static assets, favicon, and the client-side STEP engine.
     // The OpenCascade WASM engine + its worker (occt.worker.js /
     // occt-import-js.js / .wasm) are static /public assets fetched by a Web

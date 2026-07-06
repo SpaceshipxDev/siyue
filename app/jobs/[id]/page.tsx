@@ -1,4 +1,5 @@
 import { notFound, redirect } from 'next/navigation'
+import { withBase } from '@/lib/base-path'
 import {
   STAGES,
   componentShipmentEntries,
@@ -783,7 +784,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           floor reads it, 商务/工程 head raise + clear. */}
                       <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
                         <a
-                          href={`/jobs/${job.id}/print/inspection/${encodeURIComponent(c.id)}`}
+                          href={withBase(`/jobs/${job.id}/print/inspection/${encodeURIComponent(c.id)}`)}
                           target="_blank"
                           rel="noopener"
                           className="text-[10px] tracking-wider text-[var(--color-ink-4)] hover:text-[var(--color-ink)] transition-colors whitespace-nowrap"
@@ -1254,7 +1255,7 @@ function JobFinancePanel({
         <p className="mt-6 text-[12px] text-[var(--color-ink-4)]">
           全部开票 / 收款记录见{' '}
           <a
-            href="/finance?tab=kaipiao"
+            href={withBase('/finance?tab=kaipiao')}
             className="text-[var(--color-ink-2)] underline decoration-[var(--color-border-strong)] underline-offset-2 hover:text-[var(--color-ink)] hover:decoration-[var(--color-ink)]"
           >
             财务

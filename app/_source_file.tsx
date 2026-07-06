@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState, useTransition } from 'react'
 import { proxiedStorageUrl } from '@/lib/storage-url'
+import { withBase } from '@/lib/base-path'
 
 // 源文件 row — minimal commerce-only widget for the original Excel that
 // kicked off the job. Filename is plain text; the trailing slot is two
@@ -41,7 +42,7 @@ export function SourceFileRow({
         const fd = new FormData()
         fd.append('file', file)
         fd.append('jobId', jobId)
-        const r = await fetch('/api/source-file', { method: 'POST', body: fd })
+        const r = await fetch(withBase('/api/source-file'), { method: 'POST', body: fd })
         const data = (await r.json()) as
           | { ok: true; url: string; fileName: string }
           | { ok: false; error: string }

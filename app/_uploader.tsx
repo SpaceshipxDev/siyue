@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useRef, useState } from 'react'
+import { withBase } from '@/lib/base-path'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
@@ -65,7 +66,7 @@ export function MasterUploader() {
         const tab = tabs[i]
         const fd = new FormData()
         fd.append('file', file)
-        fetch('/api/ingest', { method: 'POST', body: fd })
+        fetch(withBase('/api/ingest'), { method: 'POST', body: fd })
           .then(async (r) => {
             const data = (await r.json()) as
               | {

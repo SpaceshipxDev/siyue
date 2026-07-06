@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useRef, useState } from 'react'
+import { withBase } from '@/lib/base-path'
 import Link from 'next/link'
 import { APP_TITLE } from '@/lib/brand'
 
@@ -47,7 +48,7 @@ export default function BackendPage() {
     try {
       const fd = new FormData()
       for (const f of list) fd.append('files', f)
-      const res = await fetch('/api/parse-xlsx', { method: 'POST', body: fd })
+      const res = await fetch(withBase('/api/parse-xlsx'), { method: 'POST', body: fd })
       const data = (await res.json()) as { files: Result[]; error?: string }
       if (data.files) {
         setResults(data.files)

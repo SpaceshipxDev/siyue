@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { withBase } from '@/lib/base-path'
 import { dispatchComponentImageUpdated } from './_image_uploader'
 
 // Batch photo dropzone for the import-review page. Accepts a folder-dump of
@@ -214,7 +215,7 @@ export function BatchPhotoUploader({
               'componentId',
               (item.match as { componentId: string }).componentId,
             )
-            const r = await fetch('/api/upload-image', {
+            const r = await fetch(withBase('/api/upload-image'), {
               method: 'POST',
               body: fd,
             })

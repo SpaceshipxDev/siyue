@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { withBase } from '@/lib/base-path'
 import type { Stage } from '@/lib/data'
 import type { MasterRow } from '@/lib/master'
 import { expandMasterWireRows, type CompactMasterRow } from '@/lib/master_wire'
@@ -37,7 +38,7 @@ function useMasterRows(): { state: RowsState; reload: () => void } {
 
   useEffect(() => {
     let alive = true
-    fetch('/api/master/rows', { cache: 'no-store' })
+    fetch(withBase('/api/master/rows'), { cache: 'no-store' })
       .then(async (r) => {
         const data = (await r.json()) as
           | { ok: true; rows: CompactMasterRow[] }

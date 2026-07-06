@@ -8,6 +8,8 @@ import {
   useState,
 } from 'react'
 import { showToast } from '@/app/_toast'
+import { withBase } from '@/lib/base-path'
+import { proxiedStorageUrl } from '@/lib/storage-url'
 import {
   applyOps,
   dayDiff,
@@ -143,7 +145,7 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
     flushing.current = true
     const batch = queue.current.slice(0, 120)
     try {
-      const r = await fetch('/api/x', {
+      const r = await fetch(withBase('/api/x'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ops: batch }),
@@ -240,7 +242,7 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
       if (stopped || document.hidden) return
       try {
         const v = stRef.current?.version ?? 0
-        const r = await fetch(`/api/x?v=${v}`, { cache: 'no-store' })
+        const r = await fetch(withBase(`/api/x?v=${v}`), { cache: 'no-store' })
         if (!r.ok) return
         const j = (await r.json()) as { unchanged?: boolean; state?: SheetState }
         if (j.unchanged || !j.state) return
@@ -673,7 +675,7 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
       try {
         const fd = new FormData()
         fd.append('file', scaled ? new File([scaled], 'x.jpg', { type: 'image/jpeg' }) : file)
-        const r = await fetch('/api/x/upload', { method: 'POST', body: fd })
+        const r = await fetch(withBase('/api/x/upload'), { method: 'POST', body: fd })
         const j = (await r.json()) as { ok?: boolean; url?: string; error?: string }
         if (!r.ok || !j.ok || !j.url) throw new Error(j.error || 'upload failed')
         dispatch([{ type: 'editCell', rowId, colId: ic.id, value: j.url }])
@@ -1302,7 +1304,7 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
           onClick={() => setLightbox(null)}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightbox} alt="" className="max-h-[92vh] max-w-[94vw] rounded-[2px] bg-white object-contain" />
+          <img src={proxiedStorageUrl(lightbox)} alt="" className="max-h-[92vh] max-w-[94vw] rounded-[2px] bg-white object-contain" />
         </div>
       )}
 
@@ -1615,7 +1617,7 @@ function RowTr({
               {src ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={src}
+                  src={proxiedStorageUrl(src)}
                   alt=""
                   className={`h-9 w-12 cursor-zoom-in rounded-[2px] border border-[var(--color-border)] bg-white object-cover ${uploadingUrl ? 'animate-pulse' : ''}`}
                 />

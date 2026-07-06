@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { withBase } from '@/lib/base-path'
 
 type Turn = { role: 'user' | 'assistant'; text: string }
 type Sheet = { name: string; aoa: (string | number | boolean | null)[][] }
@@ -36,7 +37,7 @@ export default function PlaygroundPage() {
     try {
       const fd = new FormData()
       fd.append('file', f)
-      const res = await fetch('/api/playground/upload', { method: 'POST', body: fd })
+      const res = await fetch(withBase('/api/playground/upload'), { method: 'POST', body: fd })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? `upload ${res.status}`)
       setDoc(json)
@@ -61,7 +62,7 @@ export default function PlaygroundPage() {
       const payloadDoc = doc
         ? { fileName: doc.fileName, sheets: doc.sheets }
         : null
-      const res = await fetch('/api/playground/chat', {
+      const res = await fetch(withBase('/api/playground/chat'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ doc: payloadDoc, history, message: msg }),

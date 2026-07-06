@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { withBase } from '@/lib/base-path'
 import {
   formatShipmentTimestamp,
   type Component,
@@ -160,7 +161,7 @@ function ShipmentHistoryDialog({
               {rows.map((r, i) => (
                 <li key={r.id}>
                   <a
-                    href={`/jobs/${jobId}/print/shipping?shipment=${r.id}`}
+                    href={withBase(`/jobs/${jobId}/print/shipping?shipment=${r.id}`)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="group flex items-center gap-3 px-3.5 py-3 rounded-[2px] border border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:bg-[#faf9f5] transition-colors"

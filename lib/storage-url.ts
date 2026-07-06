@@ -5,18 +5,29 @@
 //
 // Idempotent on already-proxied inputs.
 
+import { withBase } from './base-path'
+
 const SUPABASE_PUBLIC_PREFIX_RE =
   /^https:\/\/[a-z0-9-]+\.supabase\.co\/storage\/v1\/object\/public\/uploads\//
 
+// This is the render-time transform: its output is only ever used as a
+// browser-facing <img src> / <a href download>, so /api/img/ paths get
+// the build's basePath prepended here. That centrally fixes every image
+// call site under /demo. The DB write path (proxiedKeyUrl below) stays
+// unprefixed so the canonical stored value is basePath-agnostic, and
+// server-side key recovery (storageKeyFromUrl) reads those raw stored
+// values, never this output. Under prod (basePath '') withBase is an
+// identity, so this is unchanged. Idempotent-safe: an already-prefixed
+// value ('/demo/api/img/…') no longer matches the '/api/img/' guard.
 export function proxiedStorageUrl(url: string): string
 export function proxiedStorageUrl(url: undefined): undefined
 export function proxiedStorageUrl(url: string | undefined): string | undefined
 export function proxiedStorageUrl(url: string | undefined): string | undefined {
   if (!url) return url
-  if (url.startsWith('/api/img/')) return url
+  if (url.startsWith('/api/img/')) return withBase(url)
   const m = SUPABASE_PUBLIC_PREFIX_RE.exec(url)
   if (!m) return url
-  return '/api/img/' + url.slice(m[0].length)
+  return withBase('/api/img/' + url.slice(m[0].length))
 }
 
 // Helper for upload-time call sites — given a Supabase storage key, returns

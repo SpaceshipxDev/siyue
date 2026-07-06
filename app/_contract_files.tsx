@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState, useTransition } from 'react'
 import { proxiedStorageUrl } from '@/lib/storage-url'
+import { withBase } from '@/lib/base-path'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
 import { JobShippingText } from '@/app/_editable'
@@ -56,7 +57,7 @@ export function ContractFiles({
         fd.append('file', file)
         fd.append('jobId', jobId)
         try {
-          const r = await fetch('/api/upload-contract', {
+          const r = await fetch(withBase('/api/upload-contract'), {
             method: 'POST',
             body: fd,
           })

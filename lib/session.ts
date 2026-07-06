@@ -9,7 +9,10 @@ import { SignJWT, jwtVerify } from 'jose'
 // request, and demotions take effect server-side immediately. The JWT copy
 // is only ever used for proxy-level UX redirects.
 
-export const SESSION_COOKIE = 'siyue_session'
+// Env-driven so the /demo build can run its own session cookie
+// (siyue_demo_session) side-by-side with production on the same host
+// without the two clobbering each other. Defaults to the prod name.
+export const SESSION_COOKIE = process.env.SESSION_COOKIE_NAME || 'siyue_session'
 const TTL_SECONDS = 60 * 60 * 24 * 30 // 30 days
 
 // Read SESSION_SECRET lazily — Next.js evaluates this module during the

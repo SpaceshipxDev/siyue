@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { withBase } from '@/lib/base-path'
 import { useEffect, useId, useRef, useState, useTransition } from 'react'
 import {
   OUTSOURCEABLE_STAGES,
@@ -1875,7 +1876,7 @@ export function BlockKebab({
           className="absolute right-0 z-10 mt-1 min-w-[160px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg py-1 text-[12px]"
         >
           <a
-            href={`/print/outsource/${blockId}`}
+            href={withBase(`/print/outsource/${blockId}`)}
             target="_blank"
             rel="noopener"
             onClick={() => setOpen(false)}

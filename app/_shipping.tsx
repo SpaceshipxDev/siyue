@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
+import { withBase } from '@/lib/base-path'
 import { useRouter } from 'next/navigation'
 import {
   componentShipmentEntries,
@@ -44,7 +45,7 @@ export function ShippingComposerButton({
         type="button"
         onClick={() => {
           if (reprintOnly) {
-            window.open(`/jobs/${jobId}/print/shipping`, '_blank', 'noopener')
+            window.open(withBase(`/jobs/${jobId}/print/shipping`), '_blank', 'noopener')
             return
           }
           setOpen(true)
@@ -211,7 +212,7 @@ export function ShippingComposer({
           jobId,
           selections,
         })
-        window.open(`/jobs/${jobId}/print/shipping`, '_blank', 'noopener')
+        window.open(withBase(`/jobs/${jobId}/print/shipping`), '_blank', 'noopener')
         // /jobs/[id] is force-dynamic; one router.refresh after a once-per-
         // batch action is acceptable. Inline edits already bypass refresh.
         router.refresh()

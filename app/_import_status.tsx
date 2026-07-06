@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { withBase } from '@/lib/base-path'
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { deleteJobAction } from './actions'
@@ -55,7 +56,7 @@ export function ParsingPoller({
     const tick = window.setInterval(() => setElapsed((s) => s + 1), 1_000)
     const poll = window.setInterval(async () => {
       try {
-        const r = await fetch(`/api/job-status/${jobId}`, {
+        const r = await fetch(withBase(`/api/job-status/${jobId}`), {
           cache: 'no-store',
         })
         if (!r.ok) return
@@ -87,7 +88,7 @@ export function ParsingPoller({
     setActionError(null)
     startRetry(async () => {
       try {
-        const r = await fetch('/api/retry-parse', {
+        const r = await fetch(withBase('/api/retry-parse'), {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ jobId }),

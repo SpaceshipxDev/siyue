@@ -15,6 +15,7 @@ import {
 } from '@/lib/db'
 import { BRAND } from '@/lib/brand'
 import { proxiedStorageUrl } from '@/lib/storage-url'
+import { withBase } from '@/lib/base-path'
 import { portalDelayReason, portalPromise, portalShipped } from './_actions'
 import { DEMO_COOKIE, DEMO_TOKEN, demoBlocks, demoVendor } from './_demo'
 
@@ -638,9 +639,14 @@ function applyDemoCookie(blocks: OutsourceBlock[], raw?: string): OutsourceBlock
 // Member images live behind the session-gated /api/img proxy; the portal has
 // no session, so it streams them through its own token-gated route instead.
 function portalImgSrc(imageUrl: string, token: string): string {
+  // proxiedStorageUrl now returns a basePath-prefixed /api/img path
+  // (withBase). Compare against the same prefixed form so we still
+  // recognise proxied images and re-route them through the token-gated
+  // portal proxy, itself under basePath.
   const proxied = proxiedStorageUrl(imageUrl)
-  if (proxied.startsWith('/api/img/')) {
-    return `/w/${token}/img/${proxied.slice('/api/img/'.length)}`
+  const apiImg = withBase('/api/img/')
+  if (proxied.startsWith(apiImg)) {
+    return withBase(`/w/${token}/img/${proxied.slice(apiImg.length)}`)
   }
   return proxied
 }

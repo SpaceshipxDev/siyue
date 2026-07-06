@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { formatCny, STAGES, type Stage } from '@/lib/data'
 import { proxiedStorageUrl } from '@/lib/storage-url'
+import { withBase } from '@/lib/base-path'
 
 // 报工 — the whole page, client-driven. Switching station / period and
 // expanding a person are all local + tiny fetches (no full-page navigation),
@@ -104,7 +105,7 @@ export function ReportClient({
     setDrills({})
     const q = new URLSearchParams({ from, to })
     if (stage) q.set('stage', stage)
-    fetch(`/api/report?${q.toString()}`, { cache: 'no-store' })
+    fetch(withBase(`/api/report?${q.toString()}`), { cache: 'no-store' })
       .then((r) => r.json())
       .then((d) => {
         if (!alive) return
@@ -131,8 +132,8 @@ export function ReportClient({
       const req = ++drillReq.current
       const q = new URLSearchParams({ from, to, w: name })
       if (stage) q.set('stage', stage)
-      fetch(`/api/report?${q.toString()}`, { cache: 'no-store' })
-        .then((r) => r.json())
+      fetch(withBase(`/api/report?${q.toString()}`), { cache: 'no-store' })
+  .then((r) => r.json())
         .then((d) => {
           if (req !== drillReq.current) return
           if (d.ok) setDrills((prev) => ({ ...prev, [name]: d.jobs ?? [] }))
@@ -517,7 +518,7 @@ function ExportButton({
       // export is complete, not the flat per-person count.
       const q = new URLSearchParams({ from, to, mode: 'export' })
       if (stage) q.set('stage', stage)
-      const res = await fetch(`/api/report?${q.toString()}`, { cache: 'no-store' }).then((r) => r.json())
+      const res = await fetch(withBase(`/api/report?${q.toString()}`), { cache: 'no-store' }).then((r) => r.json())
       const orders: ExportOrder[] = res?.ok ? res.orders ?? [] : []
 
       const XLSX = await import('xlsx')

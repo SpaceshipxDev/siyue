@@ -25,6 +25,8 @@
 //   • Structured server errors ({ ok: false, error }) are NOT retried — the
 //     server told us why and another attempt would fail the same way.
 
+import { withBase } from '@/lib/base-path'
+
 export type MutateResult<T = undefined> =
   | (T extends undefined ? { ok: true } : { ok: true; data: T })
 
@@ -53,7 +55,7 @@ async function attempt<T>(
 ): Promise<MutateResult<T>> {
   let r: Response
   try {
-    r = await fetch('/api/mutate', {
+    r = await fetch(withBase('/api/mutate'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { withBase } from '@/lib/base-path'
 
 // Sits at /…/pdf and immediately bounces to /…/pdf/raw, where the
 // browser's native PDF viewer handles streaming, slow renders, and the
@@ -38,7 +39,7 @@ export function PdfLoader({
     // replace() so the back button skips this loader page; the user's
     // history reads as if they went straight to the PDF.
     try {
-      window.location.replace(rawHref)
+      window.location.replace(withBase(rawHref))
     } catch {
       // Some embedded webviews block programmatic replace(). The
       // manual "如未跳转…" link below is the fallback.
@@ -56,7 +57,7 @@ export function PdfLoader({
             {progress}
           </p>
           <a
-            href={rawHref}
+            href={withBase(rawHref)}
             className="mt-4 inline-block text-[12px] text-[var(--color-ink-3)] underline underline-offset-4 hover:text-[var(--color-ink)]"
           >
             如未跳转，点此打开 PDF

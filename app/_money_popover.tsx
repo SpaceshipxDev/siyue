@@ -10,6 +10,7 @@ import {
 import { createPortal } from 'react-dom'
 import { MoneyCell } from './_ui'
 import { mutate } from '@/lib/mutate'
+import { withBase } from '@/lib/base-path'
 import { showToast } from './_toast'
 import { formatCny } from '@/lib/data'
 import { orderMoneyStatusFrom, type OrderMoneyStatus } from '@/lib/order-money'
@@ -213,7 +214,7 @@ export function MoneyCellInteractive({
   const load = useCallback(async () => {
     setLoadErr(null)
     try {
-      const r = await fetch(`/api/order-money?jobId=${encodeURIComponent(jobId)}`)
+      const r = await fetch(withBase(`/api/order-money?jobId=${encodeURIComponent(jobId)}`))
       const data = (await r.json()) as
         | { ok: true; shipments: Ship[] }
         | { ok: false; error: string }
@@ -391,7 +392,7 @@ export function JobMoneyEditor({
 
   useEffect(() => {
     let alive = true
-    fetch(`/api/order-money?jobId=${encodeURIComponent(jobId)}`)
+    fetch(withBase(`/api/order-money?jobId=${encodeURIComponent(jobId)}`))
       .then((r) => r.json())
       .then((d: { ok: true; shipments: Ship[] } | { ok: false; error: string }) => {
         if (!alive) return

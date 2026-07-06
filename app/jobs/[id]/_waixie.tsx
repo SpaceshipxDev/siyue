@@ -18,6 +18,7 @@ import {
 import { mutate } from '@/lib/mutate'
 import { today } from '@/lib/today'
 import { proxiedStorageUrl } from '@/lib/storage-url'
+import { withBase } from '@/lib/base-path'
 import { BRAND } from '@/lib/brand'
 import { DatePop } from '@/app/_datepop'
 import { showToast } from '@/app/_toast'
@@ -350,7 +351,7 @@ export function WaixieTable({
       ...(sent.portalToken
         ? [
             '点开回交期、报发货（免登录，链接固定可收藏）：',
-            `${window.location.origin}/w/${sent.portalToken}`,
+            `${window.location.origin}${withBase(`/w/${sent.portalToken}`)}`,
           ]
         : []),
     ]
@@ -379,7 +380,7 @@ export function WaixieTable({
             复制微信消息 → 发给{sent.vendorName}
           </button>
           <a
-            href={`/print/outsource/${sent.blockId}`}
+            href={withBase(`/print/outsource/${sent.blockId}`)}
             target="_blank"
             className="text-[13px] text-[var(--color-ink-2)] underline underline-offset-4"
           >

@@ -3,6 +3,7 @@
 import { blockActivityLabel, type OutsourceBlock, type Vendor } from '@/lib/data'
 import { BRAND } from '@/lib/brand'
 import { showToast } from './_toast'
+import { withBase } from '@/lib/base-path'
 
 // 复制微信消息 — the whole growth loop hangs on this one button. The 外协员
 // already sends the vendor a WeChat message per dispatch; this composes that
@@ -19,7 +20,7 @@ function mdCn(ymd?: string): string {
 }
 
 function portalUrl(token: string): string {
-  return `${window.location.origin}/w/${token}`
+  return `${window.location.origin}${withBase(`/w/${token}`)}`
 }
 
 async function copyText(text: string): Promise<boolean> {

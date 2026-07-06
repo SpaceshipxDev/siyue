@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useTransition } from 'react'
+import { withBase } from '@/lib/base-path'
 import type { PartPhoto, StageState, Verdict } from '@/lib/data'
 import { BLOCKING_VERDICTS, isBlockingVerdict } from '@/lib/data'
 import { mutate } from '@/lib/mutate'
@@ -585,7 +586,7 @@ function InspectionPhotos({
           fd.append('file', file)
           fd.append('jobId', jobId)
           fd.append('componentId', componentId)
-          const r = await fetch('/api/upload-inspection-photo', {
+          const r = await fetch(withBase('/api/upload-inspection-photo'), {
             method: 'POST',
             body: fd,
           })

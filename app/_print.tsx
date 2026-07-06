@@ -1,5 +1,7 @@
 'use client'
 
+import { withBase } from '@/lib/base-path'
+
 // Toolbar shown on the editable doc pages (出货单 / 外协单). The 打印 button
 // opens the deterministic PDF render in a new tab so the user prints from the
 // browser's PDF viewer — much more reliable than window.print() on the live
@@ -8,7 +10,7 @@ export function PrintToolbar({ pdfHref }: { pdfHref: string }) {
   return (
     <div className="no-print fixed top-3 right-3 flex items-center gap-2 z-50">
       <a
-        href={pdfHref}
+        href={withBase(pdfHref)}
         target="_blank"
         rel="noopener"
         className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80"
