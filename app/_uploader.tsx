@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react'
 import { withBase } from '@/lib/base-path'
+import { BRAND } from '@/lib/brand'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
@@ -164,7 +165,7 @@ export function MasterUploader() {
             {drag ? '松开以上传' : '拖入或点击上传 Excel'}
           </p>
           <p className="mt-1 text-[12px] text-[var(--color-ink-3)]">
-            支持 .xlsx / .xls / .csv · YNMX-* 报价单 / 生产单
+            支持 .xlsx / .xls / .csv · {BRAND.code}-* 报价单 / 生产单
           </p>
         </div>
 
