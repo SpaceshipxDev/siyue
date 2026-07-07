@@ -301,10 +301,12 @@ function CellShell({
   )
 }
 
-// The 排产 annotation — this stage's planned finish, pinned inside the cell's
-// top edge, pointer-events-none so the full-cell action button underneath
-// keeps its whole tap target. Tone: strong ink for a live commitment, red
-// when slipped, faint ink-4 once the stage is done. Exported so the station
+// The 排产 annotation — this stage's planned finish, tucked into the cell's
+// TOP-RIGHT corner like a spreadsheet cell mark: off the glyph's center axis
+// entirely, so the ▶/⏸/✓ stack never shares its vertical line with a date.
+// pointer-events-none so the full-cell action button underneath keeps its
+// whole tap target. Tone: strong ink for a live commitment, red when
+// slipped, faint ink-4 once the stage is done. Exported so the station
 // action-button cell shares the exact markup.
 export function PlanNote({
   plan,
@@ -314,7 +316,7 @@ export function PlanNote({
   if (!plan) return null
   return (
     <span
-      className={`pointer-events-none absolute left-1/2 top-[5px] -translate-x-1/2 mono text-[10px] font-medium leading-none tabular-nums ${plan.toneClass}`}
+      className={`pointer-events-none absolute right-[5px] top-[4px] mono text-[10px] font-medium leading-none tabular-nums ${plan.toneClass}`}
       title="计划交期"
     >
       {plan.label}
