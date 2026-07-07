@@ -217,7 +217,6 @@ export function MasterSheet({
   role,
   defaultStage,
   stageFilter,
-  actionableHighlight = false,
 }: {
   rows: MasterRow[]
   role: Role
@@ -225,11 +224,6 @@ export function MasterSheet({
   defaultStage?: Stage
   /** URL ?stage filter — narrows the view to one station. */
   stageFilter?: Stage
-  /** When true, the highlighted column renders the start/pause action button
-   * for each job, even though the page itself isn't a station-filtered view.
-   * 工程 head's holistic master view sets this so they can drive their stage
-   * cells from the same flat grid commerce sees, without losing the actions. */
-  actionableHighlight?: boolean
 }) {
   // Scope persisted filter state per view context so the commerce overview,
   // /?stage=工程, and any station-filtered overview each remember their own
@@ -311,8 +305,7 @@ export function MasterSheet({
   // 工程 is the one stage that intentionally uses the flat master grid even
   // when it's the URL filter — page.tsx already skips StationWorkbench for it,
   // and we mirror that here so the mine/upstream/done partition + pagination
-  // cap match the 商务 overview. Highlight + per-cell action button still fire
-  // off `highlightStage` / `actionableHighlight`, which are decoupled.
+  // cap match the 商务 overview.
   const treatAsOverview = !stageFilter || stageFilter === '工程'
   // Tabs + pagination + flat-list rendering all key off the overview shape.
   // Renamed from the old `!stageFilter` so adding 工程 didn't require touching
@@ -365,11 +358,6 @@ export function MasterSheet({
   // through the flat master grid even when it's the URL filter (see
   // `treatAsOverview` above).
   const isStationView = !treatAsOverview
-  // Render start/pause buttons in the highlighted column even outside a
-  // formal station view — used by the 工程 head on the holistic master grid
-  // so they keep their stage controls without falling into the station-style
-  // mine/upstream/done partition.
-  const highlightIsActionable = isStationView || actionableHighlight
 
   // Pipeline: text → sort by mode → date filter → partition. The parent
   // pre-sorts by due date but we re-sort here so the toggle is purely local.
@@ -786,22 +774,19 @@ export function MasterSheet({
             <col style={{ width: 220 }} />
             {showMoney && <col style={{ width: 120 }} />}
             {STAGES.map((s) => {
-              const isHighlighted = s === highlightStage
-              // Highlighted column gets extra width for the action button +
-              // timer chip stack on the station view. The width is the ONLY
-              // signal for the home/station column now — no background tint, so
-              // it reads as the same base surface as every other column.
-              const width = isHighlighted ? 168 : 88
+              // Every stage column is the SAME width — the board is one uniform
+              // surface. (The old 168px "viewer's home stage" column is gone:
+              // with every cell carrying its own ▶/⏸/✓ action, no column is
+              // special anymore.)
               // Cool wash on a column with a live filter — the one remaining
-              // column tint. The home/action column is deliberately left
-              // untinted so the board reads as one uniform surface.
+              // column tint.
               const isFilteredCol =
                 treatAsOverview && Boolean(statusByStage[s])
               const colBg = isFilteredCol ? 'var(--color-info-soft)' : undefined
               return (
                 <col
                   key={s}
-                  style={{ width, background: colBg }}
+                  style={{ width: 88, background: colBg }}
                 />
               )
             })}
@@ -957,7 +942,6 @@ export function MasterSheet({
                   isProduction={isProduction}
                   showMoney={showMoney}
                   highlightStage={highlightStage}
-                  highlightIsActionable={highlightIsActionable}
                   tier={item.tier}
                   canEditType={canEditType}
                   jobType={effectiveType(row)}
@@ -1300,7 +1284,6 @@ function JobRow({
   isProduction,
   showMoney,
   highlightStage,
-  highlightIsActionable,
   tier,
   canEditType,
   jobType,
@@ -1318,11 +1301,9 @@ function JobRow({
   q: string
   isProduction: boolean
   showMoney: boolean
+  /** The viewer's own station — used only to scope the elapsed-time chip to
+   * one column. Every cell renders its action button regardless. */
   highlightStage?: Stage
-  /** True when the highlighted column should render its action button — set
-   * for both the per-station workbench and the 工程 head's holistic master
-   * grid. Drives the start/pause cell vs static rollup decision. */
-  highlightIsActionable: boolean
   /** Visual tier on the station view:
    *   'mine'     — full color, actionable
    *   'upstream' — opacity-50, "incoming"
@@ -1342,21 +1323,13 @@ function JobRow({
   onProductChange: (next: boolean) => void
   onPauseChange: (next: boolean, reason?: string) => void
 }) {
-  // The head's own column is NEVER a navigation Link — clicks here are
-  // stage-action gestures. Three flavors:
-  //   • something to act on  → JobStageActionButton (advance / undo). Timer
-  //                            chip beneath only when this row is "mine"
-  //                            (in_progress here, or pending+canStart with
-  //                            all priors done).
-  //   • nothing to act on    → plain RollupCell (n/a or all-outsourced —
-  //                            no in-house counts at this stage).
-  //
-  // Other stages on the row keep the existing Link → /jobs/[id] behavior so
-  // the row stays drillable from any non-head column.
-  const isMineHere =
-    highlightIsActionable && highlightStage
-      ? rowIsMineAtStage(row, highlightStage)
-      : false
+  // Timer chip: only for the viewer's own station column, and only when this
+  // row is "mine" there (in_progress here, or pending with all priors done).
+  // Every stage cell is an action button now (see the STAGES.map below), but
+  // the elapsed-time read stays scoped to the home column so rows stay calm.
+  const isMineHere = highlightStage
+    ? rowIsMineAtStage(row, highlightStage)
+    : false
   const timer =
     isMineHere && highlightStage ? rowTimerAtStage(row, highlightStage) : null
   // Returns override the master-grid color/sort while open — effective due
@@ -1572,35 +1545,22 @@ function JobRow({
                     : planToneClass(planSt.tone),
               }
             : undefined
-        // Highlighted column when actionable: never changes color on hover
-        // (the button paints its own state). Other columns keep the brown
-        // hover so the row is clickable to job detail.
-        const hoverCls =
-          isHighlighted && highlightIsActionable
-            ? ''
-            : isHighlighted
-              ? 'hover:bg-black/5'
-              : 'hover:bg-[#f1eee4]'
-        // Head's own column when actionable: render the action button
-        // (or a plain RollupCell when there's nothing to act on). Crucially,
-        // this branch NEVER wraps the cell in a <Link> — without that guard,
-        // a click on a "done ✓" or "upstream-blocked" cell silently flashed
-        // brown and navigated to /jobs/[id] instead of giving the head a way
-        // to interact with the stage. The head's column owns stage actions.
-        if (isHighlighted && highlightIsActionable) {
-          const cnts = rowStageCounts(row, stage)
-          const totalCounted = cnts.inProgress + cnts.pending + cnts.done
-          if (totalCounted === 0) {
-            return (
-              <td key={stage} className="p-0 h-[78px]">
-                <RollupCell rollup={rollup} plan={plan} hasRail={hasRail} />
-              </td>
-            )
-          }
+        // EVERY stage cell with in-house work is an action button — for every
+        // viewer, on every column. One universal cell language:
+        //   ▶ not started   → tap starts the whole job here (0/N begun)
+        //   ⏸ in progress   → tap finishes; fraction shows done/total
+        //   ✓ finished      → tap undoes (with 经手 hover attribution)
+        // This is the floor's real behavior formalized: everyone works off the
+        // one board, so the one board is operable everywhere. Crucially these
+        // cells are NEVER wrapped in a <Link> — drill-down to /jobs/[id] lives
+        // on the 工号 link and the non-actionable cells below.
+        const cnts = rowStageCounts(row, stage)
+        const totalCounted = cnts.inProgress + cnts.pending + cnts.done
+        if (totalCounted > 0) {
           // Same anatomy as every other cell in this row: the action button
           // fills the status band (flex-1, full tap target); when the row is
           // railed, the shared plan rail sits beneath it so the schedule lane
-          // runs unbroken through the station column too.
+          // runs unbroken through the column.
           return (
             <td key={stage} className="p-0 h-[78px]">
               <div className="flex h-full w-full flex-col">
@@ -1613,7 +1573,9 @@ function JobRow({
                     done={cnts.done}
                     latestBy={rollup.latestBy}
                     latestDate={rollup.latestDate}
-                    timer={timer}
+                    // Elapsed-time chip only on the viewer's own station column
+                    // — a timer in all ten columns would be noise, not signal.
+                    timer={isHighlighted ? timer : null}
                     subdued
                   />
                 </div>
@@ -1622,11 +1584,14 @@ function JobRow({
             </td>
           )
         }
+        // Nothing in-house to act on — stage not in route (slash) or fully at
+        // the vendor (⏸ 外协). These stay Links so the cell still drills into
+        // the job detail.
         return (
           <td key={stage} className="p-0 h-[78px]">
             <Link
               href={detailHref}
-              className={`block h-full w-full ${hoverCls} transition-colors`}
+              className="block h-full w-full hover:bg-[#f1eee4] transition-colors"
               aria-label={`${row.jobNo} · ${stage}`}
             >
               <RollupCell rollup={rollup} plan={plan} hasRail={hasRail} />

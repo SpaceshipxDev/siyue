@@ -99,7 +99,6 @@ export function MasterSheetLoader(props: {
   role: Role
   defaultStage?: Stage
   stageFilter?: Stage
-  actionableHighlight?: boolean
 }) {
   const { state, reload } = useMasterRows()
   if (state.status === 'loading') return <BoardSkeleton />

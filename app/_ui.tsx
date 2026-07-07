@@ -23,21 +23,19 @@ export type TabKey =
 
 type Tab = { key: TabKey; label: string; href: string }
 
-// Admin/commerce gets the full per-stage nav. Production stations on the
-// floor get NO tab nav — the StationSummary on the body carries the weight
-// and the brand link top-left routes home. Less chrome on the floor, more
-// headroom for the numbers that matter.
+// The per-stage station tabs are GONE. Two months of usage data said nobody
+// clicks them: everyone — boss, commerce, and 工程-scoped floor workers — lives
+// on the master board and acts on stage cells directly (or lands pre-filtered
+// via /?stage= from login). The tab row keeps only destinations people
+// actually visit; the board itself is the station nav now.
 //
-// 工程 head (PMC in shop terms) runs the boss-style holistic nav: drills
-// into 外协, /退货, and every station to see what's happening across the
-// floor — same shape as commerce (no money visibility).
+// Production stations on the floor get NO tab nav — the StationSummary on the
+// body carries the weight and the brand link top-left routes home.
 function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): Tab[] {
   if (role === 'production') {
     if (defaultStage === '工程') {
       // 工程 head's home tab IS bare / (their holistic master view), not
       // /station/工程 — same place but reads as "go home" in the nav.
-      // Stage tabs after let them peek at any other station's workbench
-      // the same way commerce can.
       return [
         { key: '工程', label: '工程', href: '/' },
         { key: '重点', label: '重点', href: '/daily' },
@@ -48,11 +46,6 @@ function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): T
         // 于海伟); the rest of 工程 don't get it. Gate: requireReportViewer.
         ...(canSeeReport ? [{ key: '报工' as TabKey, label: '报工', href: '/report' }] : []),
         { key: '外协', label: '外协', href: '/station/outsource' },
-        ...STAGES.filter((s) => s !== '工程').map((s) => ({
-          key: s as TabKey,
-          label: s,
-          href: `/station/${encodeURIComponent(s)}`,
-        })),
         { key: '退货', label: '退货', href: '/returns' },
       ]
     }
@@ -74,11 +67,6 @@ function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): T
     { key: '报工', label: '报工', href: '/report' },
     { key: '财务', label: '财务', href: '/finance' },
     { key: '外协', label: '外协', href: '/station/outsource' },
-    ...STAGES.map((s) => ({
-      key: s as TabKey,
-      label: s,
-      href: `/station/${encodeURIComponent(s)}`,
-    })),
     { key: '退货', label: '退货', href: '/returns' },
   ]
 }
@@ -412,21 +400,21 @@ export function RollupCell({
     )
   }
   const outsourced = rollup.outsourcedOpen ?? 0
-  // 全部送外协 (open) — vendor owns this stage entirely. Surface 外协 in
-  // place of the green ✓ so the boss instantly sees the work is offsite,
-  // not actually finished in-house.
+  // 全部送外协 (open) — vendor owns this stage entirely. The stage is MID
+  // PROCESS, not finished, so it wears the same ⏸ glyph as any in-flight
+  // stage — just in 外协 blue with the tag beneath. One visual language:
+  // ▶ not started, ⏸ underway (here: underway at the vendor), ✓ done.
   if (rollup.kind === 'done' && outsourced > 0 && outsourced === rollup.total) {
     return (
       <CellBands
         hasRail={hasRail}
-        bandClass="gap-0.5 leading-none"
+        bandClass="gap-1 leading-none"
+        title={`${outsourced} 件正在外协`}
         rail={rail}
       >
-        <span className="text-[11px] tracking-wider font-semibold text-[var(--color-info)]">
+        <Pause size={11} className="text-[var(--color-info)]" />
+        <span className="text-[10px] tracking-wider font-semibold text-[var(--color-info)]">
           外协
-        </span>
-        <span className="mono text-[10px] text-[var(--color-ink-3)]">
-          {outsourced} 件
         </span>
       </CellBands>
     )

@@ -17,7 +17,7 @@ import {
 import { requireUser, canSeeFactoryPulse, canSeeMoney, canSeeReport } from '@/lib/auth'
 import { scrubMasterRow } from '@/lib/dto'
 import { getStationWip, getWorkerSelfStats } from '@/lib/pulse'
-import { Pill, TopBar, type TabKey } from './_ui'
+import { Pause, Pill, TopBar, type TabKey } from './_ui'
 import { MyToday } from './_my_today'
 import { MasterUploader } from './_uploader'
 import { InboxList } from './_inbox_list'
@@ -280,7 +280,7 @@ export default async function MasterBoard(
                 全部工单
               </h2>
               <p className="mt-1 text-[13px] text-[var(--color-ink-2)]">
-                点击任意单元格进入工单 · 点击工段表头漏斗按状态筛选
+                点击工段格子直接报工 (▶ 开始 · ⏸ 完成 · ✓ 撤销) · 点击工号进入工单
               </p>
             </div>
             <p className="label">{aggregates.totalJobs} 个工单</p>
@@ -320,18 +320,6 @@ export default async function MasterBoard(
             role={user.role}
             defaultStage={user.defaultStage}
             stageFilter={stageFilter}
-            // The highlighted column gets per-cell start/pause buttons whenever
-            // the viewer can actually act on that stage:
-            //   • commerce drilling into any stage (commerce can act everywhere),
-            //   • 工程 head on the holistic / or /?stage=工程 view (their home stage),
-            //   • any production user whose home stage matches the highlight.
-            // Without this, the 工程 tab as commerce or admin renders static
-            // rollup counts and the start/pause control disappears.
-            actionableHighlight={
-              isProduction
-                ? Boolean(user.defaultStage)
-                : Boolean(stageFilter)
-            }
           />
         ) : (
           <StationWorkbenchLoader
@@ -369,6 +357,16 @@ function Legend({ showMoney = false }: { showMoney?: boolean }) {
       <span className="label">图例</span>
       <LegendItem
         swatch={
+          <span className="text-[13px] text-[var(--color-ink-3)]">▶</span>
+        }
+        text="未开始 · 点击开始整单"
+      />
+      <LegendItem
+        swatch={<Pause size={11} className="text-[var(--color-warning)]" />}
+        text="进行中 · 点击完成 (数字 = 已完成/总数)"
+      />
+      <LegendItem
+        swatch={
           <span className="text-[12px] font-semibold tracking-wider text-[var(--color-success)]">
             ✓
           </span>
@@ -376,16 +374,8 @@ function Legend({ showMoney = false }: { showMoney?: boolean }) {
         text="该工段所有零件已完成"
       />
       <LegendItem
-        swatch={
-          <span className="mono text-[12px] text-[var(--color-warning)] font-medium">
-            3/5
-          </span>
-        }
-        text="进行中 (已完成/总数)"
-      />
-      <LegendItem
-        swatch={<span className="mono text-[12px] text-[var(--color-ink-4)]">—</span>}
-        text="未开始"
+        swatch={<Pause size={11} className="text-[var(--color-info)]" />}
+        text="外协 · 零件在外协厂加工中"
       />
       <LegendItem
         swatch={<span className="block h-3 w-1 bg-[var(--color-overdue)]" />}
