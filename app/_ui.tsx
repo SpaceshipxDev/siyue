@@ -283,14 +283,14 @@ export function StageHeader({ name }: { name: string }) {
   )
 }
 
-// Two-band cell shell for the master board. The status content sits in a
-// flex-1 top band; a fixed 24px plan rail sits below it, hairline-separated,
-// on the lane background — UNCONDITIONALLY, on every cell in every row.
+// Two-band cell shell for the master board. A fixed 20px plan rail sits at the
+// TOP, hairline-separated, on the lane background — UNCONDITIONALLY, on every
+// cell in every row — with the status content in a flex-1 band below it.
 // Position constant → semantics constant: the rail is ALWAYS the plan
-// (计划交期), above it is ALWAYS fact (actual date / n·m count / — / slash),
-// and across a row the rails fuse into one continuous schedule track. The rail
-// is simply empty when a stage has no plan, so every board cell is the same
-// shape.
+// (计划交期), below it is ALWAYS fact (actual date / n·m count / — / slash),
+// and across a row the rails fuse into one continuous schedule track along the
+// top of the stage grid. The rail is simply empty when a stage has no plan, so
+// every board cell is the same shape.
 function CellBands({
   bandClass,
   title,
@@ -304,18 +304,18 @@ function CellBands({
 }) {
   return (
     <div className="flex h-full w-full flex-col">
+      {rail}
       <div
         className={`flex min-h-0 flex-1 flex-col items-center justify-center ${bandClass}`}
         title={title}
       >
         {children}
       </div>
-      {rail}
     </div>
   )
 }
 
-// The plan rail — bottom band, fixed 20px, hairline top border on the lane
+// The plan rail — top band, fixed 20px, hairline bottom border on the lane
 // background. Always the plan slot; empty when this stage has no plan (or
 // isn't plannable) so the rails line up into one continuous track across the
 // row. Exported so the station action-button cell can share the exact same
@@ -326,7 +326,7 @@ export function PlanRail({
   plan?: { label: string; toneClass: string }
 }) {
   return (
-    <div className="flex h-5 shrink-0 items-center justify-center border-t border-[var(--color-border)] bg-[var(--color-lane)]">
+    <div className="flex h-5 shrink-0 items-center justify-center border-b border-[var(--color-border)] bg-[var(--color-lane)]">
       {plan && (
         <span
           className={`mono text-[10.5px] font-medium tabular-nums ${plan.toneClass}`}
@@ -345,7 +345,7 @@ export function RollupCell({
 }: {
   rollup: Rollup
   // 计划交期 (排产) — this stage's planned finish. It no longer shares the
-  // status slot; it lives ONLY in the plan rail at the bottom of the cell.
+  // status slot; it lives ONLY in the plan rail at the top of the cell.
   // Display-only: never feeds sort/filter/urgency. Tone follows planToneClass —
   // strong ink for a live commitment, red when slipped, faint ink-4 once done.
   plan?: { label: string; toneClass: string }
@@ -356,11 +356,12 @@ export function RollupCell({
   // No part in this job needs the stage. Render a diagonal slash — visually
   // unmistakable as "crossed out / not applicable", distinct from the en-dash
   // that means "not started yet." The slash is confined to the STATUS BAND; the
-  // (always-empty) rail runs beneath it like every other cell so the lane is
+  // (always-empty) rail runs above it like every other cell so the lane is
   // unbroken across the row.
   if (rollup.kind === 'na') {
     return (
       <div className="flex h-full w-full flex-col">
+        {rail}
         <div
           className="relative flex min-h-0 flex-1 flex-col items-center justify-center"
           aria-label="该工段不适用"
@@ -381,7 +382,6 @@ export function RollupCell({
             />
           </svg>
         </div>
-        {rail}
       </div>
     )
   }
