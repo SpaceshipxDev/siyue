@@ -374,8 +374,8 @@ function Legend({ showMoney = false }: { showMoney?: boolean }) {
         text="该工段所有零件已完成"
       />
       <LegendItem
-        swatch={<Pause size={11} className="text-[var(--color-info)]" />}
-        text="外协 · 零件在外协厂加工中"
+        swatch={<Pause size={11} className="text-[var(--color-warning)]" />}
+        text="外协 · 零件在外协厂加工中 (出货打勾自动结清)"
       />
       <LegendItem
         swatch={<span className="block h-3 w-1 bg-[var(--color-overdue)]" />}

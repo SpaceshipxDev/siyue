@@ -391,10 +391,18 @@ export function JobStageActionButton({
     // Click semantics: if there are in-progress parts, finish them. If the
     // job is yellow only because some parts are already done (with the rest
     // still pending and none in flight), clicking starts those remaining
-    // pending parts instead — otherwise finishJobStage would no-op.
+    // pending parts instead — otherwise finishJobStage would no-op. Either
+    // way the GLYPH is always ⏸: any part done or in flight means this stage
+    // is underway — a triangle on a 3/4-done stage reads as "not started",
+    // which is a lie.
+    //
+    // 出货 is the exception to the start-remaining detour: it's terminal, and
+    // finishJobStage sweeps pending parts (+ cascades all prior stations,
+    // 外协 included) for 出货 — so one tap always means "this order shipped".
     const hasInFlight = inProgress > 0
-    const onAdvance = hasInFlight ? onFinish : onStart
-    const advanceLabel = hasInFlight ? '完成整单' : '开始剩余零件'
+    const finishes = hasInFlight || stage === '出货'
+    const onAdvance = finishes ? onFinish : onStart
+    const advanceLabel = finishes ? '完成整单' : '开始剩余零件'
     const hover = subdued ? '' : 'hover:brightness-95'
     const bg = error
       ? 'bg-[var(--color-overdue-soft)]'
@@ -412,12 +420,8 @@ export function JobStageActionButton({
             <span className="mono text-[12px] font-medium text-[var(--color-overdue)]">
               失败
             </span>
-          ) : hasInFlight ? (
-            <Pause size={13} className="text-[var(--color-warning)]" />
           ) : (
-            <span className="text-[16px] leading-none text-[var(--color-warning)]">
-              ▶
-            </span>
+            <Pause size={13} className="text-[var(--color-warning)]" />
           )}
           <span
             className={`inline-flex items-baseline gap-1.5 mono text-[11px] ${

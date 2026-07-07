@@ -1677,15 +1677,14 @@ function cascadeBackFinish(
   // strictly to that station — heads sign off on their own work, not their
   // upstream's. 出货 is the exception: shipping a part implies everything
   // earlier was done, and we let the shipping head close out the row in one
-  // click rather than chasing missed taps at prior stations.
+  // click rather than chasing missed taps at prior stations. That includes
+  // stages covered by an outsource block: if the part physically shipped,
+  // the vendor's work is over, whether or not anyone logged the 回厂.
   if (upToStage !== '出货') return []
-  const blocks = partBlocksInSnap(snap, partId)
-  const isInBlock = (s: Stage) => blocks.some((b) => b.stages.includes(s))
   const idx = STAGES.indexOf(upToStage)
   const changed: PartStageRow[] = []
   for (let i = 0; i < idx; i++) {
     const s = STAGES[i]
-    if (isInBlock(s)) continue
     const row = snap.idx.stageByPartStage.get(stageKey(partId, s))
     if (!row) continue
     if (row.status === 'done') continue
@@ -1699,6 +1698,36 @@ function cascadeBackFinish(
     })
   }
   return changed
+}
+
+// 出货 sweep of vendor lines — the physical counterpart of cascadeBackFinish.
+// Shipping means the parts exist and left the building, so any still-open
+// outsource-block member for them is de facto returned: stamp returned_qty
+// to the member qty so blockClosedAt derives a close and the board's
+// 外协-open signal (cell ⏸外协 + row badge) clears. Runs inside the caller's
+// write lock; one small UPDATE per unsettled member.
+async function closeOpenOutsourceMembersForParts(
+  snap: DbSnapshot,
+  partIds: string[],
+  date: string,
+): Promise<void> {
+  for (const partId of partIds) {
+    const blocks = partBlocksInSnap(snap, partId)
+    for (const b of blocks) {
+      const bps = snap.idx.blockPartsByBlock.get(b.id) ?? []
+      const bp = bps.find((x) => x.partId === partId)
+      if (!bp) continue
+      const part = snap.idx.partById.get(partId)
+      const memberQty = bp.qty != null ? bp.qty : (part?.qty ?? 0)
+      if ((bp.returnedQty ?? 0) >= memberQty) continue
+      const { error } = await supabase
+        .from('outsource_block_parts')
+        .update({ returned_qty: memberQty, returned_at: date })
+        .eq('block_id', b.id)
+        .eq('part_id', partId)
+      if (error) throw error
+    }
+  }
 }
 
 async function upsertStages(rows: PartStageRow[]): Promise<void> {
@@ -3681,6 +3710,10 @@ export async function finishStage(
     }
     const cascaded = cascadeBackFinish(snap, partId, stage, date, finishedAt, actor)
     await upsertStages([main, ...cascaded])
+    // Shipping settles the part's vendor lines too (see cascadeBackFinish).
+    if (stage === '出货') {
+      await closeOpenOutsourceMembersForParts(snap, [partId], today())
+    }
   })
 }
 
@@ -4187,10 +4220,35 @@ export async function finishJobStage(
     const date = todayMMDD()
     const finishedAt = new Date().toISOString()
     const parts = snap.idx.partsByJob.get(jobId) ?? []
+    // 出货 is terminal: ticking it for the JOB means "this order left the
+    // building", so it sweeps every not-yet-done part — pending ones included
+    // — and cascadeBackFinish closes all their earlier stations (外协-covered
+    // ones too). Every other stage keeps the strict rule: finish only what's
+    // actually in flight, pending parts wait for their own ▶.
+    const isShipping = stage === '出货'
     const updates: PartStageRow[] = []
     for (const part of parts) {
       const row = snap.idx.stageByPartStage.get(stageKey(part.id, stage))
       if (!row) continue
+      if (isShipping) {
+        if (row.status !== 'done') {
+          updates.push({
+            ...row,
+            status: 'done',
+            completedAt: date,
+            finishedAt,
+            by: actor,
+            doneQty: undefined,
+          })
+        }
+        // Cascade for EVERY part — including ones whose 出货 was already
+        // ticked earlier — so the invariant holds job-wide: shipped means
+        // every station before 出货 is ✓, no stragglers from partial ships.
+        updates.push(
+          ...cascadeBackFinish(snap, part.id, stage, date, finishedAt, actor),
+        )
+        continue
+      }
       if (row.status !== 'in_progress') continue
       updates.push({
         ...row,
@@ -4205,6 +4263,14 @@ export async function finishJobStage(
       )
     }
     await upsertStages(updates)
+    // …and settle any vendor lines still open on this job's parts.
+    if (isShipping) {
+      await closeOpenOutsourceMembersForParts(
+        snap,
+        parts.map((p) => p.id),
+        today(),
+      )
+    }
   })
 }
 
