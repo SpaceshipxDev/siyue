@@ -1079,9 +1079,11 @@ function ShipmentLogCell({
 }
 
 // 动态 — the latest human touch on this part: who clicked, what they did, and
-// when (date + hour, factory-local). Three stacked lines wrap inside a fixed
-// width so the cell reads like 表面处理 rather than blowing the row wide. Empty
-// state is a single muted dash so the column keeps its width.
+// when (date + hour, factory-local). Kept flat — one small type size, no bold —
+// so it reads like any other cell in the sheet instead of a name shouting out
+// of the row. The person is anchored only by being first and the darkest tone;
+// action/stage recede one step, timestamp recedes another. Empty state is a
+// single muted dash so the column keeps its width.
 function ActivityCell({ component }: { component: import('@/lib/data').Component }) {
   const a = latestComponentActivity(component)
   if (!a) {
@@ -1093,15 +1095,15 @@ function ActivityCell({ component }: { component: import('@/lib/data').Component
   }
   return (
     <td className="px-3 py-3 align-top">
-      <div className="leading-snug">
-        <div className="text-[13px] font-medium text-[var(--color-ink)] break-words">
-          {a.by}
+      <div className="leading-snug text-[12px]">
+        <div className="break-words">
+          <span className="text-[var(--color-ink-2)]">{a.by}</span>
+          <span className="text-[var(--color-ink-3)]">
+            {' · '}
+            {a.action} · {a.stage}
+          </span>
         </div>
-        <div className="text-[12px] text-[var(--color-ink-2)] break-words">
-          <span className="tracking-wider">{a.action}</span>
-          <span className="text-[var(--color-ink-3)]"> · {a.stage}</span>
-        </div>
-        <div className="mt-0.5 mono text-[11px] text-[var(--color-ink-3)] whitespace-nowrap">
+        <div className="mt-0.5 mono text-[11px] text-[var(--color-ink-4)] whitespace-nowrap">
           {a.hasTime ? formatActivityTimestamp(a.when) : a.when}
         </div>
       </div>
