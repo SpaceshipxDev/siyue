@@ -283,37 +283,25 @@ export function StageHeader({ name }: { name: string }) {
   )
 }
 
-// Two-band cell shell for the master board. When the job carries any in-house
-// 排产 plan (hasRail), the status content shrinks into a flex-1 top band and a
-// fixed 24px plan rail sits below it, hairline-separated, on the lane
-// background. Position constant → semantics constant: the rail is ALWAYS the
-// plan (计划交期), above it is ALWAYS fact (actual date / n·m count / —), and
-// across a row the rails fuse into one continuous schedule track. Without a
-// rail it's the legacy single full-height status band — legacy rows pay zero
-// cost.
+// Two-band cell shell for the master board. The status content sits in a
+// flex-1 top band; a fixed 24px plan rail sits below it, hairline-separated,
+// on the lane background — UNCONDITIONALLY, on every cell in every row.
+// Position constant → semantics constant: the rail is ALWAYS the plan
+// (计划交期), above it is ALWAYS fact (actual date / n·m count / — / slash),
+// and across a row the rails fuse into one continuous schedule track. The rail
+// is simply empty when a stage has no plan, so every board cell is the same
+// shape.
 function CellBands({
-  hasRail,
   bandClass,
   title,
   rail,
   children,
 }: {
-  hasRail?: boolean
   bandClass: string
   title?: string
   rail: ReactNode
   children: ReactNode
 }) {
-  if (!hasRail) {
-    return (
-      <div
-        className={`flex h-full flex-col items-center justify-center ${bandClass}`}
-        title={title}
-      >
-        {children}
-      </div>
-    )
-  }
   return (
     <div className="flex h-full w-full flex-col">
       <div
@@ -327,55 +315,17 @@ function CellBands({
   )
 }
 
-export function RollupCell({
-  rollup,
+// The plan rail — bottom band, fixed 24px, hairline top border on the lane
+// background. Always the plan slot; empty when this stage has no plan (or
+// isn't plannable) so the rails line up into one continuous track across the
+// row. Exported so the station action-button cell can share the exact same
+// rail markup instead of duplicating it.
+export function PlanRail({
   plan,
-  hasRail,
 }: {
-  rollup: Rollup
-  // 计划交期 (排产) — this stage's planned finish. It no longer shares the
-  // status slot; it lives ONLY in the plan rail at the bottom of the cell.
-  // Display-only: never feeds sort/filter/urgency. Tone follows planToneClass —
-  // strong ink for a live commitment, red when slipped, faint ink-4 once done.
   plan?: { label: string; toneClass: string }
-  // Row-level gate: true when the job carries any in-house 工段 plan, so every
-  // in-route cell in the row grows a plan rail (empty for stages with no plan)
-  // and the schedule track stays continuous. 'na' cells never get a rail.
-  hasRail?: boolean
 }) {
-  // No part in this job needs the stage. Render a diagonal slash across the
-  // cell — visually unmistakable as "crossed out / not applicable", and
-  // distinct from the en-dash that means "not started yet." NEVER carries a
-  // rail even when hasRail: the schedule track honestly skips stages that
-  // aren't in this job's route.
-  if (rollup.kind === 'na') {
-    return (
-      <div
-        className="relative h-full w-full"
-        aria-label="该工段不适用"
-      >
-        <svg
-          className="absolute inset-0 h-full w-full"
-          preserveAspectRatio="none"
-          aria-hidden="true"
-        >
-          <line
-            x1="0%"
-            y1="100%"
-            x2="100%"
-            y2="0%"
-            stroke="var(--color-ink-4)"
-            strokeWidth="1"
-            shapeRendering="crispEdges"
-          />
-        </svg>
-      </div>
-    )
-  }
-  // The plan rail — bottom band, fixed 24px, hairline top border on the lane
-  // background. Always the plan slot; empty when this stage has no plan (or
-  // isn't plannable) so the rails still line up into one continuous track.
-  const rail = (
+  return (
     <div className="flex h-6 shrink-0 items-center justify-center border-t border-[var(--color-border)] bg-[var(--color-lane)]">
       {plan && (
         <span
@@ -387,13 +337,61 @@ export function RollupCell({
       )}
     </div>
   )
+}
+
+export function RollupCell({
+  rollup,
+  plan,
+}: {
+  rollup: Rollup
+  // 计划交期 (排产) — this stage's planned finish. It no longer shares the
+  // status slot; it lives ONLY in the plan rail at the bottom of the cell.
+  // Display-only: never feeds sort/filter/urgency. Tone follows planToneClass —
+  // strong ink for a live commitment, red when slipped, faint ink-4 once done.
+  plan?: { label: string; toneClass: string }
+}) {
+  // The rail is on EVERY cell now — for 'na' too (where plan is always null, so
+  // it renders empty) — so the schedule track never breaks across a row.
+  const rail = <PlanRail plan={plan} />
+  // No part in this job needs the stage. Render a diagonal slash — visually
+  // unmistakable as "crossed out / not applicable", distinct from the en-dash
+  // that means "not started yet." The slash is confined to the STATUS BAND; the
+  // (always-empty) rail runs beneath it like every other cell so the lane is
+  // unbroken across the row.
+  if (rollup.kind === 'na') {
+    return (
+      <div className="flex h-full w-full flex-col">
+        <div
+          className="relative flex min-h-0 flex-1 flex-col items-center justify-center"
+          aria-label="该工段不适用"
+        >
+          <svg
+            className="absolute inset-0 h-full w-full"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <line
+              x1="0%"
+              y1="100%"
+              x2="100%"
+              y2="0%"
+              stroke="var(--color-ink-4)"
+              strokeWidth="1"
+              shapeRendering="crispEdges"
+            />
+          </svg>
+        </div>
+        {rail}
+      </div>
+    )
+  }
   const outsourced = rollup.outsourcedOpen ?? 0
   // 全部送外协 (open) — vendor owns this stage entirely. Surface 外协 in
   // place of the green ✓ so the boss instantly sees the work is offsite,
   // not actually finished in-house.
   if (rollup.kind === 'done' && outsourced > 0 && outsourced === rollup.total) {
     return (
-      <CellBands hasRail={hasRail} bandClass="gap-0.5 leading-none" rail={rail}>
+      <CellBands bandClass="gap-0.5 leading-none" rail={rail}>
         <span className="text-[11px] tracking-wider font-semibold text-[var(--color-info)]">
           外协
         </span>
@@ -410,7 +408,6 @@ export function RollupCell({
     // cell above, which means the stage isn't in this job's route at all.
     return (
       <CellBands
-        hasRail={hasRail}
         bandClass="gap-0.5 leading-none text-[var(--color-ink-4)]"
         rail={rail}
       >
@@ -421,8 +418,7 @@ export function RollupCell({
   if (rollup.kind === 'partial') {
     return (
       <CellBands
-        hasRail={hasRail}
-        bandClass="gap-1 leading-none relative"
+        bandClass="gap-1 leading-none"
         title={rollupByHint(rollup)}
         rail={rail}
       >
@@ -430,14 +426,12 @@ export function RollupCell({
         <span className="mono text-[11px] text-[var(--color-warning)]">
           {rollup.done}/{rollup.total}
         </span>
-        {outsourced > 0 && <OutsourceCorner count={outsourced} />}
       </CellBands>
     )
   }
   return (
     <CellBands
-      hasRail={hasRail}
-      bandClass="gap-0.5 leading-none relative"
+      bandClass="gap-0.5 leading-none"
       title={rollupByHint(rollup)}
       rail={rail}
     >
@@ -449,7 +443,6 @@ export function RollupCell({
           {rollup.latestDate}
         </span>
       )}
-      {outsourced > 0 && <OutsourceCorner count={outsourced} />}
     </CellBands>
   )
 }
@@ -534,22 +527,6 @@ export function MoneyCell({
 function rollupByHint(rollup: Rollup): string | undefined {
   if (!rollup.latestBy) return undefined
   return `最近经手 ${rollup.latestBy}${rollup.latestDate ? ` · ${rollup.latestDate}` : ''}`
-}
-
-// Small "外" pip in the top-right of a stage cell when *some* parts at this
-// stage are at a vendor. Used in 'partial' (some in-house, some outsourced)
-// and 'done' (all in-house finished, but some still being outsourced) — the
-// pure-outsource case takes over the whole cell instead.
-function OutsourceCorner({ count }: { count: number }) {
-  return (
-    <span
-      className="absolute top-0.5 right-0.5 mono text-[9px] tracking-wider text-[var(--color-info)] font-semibold leading-none"
-      title={`此工段 ${count} 件外协中`}
-      aria-label={`${count} 件外协中`}
-    >
-      外{count}
-    </span>
-  )
 }
 
 export function Pause({

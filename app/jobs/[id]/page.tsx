@@ -596,16 +596,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   colgroup. */}
               <col style={{ width: 150 }} />
               {STAGES.map((s) => (
-                <col
-                  key={s}
-                  style={{
-                    width: 90,
-                    background:
-                      s === myStage
-                        ? 'var(--color-warning-soft)'
-                        : undefined,
-                  }}
-                />
+                <col key={s} style={{ width: 90 }} />
               ))}
               <col style={{ width: 160 }} />
               <col style={{ width: 170 }} />

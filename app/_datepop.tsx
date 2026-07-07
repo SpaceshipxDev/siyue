@@ -185,7 +185,7 @@ export function DatePop({
       style={portal && fixedPos ? fixedPos : undefined}
       className={`${
         portal
-          ? 'fixed z-50'
+          ? 'fixed z-[100]'
           : `absolute z-40 ${openUp ? 'bottom-[calc(100%+6px)]' : 'top-[calc(100%+6px)]'} ${alignRight ? 'right-0' : 'left-0'}`
       } w-[264px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[0_8px_28px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04)]`}
     >

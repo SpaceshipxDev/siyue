@@ -26,7 +26,7 @@ import {
   rowTimerAtStage,
   type MasterRow,
 } from '@/lib/master'
-import { DueCell, MoneyCell, RollupCell } from './_ui'
+import { DueCell, MoneyCell, PlanRail, RollupCell } from './_ui'
 import { ORDER_STATUS_LABEL } from '@/lib/order-money'
 import { JobStageActionButton } from './_cell'
 import { JobNotesInline } from './_editable'
@@ -788,26 +788,16 @@ export function MasterSheet({
             {STAGES.map((s) => {
               const isHighlighted = s === highlightStage
               // Highlighted column gets extra width for the action button +
-              // timer chip stack on the station view. On commerce / overview
-              // we still tint via the col background — no per-cell action
-              // there, so the wash is what signals "this column matters."
+              // timer chip stack on the station view. The width is the ONLY
+              // signal for the home/station column now — no background tint, so
+              // it reads as the same base surface as every other column.
               const width = isHighlighted ? 168 : 88
-              // Static yellow wash signals "this column matters" only when
-              // there's no per-cell action button — once cells become actionable
-              // (station view OR 工程 holistic), the buttons paint their own
-              // state and the wash would just mute them.
-              // Cool wash on a column with a live filter — deliberately
-              // distinct from the warm warning wash of the home/action column
-              // so the two signals never read as the same thing. Yields to the
-              // warning wash when both land on one column.
+              // Cool wash on a column with a live filter — the one remaining
+              // column tint. The home/action column is deliberately left
+              // untinted so the board reads as one uniform surface.
               const isFilteredCol =
                 treatAsOverview && Boolean(statusByStage[s])
-              const colBg =
-                isHighlighted && !highlightIsActionable
-                  ? 'var(--color-warning-soft)'
-                  : isFilteredCol
-                    ? 'var(--color-info-soft)'
-                    : undefined
+              const colBg = isFilteredCol ? 'var(--color-info-soft)' : undefined
               return (
                 <col
                   key={s}
@@ -1382,12 +1372,6 @@ function JobRow({
         ? 'var(--color-warning)'
         : 'transparent'
   const detailHref = `/jobs/${row.id}`
-  // 排产轨道 — does this job carry ANY in-house 工段 plan? If so, every in-route
-  // cell in the row grows a plan rail at the bottom so the schedule fuses into
-  // one continuous track across the row. 外协 is deliberately EXCLUDED: it has a
-  // job-level plan key but no board column, so a job whose only plan is 外协 must
-  // not sprout empty rails. STAGES is the 10 real columns and never includes 外协.
-  const hasRail = STAGES.some((s) => row.stagePlan?.[s])
   const rowOpacity =
     tier === 'mine' ? '' : tier === 'upstream' ? 'opacity-50' : 'opacity-40'
   return (
@@ -1593,15 +1577,6 @@ function JobRow({
             : isHighlighted
               ? 'hover:bg-black/5'
               : 'hover:bg-[#f1eee4]'
-        // Highlighted col tint on actionable view: full warning-soft for "mine"
-        // rows (the action button paints it), but a much fainter wash on the
-        // non-mine tiers (upstream + done) so the column stays visible without
-        // competing with the actionable tier. Row-level opacity does the rest
-        // of the work to push those tiers back.
-        const cellBgStyle: React.CSSProperties | undefined =
-          isHighlighted && highlightIsActionable && !isMineHere
-            ? { backgroundColor: '#fdf7e7' }
-            : undefined
         // Head's own column when actionable: render the action button
         // (or a plain RollupCell when there's nothing to act on). Crucially,
         // this branch NEVER wraps the cell in a <Link> — without that guard,
@@ -1613,35 +1588,44 @@ function JobRow({
           const totalCounted = cnts.inProgress + cnts.pending + cnts.done
           if (totalCounted === 0) {
             return (
-              <td key={stage} className="p-0 h-[78px]" style={cellBgStyle}>
-                <RollupCell rollup={rollup} plan={plan} hasRail={hasRail} />
+              <td key={stage} className="p-0 h-[78px]">
+                <RollupCell rollup={rollup} plan={plan} />
               </td>
             )
           }
+          // Two-band anatomy, same as every other cell: the action button fills
+          // the status band (flex-1, full tap target) and the shared plan rail
+          // sits beneath it so the schedule lane runs unbroken through the
+          // station column too.
           return (
-            <td key={stage} className="p-0 h-[78px]" style={cellBgStyle}>
-              <JobStageActionButton
-                jobId={row.id}
-                stage={stage}
-                inProgress={cnts.inProgress}
-                pending={cnts.pending}
-                done={cnts.done}
-                latestBy={rollup.latestBy}
-                latestDate={rollup.latestDate}
-                timer={timer}
-                subdued
-              />
+            <td key={stage} className="p-0 h-[78px]">
+              <div className="flex h-full w-full flex-col">
+                <div className="flex min-h-0 flex-1">
+                  <JobStageActionButton
+                    jobId={row.id}
+                    stage={stage}
+                    inProgress={cnts.inProgress}
+                    pending={cnts.pending}
+                    done={cnts.done}
+                    latestBy={rollup.latestBy}
+                    latestDate={rollup.latestDate}
+                    timer={timer}
+                    subdued
+                  />
+                </div>
+                <PlanRail plan={plan} />
+              </div>
             </td>
           )
         }
         return (
-          <td key={stage} className="p-0 h-[78px]" style={cellBgStyle}>
+          <td key={stage} className="p-0 h-[78px]">
             <Link
               href={detailHref}
               className={`block h-full w-full ${hoverCls} transition-colors`}
               aria-label={`${row.jobNo} · ${stage}`}
             >
-              <RollupCell rollup={rollup} plan={plan} hasRail={hasRail} />
+              <RollupCell rollup={rollup} plan={plan} />
             </Link>
           </td>
         )
