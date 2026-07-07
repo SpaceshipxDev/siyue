@@ -1,44 +1,44 @@
 import { NextRequest } from 'next/server'
 import * as XLSX from 'xlsx'
 import { requireCommerce } from '@/lib/auth'
-import { getFinanceRows } from '@/lib/db'
+import { getFenqiData } from '@/lib/db'
 import { today } from '@/lib/today'
-import {
-  applyFinanceFilters,
-  buildExportAoa,
-  EXPORT_COL_WIDTHS,
-  isFinanceFilter,
-} from '@/lib/finance'
+import { buildRows, sortRows, passLens, buildFenqiWeiAoa, buildFenqiShouAoa } from '@/lib/fenqi'
 
-// 应收账款 ledger → .xlsx, in 王雪梅's exact column order. Honors the same
-// search (q) + status (filter) the /finance page is showing, so "export" means
-// "export what's on screen". Commerce-only, mirroring /month.
+// 分期账 (installment ledger) → .xlsx, her two accountant-handoff sheets:
+// 未开票 (still owing an invoice) and 已开待收 (invoiced, not yet collected).
+// Both are DERIVED from po_lines + money_events, so the Excel can never
+// disagree with the /finance ledger. Commerce-only, mirroring /month.
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-export async function GET(request: NextRequest): Promise<Response> {
+export async function GET(_request: NextRequest): Promise<Response> {
   await requireCommerce()
 
-  const sp = request.nextUrl.searchParams
-  const q = sp.get('q') ?? ''
-  const filterRaw = sp.get('filter') ?? 'all'
-  const filter = isFinanceFilter(filterRaw) ? filterRaw : 'all'
-
   const todayStr = today()
-  const all = await getFinanceRows()
-  const rows = applyFinanceFilters(all, { q, filter, todayYmd: todayStr })
+  const rows = sortRows(buildRows(await getFenqiData(), todayStr))
 
-  const ws = XLSX.utils.aoa_to_sheet(buildExportAoa(rows))
-  ws['!cols'] = EXPORT_COL_WIDTHS.map((wch) => ({ wch }))
   const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, '应收账款')
+
+  const weiWs = XLSX.utils.aoa_to_sheet(
+    buildFenqiWeiAoa(rows.filter((r) => passLens(r, 'wei')), todayStr),
+  )
+  weiWs['!cols'] = [12, 16, 10, 30, 8, 12, 18, 60].map((wch) => ({ wch }))
+  XLSX.utils.book_append_sheet(wb, weiWs, '未开票')
+
+  const shouWs = XLSX.utils.aoa_to_sheet(
+    buildFenqiShouAoa(rows.filter((r) => passLens(r, 'shou'))),
+  )
+  shouWs['!cols'] = [16, 18, 12, 12, 24, 12, 50].map((wch) => ({ wch }))
+  XLSX.utils.book_append_sheet(wb, shouWs, '已开待收')
+
   // SheetJS returns an ArrayBuffer for type:'array' — already a valid Response
   // BodyInit, so hand it over directly (no Buffer/Uint8Array conversion).
   const body = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer
 
-  const base = `应收账款_${todayStr}`
-  const fallback = `receivables_${todayStr}.xlsx`
+  const base = `财务分期账-${todayStr}`
+  const fallback = `fenqi_${todayStr}.xlsx`
   const encoded = encodeURIComponent(`${base}.xlsx`)
 
   return new Response(body, {

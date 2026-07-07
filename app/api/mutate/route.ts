@@ -72,6 +72,12 @@ import {
   createCaiwuRow,
   updateCaiwuRow,
   deleteCaiwuRow,
+  createPoLine,
+  updatePoLine,
+  deletePoLine,
+  createMoneyEvent,
+  voidMoneyEvent,
+  setJobBillable,
   type BlockPatch,
   type CaiwuPatch,
   type ComponentPatch,
@@ -87,8 +93,10 @@ import {
   type NewDailyFocusInput,
   type NewExpenseInput,
   type NewHandoverInput,
+  type NewMoneyEventInput,
   type NewProcurementInput,
   type NewProcurementProductInput,
+  type PoLinePatch,
   type ProcurementPatch,
   type ProcurementProductPatch,
   type ShipmentFinancePatch,
@@ -1483,6 +1491,90 @@ async function dispatch(
         patch as ShipmentFinancePatch,
         u.name,
       )
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    // === 财务 / 分期账 (po_lines + money_events, migration 0075) ===
+    case 'createPoLine': {
+      const jobId = body.jobId
+      if (!isString(jobId)) return err('bad createPoLine args')
+      const u = await requireCommerce()
+      const id = await createPoLine(jobId, u.name)
+      revalidatePath('/finance')
+      return Response.json(ok({ id }))
+    }
+
+    case 'updatePoLine': {
+      const lineId = body.lineId
+      const patch = body.patch
+      if (!isString(lineId) || typeof patch !== 'object' || patch === null)
+        return err('bad updatePoLine args')
+      const p = patch as Record<string, unknown>
+      if ('poNo' in p && !isString(p.poNo)) return err('bad poNo')
+      if ('materialNo' in p && p.materialNo !== null && !isString(p.materialNo))
+        return err('bad materialNo')
+      if (
+        'amountCny' in p &&
+        (typeof p.amountCny !== 'number' ||
+          !Number.isFinite(p.amountCny) ||
+          p.amountCny < 0)
+      )
+        return err('bad amountCny')
+      await requireCommerce()
+      await updatePoLine(lineId, patch as PoLinePatch)
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    case 'deletePoLine': {
+      const lineId = body.lineId
+      if (!isString(lineId)) return err('bad deletePoLine args')
+      await requireCommerce()
+      await deletePoLine(lineId)
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    case 'createMoneyEvent': {
+      const input = body.input
+      if (typeof input !== 'object' || input === null)
+        return err('bad createMoneyEvent args')
+      const i = input as Record<string, unknown>
+      if (!isString(i.poLineId)) return err('bad poLineId')
+      if (i.kind !== 'invoice' && i.kind !== 'payment') return err('bad kind')
+      if (
+        typeof i.amountCny !== 'number' ||
+        !Number.isFinite(i.amountCny) ||
+        i.amountCny <= 0
+      )
+        return err('bad amountCny')
+      if (!isString(i.eventDate) || !/^\d{4}-\d{2}-\d{2}$/.test(i.eventDate))
+        return err('bad eventDate')
+      if ('invoiceNo' in i && !isString(i.invoiceNo)) return err('bad invoiceNo')
+      if ('note' in i && !isString(i.note)) return err('bad note')
+      const u = await requireCommerce()
+      const id = await createMoneyEvent(input as NewMoneyEventInput, u.name)
+      revalidatePath('/finance')
+      return Response.json(ok({ id }))
+    }
+
+    case 'voidMoneyEvent': {
+      const eventId = body.eventId
+      if (!isString(eventId)) return err('bad voidMoneyEvent args')
+      const u = await requireCommerce()
+      const id = await voidMoneyEvent(eventId, u.name)
+      revalidatePath('/finance')
+      return Response.json(ok({ id }))
+    }
+
+    case 'setJobBillable': {
+      const jobId = body.jobId
+      const billable = body.billable
+      if (!isString(jobId) || typeof billable !== 'boolean')
+        return err('bad setJobBillable args')
+      await requireCommerce()
+      await setJobBillable(jobId, billable)
       revalidatePath('/finance')
       return Response.json(ok())
     }

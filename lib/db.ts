@@ -50,6 +50,8 @@ import type { Expense, ExpenseCategory } from './expenses'
 import type { Note, PartDrawingChange } from './data'
 import { isDimRow } from './inspection-report'
 import type { InspectionReport, InspectionReportPatch } from './inspection-report'
+import { buildRows } from './fenqi'
+import type { FenqiData, FenqiJob, FenqiLine, FenqiEvent } from './fenqi'
 
 /*
  * Persistence is Supabase Postgres. Seven flat tables, all snake_case in the
@@ -3204,11 +3206,13 @@ export async function getFinanceRows(): Promise<FinanceRow[]> {
 // 支出·单数·周期 off the blocks; 开票·回款·应收·逾期 off shipments+finance;
 // 出货 = "has a 出货单" (which is exactly what you invoice against).
 // 收款 light — the per-order money state surfaced on the master board's 收款
-// column. A deliberately cheap cousin of getOrderMoneyRows: it reads ONLY
-// shipments + shipment_finance (no jobs, no parts, no outsource blocks), since
-// the board already has the job rows and the light only needs the
-// get-paid pipeline. Keyed by jobId; jobs with no 出货单 are simply absent
-// (the board treats absent as 在产 → blank cell, no money due yet).
+// column. DUAL SOURCE since migration 0075: a job that carries ≥1 分期账 PO
+// line is computed from the NEW installment ledger (po_lines + money_events,
+// via fenqi.buildRows) so this light can never disagree with her /finance
+// sheet; every other job falls back to the LEGACY shipment_finance
+// aggregation (the handful of rows entered before the rebuild). Still keyed by
+// jobId; a job with neither a 出货单 nor a booked line is simply absent (the
+// board treats absent as 在产 → blank cell, no money due yet).
 export type OrderMoneyLite = {
   status: OrderMoneyStatus
   outstandingCny: number
@@ -3220,11 +3224,68 @@ export async function getOrderMoneyLightByJob(): Promise<
   Map<string, OrderMoneyLite>
 > {
   const todayStr = today()
-  const [shipmentsRaw, financeRaw] = await Promise.all([
-    selectAll('shipments'),
-    selectAllOptional('shipment_finance'),
-  ])
+  const [shipmentsRaw, financeRaw, poLinesRaw, moneyEventsRaw, jobsRaw] =
+    await Promise.all([
+      selectAll('shipments'),
+      selectAllOptional('shipment_finance'),
+      selectAllOptional('po_lines'),
+      selectAllOptional('money_events'),
+      selectAll('jobs'),
+    ])
 
+  const out = new Map<string, OrderMoneyLite>()
+
+  // Jobs the ledger owns (≥1 PO line); their money is derived, not aggregated.
+  const ledgerJobIds = new Set<string>()
+  for (const r of poLinesRaw) ledgerJobIds.add(r.job_id as string)
+
+  // billable: NULL/true = 收费, false = 免收 (migration 0075 default).
+  const billableByJob = new Map<string, boolean>()
+  for (const r of jobsRaw) billableByJob.set(r.id as string, r.billable !== false)
+
+  // Any 出货单 → isShipped signal, shared by both paths.
+  const shippedJobs = new Set<string>()
+  for (const sr of shipmentsRaw) shippedJobs.add(sr.job_id as string)
+
+  // ── Ledger path (migration 0075) ── build a minimal FenqiData for just the
+  // ledger jobs (jobNo/customer/shipDate irrelevant to the light) and reuse the
+  // exact same derivation as her sheet and the boss's wall.
+  const ledgerJobs: FenqiJob[] = []
+  for (const jobId of ledgerJobIds) {
+    ledgerJobs.push({
+      jobId,
+      jobNo: '',
+      customer: '',
+      billable: billableByJob.get(jobId) ?? true,
+    })
+  }
+  const ledgerData: FenqiData = {
+    jobs: ledgerJobs,
+    lines: poLinesRaw.map(fromPoLine),
+    events: moneyEventsRaw.map(fromMoneyEvent),
+  }
+  for (const row of buildRows(ledgerData, todayStr)) {
+    if (row.status === 'free') {
+      // 免收 — nothing to collect; render as settled with no overdue.
+      out.set(row.job.jobId, { status: 'settled', outstandingCny: 0 })
+      continue
+    }
+    const outstandingCny = Math.max(0, row.unpaid)
+    const status = orderMoneyStatusFrom({
+      hasOverdue: row.status === 'overdue',
+      isShipped: shippedJobs.has(row.job.jobId),
+      hasInvoice: row.invoiced > 0,
+      outstandingCny,
+    })
+    out.set(row.job.jobId, {
+      status,
+      outstandingCny,
+      overdueDays: status === 'overdue' ? row.overdueDays : undefined,
+    })
+  }
+
+  // ── Legacy path (pre-0075 shipment_finance) ── only jobs the ledger doesn't
+  // own; the 5 rows entered the old way keep their exact behavior.
   const finByShipment = new Map<string, ShipmentFinanceRow>()
   for (const r of financeRaw) {
     const f = fromShipmentFinance(r)
@@ -3243,6 +3304,7 @@ export async function getOrderMoneyLightByJob(): Promise<
   const byJob = new Map<string, Agg>()
   for (const sr of shipmentsRaw) {
     const s = fromShipment(sr)
+    if (ledgerJobIds.has(s.jobId)) continue // ledger owns this job's money
     const agg =
       byJob.get(s.jobId) ??
       ({
@@ -3294,7 +3356,6 @@ export async function getOrderMoneyLightByJob(): Promise<
     byJob.set(s.jobId, agg)
   }
 
-  const out = new Map<string, OrderMoneyLite>()
   for (const [jobId, agg] of byJob) {
     const status = orderMoneyStatusFrom({
       hasOverdue: agg.hasOverdue,
@@ -3309,6 +3370,247 @@ export async function getOrderMoneyLightByJob(): Promise<
     })
   }
   return out
+}
+
+// === 分期账 (installment ledger, migration 0075) ===
+//
+// The data layer under lib/fenqi.ts — the DB read/writes; all derivation
+// (待开票 / 未收 / aging / sentences) lives in that pure module. Money hangs
+// off the 订单号 (po_lines); each line carries append-only 开票 / 收款
+// events (money_events). NOTHING is stored as a balance and 红冲 is a reversal
+// ROW, never a delete, so the book stays auditable.
+
+// Raw row → domain, snake→camel. Shared by getFenqiData and the board light so
+// both read the ledger through one mapper.
+function fromPoLine(r: AnyRow): FenqiLine {
+  return {
+    id: r.id as string,
+    jobId: r.job_id as string,
+    poNo: (r.po_no as string | null) ?? '',
+    materialNo: (r.material_no as string | null) ?? undefined,
+    amountCny: Number(r.amount_cny ?? 0),
+    createdAt: r.created_at as string,
+  }
+}
+
+function fromMoneyEvent(r: AnyRow): FenqiEvent {
+  return {
+    id: r.id as string,
+    poLineId: r.po_line_id as string,
+    kind: r.kind as FenqiEvent['kind'],
+    amountCny: Number(r.amount_cny),
+    eventDate: r.event_date as string,
+    invoiceNo: (r.invoice_no as string | null) ?? undefined,
+    note: (r.note as string | null) ?? undefined,
+    reversalOf: (r.reversal_of as string | null) ?? undefined,
+    createdBy: (r.created_by as string | null) ?? undefined,
+    createdAt: r.created_at as string,
+  }
+}
+
+// The whole ledger, ready for lib/fenqi's buildRows. Money starts at delivery:
+// the pool is jobs with ≥1 出货单 OR ≥1 booked PO line — everything upstream
+// stays out. jobs.* is read raw here (not via fromJob) so the ledger's shape
+// stays independent of the master-board JobRow.
+export async function getFenqiData(): Promise<FenqiData> {
+  const [jobsRaw, shipmentsRaw, poLinesRaw, moneyEventsRaw] = await Promise.all([
+    selectAll('jobs'),
+    selectAll('shipments'),
+    selectAllOptional('po_lines'),
+    selectAllOptional('money_events'),
+  ])
+
+  // Latest 出货 per job → factory-local YYYY-MM-DD (max over created_at, ISO
+  // strings compare lexically).
+  const latestShipIso = new Map<string, string>()
+  for (const sr of shipmentsRaw) {
+    const jobId = sr.job_id as string
+    const iso = sr.created_at as string
+    const cur = latestShipIso.get(jobId)
+    if (!cur || iso > cur) latestShipIso.set(jobId, iso)
+  }
+  const shipDateByJob = new Map<string, string>()
+  for (const [jobId, iso] of latestShipIso) {
+    shipDateByJob.set(
+      jobId,
+      new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }),
+    )
+  }
+
+  const lineJobIds = new Set<string>()
+  for (const r of poLinesRaw) lineJobIds.add(r.job_id as string)
+
+  const jobs: FenqiJob[] = []
+  const jobIds = new Set<string>()
+  for (const r of jobsRaw) {
+    const jobId = r.id as string
+    const shipDate = shipDateByJob.get(jobId)
+    if (!shipDate && !lineJobIds.has(jobId)) continue // not yet in the pool
+    jobIds.add(jobId)
+    jobs.push({
+      jobId,
+      jobNo: (r.job_no as string | null) ?? '',
+      customer: (r.customer as string | null) ?? '',
+      contact: (r.engineer as string | null) ?? undefined,
+      salesperson:
+        (r.yuenong_business as string | null) ??
+        (r.created_by as string | null) ??
+        undefined,
+      shipDate,
+      billable: r.billable !== false,
+      jobAmountCny: r.amount_cny == null ? undefined : Number(r.amount_cny),
+    })
+  }
+
+  const lines: FenqiLine[] = []
+  for (const r of poLinesRaw) {
+    if (!jobIds.has(r.job_id as string)) continue // defensive — orphan line
+    lines.push(fromPoLine(r))
+  }
+
+  const events: FenqiEvent[] = moneyEventsRaw.map(fromMoneyEvent)
+
+  return { jobs, lines, events }
+}
+
+// Book a fresh (empty) 订单号 line on a job; she fills 订单号 / 金额 after.
+export async function createPoLine(
+  jobId: string,
+  createdBy: string,
+): Promise<string> {
+  const id = uid('pol')
+  const { error } = await supabase.from('po_lines').insert({
+    id,
+    job_id: jobId,
+    po_no: '',
+    amount_cny: 0,
+    created_by: createdBy,
+  })
+  if (error) throw error
+  return id
+}
+
+export type PoLinePatch = {
+  poNo?: string
+  materialNo?: string | null
+  amountCny?: number
+}
+
+// Edit a line in place; only the keys she touched are written.
+export async function updatePoLine(
+  lineId: string,
+  patch: PoLinePatch,
+): Promise<void> {
+  const update: AnyRow = {}
+  if (patch.poNo !== undefined) update.po_no = patch.poNo
+  if (patch.materialNo !== undefined) update.material_no = patch.materialNo
+  if (patch.amountCny !== undefined) update.amount_cny = patch.amountCny
+  if (Object.keys(update).length === 0) return
+  const { error } = await supabase
+    .from('po_lines')
+    .update(update)
+    .eq('id', lineId)
+  if (error) throw error
+}
+
+// Delete a line — but only while it's clean. Once it carries any 开票/收款
+// event the money must be 红冲'd first, never silently dropped.
+export async function deletePoLine(lineId: string): Promise<void> {
+  const { data, error } = await supabase
+    .from('money_events')
+    .select('id')
+    .eq('po_line_id', lineId)
+    .limit(1)
+  if (error) throw error
+  if (data && data.length > 0) {
+    throw new Error('该订单号下已有开票/收款记录，请先作废')
+  }
+  const { error: delErr } = await supabase
+    .from('po_lines')
+    .delete()
+    .eq('id', lineId)
+  if (delErr) throw delErr
+}
+
+export type NewMoneyEventInput = {
+  poLineId: string
+  kind: 'invoice' | 'payment'
+  amountCny: number
+  eventDate: string
+  invoiceNo?: string
+  note?: string
+}
+
+// Append one 开票 or 收款 event to a line.
+export async function createMoneyEvent(
+  input: NewMoneyEventInput,
+  createdBy: string,
+): Promise<string> {
+  const id = uid('mev')
+  const { error } = await supabase.from('money_events').insert({
+    id,
+    po_line_id: input.poLineId,
+    kind: input.kind,
+    amount_cny: input.amountCny,
+    event_date: input.eventDate,
+    invoice_no: input.invoiceNo?.trim() || null,
+    note: input.note?.trim() || null,
+    created_by: createdBy,
+  })
+  if (error) throw error
+  return id
+}
+
+// 红冲 — void an event by appending its mirror. Both rows stay in the book;
+// the original renders struck-through and the reversal marker is hidden. Guards
+// against voiding a reversal, or double-voiding the same event.
+export async function voidMoneyEvent(
+  eventId: string,
+  createdBy: string,
+): Promise<string> {
+  const { data: orig, error: fetchErr } = await supabase
+    .from('money_events')
+    .select('id, po_line_id, kind, amount_cny, reversal_of')
+    .eq('id', eventId)
+    .maybeSingle()
+  if (fetchErr) throw fetchErr
+  if (!orig) throw new Error('记录不存在')
+  if ((orig as AnyRow).reversal_of) throw new Error('红冲记录不能再作废')
+
+  const { data: existing, error: existErr } = await supabase
+    .from('money_events')
+    .select('id')
+    .eq('reversal_of', eventId)
+    .limit(1)
+  if (existErr) throw existErr
+  if (existing && existing.length > 0) throw new Error('这笔已作废')
+
+  const id = uid('mev')
+  const { error } = await supabase.from('money_events').insert({
+    id,
+    po_line_id: (orig as AnyRow).po_line_id as string,
+    kind: (orig as AnyRow).kind as string,
+    amount_cny: (orig as AnyRow).amount_cny,
+    event_date: today(),
+    note: '红冲',
+    reversal_of: eventId,
+    created_by: createdBy,
+  })
+  if (error) throw error
+  return id
+}
+
+// 是否收费 toggle. Store NULL for the default 收费 state so legacy rows and
+// reset rows look identical; false only when 免收.
+export async function setJobBillable(
+  jobId: string,
+  billable: boolean,
+): Promise<void> {
+  const { error } = await supabase
+    .from('jobs')
+    .update({ billable: billable ? null : false })
+    .eq('id', jobId)
+  if (error) throw error
 }
 
 export async function getOrderMoneyRows(): Promise<OrderMoneyRow[]> {

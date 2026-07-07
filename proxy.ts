@@ -18,17 +18,13 @@ import { getUserById } from '@/lib/db'
 // /join is the public "Afterlight" creator waitlist landing — no session
 // required, and its server action (joinWaitlist) POSTs back to /join, so the
 // path must stay open to unauthenticated visitors.
-// '/caiwu-lab' is a temporary, DB-free finance-redesign preview (mock data
-// only, no writes to real tables). Public so it opens without login while we
-// pick a winner — REMOVE this entry when the chosen design is promoted into
-// /finance. See app/caiwu-lab/.
 // '/w' is the vendor portal (外协厂商门户) — one unguessable token per vendor
 // IS the auth (verified server-side by getVendorByPortalToken on every page
 // render, action, and image fetch), so the path itself must stay open.
 // '/x/demo' is the public sandbox of the /x sheet — pure localStorage, no DB
 // reads or writes, shareable with prospect factories. The real /x stays
 // session-gated (it is NOT in this list; prefix matching is exact-or-slash).
-const PUBLIC_PATHS = ['/login', '/join', '/caiwu-lab', '/w', '/x/demo']
+const PUBLIC_PATHS = ['/login', '/join', '/w', '/x/demo']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only

@@ -1,17 +1,10 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { canSeeExpenses, requireCommerce } from '@/lib/auth'
-import { getExpenses, getFinanceRows } from '@/lib/db'
+import { getExpenses, getFenqiData } from '@/lib/db'
 import { getVouchersForExpenses } from '@/lib/voucher-file'
 import { today } from '@/lib/today'
 import { formatCny } from '@/lib/data'
-import {
-  applyFinanceFilters,
-  financeCounts,
-  financeTotals,
-  isFinanceFilter,
-  type FinanceFilter,
-} from '@/lib/finance'
 import {
   applyExpenseFilters,
   expenseCounts,
@@ -25,7 +18,8 @@ import {
   type ExpenseFilter,
 } from '@/lib/expenses'
 import { TopBar } from '../_ui'
-import { FinanceLedger } from './_ledger'
+import { FenqiLedger } from './_fenqi'
+import { BossMoney } from './_boss'
 import { ExpenseLedger } from './_expense_ledger'
 import { MonthlyCashflow } from './_monthly'
 
@@ -33,18 +27,19 @@ export const dynamic = 'force-dynamic'
 
 const PAGE_SIZE = 25
 
-// 财务 — three reads of the same books, one route:
-//   应收 (tab=ar, default)  money owed to us — the AR ledger where 商务 enters
-//                           开票 / 回款. The boss's per-order money GLANCE now
-//                           lives on the master board's 收款 column (the old
-//                           订单 tab is retired); this is the entry surface.
-//   支出 (tab=expense)      money out — the boss's 7 manual categories
-//   月度 (tab=month)        回款收入 − 支出 = 净现金流, by month
-// 应收 stays visible to every 商务. 支出/月度 carry per-person payroll, so
-// they're gated to the boss + designated finance users (users.is_finance,
-// migration 0051) — others don't even see those two tabs.
+// 财务 — one route, four reads of the same money:
+//   记账 (tab=ar, default)   the clerk's 分期账 — her Excel, columns and all,
+//                            where 开票/收款 installments are appended and every
+//                            剩余 derives itself (lib/fenqi). Rows are born from
+//                            出货 automatically.
+//   看钱 (tab=money)         the boss's read — 4 plain-speak totals + the
+//                            per-customer 谁压着钱 wall. Same derived rows.
+//   支出 (tab=expense)       money out — the boss's 7 manual categories
+//   月度 (tab=month)         回款收入 − 支出 = 净现金流, by month
+// 记账 + 看钱 stay visible to every 商务. 支出/月度 carry per-person payroll,
+// so they're gated to the boss + designated finance users (users.is_finance).
 
-type FinanceTab = 'ar' | 'expense' | 'month'
+type FinanceTab = 'ar' | 'money' | 'expense' | 'month'
 
 export default async function FinancePage({
   searchParams,
@@ -63,10 +58,10 @@ export default async function FinancePage({
   const showExpenses = canSeeExpenses(user)
 
   const tab: FinanceTab =
-    params.tab === 'expense' || params.tab === 'month'
+    params.tab === 'expense' || params.tab === 'month' || params.tab === 'money'
       ? (params.tab as FinanceTab)
       : 'ar'
-  // Deep link to a gated tab from a non-finance user → land on the AR ledger.
+  // Deep link to a gated tab from a non-finance user → land on the ledger.
   if ((tab === 'expense' || tab === 'month') && !showExpenses) redirect('/finance')
 
   const todayStr = today()
@@ -75,10 +70,12 @@ export default async function FinancePage({
 
   const subtitle =
     tab === 'ar'
-      ? '应收账款'
-      : tab === 'expense'
-        ? '支出台账'
-        : '月度现金流'
+      ? '分期账'
+      : tab === 'money'
+        ? '看钱'
+        : tab === 'expense'
+          ? '支出台账'
+          : '月度现金流'
 
   return (
     <div className="flex-1 flex flex-col">
@@ -93,7 +90,15 @@ export default async function FinancePage({
       <main className="mx-auto w-full max-w-[1240px] px-5 md:px-10 py-10 md:py-14 flex-1">
         <FinanceTabs tab={tab} showExpenses={showExpenses} />
         {tab === 'ar' && (
-          <ArTab params={params} todayStr={todayStr} month={month} monthLabel={monthLabel} />
+          <FenqiTab
+            q={params.q ?? ''}
+            todayStr={todayStr}
+            month={month}
+            monthLabel={monthLabel}
+          />
+        )}
+        {tab === 'money' && (
+          <MoneyTab todayStr={todayStr} month={month} monthLabel={monthLabel} />
         )}
         {tab === 'expense' && (
           <ExpenseTab params={params} month={month} monthLabel={monthLabel} userName={user.name} />
@@ -105,11 +110,11 @@ export default async function FinancePage({
 }
 
 // Sub-tab row — same underline-active text-toggle idiom as the ledger filters.
-// Server-rendered links so the gate stays on the server. 订单 + 应收 show for
-// every 商务; 支出 + 月度 only when the user may see payroll.
+// Server-rendered links so the gate stays on the server.
 function FinanceTabs({ tab, showExpenses }: { tab: FinanceTab; showExpenses: boolean }) {
   const tabs: { key: FinanceTab; href: string; label: string }[] = [
-    { key: 'ar', href: '/finance', label: '应收' },
+    { key: 'ar', href: '/finance', label: '记账' },
+    { key: 'money', href: '/finance?tab=money', label: '看钱' },
     ...(showExpenses
       ? ([
           { key: 'expense', href: '/finance?tab=expense', label: '支出' },
@@ -141,83 +146,45 @@ function FinanceTabs({ tab, showExpenses }: { tab: FinanceTab; showExpenses: boo
   )
 }
 
-// === 应收 (the AR ledger — now the default 财务 surface) ===
+// === 记账 — the 分期账 ledger (her surface; one payload, client-driven) ===
 
-async function ArTab({
-  params,
+async function FenqiTab({
+  q,
   todayStr,
   month,
   monthLabel,
 }: {
-  params: { q?: string; filter?: string; page?: string }
+  q: string
   todayStr: string
   month: string
   monthLabel: string
 }) {
-  const q = params.q ?? ''
-  const filter: FinanceFilter =
-    params.filter && isFinanceFilter(params.filter) ? params.filter : 'all'
-
-  const allRows = await getFinanceRows()
-
-  // KPIs aggregate over the FULL set (true AR position); the table is filtered
-  // + paginated.
-  const totals = financeTotals(allRows, todayStr, month)
-  const counts = financeCounts(allRows, todayStr)
-  const filtered = applyFinanceFilters(allRows, { q, filter, todayYmd: todayStr })
-
-  const total = filtered.length
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const page = Math.min(
-    Math.max(1, parseInt(params.page ?? '1', 10) || 1),
-    totalPages,
-  )
-  const start = (page - 1) * PAGE_SIZE
-  const display = filtered.slice(start, start + PAGE_SIZE)
-  const rangeStart = total === 0 ? 0 : start + 1
-  const rangeEnd = Math.min(start + PAGE_SIZE, total)
-
-  const exportParams = new URLSearchParams()
-  if (q.trim()) exportParams.set('q', q.trim())
-  if (filter !== 'all') exportParams.set('filter', filter)
-  const exportHref = exportParams.toString()
-    ? `/finance/export?${exportParams.toString()}`
-    : '/finance/export'
-
+  const data = await getFenqiData()
   return (
-    <>
-      {/* KPI strip — global AR position. */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-10 mb-14">
-        <Stat label="应收余额" value={formatCny(totals.outstandingCny)} sub="未回款总额" />
-        <Stat
-          label="逾期未回款"
-          value={formatCny(totals.overdueCny)}
-          sub={totals.overdueCount > 0 ? `${totals.overdueCount} 笔` : '无逾期'}
-          tone={totals.overdueCny > 0 ? 'overdue' : undefined}
-        />
-        <Stat label={`${monthLabel}开票`} value={formatCny(totals.invoicedThisMonthCny)} sub="本月开票额" />
-        <Stat
-          label={`${monthLabel}回款`}
-          value={formatCny(totals.collectedThisMonthCny)}
-          sub="本月回款额"
-          tone="success"
-        />
-      </div>
+    <FenqiLedger
+      data={data}
+      todayStr={todayStr}
+      month={month}
+      monthLabel={monthLabel}
+      initialQ={q}
+    />
+  )
+}
 
-      <FinanceLedger
-        rows={display}
-        q={q}
-        filter={filter}
-        counts={counts}
-        todayStr={todayStr}
-        total={total}
-        page={page}
-        totalPages={totalPages}
-        rangeStart={rangeStart}
-        rangeEnd={rangeEnd}
-        exportHref={exportHref}
-      />
-    </>
+// === 看钱 — the boss's read of the same book ===
+
+async function MoneyTab({
+  todayStr,
+  month,
+  monthLabel,
+}: {
+  todayStr: string
+  month: string
+  monthLabel: string
+}) {
+  const data = await getFenqiData()
+  return (
+    <BossMoney data={data} todayStr={todayStr} month={month} monthLabel={monthLabel} />
   )
 }
 
