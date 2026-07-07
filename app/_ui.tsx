@@ -271,15 +271,14 @@ export function StageHeader({ name }: { name: string }) {
   )
 }
 
-// Two-band cell shell for the master board. Status content sits in a flex-1
-// top band; when the ROW carries any 排产 plan (hasRail), a fixed 20px plan
-// rail runs along the BOTTOM, hairline-separated, on the lane background.
-// Bottom, not top: an underline unambiguously belongs to the row above it,
-// whereas a top strip reads as a footer of the PREVIOUS row. Row-gated, not
-// universal: an empty lane on a plan-less job is noise, not information —
-// plan-less rows stay clean single-band cells and lanes appear as 排产
-// adoption grows. Within a railed row every cell gets the rail (empty when
-// that stage has no plan) so the track never breaks mid-row.
+// Two-band cell shell for the master board. When the ROW carries any 排产
+// plan (hasRail), a fixed 20px plan rail runs along the TOP — owner's call:
+// the plan reads first ("due 7/9"), the fact below answers it — with the
+// status content in a flex-1 band beneath. Row-gated, not universal: an
+// empty lane on a plan-less job is noise, not information — plan-less rows
+// stay clean single-band cells and lanes appear as 排产 adoption grows.
+// Within a railed row every cell gets the rail (empty when that stage has
+// no plan) so the track never breaks mid-row.
 function CellBands({
   hasRail,
   bandClass,
@@ -305,18 +304,18 @@ function CellBands({
   }
   return (
     <div className="flex h-full w-full flex-col">
+      {rail}
       <div
         className={`flex min-h-0 flex-1 flex-col items-center justify-center ${bandClass}`}
         title={title}
       >
         {children}
       </div>
-      {rail}
     </div>
   )
 }
 
-// The plan rail — bottom band, fixed 20px, hairline top border on the lane
+// The plan rail — top band, fixed 20px, hairline bottom border on the lane
 // background. Always the plan slot; empty when this stage has no plan (or
 // isn't plannable) so the rails line up into one continuous track across the
 // row. Exported so the station action-button cell can share the exact same
@@ -327,7 +326,7 @@ export function PlanRail({
   plan?: { label: string; toneClass: string }
 }) {
   return (
-    <div className="flex h-5 shrink-0 items-center justify-center border-t border-[var(--color-border)] bg-[var(--color-lane)]">
+    <div className="flex h-5 shrink-0 items-center justify-center border-b border-[var(--color-border)] bg-[var(--color-lane)]">
       {plan && (
         <span
           className={`mono text-[10.5px] font-medium tabular-nums ${plan.toneClass}`}
@@ -389,13 +388,13 @@ export function RollupCell({
     }
     return (
       <div className="flex h-full w-full flex-col">
+        {rail}
         <div
           className="relative flex min-h-0 flex-1 flex-col items-center justify-center"
           aria-label="该工段不适用"
         >
           {slash}
         </div>
-        {rail}
       </div>
     )
   }
