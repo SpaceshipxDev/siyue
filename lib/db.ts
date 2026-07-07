@@ -3906,6 +3906,10 @@ export async function setStageDoneQty(
       }
       const cascaded = cascadeBackFinish(snap, partId, stage, date, finishedAt, actor)
       await upsertStages([main, ...cascaded])
+      // Shipping settles the part's vendor lines too (see cascadeBackFinish).
+      if (stage === '出货') {
+        await closeOpenOutsourceMembersForParts(snap, [partId], today())
+      }
       return
     }
     // Falling through from a 'done' row (qty < max) flips it back to
@@ -4015,6 +4019,7 @@ export async function prepareShipping(
     // Untouched parts keep whatever state they had — direct cell clicks on
     // 出货 (legacy workbench path) aren't blown away by a fresh batch.
     const stageUpdates: PartStageRow[] = []
+    const fullyShippedPartIds: string[] = []
     const date = todayMMDD()
     for (const [partId, delta] of deltas) {
       const part = snap.idx.partById.get(partId)
@@ -4038,6 +4043,7 @@ export async function prepareShipping(
         })
         const cascaded = cascadeBackFinish(snap, partId, '出货', date, createdAt, actor)
         stageUpdates.push(...cascaded)
+        fullyShippedPartIds.push(partId)
       } else {
         stageUpdates.push({
           ...row,
@@ -4063,6 +4069,10 @@ export async function prepareShipping(
       if (insP.error) throw insP.error
     }
     if (stageUpdates.length > 0) await upsertStages(stageUpdates)
+    // Shipping settles the parts' vendor lines too (see cascadeBackFinish).
+    if (fullyShippedPartIds.length > 0) {
+      await closeOpenOutsourceMembersForParts(snap, fullyShippedPartIds, today())
+    }
 
     return { shipmentId, docNo }
   })
