@@ -1372,6 +1372,10 @@ function JobRow({
         ? 'var(--color-warning)'
         : 'transparent'
   const detailHref = `/jobs/${row.id}`
+  // 排产轨 gate — only rows that actually carry an in-house 工段 plan grow the
+  // rail; an empty lane on a plan-less job is noise, not information. 外协 is
+  // structurally excluded (it's a PlanKey but not in STAGES — no board column).
+  const hasRail = STAGES.some((s) => row.stagePlan?.[s])
   const rowOpacity =
     tier === 'mine' ? '' : tier === 'upstream' ? 'opacity-50' : 'opacity-40'
   return (
@@ -1589,18 +1593,17 @@ function JobRow({
           if (totalCounted === 0) {
             return (
               <td key={stage} className="p-0 h-[78px]">
-                <RollupCell rollup={rollup} plan={plan} />
+                <RollupCell rollup={rollup} plan={plan} hasRail={hasRail} />
               </td>
             )
           }
-          // Two-band anatomy, same as every other cell: the action button fills
-          // the status band (flex-1, full tap target) and the shared plan rail
-          // sits beneath it so the schedule lane runs unbroken through the
-          // station column too.
+          // Same anatomy as every other cell in this row: the action button
+          // fills the status band (flex-1, full tap target); when the row is
+          // railed, the shared plan rail sits beneath it so the schedule lane
+          // runs unbroken through the station column too.
           return (
             <td key={stage} className="p-0 h-[78px]">
               <div className="flex h-full w-full flex-col">
-                <PlanRail plan={plan} />
                 <div className="flex min-h-0 flex-1">
                   <JobStageActionButton
                     jobId={row.id}
@@ -1614,6 +1617,7 @@ function JobRow({
                     subdued
                   />
                 </div>
+                {hasRail && <PlanRail plan={plan} />}
               </div>
             </td>
           )
@@ -1625,7 +1629,7 @@ function JobRow({
               className={`block h-full w-full ${hoverCls} transition-colors`}
               aria-label={`${row.jobNo} · ${stage}`}
             >
-              <RollupCell rollup={rollup} plan={plan} />
+              <RollupCell rollup={rollup} plan={plan} hasRail={hasRail} />
             </Link>
           </td>
         )

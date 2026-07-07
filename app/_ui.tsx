@@ -283,39 +283,52 @@ export function StageHeader({ name }: { name: string }) {
   )
 }
 
-// Two-band cell shell for the master board. A fixed 20px plan rail sits at the
-// TOP, hairline-separated, on the lane background — UNCONDITIONALLY, on every
-// cell in every row — with the status content in a flex-1 band below it.
-// Position constant → semantics constant: the rail is ALWAYS the plan
-// (计划交期), below it is ALWAYS fact (actual date / n·m count / — / slash),
-// and across a row the rails fuse into one continuous schedule track along the
-// top of the stage grid. The rail is simply empty when a stage has no plan, so
-// every board cell is the same shape.
+// Two-band cell shell for the master board. Status content sits in a flex-1
+// top band; when the ROW carries any 排产 plan (hasRail), a fixed 20px plan
+// rail runs along the BOTTOM, hairline-separated, on the lane background.
+// Bottom, not top: an underline unambiguously belongs to the row above it,
+// whereas a top strip reads as a footer of the PREVIOUS row. Row-gated, not
+// universal: an empty lane on a plan-less job is noise, not information —
+// plan-less rows stay clean single-band cells and lanes appear as 排产
+// adoption grows. Within a railed row every cell gets the rail (empty when
+// that stage has no plan) so the track never breaks mid-row.
 function CellBands({
+  hasRail,
   bandClass,
   title,
   rail,
   children,
 }: {
+  hasRail?: boolean
   bandClass: string
   title?: string
   rail: ReactNode
   children: ReactNode
 }) {
+  if (!hasRail) {
+    return (
+      <div
+        className={`flex h-full flex-col items-center justify-center ${bandClass}`}
+        title={title}
+      >
+        {children}
+      </div>
+    )
+  }
   return (
     <div className="flex h-full w-full flex-col">
-      {rail}
       <div
         className={`flex min-h-0 flex-1 flex-col items-center justify-center ${bandClass}`}
         title={title}
       >
         {children}
       </div>
+      {rail}
     </div>
   )
 }
 
-// The plan rail — top band, fixed 20px, hairline bottom border on the lane
+// The plan rail — bottom band, fixed 20px, hairline top border on the lane
 // background. Always the plan slot; empty when this stage has no plan (or
 // isn't plannable) so the rails line up into one continuous track across the
 // row. Exported so the station action-button cell can share the exact same
@@ -326,7 +339,7 @@ export function PlanRail({
   plan?: { label: string; toneClass: string }
 }) {
   return (
-    <div className="flex h-5 shrink-0 items-center justify-center border-b border-[var(--color-border)] bg-[var(--color-lane)]">
+    <div className="flex h-5 shrink-0 items-center justify-center border-t border-[var(--color-border)] bg-[var(--color-lane)]">
       {plan && (
         <span
           className={`mono text-[10.5px] font-medium tabular-nums ${plan.toneClass}`}
@@ -342,46 +355,59 @@ export function PlanRail({
 export function RollupCell({
   rollup,
   plan,
+  hasRail,
 }: {
   rollup: Rollup
   // 计划交期 (排产) — this stage's planned finish. It no longer shares the
-  // status slot; it lives ONLY in the plan rail at the top of the cell.
+  // status slot; it lives ONLY in the plan rail at the bottom of the cell.
   // Display-only: never feeds sort/filter/urgency. Tone follows planToneClass —
   // strong ink for a live commitment, red when slipped, faint ink-4 once done.
   plan?: { label: string; toneClass: string }
+  // Row-level gate: true when the JOB carries any in-house 工段 plan. Every
+  // cell in a railed row gets the rail (empty for unplanned stages) so the
+  // track never breaks mid-row; plan-less rows render clean single-band cells.
+  hasRail?: boolean
 }) {
-  // The rail is on EVERY cell now — for 'na' too (where plan is always null, so
-  // it renders empty) — so the schedule track never breaks across a row.
   const rail = <PlanRail plan={plan} />
   // No part in this job needs the stage. Render a diagonal slash — visually
   // unmistakable as "crossed out / not applicable", distinct from the en-dash
-  // that means "not started yet." The slash is confined to the STATUS BAND; the
-  // (always-empty) rail runs above it like every other cell so the lane is
-  // unbroken across the row.
+  // that means "not started yet." In a railed row the slash is confined to the
+  // status band with the (always-empty) rail beneath, keeping the lane
+  // unbroken; in a rail-less row it crosses the whole cell as before.
   if (rollup.kind === 'na') {
+    const slash = (
+      <svg
+        className="absolute inset-0 h-full w-full"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        <line
+          x1="0%"
+          y1="100%"
+          x2="100%"
+          y2="0%"
+          stroke="var(--color-ink-4)"
+          strokeWidth="1"
+          shapeRendering="crispEdges"
+        />
+      </svg>
+    )
+    if (!hasRail) {
+      return (
+        <div className="relative h-full w-full" aria-label="该工段不适用">
+          {slash}
+        </div>
+      )
+    }
     return (
       <div className="flex h-full w-full flex-col">
-        {rail}
         <div
           className="relative flex min-h-0 flex-1 flex-col items-center justify-center"
           aria-label="该工段不适用"
         >
-          <svg
-            className="absolute inset-0 h-full w-full"
-            preserveAspectRatio="none"
-            aria-hidden="true"
-          >
-            <line
-              x1="0%"
-              y1="100%"
-              x2="100%"
-              y2="0%"
-              stroke="var(--color-ink-4)"
-              strokeWidth="1"
-              shapeRendering="crispEdges"
-            />
-          </svg>
+          {slash}
         </div>
+        {rail}
       </div>
     )
   }
@@ -391,7 +417,11 @@ export function RollupCell({
   // not actually finished in-house.
   if (rollup.kind === 'done' && outsourced > 0 && outsourced === rollup.total) {
     return (
-      <CellBands bandClass="gap-0.5 leading-none" rail={rail}>
+      <CellBands
+        hasRail={hasRail}
+        bandClass="gap-0.5 leading-none"
+        rail={rail}
+      >
         <span className="text-[11px] tracking-wider font-semibold text-[var(--color-info)]">
           外协
         </span>
@@ -408,6 +438,7 @@ export function RollupCell({
     // cell above, which means the stage isn't in this job's route at all.
     return (
       <CellBands
+        hasRail={hasRail}
         bandClass="gap-0.5 leading-none text-[var(--color-ink-4)]"
         rail={rail}
       >
@@ -418,6 +449,7 @@ export function RollupCell({
   if (rollup.kind === 'partial') {
     return (
       <CellBands
+        hasRail={hasRail}
         bandClass="gap-1 leading-none"
         title={rollupByHint(rollup)}
         rail={rail}
@@ -431,6 +463,7 @@ export function RollupCell({
   }
   return (
     <CellBands
+      hasRail={hasRail}
       bandClass="gap-0.5 leading-none"
       title={rollupByHint(rollup)}
       rail={rail}
