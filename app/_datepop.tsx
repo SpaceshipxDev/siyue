@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 // Single-date popover picker — the project's replacement for native
 // <input type=date>, which auto-commits while scrolling months (the exact
@@ -24,6 +25,7 @@ export function DatePop({
   clearable = false,
   tone,
   triggerClass,
+  portal = false,
 }: {
   /** Current value (YYYY-MM-DD, or YYYY-MM-DDTHH:mm when withTime) — '' / undefined for unset. */
   value?: string
@@ -50,6 +52,12 @@ export function DatePop({
   /** Optional size/weight classes for the trigger label — lets a caller make
    *  the value read bigger/bolder (e.g. the 排产 band). Defaults to text-[13px]. */
   triggerClass?: string
+  /** Opt-in: render the panel into document.body (position:fixed) instead of
+   *  absolutely inside the trigger. Required when the trigger lives inside an
+   *  overflow-clipped container — e.g. the 排产 plan row inside the 零件进度
+   *  table's horizontal-scroll wrapper, which clips an absolute panel to a
+   *  sliver. Off by default so every existing caller keeps its geometry. */
+  portal?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [openUp, setOpenUp] = useState(false)
@@ -64,6 +72,15 @@ export function DatePop({
   // typed before a day is chosen rides along when that day commits.
   const [pendingTime, setPendingTime] = useState(timePart)
   const rootRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  // Fixed-position anchor for portal mode, captured from the trigger rect at
+  // open time. Null while closed (and always in non-portal mode).
+  const [fixedPos, setFixedPos] = useState<{
+    top?: number
+    bottom?: number
+    left?: number
+    right?: number
+  } | null>(null)
 
   // Commit a chosen date, carrying the staged hour when withTime + one is set.
   const commitDate = (d: string) => {
@@ -80,33 +97,193 @@ export function DatePop({
     // Flip ABOVE only when below can't fit the ~380px panel AND there's more
     // room up — never blindly, so it doesn't clip the top instead.
     const spaceBelow = rect ? window.innerHeight - rect.bottom : 0
-    setOpenUp(!!rect && spaceBelow < 380 && rect.top > spaceBelow)
+    const up = !!rect && spaceBelow < 380 && rect.top > spaceBelow
+    setOpenUp(up)
     // Anchor the panel's RIGHT edge to the trigger when it sits near the right
     // edge, so the 264px panel never spills off-screen (e.g. the rightmost
     // 工段 in the 排产 band).
-    setAlignRight(!!rect && window.innerWidth - rect.left < 280)
+    const right = !!rect && window.innerWidth - rect.left < 280
+    setAlignRight(right)
+    if (portal && rect) {
+      setFixedPos({
+        ...(up
+          ? { bottom: window.innerHeight - rect.top + 6 }
+          : { top: rect.bottom + 6 }),
+        ...(right
+          ? { right: window.innerWidth - rect.right }
+          : { left: rect.left }),
+      })
+    }
     setOpen(true)
   }
-  const close = () => setOpen(false)
+  const close = () => {
+    setOpen(false)
+    setFixedPos(null)
+  }
 
-  // Dismiss on outside click / Escape.
+  // Dismiss on outside click / Escape. In portal mode the panel is NOT a DOM
+  // descendant of the trigger, so "outside" must check both refs; and because
+  // the panel is fixed to viewport coords, scrolling would detach it from its
+  // trigger — so it FOLLOWS the trigger instead of closing (closing on scroll
+  // eats the popover on trackpad-inertia scrolls right after opening). Capture
+  // phase catches inner scroll containers like the 零件进度 table wrapper.
   useEffect(() => {
     if (!open) return
     const onDown = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) close()
+      const t = e.target as Node
+      if (rootRef.current?.contains(t)) return
+      if (panelRef.current?.contains(t)) return
+      close()
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close()
     }
+    let raf = 0
+    const onMove = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        const rect = rootRef.current?.getBoundingClientRect()
+        if (!rect) return
+        const spaceBelow = window.innerHeight - rect.bottom
+        const up = spaceBelow < 380 && rect.top > spaceBelow
+        const right = window.innerWidth - rect.left < 280
+        setFixedPos({
+          ...(up
+            ? { bottom: window.innerHeight - rect.top + 6 }
+            : { top: rect.bottom + 6 }),
+          ...(right
+            ? { right: window.innerWidth - rect.right }
+            : { left: rect.left }),
+        })
+      })
+    }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
+    if (portal) {
+      window.addEventListener('scroll', onMove, true)
+      window.addEventListener('resize', onMove)
+    }
     return () => {
       document.removeEventListener('mousedown', onDown)
       document.removeEventListener('keydown', onKey)
+      if (portal) {
+        window.removeEventListener('scroll', onMove, true)
+        window.removeEventListener('resize', onMove)
+        if (raf) cancelAnimationFrame(raf)
+      }
     }
-  }, [open])
+  }, [open, portal])
 
   const grid = monthGrid(view.y, view.m)
+
+  const panel = open ? (
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-label="选择日期"
+      style={portal && fixedPos ? fixedPos : undefined}
+      className={`${
+        portal
+          ? 'fixed z-50'
+          : `absolute z-40 ${openUp ? 'bottom-[calc(100%+6px)]' : 'top-[calc(100%+6px)]'} ${alignRight ? 'right-0' : 'left-0'}`
+      } w-[264px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[0_8px_28px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04)]`}
+    >
+      {/* Presets */}
+      <div className="mb-3 flex items-center gap-1">
+        <Preset label="今天" onClick={() => commitDate(today)} />
+        {allowFuture && (
+          <>
+            <Preset label="明天" onClick={() => commitDate(addDays(today, 1))} />
+            <Preset label="+1周" onClick={() => commitDate(addDays(today, 7))} />
+          </>
+        )}
+        {!allowFuture && (
+          <Preset label="昨天" onClick={() => commitDate(addDays(today, -1))} />
+        )}
+        {clearable && datePart && (
+          <Preset
+            label="清除"
+            onClick={() => {
+              close()
+              onChange('')
+            }}
+          />
+        )}
+      </div>
+
+      {/* Optional hour — 全天 by default; pin a time to say "由此工段完成的
+          具体时刻". Setting it while a date already exists commits at once;
+          set before a day is chosen, it rides along with that click. */}
+      {withTime && (
+        <TimeRow
+          time={pendingTime}
+          onSet={(t) => {
+            // Commit live but keep the popover open so hour + minute can be
+            // dialed in freely; the user closes by picking a day or clicking
+            // away. When no day is chosen yet, just stage it for that click.
+            setPendingTime(t)
+            if (datePart) onChange(t ? `${datePart}T${t}` : datePart)
+          }}
+        />
+      )}
+
+      {/* Month header — arrows ONLY change the view, never select. */}
+      <div className="mb-2 flex items-center justify-between px-1">
+        <MonthArrow dir="prev" onClick={() => setView(shiftMonth(view, -1))} />
+        <span className="text-[13px] font-medium tabular-nums text-[var(--color-ink)]">
+          {view.y}年{view.m + 1}月
+        </span>
+        <MonthArrow
+          dir="next"
+          onClick={() => setView(shiftMonth(view, 1))}
+          disabled={!allowFuture && `${view.y}-${pad(view.m + 1)}` >= today.slice(0, 7)}
+        />
+      </div>
+
+      <div className="grid grid-cols-7 mb-1">
+        {WEEKDAYS.map((w) => (
+          <span key={w} className="text-center text-[11px] text-[var(--color-ink-4)] py-1">
+            {w}
+          </span>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-y-0.5">
+        {grid.map((day) => {
+          const inMonth = monthOf(day).m === view.m
+          const blocked = !allowFuture && day > today
+          const isToday = day === today
+          const isSel = day === datePart
+          return (
+            <button
+              key={day}
+              type="button"
+              disabled={blocked}
+              onClick={() => commitDate(day)}
+              className={[
+                'relative h-8 text-[13px] tabular-nums transition-colors flex items-center justify-center',
+                isSel
+                  ? 'rounded-[2px] bg-[var(--color-ink)] text-[var(--color-bg)] font-medium'
+                  : '',
+                !isSel && !blocked
+                  ? 'rounded-[2px] hover:bg-[var(--color-surface)] hover:shadow-[inset_0_0_0_1px_var(--color-border)]'
+                  : '',
+                blocked ? 'text-[var(--color-ink-4)] cursor-not-allowed' : '',
+                !inMonth && !isSel && !blocked ? 'text-[var(--color-ink-4)]' : '',
+                inMonth && !isSel && !blocked ? 'text-[var(--color-ink-2)]' : '',
+              ].join(' ')}
+            >
+              {parseInt(day.slice(8), 10)}
+              {isToday && !isSel && (
+                <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 h-[3px] w-[3px] rounded-full bg-[var(--color-ink-3)]" />
+              )}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  ) : null
 
   return (
     <div ref={rootRef} className={`relative inline-flex ${className}`}>
@@ -133,109 +310,7 @@ export function DatePop({
         {value ? (formatLabel ? formatLabel(value) : value) : placeholder}
       </button>
 
-      {open && (
-        <div
-          role="dialog"
-          aria-label="选择日期"
-          className={`absolute z-40 w-[264px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[0_8px_28px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04)] ${
-            openUp ? 'bottom-[calc(100%+6px)]' : 'top-[calc(100%+6px)]'
-          } ${alignRight ? 'right-0' : 'left-0'}`}
-        >
-          {/* Presets */}
-          <div className="mb-3 flex items-center gap-1">
-            <Preset label="今天" onClick={() => commitDate(today)} />
-            {allowFuture && (
-              <>
-                <Preset label="明天" onClick={() => commitDate(addDays(today, 1))} />
-                <Preset label="+1周" onClick={() => commitDate(addDays(today, 7))} />
-              </>
-            )}
-            {!allowFuture && (
-              <Preset label="昨天" onClick={() => commitDate(addDays(today, -1))} />
-            )}
-            {clearable && datePart && (
-              <Preset
-                label="清除"
-                onClick={() => {
-                  close()
-                  onChange('')
-                }}
-              />
-            )}
-          </div>
-
-          {/* Optional hour — 全天 by default; pin a time to say "由此工段完成的
-              具体时刻". Setting it while a date already exists commits at once;
-              set before a day is chosen, it rides along with that day. */}
-          {withTime && (
-            <TimeRow
-              time={pendingTime}
-              onSet={(t) => {
-                // Commit live but keep the popover open so hour + minute can be
-                // dialed in freely; the user closes by picking a day or clicking
-                // away. When no day is chosen yet, just stage it for that click.
-                setPendingTime(t)
-                if (datePart) onChange(t ? `${datePart}T${t}` : datePart)
-              }}
-            />
-          )}
-
-          {/* Month header — arrows ONLY change the view, never select. */}
-          <div className="mb-2 flex items-center justify-between px-1">
-            <MonthArrow dir="prev" onClick={() => setView(shiftMonth(view, -1))} />
-            <span className="text-[13px] font-medium tabular-nums text-[var(--color-ink)]">
-              {view.y}年{view.m + 1}月
-            </span>
-            <MonthArrow
-              dir="next"
-              onClick={() => setView(shiftMonth(view, 1))}
-              disabled={!allowFuture && `${view.y}-${pad(view.m + 1)}` >= today.slice(0, 7)}
-            />
-          </div>
-
-          <div className="grid grid-cols-7 mb-1">
-            {WEEKDAYS.map((w) => (
-              <span key={w} className="text-center text-[11px] text-[var(--color-ink-4)] py-1">
-                {w}
-              </span>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-7 gap-y-0.5">
-            {grid.map((day) => {
-              const inMonth = monthOf(day).m === view.m
-              const blocked = !allowFuture && day > today
-              const isToday = day === today
-              const isSel = day === datePart
-              return (
-                <button
-                  key={day}
-                  type="button"
-                  disabled={blocked}
-                  onClick={() => commitDate(day)}
-                  className={[
-                    'relative h-8 text-[13px] tabular-nums transition-colors flex items-center justify-center',
-                    isSel
-                      ? 'rounded-[2px] bg-[var(--color-ink)] text-[var(--color-bg)] font-medium'
-                      : '',
-                    !isSel && !blocked
-                      ? 'rounded-[2px] hover:bg-[var(--color-surface)] hover:shadow-[inset_0_0_0_1px_var(--color-border)]'
-                      : '',
-                    blocked ? 'text-[var(--color-ink-4)] cursor-not-allowed' : '',
-                    !inMonth && !isSel && !blocked ? 'text-[var(--color-ink-4)]' : '',
-                    inMonth && !isSel && !blocked ? 'text-[var(--color-ink-2)]' : '',
-                  ].join(' ')}
-                >
-                  {parseInt(day.slice(8), 10)}
-                  {isToday && !isSel && (
-                    <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 h-[3px] w-[3px] rounded-full bg-[var(--color-ink-3)]" />
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
+      {portal ? panel && createPortal(panel, document.body) : panel}
     </div>
   )
 }

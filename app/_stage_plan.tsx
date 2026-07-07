@@ -104,6 +104,10 @@ export function StagePlanDate({
       formatLabel={fmtPlanLabel}
       triggerClass={triggerClass}
       tone={local ? toneClass : 'text-[var(--color-ink-3)]'}
+      // Portal the panel: the plan row lives inside the 零件进度 table's
+      // horizontal-scroll wrapper, which clips an absolutely-positioned panel
+      // to a sliver. Harmless for the import band, essential in the table.
+      portal
     />
   )
 }
