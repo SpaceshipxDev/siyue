@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { mutate } from '@/lib/mutate'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { withBase } from '@/lib/base-path'
 
@@ -99,25 +98,6 @@ export function ComponentImageUploader({
     void upload(files[0])
   }
 
-  const clear = async () => {
-    setBusy(true)
-    setError(undefined)
-    try {
-      await mutate({
-        kind: 'setComponentImage',
-        jobId,
-        componentId,
-        imageUrl: null,
-      })
-      setOverride(null)
-      dispatchComponentImageUpdated({ componentId, url: null })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '移除失败')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const px = `${size}px`
 
   if (readOnly) {
@@ -196,18 +176,6 @@ export function ComponentImageUploader({
           </div>
         )}
       </div>
-      {effectiveUrl ? (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            void clear()
-          }}
-          className="label text-[var(--color-ink-3)] hover:text-[var(--color-overdue)]"
-        >
-          移除
-        </button>
-      ) : null}
       {error ? (
         <span className="label text-[var(--color-overdue)]" title={error}>
           失败
