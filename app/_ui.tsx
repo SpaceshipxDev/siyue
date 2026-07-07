@@ -315,7 +315,7 @@ function CellBands({
   )
 }
 
-// The plan rail — bottom band, fixed 24px, hairline top border on the lane
+// The plan rail — bottom band, fixed 20px, hairline top border on the lane
 // background. Always the plan slot; empty when this stage has no plan (or
 // isn't plannable) so the rails line up into one continuous track across the
 // row. Exported so the station action-button cell can share the exact same
@@ -326,7 +326,7 @@ export function PlanRail({
   plan?: { label: string; toneClass: string }
 }) {
   return (
-    <div className="flex h-6 shrink-0 items-center justify-center border-t border-[var(--color-border)] bg-[var(--color-lane)]">
+    <div className="flex h-5 shrink-0 items-center justify-center border-t border-[var(--color-border)] bg-[var(--color-lane)]">
       {plan && (
         <span
           className={`mono text-[10.5px] font-medium tabular-nums ${plan.toneClass}`}
