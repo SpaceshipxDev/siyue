@@ -1,10 +1,22 @@
 'use client'
 
 // 分期账 — the finance clerk's ledger, shaped as HER Excel (same columns, same
-// words) so there is nothing to learn. The two sheets she keeps today are the
-// two leading lenses (未开票 / 已开待收); the yellow 开票情况 cell and the green
-// 收款记录 cell are SENTENCES GENERATED from the installment events — she reads
-// what she has always read, but never writes or computes a 剩余 again.
+// words, same order — 状态 rides last, never first) so there is nothing to
+// learn. The two sheets she keeps today are the two leading lenses (未开票 /
+// 已开待收); the yellow 开票情况 cell and the green 收款记录 cell are SENTENCES
+// GENERATED from the installment events — she reads what she has always read,
+// but never writes or computes a 剩余 again.
+//
+// Interaction rules that keep it a ledger, not a form:
+//   • Text at rest. Every row cell is plain text on the scan path — 是否收费 is
+//     a WORD, not a button (a misclick must never silently write 免收). In the
+//     detail panel the 订单号 / 物料号 / 订单额 render as text; you click a value
+//     to swap in its input (ClickEdit), commit or Escape returns to text.
+//   • Drafts, not empty rows. ＋订单号 opens a LOCAL draft row (no DB write until
+//     保存); a zero-line job opens one automatically. Nothing hits po_lines
+//     until she's typed a 订单号 or a 金额.
+//   • 免收 lives in the panel. The only way to flip 是否收费 is the deliberate
+//     标为免收 / 恢复收费 button inside the expanded job — off the row scan path.
 //
 // Fully client-driven: one FenqiData payload from the server, every lens /
 // search / expand / append is a local state change (the 报工 cockpit lesson —
@@ -62,7 +74,7 @@ const baseInputClass =
 // State as colored text — the app's idiom (see finance _ledger / DueCell).
 const STATUS_TEXT: Record<FenqiStatus, string> = {
   overdue: 'text-[var(--color-overdue)] font-medium',
-  unbooked: 'text-[var(--color-ink-3)]',
+  unbooked: 'text-[var(--color-warning)]',
   await: 'text-[var(--color-info)]',
   collect: 'text-[var(--color-warning)]',
   settled: 'text-[var(--color-success)]',
@@ -135,21 +147,30 @@ export function FenqiLedger({
 
   // === writes (optimistic; server errors toast + resync) ===
 
-  const addLine = async (jobId: string) => {
+  // Book a real PO line from a committed draft row. Optimistic append with the
+  // values she typed; returns whether the write landed so the panel can clear
+  // its draft only on success.
+  const addLine = async (
+    jobId: string,
+    init: { poNo?: string; materialNo?: string; amountCny?: number },
+  ): Promise<boolean> => {
     try {
-      const r = await mutate<{ id: string }>({ kind: 'createPoLine', jobId })
+      const r = await mutate<{ id: string }>({ kind: 'createPoLine', jobId, init })
       setLines((prev) => [
         ...prev,
         {
           id: r.data.id,
           jobId,
-          poNo: '',
-          amountCny: 0,
+          poNo: init.poNo?.trim() ?? '',
+          materialNo: init.materialNo?.trim() || undefined,
+          amountCny: init.amountCny ?? 0,
           createdAt: new Date().toISOString(),
         },
       ])
+      return true
     } catch (e) {
       showToast(`没加上 · ${e instanceof Error ? e.message : '网络中断'}`, 'warning')
+      return false
     }
   }
 
@@ -273,7 +294,7 @@ export function FenqiLedger({
     setComposer(null)
   }
 
-  const colSpan = lens === 'shou' ? 7 : 8
+  const colSpan = lens === 'all' || lens === 'settled' ? 9 : 8
 
   return (
     <div>
@@ -368,35 +389,37 @@ export function FenqiLedger({
             <tr className="border-b border-[var(--color-border)]">
               {lens === 'shou' ? (
                 <>
-                  <Th>状态</Th>
-                  <Th className="min-w-[170px]">客户 / 流水号</Th>
+                  <Th className="min-w-[170px]">客户名称</Th>
+                  <Th>内部流水号</Th>
                   <Th className="text-right">订单金额</Th>
                   <Th>开票日期</Th>
                   <Th className="min-w-[150px]">发票号码</Th>
                   <Th className="text-right">未收</Th>
                   <Th className="min-w-[260px]">收款记录（自动）</Th>
+                  <Th>状态</Th>
                 </>
               ) : lens === 'wei' ? (
                 <>
-                  <Th>状态</Th>
-                  <Th>出货</Th>
-                  <Th className="min-w-[170px]">客户 / 流水号</Th>
-                  <Th>联系人</Th>
-                  <Th className="min-w-[150px]">订单号（金额）</Th>
-                  <Th>收费</Th>
+                  <Th>日期</Th>
+                  <Th className="min-w-[170px]">客户名称</Th>
+                  <Th className="min-w-[150px]">订单号 / 物料号</Th>
+                  <Th>是否收费</Th>
                   <Th className="text-right">未开票金额</Th>
+                  <Th>内部流水号</Th>
                   <Th className="min-w-[260px]">开票情况（自动）</Th>
+                  <Th>状态</Th>
                 </>
               ) : (
                 <>
-                  <Th>状态</Th>
-                  <Th>出货</Th>
-                  <Th className="min-w-[170px]">客户 / 流水号</Th>
+                  <Th>日期</Th>
+                  <Th className="min-w-[170px]">客户</Th>
+                  <Th>内部流水号</Th>
                   <Th className="text-right">订单额</Th>
                   <Th className="text-right">已开票</Th>
                   <Th className="text-right">待开票</Th>
                   <Th className="text-right">已收款</Th>
                   <Th className="text-right">未收</Th>
+                  <Th>状态</Th>
                 </>
               )}
             </tr>
@@ -415,7 +438,7 @@ export function FenqiLedger({
                   composer={composer}
                   onToggle={() => toggleExpand(r.job.jobId)}
                   onToggleBillable={() => toggleBillable(r.job)}
-                  onAddLine={() => addLine(r.job.jobId)}
+                  onAddLine={(init) => addLine(r.job.jobId, init)}
                   onSaveLine={saveLine}
                   onRemoveLine={removeLine}
                   onSetComposer={setComposer}
@@ -485,7 +508,11 @@ function RowGroup({
   composer: { lineId: string; kind: 'invoice' | 'payment' } | null
   onToggle: () => void
   onToggleBillable: () => void
-  onAddLine: () => void
+  onAddLine: (init: {
+    poNo?: string
+    materialNo?: string
+    amountCny?: number
+  }) => Promise<boolean>
   onSaveLine: (
     lineId: string,
     patch: { poNo?: string; materialNo?: string | null; amountCny?: number },
@@ -500,6 +527,12 @@ function RowGroup({
   onVoid: (ev: FenqiEvent) => void
 }) {
   const free = row.status === 'free'
+  // Expand caret — prefixes the first cell of every row.
+  const caret = (
+    <span aria-hidden className="inline-block w-[14px] text-[var(--color-ink-4)]">
+      {open ? '▾' : '▸'}
+    </span>
+  )
   const statusCell = (
     <Td className="whitespace-nowrap">
       <span className={`text-[12px] tracking-wide ${STATUS_TEXT[row.status]}`}>
@@ -508,25 +541,37 @@ function RowGroup({
       </span>
     </Td>
   )
-  const customerCell = (
+  // 内部流水号 — its own column now (was a second line under 客户).
+  const jobNoCell = (
+    <Td className="mono text-[12px] whitespace-nowrap text-[var(--color-ink-2)]">
+      {row.job.jobNo}
+    </Td>
+  )
+  // 日期 = latest 出货. `withCaret` is true when 日期 leads the row (wei / all).
+  const dateCell = (withCaret: boolean) => (
+    <Td className="mono text-[12px] whitespace-nowrap text-[var(--color-ink-2)]">
+      <span className="flex items-center gap-1">
+        {withCaret && caret}
+        <span>{row.job.shipDate ? shipDateLabel(row.job.shipDate) : '—'}</span>
+      </span>
+    </Td>
+  )
+  // 客户名称 — single line, links to the job. `withCaret` for 已开待收 where
+  // 客户 leads the row.
+  const customerCell = (withCaret: boolean) => (
     <Td>
-      <Link
-        href={`/jobs/${row.job.jobId}`}
-        onClick={(e) => e.stopPropagation()}
-        className="block group/cell"
-      >
-        <span
-          className={`block text-[14px] group-hover/cell:underline decoration-[var(--color-border-strong)] underline-offset-2 ${
+      <span className="flex items-center gap-1">
+        {withCaret && caret}
+        <Link
+          href={`/jobs/${row.job.jobId}`}
+          onClick={(e) => e.stopPropagation()}
+          className={`block text-[13px] font-medium truncate max-w-[180px] hover:underline decoration-[var(--color-border-strong)] underline-offset-2 ${
             free ? 'text-[var(--color-ink-3)]' : 'text-[var(--color-ink)]'
           }`}
         >
           {row.job.customer || '—'}
-        </span>
-        <span className="mt-0.5 block text-[11px] text-[var(--color-ink-3)] mono whitespace-nowrap">
-          {row.job.jobNo}
-          {row.job.salesperson ? ` · ${row.job.salesperson}` : ''}
-        </span>
-      </Link>
+        </Link>
+      </span>
     </Td>
   )
 
@@ -541,8 +586,8 @@ function RowGroup({
       >
         {lens === 'shou' ? (
           <>
-            {statusCell}
-            {customerCell}
+            {customerCell(true)}
+            {jobNoCell}
             <Td className="text-right mono text-[13px] whitespace-nowrap">
               {formatCny(row.amountCny)}
             </Td>
@@ -560,22 +605,24 @@ function RowGroup({
             <Td>
               <Sentence segs={paymentSentence(row)} tone="pay" empty="还没收款 — 点行追加" />
             </Td>
+            {statusCell}
           </>
         ) : lens === 'wei' ? (
           <>
-            {statusCell}
-            <Td className="mono text-[13px] whitespace-nowrap text-[var(--color-ink-2)]">
-              {row.job.shipDate ? shipDateLabel(row.job.shipDate) : '—'}
-            </Td>
-            {customerCell}
-            <Td className="text-[13px] whitespace-nowrap text-[var(--color-ink-2)]">
-              {row.job.contact || '—'}
-            </Td>
+            {dateCell(true)}
+            {customerCell(false)}
             <Td>
               {row.lines.length === 0 ? (
-                <span className="text-[12px] text-[var(--color-ink-4)]">
-                  待录 — 点行补订单号
-                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onToggle()
+                  }}
+                  className="rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-2 py-0.5 text-[12px] text-[var(--color-ink-2)] hover:text-[var(--color-ink)] hover:border-[var(--color-ink-3)] transition-colors"
+                >
+                  ＋ 补录
+                </button>
               ) : (
                 <span className="block mono text-[11.5px] leading-relaxed text-[var(--color-ink-2)]">
                   {row.lines.map((lv) => (
@@ -587,21 +634,15 @@ function RowGroup({
               )}
             </Td>
             <Td>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onToggleBillable()
-                }}
-                title={row.job.billable ? '点一下改为免收（补件/样品）' : '点一下改回收费'}
-                className={`text-[12px] rounded-[2px] px-1 -mx-1 transition-colors hover:bg-[var(--color-active-bg)] ${
+              <span
+                className={`text-[12px] ${
                   row.job.billable
-                    ? 'text-[var(--color-ink-2)]'
+                    ? 'text-[var(--color-ink-3)]'
                     : 'text-[var(--color-ink-4)]'
                 }`}
               >
                 {row.job.billable ? '是' : '否'}
-              </button>
+              </span>
             </Td>
             <Td className="text-right mono text-[13px] whitespace-nowrap">
               {free ? (
@@ -612,6 +653,7 @@ function RowGroup({
                 <Money amount={row.wait} tone="info" />
               )}
             </Td>
+            {jobNoCell}
             <Td>
               <Sentence
                 segs={invoiceSentence(row, todayStr)}
@@ -619,14 +661,13 @@ function RowGroup({
                 empty={row.lines.length === 0 ? '—' : '还没开票 — 点行追加第一笔'}
               />
             </Td>
+            {statusCell}
           </>
         ) : (
           <>
-            {statusCell}
-            <Td className="mono text-[13px] whitespace-nowrap text-[var(--color-ink-2)]">
-              {row.job.shipDate ? shipDateLabel(row.job.shipDate) : '—'}
-            </Td>
-            {customerCell}
+            {dateCell(true)}
+            {customerCell(false)}
+            {jobNoCell}
             <Td className="text-right mono text-[13px] whitespace-nowrap">
               {formatCny(row.amountCny)}
             </Td>
@@ -645,6 +686,7 @@ function RowGroup({
                 tone={row.status === 'overdue' ? 'overdue' : 'warning'}
               />
             </Td>
+            {statusCell}
           </>
         )}
       </tr>
@@ -657,6 +699,7 @@ function RowGroup({
               todayStr={todayStr}
               composer={composer}
               onAddLine={onAddLine}
+              onToggleBillable={onToggleBillable}
               onSaveLine={onSaveLine}
               onRemoveLine={onRemoveLine}
               onSetComposer={onSetComposer}
@@ -677,6 +720,7 @@ function DetailPanel({
   todayStr,
   composer,
   onAddLine,
+  onToggleBillable,
   onSaveLine,
   onRemoveLine,
   onSetComposer,
@@ -686,7 +730,12 @@ function DetailPanel({
   row: RowVM
   todayStr: string
   composer: { lineId: string; kind: 'invoice' | 'payment' } | null
-  onAddLine: () => void
+  onAddLine: (init: {
+    poNo?: string
+    materialNo?: string
+    amountCny?: number
+  }) => Promise<boolean>
+  onToggleBillable: () => void
   onSaveLine: (
     lineId: string,
     patch: { poNo?: string; materialNo?: string | null; amountCny?: number },
@@ -700,11 +749,44 @@ function DetailPanel({
   ) => Promise<void>
   onVoid: (ev: FenqiEvent) => void
 }) {
+  // Local draft = a 订单号 line she is typing but has NOT written to the DB.
+  // A zero-line job opens one immediately so the inputs are live on expand.
+  const [draft, setDraft] = useState<
+    { poNo: string; materialNo: string; amt: string } | null
+  >(row.lines.length === 0 ? { poNo: '', materialNo: '', amt: '' } : null)
+
+  const commitDraft = async () => {
+    if (!draft) return
+    const n = Number(draft.amt.replace(/[,，\s元]/g, ''))
+    const amount = Number.isFinite(n) && n > 0 ? n : 0
+    if (draft.poNo.trim() === '' && amount <= 0) {
+      showToast('先填订单号或金额', 'warning')
+      return
+    }
+    const landed = await onAddLine({
+      poNo: draft.poNo.trim() || undefined,
+      materialNo: draft.materialNo.trim() || undefined,
+      amountCny: amount,
+    })
+    if (landed) setDraft(null)
+  }
+
   return (
     <div className="max-w-[880px]">
-      <p className="text-[11px] text-[var(--color-ink-3)] mb-3">
-        {row.job.jobNo} · 钱挂在订单号下 — 追加一笔，句子和所有余额自动更新
-      </p>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <p className="text-[11px] text-[var(--color-ink-3)]">
+          {row.job.jobNo} · 钱挂在订单号下 — 追加一笔，句子和所有余额自动更新
+        </p>
+        {/* 免收 lives here now — deliberate, off the row scan path. */}
+        <button
+          type="button"
+          onClick={onToggleBillable}
+          title={row.job.billable ? '补件/样品，不进任何合计' : '改回收费'}
+          className="shrink-0 rounded-[2px] border border-[var(--color-border-strong)] px-2 py-0.5 text-[12px] text-[var(--color-ink-2)] hover:text-[var(--color-ink)] hover:border-[var(--color-ink-3)] transition-colors"
+        >
+          {row.job.billable ? '标为免收' : '恢复收费'}
+        </button>
+      </div>
       <div className="space-y-3">
         {row.lines.map((lv) => (
           <LineBlock
@@ -719,23 +801,108 @@ function DetailPanel({
             todayStr={todayStr}
           />
         ))}
+        {draft && (
+          <DraftLine
+            draft={draft}
+            setDraft={setDraft}
+            amountHint={row.job.jobAmountCny}
+            onCommit={commitDraft}
+            onCancel={() => setDraft(null)}
+          />
+        )}
       </div>
       <div className="mt-3 flex items-center gap-3">
-        <button
-          type="button"
-          onClick={onAddLine}
-          className="rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-2.5 py-1 text-[12px] text-[var(--color-ink-2)] hover:text-[var(--color-ink)] hover:border-[var(--color-ink-3)] transition-colors"
-        >
-          ＋订单号
-        </button>
+        {!draft && (
+          <button
+            type="button"
+            onClick={() => setDraft({ poNo: '', materialNo: '', amt: '' })}
+            className="rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-2.5 py-1 text-[12px] text-[var(--color-ink-2)] hover:text-[var(--color-ink)] hover:border-[var(--color-ink-3)] transition-colors"
+          >
+            ＋订单号
+          </button>
+        )}
         {row.lines.length === 0 && (
           <span className="text-[12px] text-[var(--color-ink-3)]">
-            客户下单 / 对账后，把订单号和金额补在这里
-            {row.job.jobAmountCny != null
-              ? ` · 系统记录的订单金额 ${formatCny(row.job.jobAmountCny)}`
-              : ''}
+            客户下单 / 对账后补录 — 开票收款都挂在订单号下
           </span>
         )}
+      </div>
+    </div>
+  )
+}
+
+// A 订单号 line she is typing — three inputs + 保存 / 取消, nothing written to
+// the DB until 保存 (or Enter). Escape cancels. Mirrors a LineBlock header so
+// it reads like the row it will become.
+function DraftLine({
+  draft,
+  setDraft,
+  amountHint,
+  onCommit,
+  onCancel,
+}: {
+  draft: { poNo: string; materialNo: string; amt: string }
+  setDraft: (d: { poNo: string; materialNo: string; amt: string }) => void
+  amountHint?: number
+  onCommit: () => void
+  onCancel: () => void
+}) {
+  const poRef = useRef<HTMLInputElement>(null)
+  useEffect(() => poRef.current?.focus(), [])
+  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      onCommit()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      onCancel()
+    }
+  }
+  return (
+    <div className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="flex items-center gap-x-4 gap-y-2 flex-wrap px-3 py-2">
+        <input
+          ref={poRef}
+          value={draft.poNo}
+          onChange={(e) => setDraft({ ...draft, poNo: e.target.value })}
+          onKeyDown={onKey}
+          placeholder="订单号"
+          className={`${baseInputClass} mono text-[13px] font-medium w-[150px] placeholder:text-[var(--color-ink-4)]`}
+        />
+        <input
+          value={draft.materialNo}
+          onChange={(e) => setDraft({ ...draft, materialNo: e.target.value })}
+          onKeyDown={onKey}
+          placeholder="物料号"
+          className={`${baseInputClass} mono text-[12px] w-[120px] placeholder:text-[var(--color-ink-4)]`}
+        />
+        <span className="inline-flex items-baseline gap-1.5 text-[12px] text-[var(--color-ink-3)] whitespace-nowrap">
+          订单额
+          <input
+            value={draft.amt}
+            onChange={(e) => setDraft({ ...draft, amt: e.target.value })}
+            onKeyDown={onKey}
+            inputMode="decimal"
+            placeholder={amountHint != null ? formatNum(amountHint) : '金额'}
+            className={`${baseInputClass} mono text-right text-[13px] w-[110px] placeholder:text-[var(--color-ink-4)]`}
+          />
+        </span>
+        <span className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onCommit}
+            className="rounded-[2px] border border-[var(--color-ink)] px-2.5 py-1 text-[12px] font-medium text-[var(--color-ink)] hover:bg-[var(--color-active-bg)] transition-colors whitespace-nowrap"
+          >
+            保存
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-[12px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors px-1"
+          >
+            取消
+          </button>
+        </span>
       </div>
     </div>
   )
@@ -774,28 +941,80 @@ function LineBlock({
 
   return (
     <div className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
-      {/* line header: 订单号 / 物料号 / 订单额 — inline-editable, one row */}
+      {/* line header: 订单号 / 物料号 / 订单额 — text at rest, click a value to
+          swap in its input (ClickEdit); commit / Escape returns to text. */}
       <div className="flex items-center gap-x-4 gap-y-1 flex-wrap px-3 py-2 border-b border-[var(--color-border)]">
-        <InlineField
-          value={lv.line.poNo}
-          placeholder="订单号"
-          width="w-[150px]"
-          strong
-          onCommit={(v) => onSaveLine(lv.line.id, { poNo: v })}
-        />
-        <InlineField
-          value={lv.line.materialNo ?? ''}
-          placeholder="物料号"
-          width="w-[120px]"
-          onCommit={(v) => onSaveLine(lv.line.id, { materialNo: v === '' ? null : v })}
-        />
-        <span className="inline-flex items-baseline gap-1.5 text-[12px] text-[var(--color-ink-3)] whitespace-nowrap">
-          订单额
-          <InlineMoney
-            value={lv.line.amountCny}
-            onCommit={(n) => onSaveLine(lv.line.id, { amountCny: n })}
-          />
-        </span>
+        <ClickEdit
+          display={
+            lv.line.poNo ? (
+              <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
+                {lv.line.poNo}
+              </span>
+            ) : (
+              <span className="mono text-[13px] text-[var(--color-ink-4)] border-b border-dashed border-[var(--color-border-strong)]">
+                订单号
+              </span>
+            )
+          }
+        >
+          {(done) => (
+            <InlineField
+              value={lv.line.poNo}
+              placeholder="订单号"
+              width="w-[150px]"
+              strong
+              autoFocus
+              onDone={done}
+              onCommit={(v) => onSaveLine(lv.line.id, { poNo: v })}
+            />
+          )}
+        </ClickEdit>
+        <ClickEdit
+          display={
+            lv.line.materialNo ? (
+              <span className="mono text-[12px] text-[var(--color-ink-3)]">
+                {lv.line.materialNo}
+              </span>
+            ) : (
+              <span className="mono text-[12px] text-[var(--color-ink-4)] border-b border-dashed border-[var(--color-border-strong)]">
+                物料号
+              </span>
+            )
+          }
+        >
+          {(done) => (
+            <InlineField
+              value={lv.line.materialNo ?? ''}
+              placeholder="物料号"
+              width="w-[120px]"
+              autoFocus
+              onDone={done}
+              onCommit={(v) => onSaveLine(lv.line.id, { materialNo: v === '' ? null : v })}
+            />
+          )}
+        </ClickEdit>
+        <ClickEdit
+          display={
+            <span className="inline-flex items-baseline gap-1.5 text-[12px] text-[var(--color-ink-3)] whitespace-nowrap">
+              订单额
+              <span className="mono text-[var(--color-ink-2)]">
+                {lv.line.amountCny > 0 ? formatNum(lv.line.amountCny) : '—'}
+              </span>
+            </span>
+          }
+        >
+          {(done) => (
+            <span className="inline-flex items-baseline gap-1.5 text-[12px] text-[var(--color-ink-3)] whitespace-nowrap">
+              订单额
+              <InlineMoney
+                value={lv.line.amountCny}
+                autoFocus
+                onDone={done}
+                onCommit={(n) => onSaveLine(lv.line.id, { amountCny: n })}
+              />
+            </span>
+          )}
+        </ClickEdit>
         <span className="ml-auto inline-flex items-baseline gap-4 mono text-[12px] whitespace-nowrap">
           <span className="text-[var(--color-info)]">
             待开 {formatNum(Math.max(0, lv.wait))}
@@ -1076,8 +1295,8 @@ function Sentence({
     <span
       className={`block rounded-[2px] px-2 py-1 text-[12px] leading-relaxed max-w-[420px] ${
         tone === 'inv'
-          ? 'bg-[var(--color-warning-soft)]'
-          : 'bg-[var(--color-success-soft)]'
+          ? 'bg-[var(--color-warning-soft)] border-l-2 border-[var(--color-warning)]'
+          : 'bg-[var(--color-success-soft)] border-l-2 border-[var(--color-success)]'
       }`}
       style={{
         display: '-webkit-box',
@@ -1112,26 +1331,58 @@ function Money({
   return <span className={cls}>{formatCny(amount)}</span>
 }
 
+// Click-to-edit wrapper — renders `display` (text) at rest; a click swaps in
+// the input via the render-prop child, which calls `done()` on commit / blur /
+// Escape to return to text. Keeps the row reading like a ledger, not a form.
+function ClickEdit({
+  display,
+  children,
+}: {
+  display: ReactNode
+  children: (done: () => void) => ReactNode
+}) {
+  const [editing, setEditing] = useState(false)
+  if (editing) return <>{children(() => setEditing(false))}</>
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      className="text-left rounded-[2px] px-1 -mx-1 hover:bg-[var(--color-active-bg)] transition-colors"
+    >
+      {display}
+    </button>
+  )
+}
+
 // Commit-on-blur/Enter text field (the _editable idiom, local to this panel).
+// `autoFocus` + `onDone` let a ClickEdit open it focused and close on exit.
 function InlineField({
   value,
   placeholder,
   width,
   strong,
+  autoFocus,
+  onDone,
   onCommit,
 }: {
   value: string
   placeholder: string
   width: string
   strong?: boolean
+  autoFocus?: boolean
+  onDone?: () => void
   onCommit: (v: string) => void
 }) {
   const ref = useRef<HTMLInputElement>(null)
   const [draft, setDraft] = useState(value)
   useEffect(() => setDraft(value), [value])
+  useEffect(() => {
+    if (autoFocus) ref.current?.focus()
+  }, [autoFocus])
   const commit = () => {
     const v = draft.trim()
     if (v !== value) onCommit(v)
+    onDone?.()
   }
   return (
     <input
@@ -1158,27 +1409,37 @@ function InlineField({
 
 function InlineMoney({
   value,
+  autoFocus,
+  onDone,
   onCommit,
 }: {
   value: number
+  autoFocus?: boolean
+  onDone?: () => void
   onCommit: (n: number) => void
 }) {
   const ref = useRef<HTMLInputElement>(null)
   const initial = value > 0 ? String(value) : ''
   const [draft, setDraft] = useState(initial)
   useEffect(() => setDraft(value > 0 ? String(value) : ''), [value])
+  useEffect(() => {
+    if (autoFocus) ref.current?.focus()
+  }, [autoFocus])
   const commit = () => {
     const t = draft.trim()
     if (t === '') {
       if (value !== 0) onCommit(0)
+      onDone?.()
       return
     }
     const n = Number(t.replace(/[,，\s元]/g, ''))
     if (!Number.isFinite(n) || n < 0) {
       setDraft(initial)
+      onDone?.()
       return
     }
     if (n !== value) onCommit(n)
+    onDone?.()
   }
   return (
     <input
@@ -1279,5 +1540,5 @@ function Td({
   children: ReactNode
   className?: string
 }) {
-  return <td className={`px-3 py-2.5 align-middle ${className}`}>{children}</td>
+  return <td className={`px-3 py-2 align-middle ${className}`}>{children}</td>
 }

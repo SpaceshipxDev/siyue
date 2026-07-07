@@ -3473,17 +3473,21 @@ export async function getFenqiData(): Promise<FenqiData> {
   return { jobs, lines, events }
 }
 
-// Book a fresh (empty) 订单号 line on a job; she fills 订单号 / 金额 after.
+// Book a 订单号 line on a job. `init` carries the values she typed in the
+// draft row (订单号 / 物料号 / 金额); omitted ⇒ a blank line (kept for callers
+// that still want an empty row).
 export async function createPoLine(
   jobId: string,
   createdBy: string,
+  init?: { poNo?: string; materialNo?: string; amountCny?: number },
 ): Promise<string> {
   const id = uid('pol')
   const { error } = await supabase.from('po_lines').insert({
     id,
     job_id: jobId,
-    po_no: '',
-    amount_cny: 0,
+    po_no: init?.poNo?.trim() ?? '',
+    material_no: init?.materialNo?.trim() || null,
+    amount_cny: init?.amountCny ?? 0,
     created_by: createdBy,
   })
   if (error) throw error

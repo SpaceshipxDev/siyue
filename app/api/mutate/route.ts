@@ -1499,8 +1499,28 @@ async function dispatch(
     case 'createPoLine': {
       const jobId = body.jobId
       if (!isString(jobId)) return err('bad createPoLine args')
+      let init: { poNo?: string; materialNo?: string; amountCny?: number } | undefined
+      if (body.init !== undefined) {
+        if (typeof body.init !== 'object' || body.init === null)
+          return err('bad createPoLine init')
+        const i = body.init as Record<string, unknown>
+        if ('poNo' in i && !isString(i.poNo)) return err('bad poNo')
+        if ('materialNo' in i && !isString(i.materialNo)) return err('bad materialNo')
+        if (
+          'amountCny' in i &&
+          (typeof i.amountCny !== 'number' ||
+            !Number.isFinite(i.amountCny) ||
+            i.amountCny < 0)
+        )
+          return err('bad amountCny')
+        init = {
+          ...(i.poNo !== undefined ? { poNo: i.poNo as string } : {}),
+          ...(i.materialNo !== undefined ? { materialNo: i.materialNo as string } : {}),
+          ...(i.amountCny !== undefined ? { amountCny: i.amountCny as number } : {}),
+        }
+      }
       const u = await requireCommerce()
-      const id = await createPoLine(jobId, u.name)
+      const id = await createPoLine(jobId, u.name, init)
       revalidatePath('/finance')
       return Response.json(ok({ id }))
     }
