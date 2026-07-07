@@ -21,11 +21,9 @@ import {
   openDrawingChange,
   PLANNABLE_STAGES,
   rollupStage,
-  vendorById,
   type Job,
   type PlanKey,
   type RollupKind,
-  type Vendor,
 } from '@/lib/data'
 import { ensureVendorPortalTokens, getJob, getVendors } from '@/lib/db'
 import { getContractFiles } from '@/lib/contract-file'
@@ -67,7 +65,7 @@ import {
   JobPartFilterSummary,
   JobPartStageFunnel,
 } from '@/app/_part_filter'
-import { StagePlanBand } from '@/app/_stage_plan'
+import { StagePlanDate } from '@/app/_stage_plan'
 import { PART_STAGE_CODE } from '@/lib/part-status'
 import { ComponentAnchorScroller } from '@/app/_component_anchor'
 import { JobTabs } from './_job_tabs'
@@ -186,7 +184,9 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   const pct = totalCells === 0 ? 0 : Math.round((doneCells / totalCells) * 100)
 
   // 排产 — the plannable 工段 this job actually routes through, each with its
-  // job-level rollup (for slip-tinting). Drives the 排产 band above the parts.
+  // job-level rollup (for slip-tinting). Drives the pinned 排产 plan row at the
+  // top of the 零件进度 table (a plan date is a property of its stage column, so
+  // it lives optically aligned over the cells it governs).
   const planStages: { stage: PlanKey; kind: RollupKind }[] = PLANNABLE_STAGES.map(
     (s) => ({ stage: s, kind: rollupStage(job, s).kind }),
   ).filter((x) => x.kind !== 'na')
@@ -205,6 +205,13 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             : 'pending',
     })
   }
+  // Stage → rollup lookup for the plan row: each stage cell renders a plan date
+  // only when its stage is plannable AND in this job's route. `外协` is present
+  // here exactly when the job qualifies for the outsource plan slot.
+  const planByStage = new Map<PlanKey, RollupKind>(
+    planStages.map((p) => [p.stage, p.kind]),
+  )
+  const showOutsourcePlan = planByStage.has('外协')
 
   const externalSpend = jobExternalSpend(job)
   const margin = jobMargin(job)
@@ -547,25 +554,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           <JobTabs tabs={jobTabs} />
 
           <div data-jobtab="parts">
-        {/* 排产 · 计划交期 — the job's per-工段 schedule as one clean band above
-            the parts table (never crammed into the grid columns). Each station
-            reads its own date here in its queue. */}
-        {planStages.length > 0 && (
-          <section className="mb-7">
-            <div className="mb-2.5 flex items-baseline gap-2.5">
-              <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
-                排产
-              </h2>
-              <span className="label">各工段计划完成日</span>
-            </div>
-            <StagePlanBand
-              jobId={job.id}
-              stagePlan={job.stagePlan ?? {}}
-              stages={planStages}
-              canEdit={canEditFields}
-            />
-          </section>
-        )}
         <JobPartFilterProvider codes={partStageCodes}>
         <div className="mb-3 flex items-baseline justify-between gap-3">
           <div className="flex items-baseline gap-3 flex-wrap">
@@ -690,6 +678,82 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               </tr>
             </thead>
             <tbody>
+              {/* 排产 plan row — a slim pinned first row carrying each stage's
+                  job-level planned finish date, optically aligned over the stage
+                  column it governs. Has no data-part-id, so the part filter
+                  never hides or counts it. Blank under stages this job doesn't
+                  plan (检验 / 出货 / off-route). */}
+              {planStages.length > 0 && (
+                <tr className="align-middle">
+                  <td
+                    colSpan={9}
+                    className="px-4"
+                    style={{
+                      background: 'var(--color-lane)',
+                      borderBottom: '1px solid var(--color-border-strong)',
+                      height: 38,
+                      overflow: 'visible',
+                    }}
+                  >
+                    <div className="flex items-center gap-4">
+                      <span className="text-[11px] font-medium tracking-[0.18em] text-[var(--color-ink-2)]">
+                        排产
+                      </span>
+                      {showOutsourcePlan && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="text-[11px] tracking-wide text-[var(--color-ink-3)]">
+                            外协回
+                          </span>
+                          <StagePlanDate
+                            jobId={job.id}
+                            stage="外协"
+                            value={job.stagePlan?.['外协']}
+                            rollupKind={planByStage.get('外协')!}
+                            canEdit={canEditFields}
+                            triggerClass="text-[12.5px] font-medium"
+                          />
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  {STAGES.map((stage) => {
+                    const kind = planByStage.get(stage)
+                    return (
+                      <td
+                        key={stage}
+                        className="text-center"
+                        style={{
+                          background: 'var(--color-lane)',
+                          borderBottom: '1px solid var(--color-border-strong)',
+                          height: 38,
+                          overflow: 'visible',
+                        }}
+                      >
+                        {kind ? (
+                          <StagePlanDate
+                            jobId={job.id}
+                            stage={stage}
+                            value={job.stagePlan?.[stage]}
+                            rollupKind={kind}
+                            canEdit={canEditFields}
+                            triggerClass="text-[12.5px] font-medium"
+                          />
+                        ) : null}
+                      </td>
+                    )
+                  })}
+                  <td
+                    colSpan={
+                      2 + (canEditFields ? 1 : 0) + (showMoney ? 2 : 0)
+                    }
+                    style={{
+                      background: 'var(--color-lane)',
+                      borderBottom: '1px solid var(--color-border-strong)',
+                      height: 38,
+                    }}
+                  />
+                </tr>
+              )}
               {componentRows.map(({ c, i }) => (
                 <tr
                   key={c.id}
@@ -955,8 +1019,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           </table>
         </ComponentsScrollArea>
         </JobPartFilterProvider>
-
-        <ActorTrail job={job} vendors={vendors} />
           </div>
           {/* /零件 tab */}
 
@@ -1129,73 +1191,6 @@ function DueDelta({
     return <span className="label text-[var(--color-warning)]">今日</span>
   }
   return <span className="label text-[var(--color-ink-3)]">{days} 天后</span>
-}
-
-function ActorTrail({
-  job,
-  vendors,
-}: {
-  job: NonNullable<Awaited<ReturnType<typeof getJob>>>
-  vendors: Vendor[]
-}) {
-  const events: { stage: string; component: string; date: string; by: string }[] =
-    []
-  for (const c of job.components) {
-    for (const s of STAGES) {
-      const st = c.stages[s]
-      if (!st) continue
-      if (st.status === 'done' && st.completedAt && st.by) {
-        events.push({
-          stage: s,
-          component: c.name,
-          date: st.completedAt,
-          by: st.by,
-        })
-      }
-    }
-    for (const b of c.outsourceBlocks ?? []) {
-      // Per-member return: this component's row in the block carries its own
-      // returnedAt. Surface one event per (component, block) when that part
-      // came back from the vendor — so partial returns each get a row.
-      const m = b.members.find((x) => x.componentId === c.id)
-      if (m?.returnedAt) {
-        const v = vendorById(b.vendorId, vendors)
-        events.push({
-          stage: b.stages.join('+'),
-          component: c.name,
-          date: m.returnedAt.slice(5),
-          by: v?.name ?? b.vendorId,
-        })
-      }
-    }
-  }
-  events.sort((a, b) => b.date.localeCompare(a.date))
-  if (events.length === 0) return null
-  const recent = events.slice(0, 8)
-  return (
-    <section className="mt-12 border-t border-[var(--color-border)] pt-8">
-      <h3 className="label mb-4">最近完成</h3>
-      <ul className="divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">
-        {recent.map((e, i) => (
-          <li
-            key={i}
-            className="flex items-baseline gap-6 py-2.5 text-[13px] text-[var(--color-ink-2)]"
-          >
-            <span className="mono text-[var(--color-ink-3)] w-14 shrink-0">
-              {e.date}
-            </span>
-            <span className="font-medium tracking-wider text-[var(--color-ink)] w-24 shrink-0">
-              {e.stage}
-            </span>
-            <span className="text-[var(--color-ink)] flex-1">{e.component}</span>
-            <span className="mono text-[12px] text-[var(--color-ink-3)]">
-              {e.by}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
 }
 
 // 财务 tab — one order's money, end to end: the position (金额 / 毛利 / 外发 /
