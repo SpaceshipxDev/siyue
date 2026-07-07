@@ -1600,6 +1600,7 @@ function JobRow({
           return (
             <td key={stage} className="p-0 h-[78px]">
               <div className="flex h-full w-full flex-col">
+                <PlanRail plan={plan} />
                 <div className="flex min-h-0 flex-1">
                   <JobStageActionButton
                     jobId={row.id}
@@ -1613,7 +1614,6 @@ function JobRow({
                     subdued
                   />
                 </div>
-                <PlanRail plan={plan} />
               </div>
             </td>
           )
