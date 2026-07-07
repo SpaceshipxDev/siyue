@@ -1557,14 +1557,13 @@ function JobRow({
         const cnts = rowStageCounts(row, stage)
         const totalCounted = cnts.inProgress + cnts.pending + cnts.done
         if (totalCounted > 0) {
-          // Same anatomy as every other cell in this row: when the row is
-          // railed, the shared plan rail runs along the top and the action
-          // button fills the status band below it (flex-1, full tap target)
-          // so the schedule lane runs unbroken through the column.
+          // Same anatomy as every other cell in this row: the action button
+          // fills the status band (flex-1, full tap target); when the row is
+          // railed, the shared plan rail sits beneath it so the schedule lane
+          // runs unbroken through the column.
           return (
             <td key={stage} className="p-0 h-[78px]">
               <div className="flex h-full w-full flex-col">
-                {hasRail && <PlanRail plan={plan} />}
                 <div className="flex min-h-0 flex-1">
                   <JobStageActionButton
                     jobId={row.id}
@@ -1580,6 +1579,7 @@ function JobRow({
                     subdued
                   />
                 </div>
+                {hasRail && <PlanRail plan={plan} />}
               </div>
             </td>
           )
