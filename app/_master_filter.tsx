@@ -1382,6 +1382,12 @@ function JobRow({
         ? 'var(--color-warning)'
         : 'transparent'
   const detailHref = `/jobs/${row.id}`
+  // 排产轨道 — does this job carry ANY in-house 工段 plan? If so, every in-route
+  // cell in the row grows a plan rail at the bottom so the schedule fuses into
+  // one continuous track across the row. 外协 is deliberately EXCLUDED: it has a
+  // job-level plan key but no board column, so a job whose only plan is 外协 must
+  // not sprout empty rails. STAGES is the 10 real columns and never includes 外协.
+  const hasRail = STAGES.some((s) => row.stagePlan?.[s])
   const rowOpacity =
     tier === 'mine' ? '' : tier === 'upstream' ? 'opacity-50' : 'opacity-40'
   return (
@@ -1560,11 +1566,22 @@ function JobRow({
         // date instead). Read-only here; edited in the job's 排产 band.
         const planned = row.stagePlan?.[stage]
         const planSt = stagePlanState(planned, rollup.kind)
+        // The plan rides in the cell's plan rail (bottom band). We now KEEP it
+        // for done stages too — the fact-date lives above it, the rail always
+        // shows the commitment. planToneClass (see _stage_plan.tsx) gives red
+        // for slipping and strong ink for a live commitment; for a done stage
+        // we drop to ink-4 (even fainter than its ink-3) so the settled plan
+        // recedes and doesn't fight the actual date sitting above it.
+        // planSt is null for 'na' cells → no plan → those keep a full slash and
+        // no rail, honestly skipping stages that aren't in the route.
         const plan =
-          planned && planSt && planSt.tone !== 'done'
+          planned && planSt
             ? {
                 label: fmtPlanLabel(planned),
-                toneClass: planToneClass(planSt.tone),
+                toneClass:
+                  planSt.tone === 'done'
+                    ? 'text-[var(--color-ink-4)]'
+                    : planToneClass(planSt.tone),
               }
             : undefined
         // Highlighted column when actionable: never changes color on hover
@@ -1597,7 +1614,7 @@ function JobRow({
           if (totalCounted === 0) {
             return (
               <td key={stage} className="p-0 h-[78px]" style={cellBgStyle}>
-                <RollupCell rollup={rollup} plan={plan} />
+                <RollupCell rollup={rollup} plan={plan} hasRail={hasRail} />
               </td>
             )
           }
@@ -1624,7 +1641,7 @@ function JobRow({
               className={`block h-full w-full ${hoverCls} transition-colors`}
               aria-label={`${row.jobNo} · ${stage}`}
             >
-              <RollupCell rollup={rollup} plan={plan} />
+              <RollupCell rollup={rollup} plan={plan} hasRail={hasRail} />
             </Link>
           </td>
         )

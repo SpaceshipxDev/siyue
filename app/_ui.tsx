@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import type { ReactNode } from 'react'
 import type { DueState, Rollup, StageState } from '@/lib/data'
 import { STAGES, formatCny } from '@/lib/data'
 import { today } from '@/lib/today'
@@ -282,20 +283,71 @@ export function StageHeader({ name }: { name: string }) {
   )
 }
 
+// Two-band cell shell for the master board. When the job carries any in-house
+// 排产 plan (hasRail), the status content shrinks into a flex-1 top band and a
+// fixed 24px plan rail sits below it, hairline-separated, on the lane
+// background. Position constant → semantics constant: the rail is ALWAYS the
+// plan (计划交期), above it is ALWAYS fact (actual date / n·m count / —), and
+// across a row the rails fuse into one continuous schedule track. Without a
+// rail it's the legacy single full-height status band — legacy rows pay zero
+// cost.
+function CellBands({
+  hasRail,
+  bandClass,
+  title,
+  rail,
+  children,
+}: {
+  hasRail?: boolean
+  bandClass: string
+  title?: string
+  rail: ReactNode
+  children: ReactNode
+}) {
+  if (!hasRail) {
+    return (
+      <div
+        className={`flex h-full flex-col items-center justify-center ${bandClass}`}
+        title={title}
+      >
+        {children}
+      </div>
+    )
+  }
+  return (
+    <div className="flex h-full w-full flex-col">
+      <div
+        className={`flex min-h-0 flex-1 flex-col items-center justify-center ${bandClass}`}
+        title={title}
+      >
+        {children}
+      </div>
+      {rail}
+    </div>
+  )
+}
+
 export function RollupCell({
   rollup,
   plan,
+  hasRail,
 }: {
   rollup: Rollup
-  // 计划交期 (排产) — this stage's planned finish, shown as a small second line
-  // in cells that aren't done yet (a done cell already shows its actual date).
+  // 计划交期 (排产) — this stage's planned finish. It no longer shares the
+  // status slot; it lives ONLY in the plan rail at the bottom of the cell.
   // Display-only: never feeds sort/filter/urgency. Tone follows planToneClass —
-  // strong ink for a live commitment, red only when the plan has slipped.
+  // strong ink for a live commitment, red when slipped, faint ink-4 once done.
   plan?: { label: string; toneClass: string }
+  // Row-level gate: true when the job carries any in-house 工段 plan, so every
+  // in-route cell in the row grows a plan rail (empty for stages with no plan)
+  // and the schedule track stays continuous. 'na' cells never get a rail.
+  hasRail?: boolean
 }) {
   // No part in this job needs the stage. Render a diagonal slash across the
   // cell — visually unmistakable as "crossed out / not applicable", and
-  // distinct from the en-dash that means "not started yet."
+  // distinct from the en-dash that means "not started yet." NEVER carries a
+  // rail even when hasRail: the schedule track honestly skips stages that
+  // aren't in this job's route.
   if (rollup.kind === 'na') {
     return (
       <div
@@ -320,20 +372,35 @@ export function RollupCell({
       </div>
     )
   }
+  // The plan rail — bottom band, fixed 24px, hairline top border on the lane
+  // background. Always the plan slot; empty when this stage has no plan (or
+  // isn't plannable) so the rails still line up into one continuous track.
+  const rail = (
+    <div className="flex h-6 shrink-0 items-center justify-center border-t border-[var(--color-border)] bg-[var(--color-lane)]">
+      {plan && (
+        <span
+          className={`mono text-[10.5px] font-medium tabular-nums ${plan.toneClass}`}
+          title="计划交期"
+        >
+          {plan.label}
+        </span>
+      )}
+    </div>
+  )
   const outsourced = rollup.outsourcedOpen ?? 0
   // 全部送外协 (open) — vendor owns this stage entirely. Surface 外协 in
   // place of the green ✓ so the boss instantly sees the work is offsite,
   // not actually finished in-house.
   if (rollup.kind === 'done' && outsourced > 0 && outsourced === rollup.total) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-0.5 leading-none">
+      <CellBands hasRail={hasRail} bandClass="gap-0.5 leading-none" rail={rail}>
         <span className="text-[11px] tracking-wider font-semibold text-[var(--color-info)]">
           外协
         </span>
         <span className="mono text-[10px] text-[var(--color-ink-3)]">
           {outsourced} 件
         </span>
-      </div>
+      </CellBands>
     )
   }
   if (rollup.kind === 'pending') {
@@ -341,48 +408,38 @@ export function RollupCell({
     // (faintest ink) so the cell reads as "in this job's route, not started"
     // rather than blank-and-ambiguous. Distinct from the diagonal-slash 'na'
     // cell above, which means the stage isn't in this job's route at all.
-    // With a plan set, the planned date rides under it — the same sub-line
-    // slot a done cell uses for its actual date.
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-0.5 leading-none text-[var(--color-ink-4)]">
+      <CellBands
+        hasRail={hasRail}
+        bandClass="gap-0.5 leading-none text-[var(--color-ink-4)]"
+        rail={rail}
+      >
         <span className="mono text-[13px]">—</span>
-        {plan && (
-          <span
-            className={`mono text-[10px] ${plan.toneClass}`}
-            title="计划交期"
-          >
-            {plan.label}
-          </span>
-        )}
-      </div>
+      </CellBands>
     )
   }
   if (rollup.kind === 'partial') {
     return (
-      <div
-        className="flex h-full flex-col items-center justify-center gap-1 leading-none relative"
+      <CellBands
+        hasRail={hasRail}
+        bandClass="gap-1 leading-none relative"
         title={rollupByHint(rollup)}
+        rail={rail}
       >
         <Pause size={9} className="text-[var(--color-warning)]" />
         <span className="mono text-[11px] text-[var(--color-warning)]">
           {rollup.done}/{rollup.total}
         </span>
-        {plan && (
-          <span
-            className={`mono text-[10px] ${plan.toneClass}`}
-            title="计划交期"
-          >
-            {plan.label}
-          </span>
-        )}
         {outsourced > 0 && <OutsourceCorner count={outsourced} />}
-      </div>
+      </CellBands>
     )
   }
   return (
-    <div
-      className="flex h-full flex-col items-center justify-center gap-0.5 leading-none relative"
+    <CellBands
+      hasRail={hasRail}
+      bandClass="gap-0.5 leading-none relative"
       title={rollupByHint(rollup)}
+      rail={rail}
     >
       <span className="text-[16px] leading-none font-semibold text-[var(--color-success)]">
         ✓
@@ -393,7 +450,7 @@ export function RollupCell({
         </span>
       )}
       {outsourced > 0 && <OutsourceCorner count={outsourced} />}
-    </div>
+    </CellBands>
   )
 }
 

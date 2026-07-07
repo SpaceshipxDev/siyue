@@ -14,9 +14,15 @@ import {
 
 // 计划交期 (排产) — a planned finish date (optionally an hour) per 工段, holistic
 // for the whole job. Display/planning only: it NEVER feeds the contract 交期's
-// color, sort, urgency, or the station queue order. Set here in one clean band;
-// each station later reads its OWN date in its queue (本工段…). Deliberately NOT
-// inside the parts grid — that bloated the columns and clipped the picker.
+// color, sort, urgency, or the station queue order. Each station later reads its
+// OWN date in its queue (本工段…).
+//
+// Two surfaces render the same StagePlanDate control:
+//   - The job detail page embeds StagePlanDate directly in a pinned "plan row"
+//     inside the 零件进度 table — the plan date is a property of the stage column,
+//     so it lives optically aligned over the cells it governs.
+//   - The import review page still mounts StagePlanBand (the standalone
+//     horizontal band below) — no parts grid to embed into there.
 
 // Calm, confident palette: a planned date is always strong full-ink — it should
 // read as a real commitment, not a faint suggestion. Red is the ONLY accent, and
@@ -38,18 +44,22 @@ export function planToneClass(tone: StagePlanTone | undefined): string {
 // hour); read-only → a static date. Empty reads as a quiet '—', consistent with
 // every other empty field in the app. Writes only this stage (atomic server
 // merge), so sibling stages are never touched.
-function StagePlanDate({
+export function StagePlanDate({
   jobId,
   stage,
   value,
   rollupKind,
   canEdit,
+  triggerClass = 'text-[14px] font-medium',
 }: {
   jobId: string
   stage: PlanKey
   value?: string
   rollupKind: RollupKind
   canEdit: boolean
+  /** Size/weight classes for the date label. Defaults to the band's 14px; the
+   *  job page's dense plan row passes a smaller 12.5px. */
+  triggerClass?: string
 }) {
   const [local, setLocal] = useState(value ?? '')
   const [, start] = useTransition()
@@ -76,7 +86,7 @@ function StagePlanDate({
   if (!canEdit) {
     return (
       <span
-        className={`mono text-[14px] font-medium tabular-nums ${local ? toneClass : 'text-[var(--color-ink-3)]'}`}
+        className={`mono tabular-nums ${triggerClass} ${local ? toneClass : 'text-[var(--color-ink-3)]'}`}
       >
         {local ? fmtPlanLabel(local) : '—'}
       </span>
@@ -92,7 +102,7 @@ function StagePlanDate({
       hideIcon
       placeholder="—"
       formatLabel={fmtPlanLabel}
-      triggerClass="text-[14px] font-medium"
+      triggerClass={triggerClass}
       tone={local ? toneClass : 'text-[var(--color-ink-3)]'}
     />
   )

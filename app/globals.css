@@ -20,6 +20,10 @@
   --color-info-soft: #e6eef6;
   --color-muted-bg: #f1efe9;
   --color-active-bg: #efece4;
+  /* 排产 lane — the plan row on the job page and the plan rail inside board
+   * cells share this wash: one shade deeper than bg, shallower than muted-bg,
+   * so the schedule track reads as a distinct layer without shouting. */
+  --color-lane: #f7f5ee;
   /* Boss's pin: bright yellow. Loud on purpose — a filled pin star is a
    * deliberate management mark; it should pop against the warm-paper field
    * even at thumbnail scale on the wall TV. */
