@@ -271,129 +271,88 @@ export function StageHeader({ name }: { name: string }) {
   )
 }
 
-// Two-band cell shell for the master board. When the ROW carries any 排产
-// plan (hasRail), a fixed 20px plan rail runs along the BOTTOM of the row,
-// hairline-separated, with the status content in a flex-1 band above it.
-// Row-gated, not universal: an empty lane on a plan-less job is noise, not
-// information — plan-less rows stay clean single-band cells and lanes appear
-// as 排产 adoption grows. Within a railed row every cell gets the rail
-// (empty when that stage has no plan) so the track never breaks mid-row.
-function CellBands({
-  hasRail,
+// Cell shell for the master board: full-height centered content plus the 排产
+// annotation floating at the cell's TOP EDGE. The annotation is pure
+// typography — no band, no border, no background, no reserved space — so a
+// planned row and a plan-less row have IDENTICAL geometry, and across a row
+// the dates line up into a schedule track by alignment alone. (Bands were
+// tried at 24px/20px, top and bottom, gated and universal: on the
+// action-button board every band reads as a third grid layer. Geometry was
+// the noise; the dates never were.)
+function CellShell({
   bandClass,
   title,
-  rail,
+  plan,
   children,
 }: {
-  hasRail?: boolean
   bandClass: string
   title?: string
-  rail: ReactNode
+  plan?: { label: string; toneClass: string }
   children: ReactNode
 }) {
-  if (!hasRail) {
-    return (
-      <div
-        className={`flex h-full flex-col items-center justify-center ${bandClass}`}
-        title={title}
-      >
-        {children}
-      </div>
-    )
-  }
   return (
-    <div className="flex h-full w-full flex-col">
-      <div
-        className={`flex min-h-0 flex-1 flex-col items-center justify-center ${bandClass}`}
-        title={title}
-      >
-        {children}
-      </div>
-      {rail}
+    <div
+      className={`relative flex h-full flex-col items-center justify-center ${bandClass}`}
+      title={title}
+    >
+      <PlanNote plan={plan} />
+      {children}
     </div>
   )
 }
 
-// The plan rail — bottom band, fixed 20px, hairline top border on the lane
-// background. Always the plan slot; empty when this stage has no plan (or
-// isn't plannable) so the rails line up into one continuous track across the
-// row. Exported so the station action-button cell can share the exact same
-// rail markup instead of duplicating it.
-export function PlanRail({
+// The 排产 annotation — this stage's planned finish, pinned inside the cell's
+// top edge, pointer-events-none so the full-cell action button underneath
+// keeps its whole tap target. Tone: strong ink for a live commitment, red
+// when slipped, faint ink-4 once the stage is done. Exported so the station
+// action-button cell shares the exact markup.
+export function PlanNote({
   plan,
 }: {
   plan?: { label: string; toneClass: string }
 }) {
+  if (!plan) return null
   return (
-    <div className="flex h-5 shrink-0 items-center justify-center border-t border-[var(--color-border)] bg-[var(--color-lane)]">
-      {plan && (
-        <span
-          className={`mono text-[10.5px] font-medium tabular-nums ${plan.toneClass}`}
-          title="计划交期"
-        >
-          {plan.label}
-        </span>
-      )}
-    </div>
+    <span
+      className={`pointer-events-none absolute left-1/2 top-[5px] -translate-x-1/2 mono text-[10px] font-medium leading-none tabular-nums ${plan.toneClass}`}
+      title="计划交期"
+    >
+      {plan.label}
+    </span>
   )
 }
 
 export function RollupCell({
   rollup,
   plan,
-  hasRail,
 }: {
   rollup: Rollup
-  // 计划交期 (排产) — this stage's planned finish. It no longer shares the
-  // status slot; it lives ONLY in the plan rail at the bottom of the cell.
-  // Display-only: never feeds sort/filter/urgency. Tone follows planToneClass —
-  // strong ink for a live commitment, red when slipped, faint ink-4 once done.
+  // 计划交期 (排产) — this stage's planned finish, rendered as the top-edge
+  // annotation (PlanNote). Display-only: never feeds sort/filter/urgency.
   plan?: { label: string; toneClass: string }
-  // Row-level gate: true when the JOB carries any in-house 工段 plan. Every
-  // cell in a railed row gets the rail (empty for unplanned stages) so the
-  // track never breaks mid-row; plan-less rows render clean single-band cells.
-  hasRail?: boolean
 }) {
-  const rail = <PlanRail plan={plan} />
   // No part in this job needs the stage. Render a diagonal slash — visually
   // unmistakable as "crossed out / not applicable", distinct from the en-dash
-  // that means "not started yet." In a railed row the slash is confined to the
-  // status band with the (always-empty) rail beneath, keeping the lane
-  // unbroken; in a rail-less row it crosses the whole cell as before.
+  // that means "not started yet." (No annotation: an off-route stage never
+  // has a plan.)
   if (rollup.kind === 'na') {
-    const slash = (
-      <svg
-        className="absolute inset-0 h-full w-full"
-        preserveAspectRatio="none"
-        aria-hidden="true"
-      >
-        <line
-          x1="0%"
-          y1="100%"
-          x2="100%"
-          y2="0%"
-          stroke="var(--color-ink-4)"
-          strokeWidth="1"
-          shapeRendering="crispEdges"
-        />
-      </svg>
-    )
-    if (!hasRail) {
-      return (
-        <div className="relative h-full w-full" aria-label="该工段不适用">
-          {slash}
-        </div>
-      )
-    }
     return (
-      <div className="flex h-full w-full flex-col">
-        <div
-          className="relative flex min-h-0 flex-1 flex-col items-center justify-center"
-          aria-label="该工段不适用"
+      <div className="relative h-full w-full" aria-label="该工段不适用">
+        <svg
+          className="absolute inset-0 h-full w-full"
+          preserveAspectRatio="none"
+          aria-hidden="true"
         >
-          {slash}
-        </div>
-        {rail}
+          <line
+            x1="0%"
+            y1="100%"
+            x2="100%"
+            y2="0%"
+            stroke="var(--color-ink-4)"
+            strokeWidth="1"
+            shapeRendering="crispEdges"
+          />
+        </svg>
       </div>
     )
   }
@@ -405,17 +364,16 @@ export function RollupCell({
   // is), ✓ done.
   if (rollup.kind === 'done' && outsourced > 0 && outsourced === rollup.total) {
     return (
-      <CellBands
-        hasRail={hasRail}
+      <CellShell
         bandClass="gap-1 leading-none bg-[var(--color-warning-soft)]"
         title={`${outsourced} 件正在外协`}
-        rail={rail}
+        plan={plan}
       >
         <Pause size={11} className="text-[var(--color-warning)]" />
         <span className="text-[10px] tracking-wider font-semibold text-[var(--color-warning)]">
           外协
         </span>
-      </CellBands>
+      </CellShell>
     )
   }
   if (rollup.kind === 'pending') {
@@ -424,36 +382,33 @@ export function RollupCell({
     // rather than blank-and-ambiguous. Distinct from the diagonal-slash 'na'
     // cell above, which means the stage isn't in this job's route at all.
     return (
-      <CellBands
-        hasRail={hasRail}
+      <CellShell
         bandClass="gap-0.5 leading-none text-[var(--color-ink-4)]"
-        rail={rail}
+        plan={plan}
       >
         <span className="mono text-[13px]">—</span>
-      </CellBands>
+      </CellShell>
     )
   }
   if (rollup.kind === 'partial') {
     return (
-      <CellBands
-        hasRail={hasRail}
+      <CellShell
         bandClass="gap-1 leading-none"
         title={rollupByHint(rollup)}
-        rail={rail}
+        plan={plan}
       >
         <Pause size={9} className="text-[var(--color-warning)]" />
         <span className="mono text-[11px] text-[var(--color-warning)]">
           {rollup.done}/{rollup.total}
         </span>
-      </CellBands>
+      </CellShell>
     )
   }
   return (
-    <CellBands
-      hasRail={hasRail}
+    <CellShell
       bandClass="gap-0.5 leading-none"
       title={rollupByHint(rollup)}
-      rail={rail}
+      plan={plan}
     >
       <span className="text-[16px] leading-none font-semibold text-[var(--color-success)]">
         ✓
@@ -463,7 +418,7 @@ export function RollupCell({
           {rollup.latestDate}
         </span>
       )}
-    </CellBands>
+    </CellShell>
   )
 }
 

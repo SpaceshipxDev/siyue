@@ -26,7 +26,7 @@ import {
   rowTimerAtStage,
   type MasterRow,
 } from '@/lib/master'
-import { DueCell, MoneyCell, PlanRail, RollupCell } from './_ui'
+import { DueCell, MoneyCell, PlanNote, RollupCell } from './_ui'
 import { ORDER_STATUS_LABEL } from '@/lib/order-money'
 import { JobStageActionButton } from './_cell'
 import { JobNotesInline } from './_editable'
@@ -1345,10 +1345,6 @@ function JobRow({
         ? 'var(--color-warning)'
         : 'transparent'
   const detailHref = `/jobs/${row.id}`
-  // 排产轨 gate — only rows that actually carry an in-house 工段 plan grow the
-  // rail; an empty lane on a plan-less job is noise, not information. 外协 is
-  // structurally excluded (it's a PlanKey but not in STAGES — no board column).
-  const hasRail = STAGES.some((s) => row.stagePlan?.[s])
   const rowOpacity =
     tier === 'mine' ? '' : tier === 'upstream' ? 'opacity-50' : 'opacity-40'
   return (
@@ -1557,29 +1553,26 @@ function JobRow({
         const cnts = rowStageCounts(row, stage)
         const totalCounted = cnts.inProgress + cnts.pending + cnts.done
         if (totalCounted > 0) {
-          // Same anatomy as every other cell in this row: the action button
-          // fills the status band (flex-1, full tap target); when the row is
-          // railed, the shared plan rail sits beneath it so the schedule lane
-          // runs unbroken through the column.
+          // The action button keeps its full-cell tap target; the 排产 date
+          // floats over the cell's top edge as a pointer-events-none
+          // annotation, same as every RollupCell.
           return (
             <td key={stage} className="p-0 h-[78px]">
-              <div className="flex h-full w-full flex-col">
-                <div className="flex min-h-0 flex-1">
-                  <JobStageActionButton
-                    jobId={row.id}
-                    stage={stage}
-                    inProgress={cnts.inProgress}
-                    pending={cnts.pending}
-                    done={cnts.done}
-                    latestBy={rollup.latestBy}
-                    latestDate={rollup.latestDate}
-                    // Elapsed-time chip only on the viewer's own station column
-                    // — a timer in all ten columns would be noise, not signal.
-                    timer={isHighlighted ? timer : null}
-                    subdued
-                  />
-                </div>
-                {hasRail && <PlanRail plan={plan} />}
+              <div className="relative h-full w-full">
+                <PlanNote plan={plan} />
+                <JobStageActionButton
+                  jobId={row.id}
+                  stage={stage}
+                  inProgress={cnts.inProgress}
+                  pending={cnts.pending}
+                  done={cnts.done}
+                  latestBy={rollup.latestBy}
+                  latestDate={rollup.latestDate}
+                  // Elapsed-time chip only on the viewer's own station column
+                  // — a timer in all ten columns would be noise, not signal.
+                  timer={isHighlighted ? timer : null}
+                  subdued
+                />
               </div>
             </td>
           )
@@ -1594,7 +1587,7 @@ function JobRow({
               className="block h-full w-full hover:bg-[#f1eee4] transition-colors"
               aria-label={`${row.jobNo} · ${stage}`}
             >
-              <RollupCell rollup={rollup} plan={plan} hasRail={hasRail} />
+              <RollupCell rollup={rollup} plan={plan} />
             </Link>
           </td>
         )
