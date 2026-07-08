@@ -180,12 +180,13 @@ export default async function MasterBoard(
         ? `查看 · ${stageFilter}`
         : '全部在产工单'
   // 工程 head's nav mirrors commerce — home tab is 工程 (not 商务), and the
-  // stage tabs light up the same way when drilling into any station.
-  // Other production stations have no tabs to highlight.
+  // stage tabs light up the same way when drilling into any station. Scoped
+  // floor users highlight their current stage tab, or 全部 (key 工单) when
+  // they've zoomed out to the bare master grid.
   const currentTab: TabKey | undefined = isProduction
     ? isEngineering
       ? (stageFilter as TabKey | undefined) ?? '工程'
-      : undefined
+      : (stageFilter as TabKey | undefined) ?? '工单'
     : (stageFilter as TabKey | undefined) ?? '商务'
   // useMasterSheet was computed above (before the data fetch) so we know
   // which read shape to load. Workbench-path renders below.

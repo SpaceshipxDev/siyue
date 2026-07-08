@@ -32,10 +32,9 @@ type Tab = { key: TabKey; label: string; href: string }
 //
 // Stage tabs link straight to /?stage=<s> — the same station workbench the
 // old /station/<s> URLs 302 into — so the tab click skips the redirect hop.
-//
-// Pure single-station accounts (scoped 编程/操机 logins) still get NO stage
-// tab row — they land pre-filtered on their own station and the
-// StationSummary on the body carries the weight.
+// EVERY role now carries the stage row (scoped floor accounts included):
+// one universal nav, your own station highlighted, the rest of the factory
+// one click away.
 function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): Tab[] {
   const stageTabs = (except?: string): Tab[] =>
     STAGES.filter((s) => s !== except).map((s) => ({
@@ -63,11 +62,20 @@ function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): T
         { key: '退货', label: '退货', href: '/returns' },
       ]
     }
-    // Pure-floor stations (焊接, 喷塑, 打磨, …) otherwise carry no tab nav —
-    // the StationSummary on the body does the work. They still get the one
-    // 采购 tab: the boss's rule is everyone on the floor buys things and must
-    // be able to log/see what's on the way, regardless of station.
-    return [{ key: '采购', label: '采购', href: '/procurement' }]
+    // Pure single-station accounts (编程002, 金属操机001, …) get the same
+    // whole-factory nav as everyone else — 全部 (the master grid) plus every
+    // stage tab, with their own station lighting up as home. This is the
+    // structural answer to "pin everyone to 工程 so they can see everything":
+    // the account stays scoped to the worker's real station (landing = their
+    // own queue, attribution honest), and "everything" — the full board, the
+    // station before them, the station after — is one tab away. 采购 stays:
+    // the boss's rule is everyone on the floor buys things and must be able
+    // to log/see what's on the way, regardless of station.
+    return [
+      { key: '工单', label: '全部', href: '/' },
+      ...stageTabs(),
+      { key: '采购', label: '采购', href: '/procurement' },
+    ]
   }
   return [
     { key: '商务', label: '商务', href: '/' },
@@ -179,7 +187,6 @@ export function DueCell({
   state,
   daysOff,
   secondaryDate,
-  plan,
 }: {
   date: string
   state: DueState
@@ -188,11 +195,6 @@ export function DueCell({
   // present. Display-only: it carries no urgency tone (the primary date owns
   // color/sort), so it stays ink-3 regardless of how far off it is.
   secondaryDate?: string
-  // 本工段计划 — THIS station's own planned finish, shown only in the per-station
-  // queue (the boss grid passes none). Display-only: it never drives the row's
-  // stripe or the list sort — the contract 交期 still owns all of that. Sits
-  // above 二次交期 because a worker's own deadline outranks a second ship date.
-  plan?: { label: string; sub?: string; toneClass: string }
 }) {
   const tone =
     state === 'overdue'
@@ -216,15 +218,6 @@ export function DueCell({
         {date}
       </span>
       <span className="label mt-0.5 whitespace-nowrap">{sub}</span>
-      {plan && (
-        <span
-          className={`mono text-[11px] whitespace-nowrap mt-0.5 ${plan.toneClass}`}
-          title="本工段计划交期"
-        >
-          {plan.label}
-          {plan.sub ? ` · ${plan.sub}` : ''}
-        </span>
-      )}
       {secondaryDate && (
         <span
           className="mono text-[11px] whitespace-nowrap text-[var(--color-ink-3)] mt-0.5"

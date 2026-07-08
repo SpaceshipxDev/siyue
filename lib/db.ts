@@ -1670,6 +1670,51 @@ function canStartInSnap(snap: DbSnapshot, partId: string, stage: Stage): boolean
   return row ? row.status === 'pending' : false
 }
 
+// Starting a stage IS physical evidence the part reached this station — every
+// prior in-route stage already happened in the real world, whether or not its
+// head remembered to tap ✓. Close them at the same instant as the start, so a
+// missed upstream tap can't strand the part in every queue behind it (the
+// 上游-forever failure: 编程 forgets to tick, 操机 can see the part on their
+// bench but their station page files the job under 上游 with no action).
+//
+// Attribution stays honest without any reporting change: `by` is left unset
+// (by_actor NULL) because nobody tapped those stages — worker_output/
+// worker_stage_events (0072) already drop null actors, so the starter is
+// never credited with upstream finishes. Genuinely-tapped stages are 'done'
+// and untouched, same rule as cascadeBackFinish.
+//
+// Vendor-covered stages are skipped entirely: the outsource block lifecycle
+// (回厂 / 出货 sweep) owns their truth, and every rollup reads them through
+// the block, not the part_stages row.
+function cascadeBackStart(
+  snap: DbSnapshot,
+  partId: string,
+  atStage: Stage,
+  date: string,
+  startedAtIso: string,
+): PartStageRow[] {
+  const idx = STAGES.indexOf(atStage)
+  if (idx <= 0) return []
+  const blocks = partBlocksInSnap(snap, partId)
+  const changed: PartStageRow[] = []
+  for (let i = 0; i < idx; i++) {
+    const s = STAGES[i]
+    if (blocks.some((b) => b.stages.includes(s))) continue
+    const row = snap.idx.stageByPartStage.get(stageKey(partId, s))
+    if (!row) continue
+    if (row.status === 'done') continue
+    changed.push({
+      ...row,
+      status: 'done',
+      completedAt: date,
+      finishedAt: startedAtIso,
+      by: undefined,
+      doneQty: undefined,
+    })
+  }
+  return changed
+}
+
 function cascadeBackFinish(
   snap: DbSnapshot,
   partId: string,
@@ -3981,16 +4026,19 @@ export async function startStage(
     if (!canStartInSnap(snap, partId, stage)) return
     const row = snap.idx.stageByPartStage.get(stageKey(partId, stage))
     if (!row) return
+    const now = new Date().toISOString()
     await upsertStages([
       {
         ...row,
         status: 'in_progress',
         completedAt: undefined,
-        startedAt: new Date().toISOString(),
+        startedAt: now,
         by: undefined,
         startedBy: actor,
         doneQty: undefined,
       },
+      // Part is physically here ⇒ close any upstream stage that missed its tap.
+      ...cascadeBackStart(snap, partId, stage, todayMMDD(), now),
     ])
   })
 }
@@ -4511,6 +4559,7 @@ export async function startJobStage(
     const snap = await loadJobSnapshot(jobId)
     const parts = snap.idx.partsByJob.get(jobId) ?? []
     const now = new Date().toISOString()
+    const date = todayMMDD()
     const updates: PartStageRow[] = []
     for (const part of parts) {
       if (!canStartInSnap(snap, part.id, stage)) continue
@@ -4525,6 +4574,8 @@ export async function startJobStage(
         startedBy: actor,
         doneQty: undefined,
       })
+      // Parts are physically here ⇒ close upstream stages that missed their tap.
+      updates.push(...cascadeBackStart(snap, part.id, stage, date, now))
     }
     await upsertStages(updates)
   })

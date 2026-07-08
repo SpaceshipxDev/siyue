@@ -5,10 +5,8 @@ import Link from 'next/link'
 import {
   daysFromToday,
   dueState,
-  fmtPlanLabel,
   jobIntakeDate,
   jobNoSortKey,
-  stagePlanState,
   type JobType,
   type Stage,
 } from '@/lib/data'
@@ -17,15 +15,13 @@ import {
   rowIsMineAtStage,
   rowIsUpstreamOfStage,
   rowMostRecentFinishedAt,
-  rowRollupStage,
   rowStageCounts,
   rowTimerAtStage,
   rowUpstreamActiveStages,
   type MasterRow,
 } from '@/lib/master'
-import { DueCell } from './_ui'
-import { planToneClass } from './_stage_plan'
-import { JobStageActionButton } from './_cell'
+import { DueCell, Pause } from './_ui'
+import { JobStageActionButton, type StageCounts } from './_cell'
 import { JobNotesInline } from './_editable'
 import { ReturnChip } from './_returns'
 import { TypeChip, useOptimisticJobType } from './_type_chip'
@@ -189,6 +185,27 @@ export function StationWorkbench({
   const { effectiveType, effectiveIsProduct, setType, setIsProduct } =
     useOptimisticJobType(rows)
 
+  // Rows the worker started FROM the 上游 tab this session, with the fresh
+  // counts the mutate echoed back. The bucket split below reads mount-time
+  // rows (fetched once per navigation), so without this overlay a just-
+  // started job would sit in 上游 showing ▶ again until a full reload. A
+  // promoted row is treated as 在此 and its action cell renders from the
+  // echoed counts, so the tap reads as "it's mine now" immediately.
+  const [promoted, setPromoted] = useState<Map<string, StageCounts>>(
+    () => new Map(),
+  )
+  const promote = (jobId: string, counts: StageCounts) =>
+    setPromoted((prev) => new Map(prev).set(jobId, counts))
+
+  // See everything, act on yours: every account can now open every station
+  // tab, but the ▶/⏸ action cells only render on a station the viewer may
+  // mutate (mirrors requireOwnStage in /api/mutate — commerce and 工程 head
+  // act anywhere, a scoped worker only at their own station). Foreign
+  // stations render the same queue read-only, so a 打磨 worker peeking at
+  // 操机 never taps a button that the server would reject.
+  const canAct =
+    role === 'commerce' || defaultStage === '工程' || defaultStage === stage
+
   // Pipeline: text → date → sort. Partition into the three tabs at the end
   // so each tab badge reflects the live filter. row.searchHaystack carries
   // the precomputed lowercased text (jobNo + customer + product + component
@@ -218,7 +235,7 @@ export function StationWorkbench({
     const downstream: MasterRow[] = []
     const upstream: MasterRow[] = []
     for (const r of matched) {
-      const mineHere = rowIsMineAtStage(r, stage)
+      const mineHere = rowIsMineAtStage(r, stage) || promoted.has(r.id)
       const downstreamHere = rowIsDownstreamOf(r, stage)
       if (mineHere) mine.push(r)
       if (downstreamHere) downstream.push(r)
@@ -254,7 +271,7 @@ export function StationWorkbench({
       upstreamRows: floatRush(upstream),
       doneRows: downstream.slice(0, DONE_TAB_LIMIT),
     }
-  }, [matched, stage, effectiveType])
+  }, [matched, stage, effectiveType, promoted])
 
   const isFiltered = q.length > 0 || dateFilter.kind !== 'all'
 
@@ -319,6 +336,9 @@ export function StationWorkbench({
               isProduct={effectiveIsProduct(row)}
               onTypeChange={(next) => setType(row, next)}
               onProductChange={(next) => setIsProduct(row, next)}
+              promotedCounts={promoted.get(row.id)}
+              onStarted={(counts) => promote(row.id, counts)}
+              canAct={canAct}
             />
           ))}
         </ul>
@@ -343,7 +363,7 @@ function TabBar({
   const downstream = downstreamLabel(stage)
   const tabs: { key: Tab; label: string; sub: string; count: number; suffix?: string }[] = [
     { key: 'mine', label: '在此', sub: '可以做的', count: counts.mine },
-    { key: 'upstream', label: '上游', sub: '还在上游手里', count: counts.upstream },
+    { key: 'upstream', label: '上游', sub: '还在上游 · 到手可开始', count: counts.upstream },
     {
       key: 'done',
       label: downstream.label,
@@ -413,6 +433,9 @@ function WorkbenchRow({
   isProduct,
   onTypeChange,
   onProductChange,
+  promotedCounts,
+  onStarted,
+  canAct,
 }: {
   row: MasterRow
   index: number
@@ -425,28 +448,20 @@ function WorkbenchRow({
   isProduct: boolean
   onTypeChange: (next: JobType | null) => void
   onProductChange: (next: boolean) => void
+  /** Set when this row was started from 上游 this session — the mutate-echoed
+   * counts that replace the stale mount-time rowStageCounts. */
+  promotedCounts?: StageCounts
+  onStarted: (counts: StageCounts) => void
+  /** Viewer may mutate THIS station (requireOwnStage mirror). False renders
+   * the whole row read-only — foreign-station peeking via the stage tabs. */
+  canAct: boolean
 }) {
   const effDue = row.effectiveDueDate
   const ds = dueState(effDue)
   const days = daysFromToday(effDue)
-  // 本工段计划 — this station's OWN planned finish for the job. Display-only: it
-  // never touches the left stripe or the queue sort (those stay keyed off the
-  // contract 交期). Hidden once this station is done — no live deadline left.
-  const planVal = row.stagePlan?.[stage]
-  const planStatus = stagePlanState(planVal, rowRollupStage(row, stage).kind)
-  const planLine =
-    planVal && planStatus && planStatus.tone !== 'done'
-      ? {
-          label: `本工段 ${fmtPlanLabel(planVal)}`,
-          sub:
-            planStatus.tone === 'slipping'
-              ? `逾期 ${Math.abs(planStatus.daysOff)} 天`
-              : planStatus.tone === 'due'
-                ? '今日'
-                : `${planStatus.daysOff} 天后`,
-          toneClass: planToneClass(planStatus.tone),
-        }
-      : undefined
+  // (本工段计划 used to render as a third line under 交期 here — removed: the
+  // queue's date column carries contract time only. 排产 dates live on the
+  // master board's cell annotations and the job page's plan row.)
   // Row's left-edge stripe paints time pressure only (overdue/today).
   // 加急 is carried by the chip — keeps the two signals visually
   // independent so the worker reads "burning today" + "boss escalated"
@@ -544,7 +559,6 @@ function WorkbenchRow({
               state={ds}
               daysOff={days}
               secondaryDate={row.secondaryDueDate}
-              plan={planLine}
             />
           </div>
 
@@ -570,7 +584,14 @@ function WorkbenchRow({
         </Link>
 
         <div className="w-[200px] shrink-0 border-l border-[var(--color-border)]">
-          <ActionCell row={row} stage={stage} tab={tab} />
+          <ActionCell
+            row={row}
+            stage={stage}
+            tab={tab}
+            promotedCounts={promotedCounts}
+            onStarted={onStarted}
+            canAct={canAct}
+          />
         </div>
 
         <div className="w-[200px] shrink-0 border-l border-[var(--color-border)] flex items-center px-3">
@@ -590,9 +611,26 @@ function WorkbenchRow({
   )
 }
 
-function ActionCell({ row, stage, tab }: { row: MasterRow; stage: Stage; tab: Tab }) {
+function ActionCell({
+  row,
+  stage,
+  tab,
+  promotedCounts,
+  onStarted,
+  canAct,
+}: {
+  row: MasterRow
+  stage: Stage
+  tab: Tab
+  promotedCounts?: StageCounts
+  onStarted: (counts: StageCounts) => void
+  canAct: boolean
+}) {
   if (tab === 'mine') {
-    const cnts = rowStageCounts(row, stage)
+    // A row started from 上游 this session renders off the mutate-echoed
+    // counts — the mount-time rowStageCounts still say "all pending" and
+    // would paint ▶ on a job the worker just started.
+    const cnts = promotedCounts ?? rowStageCounts(row, stage)
     const total = cnts.inProgress + cnts.pending + cnts.done
     if (total === 0) {
       // No in-house work for this head at this stage (e.g. fully outsourced).
@@ -607,6 +645,7 @@ function ActionCell({ row, stage, tab }: { row: MasterRow; stage: Stage; tab: Ta
         </Link>
       )
     }
+    if (!canAct) return <ReadOnlyStatusCell row={row} cnts={cnts} />
     const timer = rowTimerAtStage(row, stage)
     return (
       <JobStageActionButton
@@ -616,11 +655,32 @@ function ActionCell({ row, stage, tab }: { row: MasterRow; stage: Stage; tab: Ta
         pending={cnts.pending}
         done={cnts.done}
         timer={timer}
+        onStarted={onStarted}
       />
     )
   }
 
   if (tab === 'upstream') {
+    // The part often arrives at the bench before the upstream head's ✓ does.
+    // The tap is the truth signal: ▶ here starts THIS stage and the server
+    // closes the un-ticked upstream stages behind it (cascadeBackStart), so
+    // a missed upstream tap can't freeze the queue. Rows with nothing
+    // startable here (e.g. this stage fully outsourced) — and every row on
+    // a station the viewer can't mutate — keep the plain view link.
+    const cnts = rowStageCounts(row, stage)
+    if (canAct && (cnts.pending > 0 || cnts.inProgress > 0)) {
+      return (
+        <JobStageActionButton
+          jobId={row.id}
+          stage={stage}
+          inProgress={cnts.inProgress}
+          pending={cnts.pending}
+          done={cnts.done}
+          timer={null}
+          onStarted={onStarted}
+        />
+      )
+    }
     return (
       <Link
         href={`/jobs/${row.id}`}
@@ -652,6 +712,37 @@ function ActionCell({ row, stage, tab }: { row: MasterRow; stage: Stage; tab: Ta
         <span className="mono text-[11px] text-[var(--color-ink-3)]">
           {finishedDate}
         </span>
+      )}
+    </Link>
+  )
+}
+
+// The read-only twin of JobStageActionButton for foreign-station viewing:
+// same glyph grammar (— not started, ⏸ k/N underway), zero mutation surface.
+// The whole cell links into the job detail, mirroring the 查看 affordance.
+function ReadOnlyStatusCell({
+  row,
+  cnts,
+}: {
+  row: MasterRow
+  cnts: StageCounts
+}) {
+  const total = cnts.inProgress + cnts.pending + cnts.done
+  return (
+    <Link
+      href={`/jobs/${row.id}`}
+      className="flex h-full w-full flex-col items-center justify-center gap-1 px-3 py-3 hover:bg-[#f7f5ee] transition-colors"
+      aria-label={`查看 ${row.jobNo}`}
+    >
+      {cnts.inProgress > 0 || cnts.done > 0 ? (
+        <>
+          <Pause size={11} className="text-[var(--color-warning)]" />
+          <span className="mono text-[11px] text-[var(--color-warning)]">
+            {cnts.done}/{total}
+          </span>
+        </>
+      ) : (
+        <span className="mono text-[13px] text-[var(--color-ink-4)]">—</span>
       )}
     </Link>
   )

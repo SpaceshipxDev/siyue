@@ -251,7 +251,7 @@ export function StageCellButton({
 
 type RowStatus = 'pending' | 'in_progress' | 'done'
 
-type StageCounts = { inProgress: number; pending: number; done: number }
+export type StageCounts = { inProgress: number; pending: number; done: number }
 
 export function JobStageActionButton({
   jobId,
@@ -263,6 +263,7 @@ export function JobStageActionButton({
   latestDate,
   timer,
   subdued = false,
+  onStarted,
 }: {
   jobId: string
   stage: Stage
@@ -281,6 +282,11 @@ export function JobStageActionButton({
    * highlighted-column row stays calm; the job detail keeps the default
    * hover brown to signal clickability. */
   subdued?: boolean
+  /** Fires once a START lands, with the server-echoed fresh counts. The
+   * station workbench uses this to promote the row from 上游 into 在此 in
+   * the same client session (its buckets are computed from mount-time rows,
+   * which the write just made stale). */
+  onStarted?: (counts: StageCounts) => void
 }) {
   const [transition, start] = useTransition()
   const [optimistic, setOptimistic] = useState<RowStatus | null>(null)
@@ -329,8 +335,10 @@ export function JobStageActionButton({
     start(async () => {
       try {
         const r = await mutate<{ counts: StageCounts }>({ kind, jobId, stage })
-        setLive('data' in r && r.data ? r.data.counts : fallback)
+        const fresh = 'data' in r && r.data ? r.data.counts : fallback
+        setLive(fresh)
         setOptimistic(null)
+        if (kind === 'startJobStage') onStarted?.(fresh)
       } catch {
         setOptimistic(null)
         setError(true)
