@@ -1,5 +1,5 @@
 import 'server-only'
-import { Document, Image, Page, Text, View } from '@react-pdf/renderer'
+import { Document, Image, Link, Page, Text, View } from '@react-pdf/renderer'
 import type { OutsourceBlock, Vendor } from './../data'
 import {
   blockLineTotalsSum,
@@ -42,6 +42,7 @@ export function OutsourceDocPDF({
   images,
   portalQrDataUrl,
   portalUrlShort,
+  portalUrl,
 }: {
   block: OutsourceBlock
   jobNo: string
@@ -51,6 +52,7 @@ export function OutsourceDocPDF({
   images: Map<string, ImageSource>
   portalQrDataUrl?: string | null
   portalUrlShort?: string | null
+  portalUrl?: string | null
 }) {
   const vendor = vendorById(block.vendorId, vendors)
   const recipientAddress = block.recipientAddress ?? BRAND.address
@@ -233,14 +235,22 @@ export function OutsourceDocPDF({
         </View>
 
         {portalQrDataUrl ? (
+          // The PDF travels as a FILE most of the time (WeChat, email) — the
+          // whole block is a live hyperlink, not just a scan target.
           <View style={styles.portalBlock} wrap={false}>
-            {/* eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image, no alt prop */}
-            <Image style={styles.portalQr} src={portalQrDataUrl} />
+            <Link src={portalUrl ?? undefined}>
+              {/* eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image, no alt prop */}
+              <Image style={styles.portalQr} src={portalQrDataUrl} />
+            </Link>
             <View style={styles.portalTextCol}>
               <Text style={styles.portalHeadline}>扫码回交期 · 报发货 · 对账</Text>
-              <Text style={styles.portalUrl}>
-                {portalUrlShort ?? ''} 免登录
-              </Text>
+              {portalUrl ? (
+                <Link src={portalUrl} style={styles.portalUrl}>
+                  {portalUrlShort ?? portalUrl} · 点击打开 · 免登录
+                </Link>
+              ) : (
+                <Text style={styles.portalUrl}>{portalUrlShort ?? ''} 免登录</Text>
+              )}
             </View>
           </View>
         ) : null}

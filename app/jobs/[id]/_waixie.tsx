@@ -29,6 +29,7 @@ import {
   OutsourceBlockAmount,
   OutsourceBlockDate,
   OutsourceBlockNotes,
+  OutsourceBlockText,
 } from '@/app/_editable'
 import { BlockThreadStrip, SharePanel } from '@/app/_vendor_share'
 import { SearchSelect } from '@/app/_search_select'
@@ -115,6 +116,11 @@ const td = 'px-3 py-2.5 align-middle whitespace-nowrap'
 const thStatus =
   'px-2 py-2 text-center text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--color-ink-3)] whitespace-nowrap border-l border-[var(--color-border)]'
 const tdStatus = 'p-0 border-l border-[var(--color-border)] align-middle'
+
+// Column label for the 外协单 header cells — the master board's Excel grammar:
+// a tiny tracked label over each editable value.
+const hcellLabel =
+  'block text-[9px] tracking-[0.12em] text-[var(--color-ink-4)] leading-[12px]'
 const statusInner =
   'flex min-h-[48px] h-full w-full flex-col items-center justify-center gap-0.5 leading-none'
 
@@ -600,45 +606,35 @@ function BlockGroup({
           status cells on the right, exactly like a master-board row. */}
       <tr className="bg-[var(--color-bg)]">
         <td colSpan={4} className="px-3 py-2">
-          {/* Two lines, clear hierarchy: WHO/WHAT on top (vendor + activity),
-              the quiet ledger line below (单号 · 工序 · 寄 → 交期 · ¥). Same
-              fields as before, all still editable in place — just no longer
-              one run-on strip where every token fought for the same baseline. */}
+          {/* The 外协单 in master-board grammar: labeled columns, one value per
+              cell, every cell editable in place. Same fields as before — now
+              they read like a spreadsheet row instead of a run-on line. */}
           <div
             className={`flex items-start justify-between gap-3 ${closed ? 'opacity-70' : ''}`}
           >
-            <div className="min-w-0">
-              <div className="flex items-center gap-2.5">
-                <span className="w-[150px] shrink-0">
-                  <NameCombobox
-                    target={{ kind: 'vendor', blockId: block.id, jobId }}
-                    value={vendor?.name ?? block.vendorId}
-                    options={vendors.map((v) => ({ id: v.id, name: v.name }))}
-                    className="text-[14px] font-semibold text-[var(--color-ink)]"
-                  />
-                </span>
-                {act ? (
-                  <span className="shrink-0 whitespace-nowrap text-[13px] text-[var(--color-ink-2)]">
-                    {act}
-                  </span>
-                ) : null}
-                {!closed && overdueDays > 0 ? (
-                  <span className="shrink-0 text-[12px] font-medium text-[var(--color-overdue)]">
-                    逾期{overdueDays}天
-                  </span>
-                ) : null}
-              </div>
-              <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-0.5">
-                {block.docNo ? (
-                  <span
-                    className="mono whitespace-nowrap text-[11px] text-[var(--color-ink-3)]"
-                    title="外协单号"
-                  >
-                    {block.docNo}
-                  </span>
-                ) : null}
-                <span className="flex items-baseline gap-1 text-[12px] text-[var(--color-ink-2)]">
-                  <span className="text-[var(--color-ink-4)]">工序</span>
+            <div className="flex min-w-0 flex-wrap items-start gap-x-6 gap-y-1.5">
+              <span className="block">
+                <span className={hcellLabel}>厂商</span>
+                <NameCombobox
+                  target={{ kind: 'vendor', blockId: block.id, jobId }}
+                  value={vendor?.name ?? block.vendorId}
+                  options={vendors.map((v) => ({ id: v.id, name: v.name }))}
+                  className="text-[14px] font-semibold text-[var(--color-ink)]"
+                />
+              </span>
+              <span className="block">
+                <span className={hcellLabel}>做什么</span>
+                <OutsourceBlockText
+                  blockId={block.id}
+                  jobId={jobId}
+                  field="activity"
+                  value={act || undefined}
+                  className="block text-[13px] leading-[20px] text-[var(--color-ink)]"
+                />
+              </span>
+              <span className="block">
+                <span className={hcellLabel}>工序</span>
+                <span className="block text-[13px] leading-[20px]">
                   <BlockStagesEditor
                     blockId={block.id}
                     jobId={jobId}
@@ -649,20 +645,22 @@ function BlockGroup({
                     onSaved={onChanged}
                   />
                 </span>
-                <span className="flex items-baseline gap-1 text-[12px]">
-                  <span className="text-[var(--color-ink-4)]">寄</span>
-                  <OutsourceBlockDate
-                    blockId={block.id}
-                    jobId={jobId}
-                    field="sentDate"
-                    value={block.sentDate}
-                    formatLabel={mdShort}
-                    hideIcon
-                    className="mono text-[12px] text-[var(--color-ink-2)]"
-                  />
-                </span>
-                <span className="flex items-baseline gap-1 text-[12px]">
-                  <span className="text-[var(--color-ink-4)]">交期</span>
+              </span>
+              <span className="block">
+                <span className={hcellLabel}>寄出</span>
+                <OutsourceBlockDate
+                  blockId={block.id}
+                  jobId={jobId}
+                  field="sentDate"
+                  value={block.sentDate}
+                  formatLabel={mdShort}
+                  hideIcon
+                  className="mono block text-[13px] leading-[20px] text-[var(--color-ink)]"
+                />
+              </span>
+              <span className="block">
+                <span className={hcellLabel}>交期</span>
+                <span className="flex items-baseline gap-1.5">
                   <OutsourceBlockDate
                     blockId={block.id}
                     jobId={jobId}
@@ -670,21 +668,39 @@ function BlockGroup({
                     value={block.expectedReturn}
                     formatLabel={mdShort}
                     hideIcon
-                    className={`mono text-[12px] font-medium ${
-                      overdueDays > 0 ? 'text-[var(--color-overdue)]' : 'text-[var(--color-ink)]'
+                    className={`mono block text-[13px] font-medium leading-[20px] ${
+                      !closed && overdueDays > 0
+                        ? 'text-[var(--color-overdue)]'
+                        : 'text-[var(--color-ink)]'
                     }`}
                   />
+                  {!closed && overdueDays > 0 ? (
+                    <span className="text-[11px] font-medium text-[var(--color-overdue)]">
+                      逾期{overdueDays}天
+                    </span>
+                  ) : null}
                 </span>
-                <span className="flex items-baseline gap-0.5 text-[12px]">
-                  <span className="mono text-[var(--color-ink-4)]">¥</span>
+              </span>
+              <span className="block">
+                <span className={hcellLabel}>金额</span>
+                <span className="flex items-baseline gap-0.5 text-[13px] leading-[20px]">
+                  <span className="mono text-[var(--color-ink-3)]">¥</span>
                   <OutsourceBlockAmount
                     blockId={block.id}
                     jobId={jobId}
                     value={block.amountCny}
-                    className="mono text-[12px] text-[var(--color-ink)] [field-sizing:content] min-w-[3ch]"
+                    className="mono text-[13px] text-[var(--color-ink)] [field-sizing:content] min-w-[3ch]"
                   />
                 </span>
-              </div>
+              </span>
+              {block.docNo ? (
+                <span className="block" title="外协单号">
+                  <span className={hcellLabel}>单号</span>
+                  <span className="mono block whitespace-nowrap text-[11px] leading-[20px] text-[var(--color-ink-3)]">
+                    {block.docNo}
+                  </span>
+                </span>
+              ) : null}
             </div>
             <span className="flex shrink-0 items-center gap-2">
               <BlockKebab blockId={block.id} pending={busy} onDelete={del} />

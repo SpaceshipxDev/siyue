@@ -376,10 +376,15 @@ export default async function OutsourceDocPage(
               <p className="text-[11px] font-semibold text-[var(--color-ink)]">
                 扫码回交期 · 报发货 · 对账
               </p>
-              <p className="mono text-[9px] text-[var(--color-ink-3)]">
+              <a
+                href={portalUrl ?? undefined}
+                target="_blank"
+                rel="noreferrer"
+                className="mono text-[9px] text-[var(--color-ink-3)] underline decoration-[var(--color-ink-4)] underline-offset-2"
+              >
                 {portalUrlShort}
                 <span className="ml-1.5">免登录</span>
-              </p>
+              </a>
             </div>
           </div>
         )}

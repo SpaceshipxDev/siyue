@@ -45,11 +45,9 @@ export async function GET(
   const proto =
     reqHeaders.get('x-forwarded-proto') ??
     (host.startsWith('localhost') ? 'http' : 'https')
-  const portalQrDataUrl = portalToken
-    ? await QRCode.toDataURL(`${proto}://${host}/w/${portalToken}`, {
-        margin: 0,
-        width: 256,
-      })
+  const portalUrl = portalToken ? `${proto}://${host}/w/${portalToken}` : null
+  const portalQrDataUrl = portalUrl
+    ? await QRCode.toDataURL(portalUrl, { margin: 0, width: 256 })
     : null
   const portalUrlShort = portalToken
     ? `${host}/w/${portalToken.slice(0, 6)}…`
@@ -65,6 +63,7 @@ export async function GET(
       images,
       portalQrDataUrl,
       portalUrlShort,
+      portalUrl,
     }),
   )
 
