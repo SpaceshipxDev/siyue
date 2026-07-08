@@ -385,7 +385,6 @@ function StateCell({ block, kind }: { block: OutsourceBlock; kind: RowKind }) {
 // box with smaller part lines. The job is the row; these are its parts —
 // the hierarchy must be readable at a glance.
 function Members({ block, token }: { block: OutsourceBlock; token: string }) {
-  const act = activityCn(block)
   const shown = block.members.slice(0, 8)
   const more = block.members.length - shown.length
   return (
@@ -421,12 +420,6 @@ function Members({ block, token }: { block: OutsourceBlock; token: string }) {
       </div>
         </>
       ) : null}
-      <p className="mt-2 text-[12px] text-[var(--color-ink-3)]">
-        {act ? `${act} · ` : ''}
-        {mdCn(block.sentDate)}寄出
-        {block.amountCny != null ? ` · ${formatCny(block.amountCny)}` : ''}
-        {block.docNo ? ` · ${block.docNo}` : ''}
-      </p>
       {block.notes ? (
         <p className="mt-1 text-[13px] leading-snug text-[var(--color-ink-2)]">
           “{block.notes}”
