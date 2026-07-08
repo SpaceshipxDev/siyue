@@ -24,7 +24,10 @@ import { getUserById } from '@/lib/db'
 // '/x/demo' is the public sandbox of the /x sheet — pure localStorage, no DB
 // reads or writes, shareable with prospect factories. The real /x stays
 // session-gated (it is NOT in this list; prefix matching is exact-or-slash).
-const PUBLIC_PATHS = ['/login', '/join', '/w', '/x/demo']
+// '/api/leads' is the lead-capture POST from the public siyue.ai landing —
+// it does its own validation/honeypot/rate-limit; a session gate here would
+// 307 every prospect's form submit to /login.
+const PUBLIC_PATHS = ['/login', '/join', '/w', '/x/demo', '/api/leads']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only
