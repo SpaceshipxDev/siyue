@@ -31,7 +31,7 @@ import {
   OutsourceBlockDate,
   OutsourceBlockNotes,
 } from './_editable'
-import { BlockShareButton, VendorStateChip } from './_vendor_share'
+import { BlockShareButton, BlockThreadStrip, VendorStateChip } from './_vendor_share'
 
 function fieldStyles(): string {
   return 'bg-transparent border border-[var(--color-border)] rounded-[2px] px-2 py-1 text-[13px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)] disabled:opacity-50'
@@ -851,6 +851,7 @@ export function BlockRow({
   vendor,
   vendors,
   componentOptions,
+  threadStrip,
 }: {
   jobId: string
   jobNo?: string
@@ -862,6 +863,10 @@ export function BlockRow({
    * outside the job detail page (station board), where adding members has
    * no natural picker. */
   componentOptions?: ComponentOption[]
+  /** 外协台 station board: render the six-cell BlockThreadStrip in the row's
+   * status cluster instead of the scattered 微信 button + VendorStateChip.
+   * Defaults off — other 外协 surfaces keep the compact chip. */
+  threadStrip?: boolean
 }) {
   const [pending, start] = useTransition()
   // Local optimistic copies of the two block facets that are now editable
@@ -1155,7 +1160,11 @@ export function BlockRow({
         </div>
 
         <div className="ml-auto flex items-center gap-2 shrink-0">
-          <BlockShareButton vendor={vendor} block={block} />
+          {threadStrip ? (
+            <BlockThreadStrip block={block} vendor={vendor} jobId={jobId} />
+          ) : (
+            <BlockShareButton vendor={vendor} block={block} />
+          )}
           {!closed && pendingMembers.length > 0 ? (
             <button
               type="button"
@@ -1230,7 +1239,7 @@ export function BlockRow({
             已回 {totalReturnedUnits}/{totalQty}
           </span>
         ) : null}
-        {!closed ? <VendorStateChip block={block} /> : null}
+        {!closed && !threadStrip ? <VendorStateChip block={block} /> : null}
       </div>
 
       {/* Line 3 — notes. Things-style: borderless, hint when empty. */}

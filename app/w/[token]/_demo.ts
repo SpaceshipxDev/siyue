@@ -91,6 +91,20 @@ export function demoBlocks(): OutsourceBlock[] {
       },
       [{ componentId: 'd3a', name: '装饰圈', qty: 2, material: '黄铜' }],
     ),
+    // 已诺按期 — promise landed on the required date; the success-green row.
+    mk(
+      7,
+      {
+        activity: '外发车',
+        amountCny: 620,
+        sentDate: addDays(t, -2),
+        expectedReturn: addDays(t, 3),
+        vendorSeenAt: iso(t),
+        vendorAckAt: iso(addDays(t, -1)),
+        vendorPromisedDate: addDays(t, 3),
+      },
+      [{ componentId: 'd7a', name: '轴套', qty: 8, material: '45钢' }],
+    ),
     // 已发货 — a receipt line waiting on the factory's 收件.
     mk(
       4,

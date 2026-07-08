@@ -230,4 +230,32 @@ export const styles = StyleSheet.create({
     color: COLOR.overdue,
     fontStyle: 'italic',
   },
+
+  // Vendor-portal onboarding QR — reads like part of the form, plain black.
+  portalBlock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 18,
+    paddingTop: 10,
+    borderTopWidth: 0.5,
+    borderTopColor: COLOR.border,
+  },
+  portalQr: {
+    width: 64,
+    height: 64,
+    marginRight: 10,
+  },
+  portalTextCol: {
+    flexDirection: 'column',
+  },
+  portalHeadline: {
+    fontSize: 9,
+    fontWeight: 600,
+    color: COLOR.ink,
+    marginBottom: 3,
+  },
+  portalUrl: {
+    fontSize: 7,
+    color: COLOR.ink3,
+  },
 })

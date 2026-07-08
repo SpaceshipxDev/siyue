@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import QRCode from 'qrcode'
 import {
   blockLineTotalsSum,
   effectiveMemberLineTotal,
@@ -46,6 +47,21 @@ export default async function OutsourceDocPage(
     info.block.recipientContactName ?? BRAND.receivingContact.name
   const recipientPhone =
     info.block.recipientContactPhone ?? BRAND.receivingContact.phone
+
+  // Vendor-portal onboarding QR. The paper 外协单 travels with the parts to the
+  // vendor; printing their /w/<token> portal link on it onboards them silently
+  // — even if the clerk never sends the WeChat message, the vendor's people see
+  // "scan to reply" on the doc they already handle. Pre-migration vendors have
+  // no token: render nothing (no crash, no placeholder).
+  const portalUrl = vendor?.portalToken
+    ? `https://${BRAND.domain}/w/${vendor.portalToken}`
+    : null
+  const portalQrSvg = portalUrl
+    ? await QRCode.toString(portalUrl, { type: 'svg', margin: 0 })
+    : null
+  const portalUrlShort = vendor?.portalToken
+    ? `${BRAND.domain}/w/${vendor.portalToken.slice(0, 6)}…`
+    : null
 
   return (
     <>
@@ -341,6 +357,24 @@ export default async function OutsourceDocPage(
             </p>
           </div>
         </footer>
+
+        {portalQrSvg && (
+          <div className="mt-8 flex items-center gap-3 border-t border-[var(--color-border)] pt-3">
+            <div
+              className="shrink-0 h-[90px] w-[90px] [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+              dangerouslySetInnerHTML={{ __html: portalQrSvg }}
+            />
+            <div className="flex flex-col gap-1">
+              <p className="text-[11px] font-semibold text-[var(--color-ink)]">
+                扫码回交期 · 报发货 · 对账
+              </p>
+              <p className="mono text-[9px] text-[var(--color-ink-3)]">
+                {portalUrlShort}
+                <span className="ml-1.5">免登录</span>
+              </p>
+            </div>
+          </div>
+        )}
 
         <p className="mt-8 flex items-baseline gap-1.5 text-[11px]">
           <span className="tracking-[0.1em] text-[var(--color-ink-3)]">{BRAND.software}</span>

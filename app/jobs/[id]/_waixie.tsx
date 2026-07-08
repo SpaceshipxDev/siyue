@@ -19,7 +19,6 @@ import { mutate } from '@/lib/mutate'
 import { today } from '@/lib/today'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { withBase } from '@/lib/base-path'
-import { BRAND } from '@/lib/brand'
 import { DatePop } from '@/app/_datepop'
 import { showToast } from '@/app/_toast'
 import { AddMembersRow, BlockKebab, BlockStagesEditor } from '@/app/_routing'
@@ -31,20 +30,21 @@ import {
   OutsourceBlockDate,
   OutsourceBlockNotes,
 } from '@/app/_editable'
-import { BlockShareButton } from '@/app/_vendor_share'
+import { BlockThreadStrip, SharePanel } from '@/app/_vendor_share'
 import { SearchSelect } from '@/app/_search_select'
 
-// 外协 tab — two ledgers, one sheet.
+// 外协 tab — one ledger.
 //
-// Top: 外协单. Each dispatch is a group — a header line (单号 · 厂商 · 做什么 ·
-// 工序 · 寄/回 · ¥ · 厂商回话 · 微信/⋯) over its part rows, exactly like a
-// merged group row in Excel. Every field on the header edits in place; 收
-// happens on the part row (or 全收 on the header) and refreshes the page data
-// immediately.
+// Top: 送新单 — a draft block. At rest it's a single quiet ＋ row; opened it
+// takes the exact shape of the block it will become (a create-bar header over
+// the pick table). 送出 → the SharePanel modal takes over, because sending the
+// vendor their link IS the point of the flow.
 //
-// Bottom: 送新单. One row per part with a checkbox — tick → fill one line
-// (做什么 · 厂商 · 回厂 · ¥) → 送出 → the WeChat handoff banner takes over,
-// because sending the vendor their link IS the point of the flow.
+// Below: 外协单. Each dispatch is a group — a header line (厂商 · 做什么 · 单号 ·
+// 工序 · 寄/交期 · ¥) with the whole vendor thread as one BlockThreadStrip,
+// over its part rows, exactly like a merged group row in Excel. Every field on
+// the header edits in place; 收 happens on the part row (state text at rest,
+// panel on click) or 全收 on the header, refreshing the page immediately.
 
 export type WaixieComponent = {
   id: string
@@ -84,13 +84,6 @@ function mdShort(ymd?: string): string {
   const p = ymd.split('-')
   if (p.length < 3) return ymd
   return `${p[1]}-${p[2]}`
-}
-
-function mdCn(ymd?: string): string {
-  if (!ymd) return ''
-  const p = ymd.split('-')
-  if (p.length < 3) return ymd
-  return `${Number(p[1])}月${Number(p[2])}日`
 }
 
 function activityDisplay(a?: string): string {
@@ -174,6 +167,7 @@ export function WaixieTable({
   vendors: Vendor[]
 }) {
   const router = useRouter()
+  const [drafting, setDrafting] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [qtys, setQtys] = useState<Record<string, string>>({})
   const [prices, setPrices] = useState<Record<string, string>>({})
@@ -241,6 +235,7 @@ export function WaixieTable({
     })
 
   const clearBar = () => {
+    setDrafting(false)
     setSelected(new Set())
     setQtys({})
     setPrices({})
@@ -344,62 +339,177 @@ export function WaixieTable({
     })
   }
 
-  const copyWeChat = async () => {
-    if (!sent) return
-    const lines = [
-      `【${BRAND.shortName} · 外协】${activityDisplay(sent.activity)} ${sent.totalQty}件 · 要求 ${mdCn(sent.expectedReturn)} 交`,
-      ...(sent.portalToken
-        ? [
-            '点开回交期、报发货（免登录，链接固定可收藏）：',
-            `${window.location.origin}${withBase(`/w/${sent.portalToken}`)}`,
-          ]
-        : []),
-    ]
-    try {
-      await navigator.clipboard.writeText(lines.join('\n'))
-      showToast('已复制 · 去微信粘贴给厂商')
-    } catch {
-      showToast('复制失败', 'warning')
-    }
-  }
-
   return (
     <div>
-      {/* Post-送出 handoff — the loudest thing on the tab, on purpose. */}
+      {/* Post-送出 handoff — the WeChat share panel, the point of the flow. */}
       {sent ? (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-[2px] border border-[var(--color-success)]/30 bg-[var(--color-success-soft)] px-4 py-3">
-          <span className="text-[14px] font-medium text-[var(--color-success)]">
-            ✓ 外协单已生成 · {sent.vendorName} · {sent.totalQty}件
-            {sent.docNo ? <span className="mono ml-2 text-[12px]">{sent.docNo}</span> : null}
-          </span>
-          <button
-            type="button"
-            onClick={copyWeChat}
-            className="min-h-[38px] rounded-[2px] bg-[var(--color-ink)] px-4 text-[14px] font-medium text-[var(--color-surface)] active:opacity-70"
-          >
-            复制微信消息 → 发给{sent.vendorName}
-          </button>
-          <a
-            href={withBase(`/print/outsource/${sent.blockId}`)}
-            target="_blank"
-            className="text-[13px] text-[var(--color-ink-2)] underline underline-offset-4"
-          >
-            打印外协单
-          </a>
-          <button
-            type="button"
-            onClick={() => setSent(null)}
-            className="ml-auto text-[13px] text-[var(--color-ink-3)]"
-            aria-label="关闭"
-          >
-            ×
-          </button>
-        </div>
+        <SharePanel
+          vendorName={sent.vendorName}
+          token={sent.portalToken}
+          activityLabel={activityDisplay(sent.activity)}
+          totalQty={sent.totalQty}
+          expectedReturn={sent.expectedReturn}
+          docNo={sent.docNo}
+          blockId={sent.blockId}
+          jobId={jobId}
+          printHref={withBase(`/print/outsource/${sent.blockId}`)}
+          onClose={() => setSent(null)}
+        />
       ) : null}
+
+      {/* ===== 送新单 — a draft block at the top of the same ledger. Collapsed
+          it's one quiet ＋ row; opened it takes the shape of the block it will
+          become: a create-bar header over the pick table. ===== */}
+      {drafting ? (
+        <div className="mb-8 rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-surface)]">
+          {/* Draft header — same shape as a real 单 header. */}
+          <div className="border-b border-[var(--color-border)] bg-[var(--color-bg)] px-4 py-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <span className="text-[14px] font-semibold">
+                外协 {selected.size} 件 →
+              </span>
+              <label className="flex items-center gap-1.5 text-[13px]">
+                <span className="text-[var(--color-ink-3)]">做什么</span>
+                <SearchSelect
+                  options={OUTSOURCE_ACTIVITIES.map((a) => ({
+                    id: a,
+                    label: activityDisplay(a),
+                  }))}
+                  value={activity}
+                  onChange={(id) => setActivity(id as OutsourceActivity)}
+                  placeholder="选择…"
+                  searchPlaceholder="搜索工序…"
+                  disabled={pending}
+                  triggerClass="w-[120px]"
+                />
+              </label>
+              <label className="flex items-center gap-1.5 text-[13px]">
+                <span className="text-[var(--color-ink-3)]">厂商</span>
+                <SearchSelect
+                  options={vendorsSorted.map((v) => ({ id: v.id, label: v.name }))}
+                  value={creatingVendor ? '' : vendorId}
+                  onChange={(id) => {
+                    setVendorId(id)
+                    setNewVendorName('')
+                  }}
+                  placeholder="选择…"
+                  searchPlaceholder={`搜索 ${vendorsSorted.length} 家厂商…`}
+                  createLabel="新增厂商"
+                  onCreate={(name) => {
+                    setVendorId('__new__')
+                    setNewVendorName(name)
+                  }}
+                  disabled={pending}
+                  triggerClass="w-[160px]"
+                  triggerLabel={
+                    creatingVendor && newVendorName
+                      ? `${newVendorName} · 新`
+                      : undefined
+                  }
+                />
+              </label>
+              <label className="flex items-center gap-1.5 text-[13px]">
+                <span className="text-[var(--color-ink-3)]">交期</span>
+                <DatePop
+                  value={expectedReturn}
+                  onChange={setExpectedReturn}
+                  formatLabel={(iso) => mdShort(iso)}
+                  placeholder="选日期"
+                  disabled={pending}
+                />
+              </label>
+              <label className="flex items-center gap-1 text-[13px]">
+                <span className="text-[var(--color-ink-3)]">总价¥</span>
+                <input
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="可留空"
+                  inputMode="decimal"
+                  disabled={pending}
+                  className="mono min-h-[34px] w-[80px] rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-right text-[13px]"
+                />
+              </label>
+              <button
+                type="button"
+                disabled={!canSend || pending}
+                onClick={() => submit(false)}
+                className="min-h-[38px] rounded-[2px] bg-[var(--color-ink)] px-5 text-[14px] font-medium text-[var(--color-surface)] active:opacity-70 disabled:opacity-30"
+              >
+                送出 ➤
+              </button>
+              <button
+                type="button"
+                onClick={clearBar}
+                disabled={pending}
+                className="text-[13px] text-[var(--color-ink-3)]"
+              >
+                取消
+              </button>
+            </div>
+            {overlap ? (
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-[13px] text-[var(--color-warning)]">
+                <span>{overlap}</span>
+                <button
+                  type="button"
+                  onClick={() => submit(true)}
+                  disabled={pending}
+                  className="rounded-[2px] border border-[var(--color-warning)] px-3 py-1 text-[13px] active:opacity-70"
+                >
+                  仍要送出
+                </button>
+              </div>
+            ) : null}
+            {error ? (
+              <p className="mt-2 text-[13px] text-[var(--color-overdue)]">{error}</p>
+            ) : null}
+          </div>
+
+          {/* Draft body — the pick table. */}
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-[var(--color-border)]">
+                  <th className={`${th} w-[36px]`}></th>
+                  <th className={`${th} w-[56px]`}>图</th>
+                  <th className={th}>零件</th>
+                  <th className={`${th} text-right`}>数</th>
+                  <th className={`${th} text-right`}>单价</th>
+                  <th className={th}>外协状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(({ c, state }) => (
+                  <PickRow
+                    key={c.id}
+                    c={c}
+                    state={state}
+                    vendors={vendors}
+                    ticked={selected.has(c.id)}
+                    onTick={() => toggle(c.id)}
+                    qty={qtys[c.id] ?? ''}
+                    setQty={(v) => setQtys((p) => ({ ...p, [c.id]: v }))}
+                    price={prices[c.id] ?? ''}
+                    setPrice={(v) => setPrices((p) => ({ ...p, [c.id]: v }))}
+                    pending={pending}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setDrafting(true)}
+          className="mb-8 flex w-full items-center rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 text-left text-[13px] text-[var(--color-ink-2)] transition-colors hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]"
+        >
+          <span className="mr-2 text-[15px] leading-none">＋</span>送新单
+        </button>
+      )}
 
       {/* ===== 外协单 — one group per dispatch. ===== */}
       {blocks.length > 0 ? (
-        <div className="mb-8 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <div className="overflow-x-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
           <table className="w-full border-collapse">
             <thead>
               <tr className="border-b border-[var(--color-border)]">
@@ -407,11 +517,7 @@ export function WaixieTable({
                 <th className={th}>零件</th>
                 <th className={`${th} w-[60px] text-right`}>数</th>
                 <th className={`${th} w-[72px] text-right`}>单价</th>
-                <th className={`${thStatus} w-[64px]`}>已读</th>
-                <th className={`${thStatus} w-[84px]`} title="厂商回的交期">
-                  厂商诺期
-                </th>
-                <th className={`${thStatus} w-[64px]`}>已发货</th>
+                <th className={`${thStatus} w-[288px] pr-3 text-right`}>外协进度</th>
                 <th className={`${thStatus} w-[104px]`}>收</th>
               </tr>
             </thead>
@@ -429,151 +535,6 @@ export function WaixieTable({
           </table>
         </div>
       ) : null}
-
-      {/* ===== 送新单 — tick parts, fill one line, 送出. ===== */}
-      <div className="mb-2 flex items-baseline justify-between">
-        <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-[var(--color-ink-3)]">
-          送新单
-        </p>
-        <p className="text-[12px] text-[var(--color-ink-4)]">
-          勾选零件 → 填一行 → 送出
-        </p>
-      </div>
-
-      {selected.size > 0 ? (
-        <div className="mb-3 rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-surface)] px-4 py-3">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <span className="text-[14px] font-semibold">
-              外协 {selected.size} 件 →
-            </span>
-            <label className="flex items-center gap-1.5 text-[13px]">
-              <span className="text-[var(--color-ink-3)]">做什么</span>
-              <SearchSelect
-                options={OUTSOURCE_ACTIVITIES.map((a) => ({
-                  id: a,
-                  label: activityDisplay(a),
-                }))}
-                value={activity}
-                onChange={(id) => setActivity(id as OutsourceActivity)}
-                placeholder="选择…"
-                searchPlaceholder="搜索工序…"
-                disabled={pending}
-                triggerClass="w-[120px]"
-              />
-            </label>
-            <label className="flex items-center gap-1.5 text-[13px]">
-              <span className="text-[var(--color-ink-3)]">厂商</span>
-              <SearchSelect
-                options={vendorsSorted.map((v) => ({ id: v.id, label: v.name }))}
-                value={creatingVendor ? '' : vendorId}
-                onChange={(id) => {
-                  setVendorId(id)
-                  setNewVendorName('')
-                }}
-                placeholder="选择…"
-                searchPlaceholder={`搜索 ${vendorsSorted.length} 家厂商…`}
-                createLabel="新增厂商"
-                onCreate={(name) => {
-                  setVendorId('__new__')
-                  setNewVendorName(name)
-                }}
-                disabled={pending}
-                triggerClass="w-[160px]"
-                triggerLabel={
-                  creatingVendor && newVendorName
-                    ? `${newVendorName} · 新`
-                    : undefined
-                }
-              />
-            </label>
-            <label className="flex items-center gap-1.5 text-[13px]">
-              <span className="text-[var(--color-ink-3)]">交期</span>
-              <DatePop
-                value={expectedReturn}
-                onChange={setExpectedReturn}
-                formatLabel={(iso) => mdShort(iso)}
-                placeholder="选日期"
-                disabled={pending}
-              />
-            </label>
-            <label className="flex items-center gap-1 text-[13px]">
-              <span className="text-[var(--color-ink-3)]">总价¥</span>
-              <input
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="可留空"
-                inputMode="decimal"
-                disabled={pending}
-                className="mono min-h-[34px] w-[80px] rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-right text-[13px]"
-              />
-            </label>
-            <button
-              type="button"
-              disabled={!canSend || pending}
-              onClick={() => submit(false)}
-              className="min-h-[38px] rounded-[2px] bg-[var(--color-ink)] px-5 text-[14px] font-medium text-[var(--color-surface)] active:opacity-70 disabled:opacity-30"
-            >
-              送出 ➤
-            </button>
-            <button
-              type="button"
-              onClick={clearBar}
-              disabled={pending}
-              className="text-[13px] text-[var(--color-ink-3)]"
-            >
-              取消
-            </button>
-          </div>
-          {overlap ? (
-            <div className="mt-2 flex flex-wrap items-center gap-3 text-[13px] text-[var(--color-warning)]">
-              <span>{overlap}</span>
-              <button
-                type="button"
-                onClick={() => submit(true)}
-                disabled={pending}
-                className="rounded-[2px] border border-[var(--color-warning)] px-3 py-1 text-[13px] active:opacity-70"
-              >
-                仍要送出
-              </button>
-            </div>
-          ) : null}
-          {error ? (
-            <p className="mt-2 text-[13px] text-[var(--color-overdue)]">{error}</p>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="overflow-x-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="border-b border-[var(--color-border)]">
-              <th className={`${th} w-[36px]`}></th>
-              <th className={`${th} w-[56px]`}>图</th>
-              <th className={th}>零件</th>
-              <th className={`${th} text-right`}>数</th>
-              <th className={`${th} text-right`}>单价</th>
-              <th className={th}>外协状态</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(({ c, state }) => (
-              <PickRow
-                key={c.id}
-                c={c}
-                state={state}
-                vendors={vendors}
-                ticked={selected.has(c.id)}
-                onTick={() => toggle(c.id)}
-                qty={qtys[c.id] ?? ''}
-                setQty={(v) => setQtys((p) => ({ ...p, [c.id]: v }))}
-                price={prices[c.id] ?? ''}
-                setPrice={(v) => setPrices((p) => ({ ...p, [c.id]: v }))}
-                pending={pending}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
   )
 }
@@ -630,9 +591,6 @@ function BlockGroup({
     .filter((c) => !block.members.some((m) => m.componentId === c.id))
     .map((c) => ({ id: c.id, name: c.name, qty: c.qty }))
 
-  const promise = block.vendorPromisedDate
-  const promiseLate = !!promise && promise > block.expectedReturn
-  const promiseLateDays = promiseLate ? dayDiff(promise!, block.expectedReturn) : 0
   const qtySum = block.members.reduce((s, m) => s + m.qty, 0)
   const returnedSum = block.members.reduce((s, m) => s + memberReturnedQty(m), 0)
 
@@ -729,65 +687,16 @@ function BlockGroup({
               </div>
             </div>
             <span className="flex shrink-0 items-center gap-2">
-              <BlockShareButton vendor={vendor} block={block} />
               <BlockKebab blockId={block.id} pending={busy} onDelete={del} />
             </span>
           </div>
         </td>
 
-        {/* 已读 — did the vendor even open the link. */}
-        <td className={tdStatus}>
-          {block.vendorSeenAt ? (
-            <CellDone date={tsShort(block.vendorSeenAt)} />
-          ) : (
-            <CellDim hint="厂商还没点开链接" />
-          )}
-        </td>
-
-        {/* 厂商诺期 — the date they committed to; amber when later than 交期. */}
-        <td
-          className={`${tdStatus} ${
-            promiseLate && !closed ? 'bg-[var(--color-warning-soft)]' : ''
-          }`}
-        >
-          {promise ? (
-            <span
-              className={statusInner}
-              title={
-                promiseLate
-                  ? `比要求晚${promiseLateDays}天${block.vendorDelayReason ? ` · ${block.vendorDelayReason}` : ''}`
-                  : '厂商诺按期交'
-              }
-            >
-              <span
-                className={`mono text-[12px] font-semibold ${
-                  promiseLate ? 'text-[var(--color-warning)]' : 'text-[var(--color-success)]'
-                }`}
-              >
-                {mdShort(promise)}
-              </span>
-              <span
-                className={`text-[10px] ${
-                  promiseLate ? 'text-[var(--color-warning)]' : 'text-[var(--color-success)]'
-                }`}
-              >
-                {promiseLate
-                  ? (block.vendorDelayReason ?? `晚${promiseLateDays}天`)
-                  : '按期'}
-              </span>
-            </span>
-          ) : (
-            <CellDim hint="厂商还没回交期" />
-          )}
-        </td>
-
-        {/* 已发货 — vendor says the goods are on the way back. */}
-        <td className={tdStatus}>
-          {block.vendorShippedAt ? (
-            <CellDone date={tsShort(block.vendorShippedAt)} />
-          ) : (
-            <CellDim hint="厂商还没报发货" />
-          )}
+        {/* 外协进度 — the whole vendor thread in one strip (寄出→微信→已读→
+            诺期→发货→收), right-aligned. The amber 微信 cell is the growth
+            loop's tappable weak link. */}
+        <td className="border-l border-[var(--color-border)] px-2 py-2 text-right align-middle">
+          <BlockThreadStrip block={block} vendor={vendor} jobId={jobId} />
         </td>
 
         {/* 收 — the factory's own cell; 全收 acts right here. */}
@@ -826,7 +735,7 @@ function BlockGroup({
 
       {/* 备注 + 加零件 — one quiet line under the parts. */}
       <tr>
-        <td colSpan={8} className="pb-2.5 pl-[68px] pr-3">
+        <td colSpan={6} className="pb-2.5 pl-[68px] pr-3">
           <div className="flex items-start gap-4">
             <OutsourceBlockNotes
               blockId={block.id}
@@ -940,20 +849,22 @@ function MemberRow({
           className="mono w-[60px] text-right text-[13px]"
         />
       </td>
-      {/* 已读/诺期/发货 are 单-level — parts only carry their own 收 cell. */}
-      <td colSpan={3} className={tdStatus} />
+      {/* 外协进度 strip is 单-level — parts only carry their own 收 cell. */}
+      <td className={tdStatus} />
       <td className={tdStatus}>
-        <span className={`${statusInner} px-1`}>
-          {done ? (
-            <>
-              <span className="text-[15px] font-semibold leading-none text-[var(--color-success)]">
-                ✓
-              </span>
-              <span className="mono text-[10px] text-[var(--color-ink-3)]">
-                {mdShort(m.returnedAt)}
-              </span>
-            </>
-          ) : receiving ? (
+        {done ? (
+          <span className={`${statusInner} px-1`}>
+            <span className="text-[15px] font-semibold leading-none text-[var(--color-success)]">
+              ✓
+            </span>
+            <span className="mono text-[10px] text-[var(--color-ink-3)]">
+              {mdShort(m.returnedAt)}
+            </span>
+          </span>
+        ) : receiving ? (
+          // Opened panel — the ONLY place buttons live. Receive qty/date, then
+          // the 撤掉此零件 action tucked below so the resting row stays clean.
+          <span className={`${statusInner} gap-1.5 px-1`}>
             <span className="inline-flex items-center gap-1.5">
               <input
                 value={rQty}
@@ -980,56 +891,58 @@ function MemberRow({
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => setReceiving(false)}
+                onClick={() => {
+                  setReceiving(false)
+                  setArmed(false)
+                }}
                 className="px-1 text-[12px] text-[var(--color-ink-3)]"
               >
                 ×
               </button>
             </span>
-          ) : (
-            <>
-              <span className="inline-flex items-center gap-1">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    setRQty(String(remaining))
-                    setRDate(today())
-                    setReceiving(true)
-                  }}
-                  className="rounded-[2px] border border-[var(--color-border-strong)] px-2.5 py-1 text-[12px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] disabled:opacity-40"
-                >
-                  收
-                </button>
-                {armed ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={removeMember}
-                    className="text-[11px] font-medium text-[var(--color-overdue)]"
-                  >
-                    确认撤掉？
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setArmed(true)}
-                    title="把这个零件从外协单撤掉"
-                    className="px-1 text-[13px] leading-none text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
-                  >
-                    ×
-                  </button>
-                )}
+            {armed ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={removeMember}
+                className="text-[11px] font-medium text-[var(--color-overdue)]"
+              >
+                确认撤掉此零件？
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setArmed(true)}
+                title="把这个零件从外协单撤掉"
+                className="text-[11px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+              >
+                撤掉此零件
+              </button>
+            )}
+          </span>
+        ) : (
+          // At rest — state text only, no buttons. Click to open the panel.
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setRQty(String(remaining))
+              setRDate(today())
+              setArmed(false)
+              setReceiving(true)
+            }}
+            className={`${statusInner} px-1 transition-colors hover:bg-[var(--color-success-soft)] disabled:opacity-40`}
+          >
+            {returned > 0 ? (
+              <span className="mono text-[12px] font-medium text-[var(--color-warning)]">
+                已收 {returned}/{m.qty}
               </span>
-              {returned > 0 ? (
-                <span className="mono text-[10px] text-[var(--color-warning)]">
-                  已收{returned}/{m.qty}
-                </span>
-              ) : null}
-            </>
-          )}
-        </span>
+            ) : (
+              <span className="mono text-[13px] text-[var(--color-ink-4)]">—</span>
+            )}
+          </button>
+        )}
       </td>
     </tr>
   )

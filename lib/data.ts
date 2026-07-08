@@ -244,6 +244,9 @@ export type OutsourceBlock = {
   vendorPromisedDate?: string
   vendorDelayReason?: string
   vendorShippedAt?: string
+  // When the 外协员 copied the WeChat message for this dispatch (migration
+  // 0077). Undefined = vendor was never told — surfaces as 待发微信.
+  wechatSentAt?: string
   members: OutsourceBlockMember[]
 }
 

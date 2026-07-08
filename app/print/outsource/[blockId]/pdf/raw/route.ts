@@ -1,7 +1,10 @@
 import { notFound } from 'next/navigation'
 import { renderToBuffer } from '@react-pdf/renderer'
+import QRCode from 'qrcode'
 import { requireOutsourceManager } from '@/lib/auth'
 import { ensureOutsourceDocNo, getOutsourceBlock, getVendors } from '@/lib/db'
+import { vendorById } from '@/lib/data'
+import { BRAND } from '@/lib/brand'
 import { contentDisposition } from '@/lib/content-disposition'
 import { fetchImages } from '@/lib/pdf/images'
 import { OutsourceDocPDF } from '@/lib/pdf/outsource'
@@ -29,6 +32,20 @@ export async function GET(
 
   const images = await fetchImages(info.block.members.map((m) => m.imageUrl))
 
+  // Vendor-portal onboarding QR (same silent-onboarding rationale as the HTML
+  // doc). Pre-migration vendors have no token → no QR at all.
+  const vendor = vendorById(info.block.vendorId, vendors)
+  const portalToken = vendor?.portalToken
+  const portalQrDataUrl = portalToken
+    ? await QRCode.toDataURL(`https://${BRAND.domain}/w/${portalToken}`, {
+        margin: 0,
+        width: 256,
+      })
+    : null
+  const portalUrlShort = portalToken
+    ? `${BRAND.domain}/w/${portalToken.slice(0, 6)}…`
+    : null
+
   const pdf = await renderToBuffer(
     OutsourceDocPDF({
       block: info.block,
@@ -37,6 +54,8 @@ export async function GET(
       docNo,
       createdAt,
       images,
+      portalQrDataUrl,
+      portalUrlShort,
     }),
   )
 

@@ -201,6 +201,8 @@ type OutsourceBlockRow = {
   vendorPromisedDate?: string
   vendorDelayReason?: string
   vendorShippedAt?: string
+  // 0077: stamped when the WeChat share message is copied for this block.
+  wechatSentAt?: string
 }
 
 type OutsourceBlockPartRow = {
@@ -666,6 +668,7 @@ function fromBlock(r: AnyRow): OutsourceBlockRow {
     vendorPromisedDate: (r.vendor_promised_date as string | null) ?? undefined,
     vendorDelayReason: (r.vendor_delay_reason as string | null) ?? undefined,
     vendorShippedAt: (r.vendor_shipped_at as string | null) ?? undefined,
+    wechatSentAt: (r.wechat_sent_at as string | null) ?? undefined,
   }
 }
 
@@ -1917,6 +1920,7 @@ export async function getOutsourceBlockRows(): Promise<
         vendorPromisedDate: (b.vendor_promised_date as string | null) ?? undefined,
         vendorDelayReason: (b.vendor_delay_reason as string | null) ?? undefined,
         vendorShippedAt: (b.vendor_shipped_at as string | null) ?? undefined,
+        wechatSentAt: (b.wechat_sent_at as string | null) ?? undefined,
         members,
       },
     })
@@ -5965,6 +5969,20 @@ export async function stampVendorBlocksSeen(
       .eq('vendor_id', vendorId)
       .in('id', blockIds.slice(i, i + CHUNK))
     if (error) throw error
+  }
+}
+
+// Stamp "the 外协员 copied the WeChat message for this dispatch" (0077).
+// Best-effort: on a pre-migration DB the column is missing — swallow the
+// error so the copy itself (the thing she actually cares about) never fails.
+export async function stampBlockWechatSent(blockId: string): Promise<void> {
+  try {
+    await supabase
+      .from('outsource_blocks')
+      .update({ wechat_sent_at: new Date().toISOString() })
+      .eq('id', blockId)
+  } catch {
+    // pre-0077 DB — the 待发微信 cell just stays derived from vendor_seen_at
   }
 }
 

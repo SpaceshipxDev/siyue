@@ -330,6 +330,12 @@ function VendorGroup({
   vendors: Vendor[]
   q: string
 }) {
+  // Open blocks this vendor hasn't been told about on WeChat yet — the
+  // growth loop's weak link, surfaced as a header count so the operator
+  // knows to work down the 待发 cells in the rows below.
+  const pendingWechat = group.rows.filter(
+    (r) => !isBlockClosed(r.block) && !r.block.wechatSentAt && !r.block.vendorSeenAt,
+  ).length
   return (
     <section>
       <div className="mb-3 flex items-baseline justify-between border-b border-[var(--color-border)] pb-2">
@@ -356,6 +362,17 @@ function VendorGroup({
           {group.overdue > 0 ? (
             <Pill tone="overdue" label="逾期" value={group.overdue} />
           ) : null}
+          {pendingWechat > 0 ? (
+            <span
+              title={`${pendingWechat} 单还没微信告诉厂商 — 点行里的 待发`}
+              className="inline-flex items-baseline gap-1.5 rounded-[2px] border border-[var(--color-warning)] bg-[var(--color-warning-soft)] px-2.5 py-[3px] text-[10px] uppercase tracking-[0.14em] text-[var(--color-warning)]"
+            >
+              <span>待发微信</span>
+              <span className="mono text-[12px] font-medium tracking-normal">
+                {pendingWechat}
+              </span>
+            </span>
+          ) : null}
           <Pill tone="info" label="件数" value={group.rows.length} />
           <Pill tone="info" label="金额" value={formatCny(group.total)} />
         </div>
@@ -370,6 +387,7 @@ function VendorGroup({
             block={r.block}
             vendor={group.vendor}
             vendors={vendors}
+            threadStrip
           />
         ))}
       </div>

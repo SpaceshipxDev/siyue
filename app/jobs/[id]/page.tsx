@@ -1015,14 +1015,16 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
 
           {canManageOutsource(user) && (
             <div data-jobtab="waixie" hidden>
-              <div className="mb-6 max-w-md">
-                <OutsourceFlag
-                  jobId={job.id}
-                  state={jobOutsourceState(job)}
-                  initialNeeds={Boolean(job.needsOutsource)}
-                  initialNote={job.outsourceNote}
-                />
-              </div>
+              {blockRows.length === 0 && (
+                <div className="mb-6 max-w-md">
+                  <OutsourceFlag
+                    jobId={job.id}
+                    state={jobOutsourceState(job)}
+                    initialNeeds={Boolean(job.needsOutsource)}
+                    initialNote={job.outsourceNote}
+                  />
+                </div>
+              )}
               <section className="mt-8">
                 <div className="mb-3 flex items-baseline justify-between">
                   <h3 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">

@@ -66,6 +66,7 @@ import {
   updateJob,
   setJobStagePlan,
   updateOutsourceBlock,
+  stampBlockWechatSent,
   updateShipmentFinance,
   updateVendor,
   upsertCustomerByName,
@@ -1304,6 +1305,17 @@ async function dispatch(
       await updateOutsourceBlock(blockId, patch as BlockPatch)
       revalidateExternal(jobId as string | undefined)
       revalidatePath(`/print/outsource/${blockId}`)
+      return Response.json(ok())
+    }
+
+    case 'setBlockWechatSent': {
+      const blockId = body.blockId
+      const jobId = body.jobId
+      if (!isString(blockId)) return err('bad setBlockWechatSent args')
+      if (jobId !== undefined && !isString(jobId)) return err('bad jobId')
+      await requireOutsourceManager()
+      await stampBlockWechatSent(blockId)
+      revalidateExternal(jobId as string | undefined)
       return Response.json(ok())
     }
 

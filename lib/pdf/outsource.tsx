@@ -40,6 +40,8 @@ export function OutsourceDocPDF({
   docNo,
   createdAt,
   images,
+  portalQrDataUrl,
+  portalUrlShort,
 }: {
   block: OutsourceBlock
   jobNo: string
@@ -47,6 +49,8 @@ export function OutsourceDocPDF({
   docNo: string
   createdAt: string
   images: Map<string, ImageSource>
+  portalQrDataUrl?: string | null
+  portalUrlShort?: string | null
 }) {
   const vendor = vendorById(block.vendorId, vendors)
   const recipientAddress = block.recipientAddress ?? BRAND.address
@@ -227,6 +231,19 @@ export function OutsourceDocPDF({
             <Text style={styles.signatureLine}>{vendor?.name ?? '外协厂'}</Text>
           </View>
         </View>
+
+        {portalQrDataUrl ? (
+          <View style={styles.portalBlock} wrap={false}>
+            {/* eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image, no alt prop */}
+            <Image style={styles.portalQr} src={portalQrDataUrl} />
+            <View style={styles.portalTextCol}>
+              <Text style={styles.portalHeadline}>扫码回交期 · 报发货 · 对账</Text>
+              <Text style={styles.portalUrl}>
+                {portalUrlShort ?? ''} 免登录
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         <DocFooter />
       </Page>
