@@ -33,6 +33,7 @@ import {
   finishStage,
   getCachedMutationResponse,
   getJob,
+  getMasterRowsByIds,
   recordMutationResponse,
   markJobAsDraft,
   prepareShipping,
@@ -115,6 +116,7 @@ import {
   type AuthUser,
 } from '@/lib/auth'
 import type { JobType, PlanKey, Stage, Verdict } from '@/lib/data'
+import { rowStageCounts } from '@/lib/master'
 import { isCaiwuSheet, JOB_TYPES, STAGES, VERDICTS } from '@/lib/data'
 import { isExpenseCategory } from '@/lib/expenses'
 import { isDimRow, type InspectionReportPatch } from '@/lib/inspection-report'
@@ -152,6 +154,25 @@ function ok<T>(data?: T): Ok<T> {
 
 function err(message: string, status = 400): Response {
   return Response.json({ ok: false, error: message } satisfies Err, { status })
+}
+
+// Post-write read-back for the job-level stage actions. The write has already
+// committed by the time this runs, so a read failure must NOT fail the
+// request — return undefined and the client synthesizes the transition
+// optimistically instead.
+async function freshStageCounts(
+  jobId: string,
+  stage: Stage,
+): Promise<
+  { counts: { inProgress: number; pending: number; done: number } } | undefined
+> {
+  try {
+    const [row] = await getMasterRowsByIds([jobId])
+    if (!row) return undefined
+    return { counts: rowStageCounts(row, stage) }
+  } catch {
+    return undefined
+  }
 }
 
 // In-memory idempotency cache. Clients (lib/mutate.ts) attach a UUID
@@ -878,6 +899,11 @@ async function dispatch(
     }
 
     // === Job-level stage actions (entire job at once) ===
+    // Each returns the job's fresh {inProgress, pending, done} for the acted
+    // stage. The master board fetches its rows ONCE per navigation (see
+    // _master_loaders.tsx) — without this echo the cell's finish-vs-start
+    // decision keeps reading the mount-time counts, so ▶ then ⏸ in the same
+    // session re-issued startJobStage forever instead of finishing.
     case 'startJobStage': {
       const jobId = body.jobId
       const stage = body.stage
@@ -886,7 +912,7 @@ async function dispatch(
       const u = await requireOwnStage(stage)
       await startJobStage(jobId, stage, u.name)
       revalidateStage(jobId, stage)
-      return Response.json(ok())
+      return Response.json(ok(await freshStageCounts(jobId, stage)))
     }
 
     case 'finishJobStage': {
@@ -897,7 +923,7 @@ async function dispatch(
       const u = await requireOwnStage(stage)
       await finishJobStage(jobId, stage, u.name)
       revalidateStage(jobId, stage)
-      return Response.json(ok())
+      return Response.json(ok(await freshStageCounts(jobId, stage)))
     }
 
     case 'undoJobStage': {
@@ -908,7 +934,7 @@ async function dispatch(
       await requireOwnStage(stage)
       await undoJobStage(jobId, stage)
       revalidateStage(jobId, stage)
-      return Response.json(ok())
+      return Response.json(ok(await freshStageCounts(jobId, stage)))
     }
 
     case 'assignToStage': {

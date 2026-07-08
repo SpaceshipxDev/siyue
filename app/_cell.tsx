@@ -251,6 +251,8 @@ export function StageCellButton({
 
 type RowStatus = 'pending' | 'in_progress' | 'done'
 
+type StageCounts = { inProgress: number; pending: number; done: number }
+
 export function JobStageActionButton({
   jobId,
   stage,
@@ -283,33 +285,52 @@ export function JobStageActionButton({
   const [transition, start] = useTransition()
   const [optimistic, setOptimistic] = useState<RowStatus | null>(null)
   const [error, setError] = useState(false)
-  const total = inProgress + pendingCount + done
+  // Fresh counts echoed by /api/mutate after each job-stage write. The master
+  // board fetches its rows ONCE per navigation (_master_loaders.tsx), so the
+  // count props go stale the moment we write. Before this echo existed, the
+  // in_progress branch below kept reading the mount-time `inProgress: 0` and
+  // decided ▶-then-⏸ should START again instead of finish — the second tap
+  // silently re-issued startJobStage forever until a full page reload.
+  const [live, setLive] = useState<StageCounts | null>(null)
+
+  // Server pushed genuinely new props (fresh fetch / remount) — drop the
+  // local echo, props are newer. Render-time clear via a prev-prop sentinel,
+  // same pattern as StageCellButton above.
+  const propsKey = `${inProgress}|${pendingCount}|${done}`
+  const [seenPropsKey, setSeenPropsKey] = useState(propsKey)
+  if (seenPropsKey !== propsKey) {
+    setSeenPropsKey(propsKey)
+    setLive(null)
+    setOptimistic(null)
+  }
+
+  const counts = live ?? { inProgress, pending: pendingCount, done }
+  const total = counts.inProgress + counts.pending + counts.done
   // A job counts as "started" the moment ANY of its parts is in-flight or
   // already done at this stage — so a 1-done / 4-pending row shows yellow
   // "in_progress" on the workbench rather than reading as untouched.
-  const allDone = pendingCount === 0 && inProgress === 0 && done > 0
-  const nothingStarted = inProgress === 0 && done === 0
+  const allDone = counts.pending === 0 && counts.inProgress === 0 && counts.done > 0
+  const nothingStarted = counts.inProgress === 0 && counts.done === 0
   const aggregate: RowStatus = allDone ? 'done' : nothingStarted ? 'pending' : 'in_progress'
   const display = optimistic ?? aggregate
 
-  // Hold optimistic until the aggregate computed from server-pushed counts
-  // matches it. Clearing earlier produces a one-frame flicker back to the
-  // pre-click state on slow networks (Supabase round-trip). Render-time clear
-  // via a prev-prop sentinel — same pattern as StageCellButton above.
-  const [seenAggregate, setSeenAggregate] = useState(aggregate)
-  if (seenAggregate !== aggregate) {
-    setSeenAggregate(aggregate)
-    if (optimistic && aggregate === optimistic) {
-      setOptimistic(null)
-    }
-  }
-
-  const onStart = () => {
+  // Runs a job-stage write: optimistic glyph immediately, then adopt the
+  // server's echoed counts as local truth (fallback = the transition we
+  // expected, for old servers / echo read hiccups). Clearing optimistic only
+  // once counts land avoids the one-frame flicker back to the pre-click
+  // state on slow networks (Supabase round-trip).
+  const run = (
+    kind: 'startJobStage' | 'finishJobStage' | 'undoJobStage',
+    glyph: RowStatus,
+    fallback: StageCounts,
+  ) => {
     setError(false)
-    setOptimistic('in_progress')
+    setOptimistic(glyph)
     start(async () => {
       try {
-        await mutate({ kind: 'startJobStage', jobId, stage })
+        const r = await mutate<{ counts: StageCounts }>({ kind, jobId, stage })
+        setLive('data' in r && r.data ? r.data.counts : fallback)
+        setOptimistic(null)
       } catch {
         setOptimistic(null)
         setError(true)
@@ -317,34 +338,30 @@ export function JobStageActionButton({
     })
   }
 
-  const onFinish = () => {
-    setError(false)
-    setOptimistic('done')
-    start(async () => {
-      try {
-        await mutate({ kind: 'finishJobStage', jobId, stage })
-      } catch {
-        setOptimistic(null)
-        setError(true)
-      }
+  const onStart = () =>
+    run('startJobStage', 'in_progress', {
+      inProgress: counts.inProgress + counts.pending,
+      pending: 0,
+      done: counts.done,
     })
-  }
 
-  const onUndo = () => {
-    setError(false)
-    setOptimistic('in_progress')
-    start(async () => {
-      try {
-        await mutate({ kind: 'undoJobStage', jobId, stage })
-      } catch {
-        setOptimistic(null)
-        setError(true)
-      }
+  const onFinish = () =>
+    run('finishJobStage', 'done', {
+      inProgress: 0,
+      // 出货 sweeps pending parts too; other stages finish only in-flight.
+      pending: stage === '出货' ? 0 : counts.pending,
+      done: counts.done + counts.inProgress + (stage === '出货' ? counts.pending : 0),
     })
-  }
+
+  const onUndo = () =>
+    run('undoJobStage', 'in_progress', {
+      inProgress: counts.inProgress + counts.done,
+      pending: counts.pending,
+      done: 0,
+    })
 
   if (display === 'pending') {
-    const startable = pendingCount > 0
+    const startable = counts.pending > 0
     const hover = subdued ? '' : 'hover:bg-[#f1eee4]'
     const errorBg = error ? 'bg-[var(--color-overdue-soft)]' : ''
     return (
@@ -395,7 +412,7 @@ export function JobStageActionButton({
     // 出货 is the exception to the start-remaining detour: it's terminal, and
     // finishJobStage sweeps pending parts (+ cascades all prior stations,
     // 外协 included) for 出货 — so one tap always means "this order shipped".
-    const hasInFlight = inProgress > 0
+    const hasInFlight = counts.inProgress > 0
     const finishes = hasInFlight || stage === '出货'
     const onAdvance = finishes ? onFinish : onStart
     const advanceLabel = finishes ? '完成整单' : '开始剩余零件'
@@ -424,7 +441,7 @@ export function JobStageActionButton({
               error ? 'text-[var(--color-overdue)]' : 'text-[var(--color-warning)]'
             }`}
           >
-            <span>{error ? '点击重试' : `${done}/${total}`}</span>
+            <span>{error ? '点击重试' : `${counts.done}/${total}`}</span>
             {timer && !error ? (
               <>
                 <span aria-hidden className="opacity-50">·</span>
