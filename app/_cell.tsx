@@ -365,19 +365,15 @@ export function JobStageActionButton({
               ▶
             </span>
           )}
-          <span className="inline-flex items-baseline gap-1.5 mono text-[10px] text-[var(--color-ink-3)]">
-            <span>{error ? '点击重试' : `${pendingCount} 开始`}</span>
-            {timer && !error ? (
-              <>
-                <span aria-hidden className="text-[var(--color-ink-4)]">·</span>
-                <RowTimer
-                  since={timer.since}
-                  tone={timer.tone}
-                  className="text-[var(--color-ink-4)]"
-                />
-              </>
-            ) : null}
-          </span>
+          {error ? (
+            <span className="mono text-[10px] text-[var(--color-ink-3)]">点击重试</span>
+          ) : timer ? (
+            <RowTimer
+              since={timer.since}
+              tone={timer.tone}
+              className="mono text-[10px] text-[var(--color-ink-4)]"
+            />
+          ) : null}
         </span>
       </button>
     )
