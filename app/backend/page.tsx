@@ -89,6 +89,12 @@ export default function BackendPage() {
             </span>
           </div>
           <div className="flex items-baseline gap-6">
+            <Link
+              href="/backend/leads"
+              className="label hover:text-[var(--color-ink)]"
+            >
+              潜在客户 →
+            </Link>
             <span className="label">XLSX → JSON</span>
           </div>
         </div>
