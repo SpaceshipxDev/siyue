@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { headers } from 'next/headers'
 import QRCode from 'qrcode'
 import {
   blockLineTotalsSum,
@@ -53,14 +54,21 @@ export default async function OutsourceDocPage(
   // — even if the clerk never sends the WeChat message, the vendor's people see
   // "scan to reply" on the doc they already handle. Pre-migration vendors have
   // no token: render nothing (no crash, no placeholder).
+  //
+  // Origin comes from the request host, NOT BRAND.domain — the MES answers on
+  // a host Caddy owns (prod: yuenong.siyue.ai; bare siyue.ai now serves a
+  // different app), and a hardcoded domain would print QRs that dead-end.
+  const h = await headers()
+  const host = h.get('x-forwarded-host') ?? h.get('host') ?? BRAND.domain
+  const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https')
   const portalUrl = vendor?.portalToken
-    ? `https://${BRAND.domain}/w/${vendor.portalToken}`
+    ? `${proto}://${host}/w/${vendor.portalToken}`
     : null
   const portalQrSvg = portalUrl
     ? await QRCode.toString(portalUrl, { type: 'svg', margin: 0 })
     : null
   const portalUrlShort = vendor?.portalToken
-    ? `${BRAND.domain}/w/${vendor.portalToken.slice(0, 6)}…`
+    ? `${host}/w/${vendor.portalToken.slice(0, 6)}…`
     : null
 
   return (

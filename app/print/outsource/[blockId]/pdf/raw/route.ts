@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: RouteContext<'/print/outsource/[blockId]/pdf/raw'>,
 ) {
   await requireOutsourceManager()
@@ -33,17 +33,25 @@ export async function GET(
   const images = await fetchImages(info.block.members.map((m) => m.imageUrl))
 
   // Vendor-portal onboarding QR (same silent-onboarding rationale as the HTML
-  // doc). Pre-migration vendors have no token → no QR at all.
+  // doc). Pre-migration vendors have no token → no QR at all. Origin from the
+  // request host, not BRAND.domain — the MES answers on yuenong.siyue.ai;
+  // bare siyue.ai serves a different app and would dead-end the QR.
   const vendor = vendorById(info.block.vendorId, vendors)
   const portalToken = vendor?.portalToken
+  const reqHeaders = req.headers
+  const host =
+    reqHeaders.get('x-forwarded-host') ?? reqHeaders.get('host') ?? BRAND.domain
+  const proto =
+    reqHeaders.get('x-forwarded-proto') ??
+    (host.startsWith('localhost') ? 'http' : 'https')
   const portalQrDataUrl = portalToken
-    ? await QRCode.toDataURL(`https://${BRAND.domain}/w/${portalToken}`, {
+    ? await QRCode.toDataURL(`${proto}://${host}/w/${portalToken}`, {
         margin: 0,
         width: 256,
       })
     : null
   const portalUrlShort = portalToken
-    ? `${BRAND.domain}/w/${portalToken.slice(0, 6)}…`
+    ? `${host}/w/${portalToken.slice(0, 6)}…`
     : null
 
   const pdf = await renderToBuffer(
