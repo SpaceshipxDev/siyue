@@ -9,6 +9,7 @@ import { contentDisposition } from '@/lib/content-disposition'
 import { fetchImages } from '@/lib/pdf/images'
 import { OutsourceDocPDF } from '@/lib/pdf/outsource'
 import { nowStampShanghai } from '@/lib/today'
+import { logPrint } from '@/lib/print-log'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -18,7 +19,7 @@ export async function GET(
   req: Request,
   ctx: RouteContext<'/print/outsource/[blockId]/pdf/raw'>,
 ) {
-  await requireOutsourceManager()
+  const user = await requireOutsourceManager()
   const { blockId } = await ctx.params
   const [info, vendors] = await Promise.all([
     getOutsourceBlock(blockId),
@@ -66,6 +67,18 @@ export async function GET(
       portalUrlShort,
     }),
   )
+
+  // Record the generation (migration 0079). Fire-and-forget in after() — this
+  // is the only place print volume is captured, so it lives after the render
+  // succeeds and never blocks or fails the response.
+  await logPrint({
+    kind: 'outsource',
+    refId: blockId,
+    docNo,
+    jobNo: info.jobNo,
+    userName: user.name,
+    role: user.role,
+  })
 
   return new Response(new Uint8Array(pdf), {
     status: 200,
