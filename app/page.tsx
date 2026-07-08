@@ -15,6 +15,7 @@ import {
   getStageFlowMinutes,
 } from '@/lib/db'
 import { requireUser, canSeeFactoryPulse, canSeeMoney, canSeeReport } from '@/lib/auth'
+import { logBoardView } from '@/lib/access-log'
 import { scrubMasterRow } from '@/lib/dto'
 import { getStationWip, getWorkerSelfStats } from '@/lib/pulse'
 import { Pause, Pill, TopBar, type TabKey } from './_ui'
@@ -58,6 +59,16 @@ export default async function MasterBoard(
     rawStage && (STAGES as readonly string[]).includes(rawStage)
       ? (rawStage as Stage)
       : undefined
+
+  // Board-view telemetry: dashboard (stage null) vs per-station view, per
+  // user. Non-blocking (runs post-response); prefetches are filtered inside.
+  await logBoardView({
+    userName: user.name,
+    role: user.role,
+    defaultStage: user.defaultStage,
+    path: '/',
+    stage: stageFilter,
+  })
 
   // 工程 stage filter routes through MasterSheet (overview shape); other
   // stage filters route through StationWorkbench. Both paths render off the

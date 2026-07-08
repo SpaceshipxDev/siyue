@@ -23,19 +23,32 @@ export type TabKey =
 
 type Tab = { key: TabKey; label: string; href: string }
 
-// The per-stage station tabs are GONE. Two months of usage data said nobody
-// clicks them: everyone — boss, commerce, and 工程-scoped floor workers — lives
-// on the master board and acts on stage cells directly (or lands pre-filtered
-// via /?stage= from login). The tab row keeps only destinations people
-// actually visit; the board itself is the station nav now.
+// The per-stage station tabs are BACK. They were removed (557d69c) on the
+// inference that nobody clicks them — the floor said otherwise: most workers
+// share 工程-pinned accounts, and the station tab was their one-click way to
+// see just their own station's queue. Removing it stranded them on the full
+// master grid. This time the debate ends with data: every board view is
+// recorded in access_log (lib/access-log.ts, migration 0076).
 //
-// Production stations on the floor get NO tab nav — the StationSummary on the
-// body carries the weight and the brand link top-left routes home.
+// Stage tabs link straight to /?stage=<s> — the same station workbench the
+// old /station/<s> URLs 302 into — so the tab click skips the redirect hop.
+//
+// Pure single-station accounts (scoped 编程/操机 logins) still get NO stage
+// tab row — they land pre-filtered on their own station and the
+// StationSummary on the body carries the weight.
 function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): Tab[] {
+  const stageTabs = (except?: string): Tab[] =>
+    STAGES.filter((s) => s !== except).map((s) => ({
+      key: s as TabKey,
+      label: s,
+      href: `/?stage=${encodeURIComponent(s)}`,
+    }))
   if (role === 'production') {
     if (defaultStage === '工程') {
       // 工程 head's home tab IS bare / (their holistic master view), not
-      // /station/工程 — same place but reads as "go home" in the nav.
+      // /?stage=工程 — same place but reads as "go home" in the nav.
+      // Stage tabs after let them peek at any other station's queue the
+      // same way commerce can.
       return [
         { key: '工程', label: '工程', href: '/' },
         { key: '重点', label: '重点', href: '/daily' },
@@ -46,6 +59,7 @@ function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): T
         // 于海伟); the rest of 工程 don't get it. Gate: requireReportViewer.
         ...(canSeeReport ? [{ key: '报工' as TabKey, label: '报工', href: '/report' }] : []),
         { key: '外协', label: '外协', href: '/station/outsource' },
+        ...stageTabs('工程'),
         { key: '退货', label: '退货', href: '/returns' },
       ]
     }
@@ -67,6 +81,7 @@ function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): T
     { key: '报工', label: '报工', href: '/report' },
     { key: '财务', label: '财务', href: '/finance' },
     { key: '外协', label: '外协', href: '/station/outsource' },
+    ...stageTabs(),
     { key: '退货', label: '退货', href: '/returns' },
   ]
 }
