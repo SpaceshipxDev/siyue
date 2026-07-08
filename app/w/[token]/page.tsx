@@ -20,19 +20,18 @@ import { withBase } from '@/lib/base-path'
 import { portalDelayReason, portalPromise, portalShipped } from './_actions'
 import { DEMO_COOKIE, DEMO_TOKEN, demoBlocks, demoVendor } from './_demo'
 
-// 外协厂商门户 — the vendor's OWN ledger, one row per 单. Every row is the same
-// shape (thumb · title · state cell); color carries the state, prose is near
-// zero. The one glanceable cell on the right says what the factory needs back:
+// 外协厂商门户 — the vendor's OWN ledger, one row per 单. Opening the link
+// shows every concurrent 单 as one calm line: "these are my jobs for the
+// factory." Nothing auto-expands, nothing shouts. The ONLY color on the
+// resting page is a red date on rows whose date has passed.
 //
-//   没回交期的 →  "几号能交？/ 来得及吗？"  — tap the row, three date chips
-//   回了交期的 →  "诺 M月D日"               — tap the row, one big 货已发出
-//   已发货的   →  "✓ 已发货 M月D日"          — a receipt, tap to 撤销
+// Tap a row → a visibly nested panel (washed background) with the 零件 list
+// (clearly subordinate to the 单) and exactly one act: a date field + one
+// confirm button. No 今天/明天/晚1天 chips — the vendor just sets the date.
 //
-// The rows collapse into <details> so nine 单 read as nine lines, not nine
-// questionnaires. The first unanswered row opens on arrival so the top
-// question is a single tap. Server-rendered, plain <form> POSTs and plain
-// links — no JS required, so it works in any WeChat webview. The vendor's own
-// payoff lives at the bottom: 已完成 history + 对账 totals.
+// Server-rendered, plain <form> POSTs and plain links — no JS required, so
+// it works in any WeChat webview. The vendor's own payoff lives at the
+// bottom: 已完成 history + 对账 totals.
 
 export const dynamic = 'force-dynamic'
 
@@ -158,8 +157,8 @@ export default async function VendorPortalPage({
   const prev = monthSum(lastMonth)
 
   // One ledger, ordered: 请回交期 → 生产中 → 已发货. Each cluster gets a slim
-  // in-ledger separator; the first needAnswer row is the only one born open.
-  const firstOpenId = needAnswer[0]?.id
+  // in-ledger separator. Every row is born collapsed — the vendor clicks
+  // into a 单 to act on it.
   const clusters: Array<{ label: string; rows: OutsourceBlock[] }> = []
   if (needAnswer.length > 0)
     clusters.push({ label: `请回交期 · ${needAnswer.length}`, rows: needAnswer })
@@ -182,12 +181,12 @@ export default async function VendorPortalPage({
       <p className="mt-1 px-1 text-[14px] text-[var(--color-ink-2)]">
         在制 <b className="mono">{open.length}</b> 单
         {needAnswer.length > 0 ? (
-          <span className="font-medium text-[var(--color-overdue)]">
+          <span>
             {' '}
-            · <b className="mono">{needAnswer.length}</b> 单等你回交期 ↓
+            · <b className="mono">{needAnswer.length}</b> 单待回交期
           </span>
         ) : open.length > 0 ? (
-          <span className="text-[var(--color-success)]"> · 交期都已回 ✓</span>
+          <span> · 交期都已回 ✓</span>
         ) : null}
       </p>
 
@@ -203,12 +202,7 @@ export default async function VendorPortalPage({
                 {cl.label}
               </p>
               {cl.rows.map((b) => (
-                <LedgerRow
-                  key={b.id}
-                  block={b}
-                  token={token}
-                  autoOpen={b.id === firstOpenId}
-                />
+                <LedgerRow key={b.id} block={b} token={token} />
               ))}
             </Fragment>
           ))}
@@ -294,23 +288,8 @@ function InvalidLink() {
 
 // ===== One ledger row — same cells every row, color = state. =====
 
-function LedgerRow({
-  block,
-  token,
-  autoOpen,
-}: {
-  block: OutsourceBlock
-  token: string
-  autoOpen: boolean
-}) {
+function LedgerRow({ block, token }: { block: OutsourceBlock; token: string }) {
   const kind = rowKind(block)
-  const t = today()
-
-  // The one condition that paints the 3px left rail: an unanswered 单 already
-  // past due, or a promise whose own date has slipped by.
-  const overdueRail =
-    (kind === 'needAnswer' && block.expectedReturn < t) ||
-    (kind === 'promised' && (block.vendorPromisedDate ?? '') < t)
 
   const totalQty = block.members.reduce((s, m) => s + m.qty, 0)
   const subParts = [
@@ -322,10 +301,7 @@ function LedgerRow({
   return (
     <details
       id={`b-${block.id}`}
-      open={autoOpen}
-      className={`group scroll-mt-4 border-b border-[var(--color-border)] last:border-b-0 ${
-        overdueRail ? 'border-l-[3px] border-l-[var(--color-overdue)]' : ''
-      }`}
+      className="scroll-mt-4 border-b border-[var(--color-border)] last:border-b-0"
     >
       <summary className="flex min-h-[56px] cursor-pointer list-none items-center gap-3 px-3 py-2 active:opacity-60 [&::-webkit-details-marker]:hidden">
         <PartImg src={block.members[0]?.imageUrl} token={token} />
@@ -344,12 +320,11 @@ function LedgerRow({
           </p>
         </div>
         <StateCell block={block} kind={kind} />
-        <span className="shrink-0 text-[11px] text-[var(--color-ink-4)] transition-transform group-open:rotate-180">
-          ▾
-        </span>
       </summary>
 
-      <div className="border-t border-[var(--color-border)]">
+      {/* Expanded = the 单's own panel. The bg wash nests it visibly under
+          its row so it never blends into the neighbouring jobs. */}
+      <div className="border-t border-[var(--color-border)] bg-[var(--color-bg)]">
         {kind === 'needAnswer' ? (
           <NeedAnswerGuts block={block} token={token} />
         ) : kind === 'promised' ? (
@@ -362,93 +337,90 @@ function LedgerRow({
   )
 }
 
-// The one glanceable cell on the right — what the factory needs back.
+// The one glanceable cell on the right: just the date. Red = that date has
+// passed and needs the vendor's attention. No prose, no second line.
 function StateCell({ block, kind }: { block: OutsourceBlock; kind: RowKind }) {
   const t = today()
 
   if (kind === 'shipped') {
     return (
-      <div className="shrink-0 text-right leading-tight">
-        <p className="text-[13px] font-semibold text-[var(--color-success)]">✓ 已发货</p>
-        <p className="text-[12px] text-[var(--color-ink-3)]">{tsCn(block.vendorShippedAt)}</p>
-      </div>
+      <p className="shrink-0 text-[13px] text-[var(--color-success)]">✓ 已发货</p>
     )
   }
 
   if (kind === 'promised') {
     const p = block.vendorPromisedDate!
-    const late = p > block.expectedReturn
     const promiseOver = p < t
-    const promiseOverDays = promiseOver ? -daysFromToday(p) : 0
     return (
-      <div className="shrink-0 text-right leading-tight">
-        <p
-          className={`text-[13px] font-semibold ${
-            late ? 'text-[var(--color-warning)]' : 'text-[var(--color-success)]'
-          }`}
-        >
-          诺 {mdCn(p)}
-          {!late ? ' ✓' : ''}
-        </p>
-        {promiseOver ? (
-          <p className="text-[11px] font-medium text-[var(--color-overdue)]">
-            已过{promiseOverDays}天
-          </p>
-        ) : null}
-      </div>
+      <p
+        className={`shrink-0 text-[13px] ${
+          promiseOver
+            ? 'font-medium text-[var(--color-overdue)]'
+            : 'text-[var(--color-ink-2)]'
+        }`}
+      >
+        诺 {mdCn(p)}
+      </p>
     )
   }
 
-  // needAnswer
+  // needAnswer — the required date, red once it's behind us.
   const overdue = block.expectedReturn < t
-  if (overdue) {
-    const lateDays = -daysFromToday(block.expectedReturn)
-    return (
-      <div className="shrink-0 text-right leading-tight">
-        <p className="text-[13px] font-semibold text-[var(--color-overdue)]">
-          已超 {lateDays} 天
-        </p>
-        <p className="text-[11px] text-[var(--color-overdue)]">几号能交？</p>
-      </div>
-    )
-  }
   return (
-    <div className="shrink-0 text-right leading-tight">
-      <p className="text-[13px] text-[var(--color-ink)]">{mdCn(block.expectedReturn)} 交</p>
-      <p className="text-[11px] text-[var(--color-ink-3)]">来得及吗？</p>
-    </div>
+    <p
+      className={`shrink-0 text-[13px] ${
+        overdue
+          ? 'font-medium text-[var(--color-overdue)]'
+          : 'text-[var(--color-ink-2)]'
+      }`}
+    >
+      交 {mdCn(block.expectedReturn)}
+    </p>
   )
 }
 
 // ===== Expanded row bodies — the goods + exactly the action left. =====
 
-// Full member list (with per-part qty / material / thumb) + meta + notes.
-// Shown only once a row is expanded, so the resting ledger stays one line.
+// The 单's contents, clearly SUBORDINATE to the row: a labeled, inset white
+// box with smaller part lines. The job is the row; these are its parts —
+// the hierarchy must be readable at a glance.
 function Members({ block, token }: { block: OutsourceBlock; token: string }) {
   const act = activityCn(block)
-  const shown = block.members.slice(0, 5)
+  const shown = block.members.slice(0, 8)
   const more = block.members.length - shown.length
   return (
-    <div className="p-3.5">
-      <div className="flex min-w-0 flex-col gap-1.5">
+    <div className="px-3.5 pt-3">
+      {block.members.length > 0 ? (
+        <>
+      <p className="text-[11px] tracking-[0.12em] text-[var(--color-ink-3)]">
+        零件 · {block.members.length}件
+      </p>
+      <div className="mt-1.5 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5">
         {shown.map((m) => (
-          <div key={m.componentId} className="flex min-w-0 items-center gap-2.5">
-            <PartImg src={m.imageUrl} token={token} />
-            <p className="min-w-0 truncate text-[15px] font-medium leading-tight">
-              {m.name}{' '}
-              <span className="mono font-normal text-[var(--color-ink-2)]">×{m.qty}</span>
+          <div
+            key={m.componentId}
+            className="flex min-w-0 items-center gap-2 border-b border-[var(--color-border)] py-1.5 last:border-b-0"
+          >
+            <PartImgSm src={m.imageUrl} token={token} />
+            <p className="min-w-0 flex-1 truncate text-[13px] leading-tight">
+              {m.name}
               {m.material ? (
-                <span className="ml-1.5 text-[12px] font-normal text-[var(--color-ink-3)]">
+                <span className="ml-1.5 text-[11px] text-[var(--color-ink-3)]">
                   {m.material}
                 </span>
               ) : null}
             </p>
+            <span className="mono shrink-0 text-[12px] text-[var(--color-ink-2)]">
+              ×{m.qty}
+            </span>
           </div>
         ))}
         {more > 0 ? (
-          <p className="pl-[46px] text-[12px] text-[var(--color-ink-3)]">还有 {more} 件…</p>
+          <p className="py-1.5 text-[12px] text-[var(--color-ink-3)]">还有 {more} 件…</p>
         ) : null}
       </div>
+        </>
+      ) : null}
       <p className="mt-2 text-[12px] text-[var(--color-ink-3)]">
         {act ? `${act} · ` : ''}
         {mdCn(block.sentDate)}寄出
@@ -480,71 +452,47 @@ function PartImg({ src, token }: { src?: string; token: string }) {
   )
 }
 
-const chipClass =
-  'flex min-h-[52px] flex-col items-center justify-center rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] leading-tight active:opacity-60'
+// Smaller thumb for the nested 零件 list — parts render lighter than the 单.
+function PartImgSm({ src, token }: { src?: string; token: string }) {
+  if (!src)
+    return (
+      <span className="h-7 w-7 shrink-0 rounded-[2px] border border-dashed border-[var(--color-border)]" />
+    )
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={portalImgSrc(src, token)}
+      alt=""
+      loading="lazy"
+      className="h-7 w-7 shrink-0 rounded-[2px] border border-[var(--color-border)] object-cover"
+    />
+  )
+}
 
-// ① needAnswer — 几号能交？ / 来得及吗？ Three date chips answer in one tap.
+// ① needAnswer — one act: set the date you can deliver, confirm. No relative
+// chips, no second control. The required date sits above as plain fact.
 function NeedAnswerGuts({ block, token }: { block: OutsourceBlock; token: string }) {
   const t = today()
   const overdue = block.expectedReturn < t
   const lateDays = overdue ? -daysFromToday(block.expectedReturn) : 0
-  const base = overdue ? t : block.expectedReturn
-  const chips: Array<{ date: string; label: string }> = overdue
-    ? [
-        { date: base, label: '今天' },
-        { date: addDays(base, 1), label: '明天' },
-        { date: addDays(base, 2), label: '后天' },
-      ]
-    : [
-        { date: base, label: '✓ 按期' },
-        { date: addDays(base, 1), label: '晚1天' },
-        { date: addDays(base, 2), label: '晚2天' },
-      ]
 
   return (
     <>
       <Members block={block} token={token} />
-      <div className="border-t border-[var(--color-border)] p-3.5">
-        {overdue ? (
-          <>
-            <p className="text-[14px] font-medium text-[var(--color-overdue)]">
-              原定 {mdCn(block.expectedReturn)} 交 · 已超 {lateDays} 天
-            </p>
-            <p className="mt-0.5 text-[17px] font-semibold">几号能交？</p>
-          </>
-        ) : (
-          <p className="text-[15px]">
-            要求 <b className="font-semibold">{mdCn(block.expectedReturn, true)}</b> 交 —{' '}
-            <span className="font-semibold">来得及吗？</span>
-          </p>
-        )}
-        <div className="mt-2.5 grid grid-cols-3 gap-1.5">
-          {chips.map((c) => (
-            <form key={c.date} action={portalPromise} className="contents">
-              <input type="hidden" name="token" value={token} />
-              <input type="hidden" name="blockId" value={block.id} />
-              <input type="hidden" name="expected" value={block.expectedReturn} />
-              <input type="hidden" name="date" value={c.date} />
-              <button type="submit" className={chipClass}>
-                <span className="text-[15px] font-medium">{c.label}</span>
-                <span className="mono mt-0.5 text-[11px] text-[var(--color-ink-3)]">
-                  {mdCn(c.date)}
-                </span>
-              </button>
-            </form>
-          ))}
-        </div>
-        <details className="mt-1.5">
-          <summary className="flex min-h-[40px] cursor-pointer select-none list-none items-center justify-center rounded-[2px] border border-[var(--color-border)] text-[14px] text-[var(--color-ink-2)] active:opacity-60">
-            其他日期 ▾
-          </summary>
-          <DatePickForm
-            token={token}
-            blockId={block.id}
-            expected={block.expectedReturn}
-            defaultDate={overdue ? addDays(t, 1) : block.expectedReturn}
-          />
-        </details>
+      <div className="p-3.5">
+        <p className="text-[13px] text-[var(--color-ink-2)]">
+          要求 {mdCn(block.expectedReturn, true)} 交
+          {overdue ? (
+            <span className="text-[var(--color-overdue)]"> · 已超 {lateDays} 天</span>
+          ) : null}
+        </p>
+        <p className="mt-1.5 text-[15px] font-semibold">几号能交？</p>
+        <DatePickForm
+          token={token}
+          blockId={block.id}
+          expected={block.expectedReturn}
+          defaultDate={overdue ? t : block.expectedReturn}
+        />
         <form action={portalShipped} className="mt-3 text-center">
           <input type="hidden" name="token" value={token} />
           <input type="hidden" name="blockId" value={block.id} />
@@ -560,33 +508,23 @@ function NeedAnswerGuts({ block, token }: { block: OutsourceBlock; token: string
   )
 }
 
-// ② promised — one big button left: 货已发出. Late promises ask 晚交原因.
+// ② promised — one big button left: 货已发出. The promised date shows as a
+// date field so changing it is the same gesture as setting it was.
 function PromisedGuts({ block, token }: { block: OutsourceBlock; token: string }) {
   const t = today()
   const p = block.vendorPromisedDate!
   const late = p > block.expectedReturn
-  const lateDays = late ? daysFromToday(p, block.expectedReturn) : 0
   const promiseOver = p < t
   const promiseOverDays = promiseOver ? -daysFromToday(p) : 0
 
   return (
     <>
       <Members block={block} token={token} />
-      <div className="border-t border-[var(--color-border)] p-3.5">
-        <p className="text-[14px]">
-          {late ? (
-            <span className="font-medium text-[var(--color-warning)]">
-              已答 {mdCn(p, true)} 交 · 比要求晚{lateDays}天
-            </span>
-          ) : (
-            <span className="font-medium text-[var(--color-success)]">
-              已答 {mdCn(p, true)} 交 · 按期 ✓
-            </span>
-          )}
+      <div className="p-3.5">
+        <p className="text-[13px] text-[var(--color-ink-2)]">
+          要求 {mdCn(block.expectedReturn)} 交 · 已答 {mdCn(p, true)} 交
           {promiseOver ? (
-            <span className="ml-2 font-semibold text-[var(--color-overdue)]">
-              已过 {promiseOverDays} 天！
-            </span>
+            <span className="text-[var(--color-overdue)]"> · 已过 {promiseOverDays} 天</span>
           ) : null}
         </p>
 
@@ -624,17 +562,13 @@ function PromisedGuts({ block, token }: { block: OutsourceBlock; token: string }
           </button>
         </form>
 
-        <details className="mt-2">
-          <summary className="w-fit cursor-pointer select-none list-none text-[13px] text-[var(--color-ink-3)] underline underline-offset-4">
-            改交期
-          </summary>
-          <DatePickForm
-            token={token}
-            blockId={block.id}
-            expected={block.expectedReturn}
-            defaultDate={p}
-          />
-        </details>
+        <p className="mt-3 text-[12px] text-[var(--color-ink-3)]">改交期</p>
+        <DatePickForm
+          token={token}
+          blockId={block.id}
+          expected={block.expectedReturn}
+          defaultDate={p}
+        />
       </div>
     </>
   )
@@ -645,7 +579,7 @@ function ShippedGuts({ block, token }: { block: OutsourceBlock; token: string })
   return (
     <>
       <Members block={block} token={token} />
-      <div className="flex items-center justify-between border-t border-[var(--color-border)] p-3.5">
+      <div className="flex items-center justify-between p-3.5">
         <p className="text-[13px] text-[var(--color-ink-2)]">
           已发货 {tsCn(block.vendorShippedAt)} · 等厂里收件
         </p>
@@ -679,10 +613,7 @@ function DatePickForm({
   defaultDate: string
 }) {
   return (
-    <form
-      action={portalPromise}
-      className="mt-2 flex items-center gap-2 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] p-2"
-    >
+    <form action={portalPromise} className="mt-2 flex items-center gap-2">
       <input type="hidden" name="token" value={token} />
       <input type="hidden" name="blockId" value={blockId} />
       <input type="hidden" name="expected" value={expected} />
