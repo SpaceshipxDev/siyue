@@ -86,6 +86,34 @@ export function logStageAction(entry: {
   })
 }
 
+// One row per vendor-portal render (migration 0081), user-agent included —
+// the only way to tell a vendor's phone in China work hours from the clerk
+// or founder previewing the same public token link. Invalid tokens are
+// logged too (vendorId null): stale links and probing are signal.
+export async function logPortalVisit(entry: {
+  token: string
+  vendorId?: string
+  vendorName?: string
+}): Promise<void> {
+  const h = await headers()
+  if (h.get('next-router-prefetch') || h.get('sec-purpose')?.includes('prefetch')) {
+    return
+  }
+  const userAgent = h.get('user-agent')?.slice(0, 300) ?? null
+  after(async () => {
+    try {
+      await supabase.from('portal_visits').insert({
+        token: entry.token.slice(0, 100),
+        vendor_id: entry.vendorId ?? null,
+        vendor_name: entry.vendorName ?? null,
+        user_agent: userAgent,
+      })
+    } catch {
+      // Swallow — telemetry must never take the portal down.
+    }
+  })
+}
+
 export async function logBoardView(entry: {
   userName: string
   role: string

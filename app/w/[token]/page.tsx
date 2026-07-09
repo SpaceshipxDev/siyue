@@ -15,6 +15,7 @@ import {
   stampVendorBlocksSeen,
 } from '@/lib/db'
 import { BRAND } from '@/lib/brand'
+import { logPortalVisit } from '@/lib/access-log'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { withBase } from '@/lib/base-path'
 import { portalDelayReason, portalPromise, portalShipped } from './_actions'
@@ -104,6 +105,15 @@ export default async function VendorPortalPage({
   const { token } = await params
   const isDemo = token === DEMO_TOKEN
   const vendor = isDemo ? demoVendor() : await getVendorByPortalToken(token)
+  // Every real portal hit is logged with its user-agent — including invalid
+  // tokens (vendor null). The demo sandbox is skipped. See lib/access-log.
+  if (!isDemo) {
+    await logPortalVisit({
+      token,
+      vendorId: vendor?.id,
+      vendorName: vendor?.name,
+    })
+  }
   if (!vendor) return <InvalidLink />
 
   let blocks: OutsourceBlock[]

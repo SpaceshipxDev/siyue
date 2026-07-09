@@ -520,9 +520,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     return Response.json({ ok: false, error: `HTTP ${status}` }, { status })
   }
   // Telemetry: where do 报工 taps physically happen — board cell, station
-  // queue, or inside the job page? Referer carries the answer. Successful
-  // taps only; runs in after(), can never touch the response.
-  if (status === 200 && STAGE_TAP_KINDS.has(kind)) {
+  // queue, or inside the job page? And how often does the clerk generate
+  // the 微信 paste? Referer carries the answer. Successful calls only;
+  // runs in after(), can never touch the response.
+  if (status === 200 && LOGGED_KINDS.has(kind)) {
     logStageAction({
       userName: user.name,
       role: user.role,
@@ -535,10 +536,11 @@ export async function POST(request: NextRequest): Promise<Response> {
   return cacheAndSend(requestId, parsedBody, status)
 }
 
-// The 报工 tap family — the clicks whose LOCATION the owner asked about.
-// Text edits, plan dates, outsource lifecycle etc. are deliberately not
-// logged: they'd swamp the signal.
-const STAGE_TAP_KINDS = new Set([
+// The 报工 tap family (the clicks whose LOCATION the owner asked about)
+// plus the 微信-copy stamp (every copy re-fires it, so counting rows counts
+// paste generations). Text edits, plan dates, outsource lifecycle etc. are
+// deliberately not logged: they'd swamp the signal.
+const LOGGED_KINDS = new Set([
   'startStage',
   'finishStage',
   'undoStage',
@@ -546,6 +548,7 @@ const STAGE_TAP_KINDS = new Set([
   'startJobStage',
   'finishJobStage',
   'undoJobStage',
+  'setBlockWechatSent',
 ])
 
 // Page-scoped revalidate helpers — never use `'layout'`. Each helper
