@@ -26,6 +26,7 @@ import {
   type RollupKind,
 } from '@/lib/data'
 import { ensureVendorPortalTokens, getJob, getVendors } from '@/lib/db'
+import { logJobView } from '@/lib/access-log'
 import { getContractFiles } from '@/lib/contract-file'
 import { BRAND } from '@/lib/brand'
 import {
@@ -92,6 +93,14 @@ import { JobTypeEditor } from '@/app/_type_chip'
 export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   const user = await requireUser()
   const { id } = await props.params
+  // Which view do people open jobs FROM (dashboard vs their station tab)?
+  // Non-blocking: prefetch-filtered, insert runs in after(). See lib/access-log.
+  await logJobView({
+    userName: user.name,
+    role: user.role,
+    defaultStage: user.defaultStage,
+    jobId: id,
+  })
   const showMoney = canSeeMoney(user)
   // 合同 attachments live behind the money gate (财务 tab). Fetched IN PARALLEL
   // with the job snapshot — never a sequential round-trip tacked onto the page

@@ -116,6 +116,7 @@ import {
   requireUser,
   type AuthUser,
 } from '@/lib/auth'
+import { logStageAction } from '@/lib/access-log'
 import type { JobType, PlanKey, Stage, Verdict } from '@/lib/data'
 import { rowStageCounts } from '@/lib/master'
 import { isCaiwuSheet, JOB_TYPES, STAGES, VERDICTS } from '@/lib/data'
@@ -518,8 +519,34 @@ export async function POST(request: NextRequest): Promise<Response> {
     // fall through with no caching — the client will see the raw status.
     return Response.json({ ok: false, error: `HTTP ${status}` }, { status })
   }
+  // Telemetry: where do 报工 taps physically happen — board cell, station
+  // queue, or inside the job page? Referer carries the answer. Successful
+  // taps only; runs in after(), can never touch the response.
+  if (status === 200 && STAGE_TAP_KINDS.has(kind)) {
+    logStageAction({
+      userName: user.name,
+      role: user.role,
+      defaultStage: user.defaultStage,
+      kind,
+      stage: typeof body.stage === 'string' ? body.stage : undefined,
+      referer: request.headers.get('referer'),
+    })
+  }
   return cacheAndSend(requestId, parsedBody, status)
 }
+
+// The 报工 tap family — the clicks whose LOCATION the owner asked about.
+// Text edits, plan dates, outsource lifecycle etc. are deliberately not
+// logged: they'd swamp the signal.
+const STAGE_TAP_KINDS = new Set([
+  'startStage',
+  'finishStage',
+  'undoStage',
+  'setStageDoneQty',
+  'startJobStage',
+  'finishJobStage',
+  'undoJobStage',
+])
 
 // Page-scoped revalidate helpers — never use `'layout'`. Each helper
 // invalidates only the surface that genuinely changed so the next nav from
