@@ -1,17 +1,15 @@
-import { redirect } from 'next/navigation'
-import { requireUser, landingPathFor } from '@/lib/auth'
+import { requireNotesUser } from '@/lib/auth'
 import { getNotes } from '@/lib/db'
 import { TopBar } from '@/app/_ui'
 import { NotesBoard } from './_notes'
 
 export const dynamic = 'force-dynamic'
 
-// 笔记 — the boss's freeform scratchpad, right before 重点. 商务 surface (the
-// boss is 商务); notes are per-author so each user only sees their own. Floor
-// users bounce home.
+// 笔记 — the freeform scratchpad, right before 重点. 商务 + 工程 surface
+// (canUseNotes); notes are per-author so each user only sees their own.
+// Other floor stations bounce home.
 export default async function NotesPage() {
-  const user = await requireUser()
-  if (user.role !== 'commerce') redirect(landingPathFor(user))
+  const user = await requireNotesUser()
   const notes = await getNotes(user.id)
   return (
     <div className="flex-1 flex flex-col">

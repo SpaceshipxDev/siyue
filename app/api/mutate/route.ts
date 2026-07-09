@@ -109,6 +109,7 @@ import {
   canSeeExpenses,
   canSeeFactoryPulse,
   canSeeMoney,
+  canUseNotes,
   currentUser,
   requireCommerce,
   requireOutsourceManager,
@@ -1873,11 +1874,17 @@ async function dispatch(
       return Response.json(ok())
     }
 
-    // === 笔记 (notes) — the boss's per-author scratchpad. Commerce-only; each
-    // user only ever touches their own notes (getNotes scopes by author). ===
+    // === 笔记 (notes) — per-author scratchpad, 商务 + 工程 (canUseNotes).
+    // Rows are only ever born with real text: the board keeps drafts local
+    // until the first non-whitespace commit, and the gate here re-enforces
+    // it — an empty note is a draft, not a row. All three ops scope to the
+    // caller's own notes. ===
     case 'createNote': {
-      const u = await requireCommerce()
-      const id = await createNote(u.id)
+      const text = body.body
+      if (!isString(text) || !text.trim()) return err('bad createNote args')
+      const u = await requireUser()
+      if (!canUseNotes(u)) return err('forbidden', 403)
+      const id = await createNote(u.id, text)
       revalidatePath('/notes')
       return Response.json(ok({ id }))
     }
@@ -1886,8 +1893,9 @@ async function dispatch(
       const noteId = body.noteId
       const text = body.body
       if (!isString(noteId) || !isString(text)) return err('bad updateNote args')
-      await requireCommerce()
-      await updateNote(noteId, text)
+      const u = await requireUser()
+      if (!canUseNotes(u)) return err('forbidden', 403)
+      await updateNote(noteId, text, u.id)
       revalidatePath('/notes')
       return Response.json(ok())
     }
@@ -1895,8 +1903,9 @@ async function dispatch(
     case 'deleteNote': {
       const noteId = body.noteId
       if (!isString(noteId)) return err('bad deleteNote args')
-      await requireCommerce()
-      await deleteNote(noteId)
+      const u = await requireUser()
+      if (!canUseNotes(u)) return err('forbidden', 403)
+      await deleteNote(noteId, u.id)
       revalidatePath('/notes')
       return Response.json(ok())
     }

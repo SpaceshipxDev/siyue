@@ -167,6 +167,20 @@ export async function requirePulseViewer(): Promise<AuthUser> {
   redirect(landingPathFor(u))
 }
 
+// 笔记 — born as the boss's scratchpad, and it stuck: the whole commerce
+// office writes in it. 工程 gets it too (same commerce+工程 pair as 现场/
+// 交接/外协 — the 工程 head runs the floor and keeps the same kind of
+// running notes the boss does). Notes stay per-author regardless.
+export function canUseNotes(s: Scope): boolean {
+  return s.role === 'commerce' || s.defaultStage === '工程'
+}
+
+export async function requireNotesUser(): Promise<AuthUser> {
+  const u = await requireUser()
+  if (canUseNotes(u)) return u
+  redirect(landingPathFor(u))
+}
+
 // 报工 viewers: every 商务, PLUS a hand-picked allowlist of production users the
 // boss has explicitly granted the per-person scoreboard. Kept as an id set (not
 // a role/stage) precisely because the grant is per-person — e.g. 于海伟 sees 报工

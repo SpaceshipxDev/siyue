@@ -8497,25 +8497,38 @@ export async function getNotes(authorId: string): Promise<Note[]> {
   return (data ?? []).map(fromNote)
 }
 
-export async function createNote(authorId: string): Promise<string> {
+// Born with its first real text — the notes board keeps drafts local until
+// something non-whitespace is typed, so an empty row can never exist.
+export async function createNote(authorId: string, body: string): Promise<string> {
   const id = uid('note')
   const { error } = await supabase
     .from('notes')
-    .insert({ id, author_id: authorId })
+    .insert({ id, author_id: authorId, body })
   if (error) throw error
   return id
 }
 
-export async function updateNote(id: string, body: string): Promise<void> {
+// Update/delete scope to the caller's own notes — ids are per-author private,
+// so a guessed id from another author is a silent no-op, not a write.
+export async function updateNote(
+  id: string,
+  body: string,
+  authorId: string,
+): Promise<void> {
   const { error } = await supabase
     .from('notes')
     .update({ body, updated_at: new Date().toISOString() })
     .eq('id', id)
+    .eq('author_id', authorId)
   if (error) throw error
 }
 
-export async function deleteNote(id: string): Promise<void> {
-  const { error } = await supabase.from('notes').delete().eq('id', id)
+export async function deleteNote(id: string, authorId: string): Promise<void> {
+  const { error } = await supabase
+    .from('notes')
+    .delete()
+    .eq('id', id)
+    .eq('author_id', authorId)
   if (error) throw error
 }
 

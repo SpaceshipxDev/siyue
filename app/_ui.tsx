@@ -50,6 +50,9 @@ function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): T
       // same way commerce can.
       return [
         { key: '工程', label: '工程', href: '/' },
+        // 笔记 — same slot as commerce (right before 重点). The boss turned
+        // it into his command channel; the 工程 head gets the same scratchpad.
+        { key: '笔记', label: '笔记', href: '/notes' },
         { key: '重点', label: '重点', href: '/daily' },
         { key: '现场', label: '现场', href: '/pulse' },
         { key: '交接', label: '交接', href: '/handover' },

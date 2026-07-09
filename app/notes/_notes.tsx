@@ -6,30 +6,39 @@ import { showToast } from '@/app/_toast'
 import type { Note } from '@/lib/data'
 
 // 笔记 — Apple-Notes-simple: a column of cards, each a freeform note that grows
-// as you type and saves on blur. 新建 prepends a blank one. Nothing to learn —
-// the boss just writes. Per-author (the page already scopes to him).
+// as you type and saves on blur. A fresh draft is already open at the top on
+// every landing — you arrive, you type, it saves. The draft lives only on this
+// screen until real text is committed: nothing typed (or whitespace only)
+// means no row is ever created. Per-author (the page already scopes).
+
+type Card = { key: string; note: Note | null } // note null = local draft
 
 export function NotesBoard({ initial }: { initial: Note[] }) {
-  const [notes, setNotes] = useState<Note[]>(initial)
+  const [cards, setCards] = useState<Card[]>(() => [
+    { key: 'draft-0', note: null },
+    ...initial.map((n) => ({ key: n.id, note: n })),
+  ])
+  const draftSeq = useRef(1)
   const [, start] = useTransition()
 
-  const addNote = () => {
-    start(async () => {
-      try {
-        const res = await mutate<{ id: string }>({ kind: 'createNote' })
-        const now = new Date().toISOString()
-        setNotes((prev) => [
-          { id: res.data.id, authorId: '', body: '', createdAt: now, updatedAt: now },
-          ...prev,
-        ])
-      } catch (e) {
-        showToast(`新建失败 · ${e instanceof Error ? e.message : '网络中断'}`, 'warning')
-      }
-    })
+  const addDraft = () => {
+    setCards((prev) => [
+      { key: `draft-${draftSeq.current++}`, note: null },
+      ...prev,
+    ])
   }
 
-  const remove = (id: string) => {
-    setNotes((prev) => prev.filter((n) => n.id !== id))
+  // First non-whitespace commit turned the draft into a real row; remember
+  // the note so the counter and delete know about it. The card itself never
+  // remounts (key is stable), so the caret stays put mid-typing.
+  const created = (key: string, note: Note) => {
+    setCards((prev) => prev.map((c) => (c.key === key ? { ...c, note } : c)))
+  }
+
+  const remove = (key: string) => {
+    const id = cards.find((c) => c.key === key)?.note?.id
+    setCards((prev) => prev.filter((c) => c.key !== key))
+    if (!id) return // unsaved draft — nothing on the server to delete
     start(async () => {
       try {
         await mutate({ kind: 'deleteNote', noteId: id })
@@ -39,37 +48,34 @@ export function NotesBoard({ initial }: { initial: Note[] }) {
     })
   }
 
+  const savedCount = cards.filter((c) => c.note).length
+
   return (
     <div>
       <div className="mb-8 flex items-center justify-between">
         <p className="text-[13px] text-[var(--color-ink-3)] tabular-nums">
-          {notes.length} 条笔记
+          {savedCount} 条笔记
         </p>
         <button
           type="button"
-          onClick={addNote}
+          onClick={addDraft}
           className="rounded-[2px] bg-[var(--color-ink)] px-4 py-1.5 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 transition-opacity"
         >
           新建笔记
         </button>
       </div>
 
-      {notes.length === 0 ? (
-        <div className="py-24 text-center text-[14px] text-[var(--color-ink-4)]">
-          还没有笔记 · 点「新建笔记」随手记点什么
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {notes.map((n) => (
-            <NoteCard
-              key={n.id}
-              note={n}
-              autoFocus={n.body === ''}
-              onRemove={() => remove(n.id)}
-            />
-          ))}
-        </div>
-      )}
+      <div className="flex flex-col gap-4">
+        {cards.map((c) => (
+          <NoteCard
+            key={c.key}
+            note={c.note}
+            autoFocus={c.note === null}
+            onCreated={(note) => created(c.key, note)}
+            onRemove={() => remove(c.key)}
+          />
+        ))}
+      </div>
     </div>
   )
 }
@@ -77,19 +83,26 @@ export function NotesBoard({ initial }: { initial: Note[] }) {
 function NoteCard({
   note,
   autoFocus,
+  onCreated,
   onRemove,
 }: {
-  note: Note
+  note: Note | null // null = draft, not yet a row
   autoFocus: boolean
+  onCreated: (note: Note) => void
   onRemove: () => void
 }) {
-  const [body, setBody] = useState(note.body)
-  const [saved, setSaved] = useState(note.body)
+  const [body, setBody] = useState(note?.body ?? '')
+  const [stamp, setStamp] = useState(note?.updatedAt ?? null)
+  // id/saved live in refs, not state: commit reads them synchronously and a
+  // create in flight must block a second create without re-rendering.
+  const idRef = useRef<string | null>(note?.id ?? null)
+  const savedRef = useRef(note?.body ?? '')
+  const creating = useRef(false)
   const ref = useRef<HTMLTextAreaElement>(null)
   const [, start] = useTransition()
   const [confirming, setConfirming] = useState(false)
 
-  // Grow to fit content (Apple-Notes feel), and focus a freshly-created card.
+  // Grow to fit content (Apple-Notes feel), and focus a fresh draft.
   const autosize = () => {
     const el = ref.current
     if (!el) return
@@ -103,15 +116,42 @@ function NoteCard({
   }, [])
 
   const commit = () => {
-    if (body === saved) return
-    const prev = saved
-    setSaved(body)
+    const text = body
+    const id = idRef.current
+    if (id) {
+      if (text === savedRef.current) return
+      start(async () => {
+        try {
+          await mutate({ kind: 'updateNote', noteId: id, body: text })
+          savedRef.current = text
+          setStamp(new Date().toISOString())
+        } catch (e) {
+          showToast(`保存失败 · ${e instanceof Error ? e.message : '网络中断'}`, 'warning')
+        }
+      })
+      return
+    }
+    // Draft: nothing typed (or whitespace only) never becomes a row.
+    if (!text.trim() || creating.current) return
+    creating.current = true
     start(async () => {
       try {
-        await mutate({ kind: 'updateNote', noteId: note.id, body })
+        const res = await mutate<{ id: string }>({ kind: 'createNote', body: text })
+        idRef.current = res.data.id
+        savedRef.current = text
+        const now = new Date().toISOString()
+        setStamp(now)
+        onCreated({
+          id: res.data.id,
+          authorId: '',
+          body: text,
+          createdAt: now,
+          updatedAt: now,
+        })
       } catch (e) {
         showToast(`保存失败 · ${e instanceof Error ? e.message : '网络中断'}`, 'warning')
-        setSaved(prev)
+      } finally {
+        creating.current = false
       }
     })
   }
@@ -133,7 +173,7 @@ function NoteCard({
       />
       <div className="mt-2 flex items-center justify-between">
         <span className="mono text-[11px] text-[var(--color-ink-4)]">
-          {dateLabel(note.updatedAt)}
+          {stamp ? dateLabel(stamp) : '草稿'}
         </span>
         {confirming ? (
           <span className="flex items-center gap-3">
