@@ -105,7 +105,7 @@ const ai=new GoogleGenAI({apiKey:process.env.GEMINI_API_KEY})
 const t0=Date.now()
 try {
   const response=await ai.models.generateContent({
-    model:'gemini-3.1-flash-lite-preview',
+    model:'gemini-3.1-flash-lite',
     contents:userPrompt,
     config:{
       systemInstruction:'你是一名工厂订单录入助手。从 Excel 抽取一张工单 (Job) 及其零件列表 (parts)。仅输出 JSON。',

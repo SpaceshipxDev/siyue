@@ -101,7 +101,7 @@ export default function PlaygroundPage() {
         <div>
           <h1 className="text-lg font-medium tracking-tight">Gemini playground</h1>
           <p className="text-xs text-[var(--color-ink-3)] mt-1">
-            通过当前 ingest 流程（parseWorkbook → AoA JSON）与 gemini-3.1-flash-lite-preview 对话
+            通过当前 ingest 流程（parseWorkbook → AoA JSON）与 gemini-3.1-flash-lite 对话
           </p>
         </div>
         {(doc || history.length > 0) && (

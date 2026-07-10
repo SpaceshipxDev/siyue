@@ -6,7 +6,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-const MODEL = 'gemini-3.1-flash-lite-preview'
+const MODEL = 'gemini-3.1-flash-lite'
 
 // Generic Q&A system prompt — the point of this playground is to probe
 // what the model can recover from the AoA-as-JSON representation, not to

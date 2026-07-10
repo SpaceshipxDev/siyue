@@ -13,7 +13,7 @@ export type ExtractedJob = Omit<NewJobInput, 'components'> & {
 }
 
 /*
- * Gemini 3.1 Flash Lite (preview, March 2026 release).
+ * Gemini 3.1 Flash Lite (GA — the -preview model ID was shut down 2026-05-25).
  * Verified for SDK @google/genai v1.50.1.
  *
  * Schema constraints worth knowing:
@@ -24,7 +24,7 @@ export type ExtractedJob = Omit<NewJobInput, 'components'> & {
  *     so this is the lowest-latency setting for plain JSON extraction.
  */
 
-const MODEL = 'gemini-3.1-flash-lite-preview'
+const MODEL = 'gemini-3.1-flash-lite'
 
 // Built per request so the "今日是 …" line in the prompt always reflects the
 // real local date — not the date the server process started.
