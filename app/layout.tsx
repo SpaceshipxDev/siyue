@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: '盈玛生产跟单',
-  description: '每个零件，现在做到哪一步',
+  title: APP_TITLE,
+  description: '工段实时进度看板',
 }
 
 export const viewport: Viewport = {
