@@ -27,7 +27,13 @@ import { getUserById } from '@/lib/db'
 // '/api/leads' is the lead-capture POST from the public siyue.ai landing —
 // it does its own validation/honeypot/rate-limit; a session gate here would
 // 307 every prospect's form submit to /login.
-const PUBLIC_PATHS = ['/login', '/join', '/w', '/x/demo', '/api/leads']
+// '/s' is the 随工单 scan surface (traveller QR) — the unguessable per-part
+// token printed on the paper IS the auth (verified server-side by
+// getPartScanView on every render and write), so the path stays open the
+// same way the '/w' vendor portal does. It exposes one part's route/progress
+// and accepts one narrow write (report qty at the current OP) — no prices,
+// no other parts, no dashboard.
+const PUBLIC_PATHS = ['/login', '/join', '/w', '/s', '/x/demo', '/api/leads']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only
@@ -56,6 +62,9 @@ const PRODUCTION_FORBIDDEN_PREFIXES = [
 const ENGINEERING_ALLOWED_PREFIXES = [
   '/station/outsource',
   '/print/outsource',
+  // 随工单 — at Yingma the 编程/工程 head confirms the OP route and prints
+  // the traveller, so the print surface opens to them like /print/outsource.
+  '/print/traveller',
   '/import',
   '/api/ingest',
   '/pulse',

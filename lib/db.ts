@@ -8773,3 +8773,161 @@ export async function upsertInspectionReport(
     if (insErr) throw insErr
   })
 }
+
+
+// === 随工单扫码 (traveller QR, /s/<token>) ===
+//
+// One stable unguessable token per PART. The printed 随工单 travels with the
+// physical parts; its QR is the worker's credential for exactly one narrow
+// surface: this part, its current OP, a quantity. Minted lazily the first
+// time a traveller is printed — same pattern as vendors.portal_token.
+
+// Race-safe lazy mint. On a pre-migration DB (column missing) this returns
+// undefined and the traveller simply prints without a QR — no crash.
+export async function ensurePartQrToken(
+  partId: string,
+): Promise<string | undefined> {
+  try {
+    const sel0 = await supabase
+      .from('parts')
+      .select('qr_token')
+      .eq('id', partId)
+      .limit(1)
+    if (sel0.error) throw sel0.error
+    const existing = (sel0.data?.[0]?.qr_token as string | null) ?? undefined
+    if (existing) return existing
+    const token = crypto.randomUUID().replace(/-/g, '')
+    const upd = await supabase
+      .from('parts')
+      .update({ qr_token: token })
+      .eq('id', partId)
+      .is('qr_token', null)
+    if (upd.error) throw upd.error
+    const sel = await supabase
+      .from('parts')
+      .select('qr_token')
+      .eq('id', partId)
+      .limit(1)
+    if (sel.error) throw sel.error
+    return (sel.data?.[0]?.qr_token as string | null) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
+// What the phone sees after a scan. Deliberately narrow: the part, its route
+// with per-stage progress, and the current OP — no prices, no notes, no
+// other parts. The customer name and 交期 ARE shown (workers already read
+// them off the paper traveller the QR is printed on).
+export type PartScanView = {
+  jobId: string
+  componentId: string
+  customer: string
+  product: string
+  partName: string
+  partNo?: string
+  qty: number
+  material?: string
+  dueDate: string
+  stages: Array<{
+    stage: Stage
+    status: StageStatus
+    doneQty: number
+    by?: string
+    completedAt?: string
+  }>
+  // First not-done stage in route order; undefined when the whole route is
+  // finished (the scan page shows 全部完成 instead of a report form).
+  currentStage?: Stage
+}
+
+export async function getPartScanView(
+  token: string,
+): Promise<PartScanView | undefined> {
+  const t = token.trim()
+  // Tokens are 32-hex UUIDs; refuse junk before it costs a DB roundtrip.
+  if (!/^[0-9a-f]{32}$/i.test(t)) return undefined
+  const partSel = await supabase
+    .from('parts')
+    .select('*')
+    .eq('qr_token', t)
+    .limit(1)
+  if (partSel.error) throw partSel.error
+  const partRow = partSel.data?.[0]
+  if (!partRow) return undefined
+  const part = fromPart(partRow)
+  const [jobSel, stageSel] = await Promise.all([
+    supabase.from('jobs').select('*').eq('id', part.jobId).limit(1),
+    supabase.from('part_stages').select('*').eq('part_id', part.id),
+  ])
+  if (jobSel.error) throw jobSel.error
+  if (stageSel.error) throw stageSel.error
+  const jobRow = jobSel.data?.[0]
+  if (!jobRow) return undefined
+  const byStage = new Map<Stage, PartStageRow>()
+  for (const r of stageSel.data ?? []) {
+    const row = fromPartStage(r)
+    byStage.set(row.stage, row)
+  }
+  // Only the visible production route — 出货 is a shipping act on the master
+  // board, never a shop-floor scan target.
+  const stages = TRACKING_STAGES.filter((s) => byStage.has(s)).map((s) => {
+    const row = byStage.get(s)!
+    return {
+      stage: s,
+      status: row.status,
+      doneQty:
+        row.status === 'done'
+          ? part.qty
+          : Math.min(part.qty, Math.max(0, row.doneQty ?? 0)),
+      by: row.by ?? row.startedBy,
+      completedAt: row.completedAt,
+    }
+  })
+  const currentStage = stages.find((s) => s.status !== 'done')?.stage
+  return {
+    jobId: part.jobId,
+    componentId: part.id,
+    customer: (jobRow.customer as string | null) ?? '',
+    product: (jobRow.product as string | null) ?? '',
+    partName: part.name,
+    partNo: part.partNo,
+    qty: part.qty,
+    material: part.material,
+    dueDate: (jobRow.due_date as string | null) ?? '',
+    stages,
+    currentStage,
+  }
+}
+
+// The one shop-floor write. The token IS the auth and the CURRENT stage is
+// re-derived server-side on every call — the phone never names a stage, so a
+// tampered form can't tick an arbitrary OP. `doneNow` is incremental ("这次
+// 完成 N 件"); we clamp the cumulative count to the part qty and hand it to
+// setStageDoneQty, which owns the partial/done/cascade state machine.
+export async function reportPartScan(
+  token: string,
+  doneNow: number,
+  actor: string,
+): Promise<{ ok: boolean; stage?: Stage; totalDone?: number; finished?: boolean }> {
+  const view = await getPartScanView(token)
+  if (!view || !view.currentStage) return { ok: false }
+  const st = view.stages.find((s) => s.stage === view.currentStage)
+  if (!st) return { ok: false }
+  const inc = Math.max(0, Math.floor(doneNow))
+  if (inc === 0) return { ok: false }
+  const cumulative = Math.min(view.qty, st.doneQty + inc)
+  await setStageDoneQty(
+    view.jobId,
+    view.componentId,
+    view.currentStage,
+    cumulative,
+    actor,
+  )
+  return {
+    ok: true,
+    stage: view.currentStage,
+    totalDone: cumulative,
+    finished: cumulative >= view.qty,
+  }
+}

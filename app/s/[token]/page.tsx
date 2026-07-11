@@ -1,0 +1,271 @@
+import type { Metadata } from 'next'
+import { cookies } from 'next/headers'
+import { stageLabel } from '@/lib/data'
+import { getPartScanView } from '@/lib/db'
+import { BRAND } from '@/lib/brand'
+import { scanReport, scanSetWorker } from './_actions'
+import { WORKER_COOKIE, decodeWorker } from './_worker'
+
+// 车间报工 — what a worker's phone shows after scanning the traveller QR.
+// One part, its route, the current OP, and exactly one act: 报数量. The
+// default tap is 全部完成 (finish the remaining count at this OP) because
+// that's what happens 9 times out of 10 on the floor; a partial count is the
+// secondary path, never the primary.
+//
+// Server-rendered, plain <form> POSTs — must work in decade-old WeChat
+// webviews, JS or no JS. The token in the URL is the auth; the page and
+// every action re-verify it server-side.
+
+export const dynamic = 'force-dynamic'
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ token: string }>
+}): Promise<Metadata> {
+  const { token } = await params
+  const view = await getPartScanView(token).catch(() => undefined)
+  const title = view
+    ? `${view.partName || view.product} · 报工`
+    : `车间报工 · ${BRAND.shortName}`
+  return { title, description: '扫码报工 — 这道工序完成多少件' }
+}
+
+function mdCn(ymd?: string): string {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}/.test(ymd)) return ymd ?? ''
+  const [, m, d] = ymd.slice(0, 10).split('-').map(Number)
+  return `${m}月${d}日`
+}
+
+export default async function ScanPage(props: PageProps<'/s/[token]'>) {
+  const { token } = await props.params
+  const sp = await props.searchParams
+  const reported =
+    typeof sp.reported === 'string' ? Number.parseInt(sp.reported, 10) : undefined
+
+  const view = await getPartScanView(token)
+  const jar = await cookies()
+  const worker = decodeWorker(jar.get(WORKER_COOKIE)?.value)
+
+  if (!view) {
+    return (
+      <main className="min-h-dvh bg-[var(--color-bg)] flex items-center justify-center p-6">
+        <div className="max-w-sm w-full bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-8 text-center">
+          <p className="text-[15px] font-semibold">二维码无效</p>
+          <p className="text-[12px] text-[var(--color-ink-2)] mt-2 leading-relaxed">
+            这张随工单的二维码没有对应的零件。
+            <br />
+            请找文员重新打印随工单。
+          </p>
+        </div>
+      </main>
+    )
+  }
+
+  const current = view.currentStage
+    ? view.stages.find((s) => s.stage === view.currentStage)
+    : undefined
+  const remaining = current ? Math.max(0, view.qty - current.doneQty) : 0
+  const doneOps = view.stages.filter((s) => s.status === 'done').length
+  const allDone = !view.currentStage
+
+  return (
+    <main className="min-h-dvh bg-[var(--color-bg)]">
+      <header className="h-12 px-4 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center justify-between">
+        <span className="text-[13px] font-semibold">
+          {BRAND.shortName} · 车间报工
+        </span>
+        {worker ? (
+          <span className="text-[11px] text-[var(--color-ink-2)]">{worker}</span>
+        ) : null}
+      </header>
+
+      <div className="max-w-md mx-auto px-4 py-5 space-y-4">
+        {reported !== undefined && Number.isFinite(reported) ? (
+          <div className="bg-[var(--color-success-soft)] border border-[var(--color-success)] rounded-[3px] px-4 py-3">
+            <p className="text-[13px] font-semibold text-[var(--color-success)]">
+              ✓ 已报工，进度表已同步更新
+            </p>
+          </div>
+        ) : null}
+
+        {/* The part — same six facts as the paper this QR is printed on. */}
+        <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-5">
+          <p className="text-[10px] tracking-[0.18em] text-[var(--color-ink-3)] uppercase">
+            {view.customer}
+          </p>
+          <h1 className="text-[22px] font-semibold tracking-tight mt-1">
+            {view.partName || view.product}
+          </h1>
+          {view.partNo ? (
+            <p className="font-mono text-[11px] text-[var(--color-ink-2)] mt-0.5 break-all">
+              {view.partNo}
+            </p>
+          ) : null}
+          <div className="grid grid-cols-3 border-t border-[var(--color-border)] mt-4 pt-3">
+            {(
+              [
+                ['数量', `${view.qty} 件`],
+                ['材质', view.material || '—'],
+                ['交期', mdCn(view.dueDate) || '—'],
+              ] as const
+            ).map(([label, value]) => (
+              <div key={label}>
+                <p className="text-[10px] text-[var(--color-ink-3)]">{label}</p>
+                <p className="text-[13px] font-semibold mt-0.5">{value}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Route — where this part is. The current OP carries the color. */}
+        <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-5">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-[12px] font-semibold tracking-[0.15em]">
+              工序进度
+            </h2>
+            <span className="text-[11px] text-[var(--color-ink-2)]">
+              {doneOps} / {view.stages.length}
+            </span>
+          </div>
+          <ol className="mt-3">
+            {view.stages.map((s, i) => {
+              const isCurrent = s.stage === view.currentStage
+              return (
+                <li
+                  key={s.stage}
+                  className={`flex items-center gap-3 py-2.5 ${
+                    i > 0 ? 'border-t border-[var(--color-border)]' : ''
+                  }`}
+                >
+                  <span
+                    className={`w-6 h-6 shrink-0 rounded-full border text-[11px] flex items-center justify-center font-mono ${
+                      s.status === 'done'
+                        ? 'bg-[var(--color-success)] border-[var(--color-success)] text-white'
+                        : isCurrent
+                          ? 'border-[var(--color-success)] text-[var(--color-success)] font-semibold'
+                          : 'border-[var(--color-border-strong)] text-[var(--color-ink-3)]'
+                    }`}
+                  >
+                    {s.status === 'done' ? '✓' : i + 1}
+                  </span>
+                  <span
+                    className={`text-[14px] ${
+                      isCurrent
+                        ? 'font-semibold'
+                        : s.status === 'done'
+                          ? 'text-[var(--color-ink-2)]'
+                          : 'text-[var(--color-ink-3)]'
+                    }`}
+                  >
+                    {stageLabel(s.stage)}
+                  </span>
+                  <span className="ml-auto text-[11px] text-[var(--color-ink-3)] text-right">
+                    {s.status === 'done'
+                      ? `${s.by ?? ''} ${s.completedAt ?? ''}`.trim() || '已完成'
+                      : isCurrent
+                        ? s.doneQty > 0
+                          ? `已完成 ${s.doneQty} / ${view.qty} 件`
+                          : '当前工序'
+                        : ''}
+                  </span>
+                </li>
+              )
+            })}
+          </ol>
+        </section>
+
+        {allDone ? (
+          <section className="bg-[var(--color-success-soft)] border border-[var(--color-success)] rounded-[3px] p-6 text-center">
+            <p className="text-[16px] font-semibold text-[var(--color-success)]">
+              全部工序已完成
+            </p>
+            <p className="text-[12px] text-[var(--color-ink-2)] mt-1">
+              这个零件的加工已经全部做完，等待出货。
+            </p>
+          </section>
+        ) : !worker ? (
+          /* First scan on this phone: one name, once, then never again. */
+          <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-5">
+            <h2 className="text-[14px] font-semibold">你是谁？</h2>
+            <p className="text-[11px] text-[var(--color-ink-2)] mt-1">
+              只填一次，以后扫码直接报工。
+            </p>
+            <form action={scanSetWorker} className="mt-3 flex gap-2">
+              <input type="hidden" name="token" value={token} />
+              <input
+                name="name"
+                required
+                maxLength={20}
+                placeholder="例如：王师傅"
+                className="flex-1 h-12 px-3 text-[15px] border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)] outline-none focus:border-[var(--color-ink)]"
+              />
+              <button
+                type="submit"
+                className="h-12 px-5 text-[14px] font-semibold bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[3px]"
+              >
+                确定
+              </button>
+            </form>
+          </section>
+        ) : (
+          <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-5">
+            <p className="text-[10px] tracking-[0.18em] text-[var(--color-ink-3)] uppercase">
+              当前工序
+            </p>
+            <h2 className="text-[20px] font-semibold mt-1">
+              {view.currentStage ? stageLabel(view.currentStage) : ''}
+            </h2>
+            <p className="text-[12px] text-[var(--color-ink-2)] mt-1">
+              {current && current.doneQty > 0
+                ? `已完成 ${current.doneQty} 件，还剩 ${remaining} 件`
+                : `共 ${view.qty} 件`}
+            </p>
+
+            {/* The default: one tap, everything remaining at this OP. */}
+            <form action={scanReport} className="mt-4">
+              <input type="hidden" name="token" value={token} />
+              <input type="hidden" name="mode" value="all" />
+              <button
+                type="submit"
+                className="w-full h-14 text-[16px] font-semibold bg-[var(--color-success)] text-white rounded-[3px]"
+              >
+                全部完成 · {remaining} 件
+              </button>
+            </form>
+
+            {remaining > 1 ? (
+              <form
+                action={scanReport}
+                className="mt-3 flex gap-2 items-center border-t border-[var(--color-border)] pt-3"
+              >
+                <input type="hidden" name="token" value={token} />
+                <input type="hidden" name="mode" value="some" />
+                <input
+                  name="qty"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={remaining}
+                  placeholder="件数"
+                  required
+                  className="w-24 h-11 px-3 text-[15px] text-center font-mono border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)] outline-none focus:border-[var(--color-ink)]"
+                />
+                <button
+                  type="submit"
+                  className="flex-1 h-11 text-[13px] font-medium border border-[var(--color-border-strong)] text-[var(--color-ink)] rounded-[3px]"
+                >
+                  只完成一部分
+                </button>
+              </form>
+            ) : null}
+          </section>
+        )}
+
+        <p className="text-center text-[10px] text-[var(--color-ink-4)] pt-2 pb-6">
+          {BRAND.software} · {BRAND.domain}
+        </p>
+      </div>
+    </main>
+  )
+}

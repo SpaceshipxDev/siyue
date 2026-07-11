@@ -10,7 +10,7 @@ import { supabase } from './supabase'
 // once the PDF has flushed, and any failure is swallowed — a lost log row is
 // noise, a thrown one would be a failed print.
 export async function logPrint(entry: {
-  kind: 'outsource' | 'shipping' | 'inspection'
+  kind: 'outsource' | 'shipping' | 'inspection' | 'traveller'
   refId?: string
   docNo?: string
   jobNo?: string
