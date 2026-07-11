@@ -310,6 +310,19 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 />
               )
             )}
+            {/* 随工单 — the paper that travels with the parts, QR included.
+                商务 prints on create; the 工程/编程 head reprints after
+                confirming the OP route (same gate as the print page). */}
+            {canManageOutsource(user) && (
+              <a
+                href={withBase(`/print/traveller/${job.id}`)}
+                target="_blank"
+                rel="noopener"
+                className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border-strong)] text-[var(--color-ink-2)] rounded-[2px] hover:text-[var(--color-ink)] hover:border-[var(--color-ink)] transition-colors whitespace-nowrap"
+              >
+                打印随工单 ↗
+              </a>
+            )}
             <ShippingComposerButton
               jobId={job.id}
               components={job.components}
