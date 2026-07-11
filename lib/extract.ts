@@ -1,0 +1,166 @@
+import 'server-only'
+import { revalidatePath } from 'next/cache'
+import { parseWorkbook } from './xlsx'
+import { extractWorkbookImages, annotateSheetWithImages } from './xlsx-images'
+import { extractJobFromXlsx } from './gemini'
+import { fillParsedJob, setPartImageUrlDirect, type NewJobInput } from './db'
+import { uploadComponentImage } from './component-image'
+
+/*
+ * End-to-end import pipeline:
+ *   xlsx bytes
+ *     → parseWorkbook            (sheet aoa)
+ *     → extractWorkbookImages    (image bytes + cell anchors)
+ *     → annotateSheetWithImages  (`<<IMG:imgN>>` markers in aoa cells)
+ *     → extractJobFromXlsx       (Gemini → parts with imageRef per row)
+ *     → fillParsedJob            (persist parts WITHOUT images, status→draft)
+ *     → uploadComponentImage     (each ref → public URL, in background chunks)
+ *     → setPartImageUrlDirect    (patch each part as its image lands)
+ *
+ * Shared by /api/ingest (fresh upload) and /api/retry-parse (re-run on stored
+ * source file) so both code paths see the same image-resolution semantics.
+ *
+ * Why parts land in 'draft' BEFORE images upload:
+ * the master uploader's poll timeout is 45s (see app/_import_status.tsx) and
+ * a workbook with ~100 embedded photos pushes total Supabase upload time well
+ * past that. By flipping status as soon as Gemini returns we let 商务 start
+ * editing immediately while thumbnails fill in progressively as each chunk
+ * lands. revalidatePath on every chunk so the open import page picks up the
+ * new image_urls without a manual refresh.
+ */
+
+// Tuned to keep Supabase happy without leaving the upload bandwidth idle.
+// At 8 concurrent ~50KB PNGs the bottleneck is connection setup, not body
+// bytes; pushing higher only adds tail latency once Supabase starts queueing.
+const IMAGE_UPLOAD_CONCURRENCY = 8
+
+export async function runExtraction(args: {
+  jobId: string
+  fileName: string
+  buf: ArrayBuffer
+  t0?: number
+}): Promise<void> {
+  const { jobId, fileName, buf } = args
+  const t0 = args.t0 ?? Date.now()
+
+  const tParse = Date.now()
+  const wb = parseWorkbook(buf, fileName)
+  const { anchors, images } = extractWorkbookImages(buf)
+  const sheets = wb.sheets.map((s) => ({
+    name: s.name,
+    aoa: annotateSheetWithImages(s.name, s.aoa, anchors),
+  }))
+  const imageRefs = [...images.keys()]
+  console.log('[extract] parsed workbook', {
+    jobId,
+    fileName,
+    sheetNames: wb.sheetNames,
+    rowsPerSheet: wb.sheets.map((s) => ({ name: s.name, rows: s.rows, cols: s.cols })),
+    imageRefs,
+    anchorCount: anchors.length,
+    ms: Date.now() - tParse,
+  })
+
+  const tGemini = Date.now()
+  const extracted = await extractJobFromXlsx({ fileName, sheets, imageRefs })
+  console.log('[extract] gemini extracted', {
+    jobId,
+    fileName,
+    parts: extracted.components.length,
+    withImageRef: extracted.components.filter((c) => c.imageRef).length,
+    ms: Date.now() - tGemini,
+  })
+
+  // Decide imageRef → first-part-using-it mapping synchronously, before any
+  // upload. The previous parallel `usedRefs.has(...)` check inside Promise.all
+  // was racy: two parts with the same imageRef could both pass the not-yet-
+  // claimed gate and double-upload to the same key. Doing it serially here is
+  // both correct AND lets us shape the upload queue downstream.
+  const pendingUploads: { partIndex: number; imageRef: string }[] = []
+  const claimedRefs = new Set<string>()
+  extracted.components.forEach((c, i) => {
+    const ref = c.imageRef
+    if (!ref || !images.has(ref) || claimedRefs.has(ref)) return
+    claimedRefs.add(ref)
+    pendingUploads.push({ partIndex: i, imageRef: ref })
+  })
+
+  // Drop imageRef from each part — fillParsedJob expects clean components.
+  // imageUrl stays undefined; the background pass below patches each row as
+  // its upload completes.
+  const componentsWithoutImages: NewJobInput['components'] = extracted.components.map(
+    (c) => {
+      const { imageRef: _imageRef, ...rest } = c
+      void _imageRef
+      return rest
+    },
+  )
+
+  const tFill = Date.now()
+  await fillParsedJob(jobId, { ...extracted, components: componentsWithoutImages })
+  console.log('[extract] filled draft (no images yet)', {
+    jobId,
+    fileName,
+    parts: componentsWithoutImages.length,
+    pendingImages: pendingUploads.length,
+    ms: Date.now() - tFill,
+    totalSoFarMs: Date.now() - t0,
+  })
+
+  // Surface the editable draft NOW. The user gets the parts list, can rename
+  // fields, prune stages, etc. while images trickle in below.
+  revalidatePath('/')
+  revalidatePath(`/import/${jobId}`)
+
+  if (pendingUploads.length === 0) {
+    return
+  }
+
+  // Background image-upload pass — chunked Promise.all so ~100 uploads don't
+  // all hammer Supabase at once but also don't crawl serially. After every
+  // chunk we revalidate the import page so the open editor swaps in new
+  // thumbnails as they land.
+  const tImages = Date.now()
+  let uploaded = 0
+  let failed = 0
+  for (let i = 0; i < pendingUploads.length; i += IMAGE_UPLOAD_CONCURRENCY) {
+    const chunk = pendingUploads.slice(i, i + IMAGE_UPLOAD_CONCURRENCY)
+    await Promise.all(
+      chunk.map(async ({ partIndex, imageRef }) => {
+        const img = images.get(imageRef)
+        if (!img) return
+        const componentId = `p${partIndex + 1}`
+        const partId = `${jobId}:${componentId}`
+        try {
+          const imageUrl = await uploadComponentImage({
+            jobId,
+            componentId,
+            bytes: img.bytes,
+            mime: img.mime,
+            fallbackName: `${imageRef}.${img.ext}`,
+            skipStaleCheck: true,
+          })
+          await setPartImageUrlDirect(partId, imageUrl)
+          uploaded += 1
+        } catch (err) {
+          failed += 1
+          console.error('[extract] image upload failed', {
+            jobId,
+            componentId,
+            imageRef,
+            err: err instanceof Error ? err.message : String(err),
+          })
+        }
+      }),
+    )
+    revalidatePath(`/import/${jobId}`)
+  }
+  console.log('[extract] images attached', {
+    jobId,
+    fileName,
+    uploaded,
+    failed,
+    ms: Date.now() - tImages,
+    totalMs: Date.now() - t0,
+  })
+}

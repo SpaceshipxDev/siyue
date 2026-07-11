@@ -1,0 +1,90 @@
+import { notFound } from 'next/navigation'
+import { renderToBuffer } from '@react-pdf/renderer'
+import QRCode from 'qrcode'
+import { requireOutsourceManager } from '@/lib/auth'
+import { ensureOutsourceDocNo, getOutsourceBlock, getVendors } from '@/lib/db'
+import { vendorById } from '@/lib/data'
+import { BRAND } from '@/lib/brand'
+import { contentDisposition } from '@/lib/content-disposition'
+import { fetchImages } from '@/lib/pdf/images'
+import { OutsourceDocPDF } from '@/lib/pdf/outsource'
+import { nowStampShanghai } from '@/lib/today'
+import { logPrint } from '@/lib/print-log'
+
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+
+export async function GET(
+  req: Request,
+  ctx: RouteContext<'/print/outsource/[blockId]/pdf/raw'>,
+) {
+  const user = await requireOutsourceManager()
+  const { blockId } = await ctx.params
+  const [info, vendors] = await Promise.all([
+    getOutsourceBlock(blockId),
+    getVendors(),
+  ])
+  if (!info) notFound()
+
+  const docNo = info.block.docNo ?? (await ensureOutsourceDocNo(blockId))
+
+  const createdAt = nowStampShanghai()
+
+  const images = await fetchImages(info.block.members.map((m) => m.imageUrl))
+
+  // Vendor-portal onboarding QR (same silent-onboarding rationale as the HTML
+  // doc). Pre-migration vendors have no token → no QR at all. Origin from the
+  // request host, not BRAND.domain — the MES answers on yuenong.siyue.ai;
+  // bare siyue.ai serves a different app and would dead-end the QR.
+  const vendor = vendorById(info.block.vendorId, vendors)
+  const portalToken = vendor?.portalToken
+  const reqHeaders = req.headers
+  const host =
+    reqHeaders.get('x-forwarded-host') ?? reqHeaders.get('host') ?? BRAND.domain
+  const proto =
+    reqHeaders.get('x-forwarded-proto') ??
+    (host.startsWith('localhost') ? 'http' : 'https')
+  const portalUrl = portalToken ? `${proto}://${host}/w/${portalToken}` : null
+  const portalQrDataUrl = portalUrl
+    ? await QRCode.toDataURL(portalUrl, { margin: 0, width: 256 })
+    : null
+  const portalUrlShort = portalToken
+    ? `${host}/w/${portalToken.slice(0, 6)}…`
+    : null
+
+  const pdf = await renderToBuffer(
+    OutsourceDocPDF({
+      block: info.block,
+      jobNo: info.jobNo,
+      vendors,
+      docNo,
+      createdAt,
+      images,
+      portalQrDataUrl,
+      portalUrlShort,
+      portalUrl,
+    }),
+  )
+
+  // Record the generation (migration 0079). Fire-and-forget in after() — this
+  // is the only place print volume is captured, so it lives after the render
+  // succeeds and never blocks or fails the response.
+  await logPrint({
+    kind: 'outsource',
+    refId: blockId,
+    docNo,
+    jobNo: info.jobNo,
+    userName: user.name,
+    role: user.role,
+  })
+
+  return new Response(new Uint8Array(pdf), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': contentDisposition(`outsource-${docNo}.pdf`),
+      'Cache-Control': 'no-store',
+    },
+  })
+}
