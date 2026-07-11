@@ -32,7 +32,7 @@ export async function GET(
 
   const parts: TravellerPart[] = await Promise.all(
     job.components.map(async (component, i) => {
-      const token = await ensurePartQrToken(component.id)
+      const token = await ensurePartQrToken(job.id, component.id)
       const scanUrl = token ? `${proto}://${host}/s/${token}` : undefined
       return {
         component,

@@ -8784,17 +8784,23 @@ export async function upsertInspectionReport(
 
 // Race-safe lazy mint. On a pre-migration DB (column missing) this returns
 // undefined and the traveller simply prints without a QR — no crash.
+// Takes (jobId, componentId) because the parts PK has two historical shapes
+// (`${jobId}:${componentId}` for modern rows, bare componentId for legacy) —
+// same resolution as findPartIdInSnap, done here with one indexed select.
 export async function ensurePartQrToken(
-  partId: string,
+  jobId: string,
+  componentId: string,
 ): Promise<string | undefined> {
   try {
     const sel0 = await supabase
       .from('parts')
-      .select('qr_token')
-      .eq('id', partId)
-      .limit(1)
+      .select('id, job_id, qr_token')
+      .in('id', [`${jobId}:${componentId}`, componentId])
     if (sel0.error) throw sel0.error
-    const existing = (sel0.data?.[0]?.qr_token as string | null) ?? undefined
+    const row = (sel0.data ?? []).find((r) => r.job_id === jobId)
+    if (!row) return undefined
+    const partId = row.id as string
+    const existing = (row.qr_token as string | null) ?? undefined
     if (existing) return existing
     const token = crypto.randomUUID().replace(/-/g, '')
     const upd = await supabase
