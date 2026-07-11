@@ -2,6 +2,7 @@ import {
   BLOCKING_VERDICTS,
   JOBS as SEED,
   STAGES,
+  TRACKING_STAGES,
   VENDORS as VENDOR_SEED,
   blockClosedAt,
   blockLineTotalsSum,
@@ -5551,7 +5552,7 @@ export async function resetDb(): Promise<void> {
 // 商务/工程 toggle off the ones a given part skips via the chip widget.
 // Keeps every dot clickable from row one rather than relying on AI to
 // guess which stages apply.
-export const DEFAULT_NEW_PART_STAGES: Stage[] = [...STAGES]
+export const DEFAULT_NEW_PART_STAGES: Stage[] = [...TRACKING_STAGES]
 
 // Sanitize an incoming stage list: dedupe, force 出货 in (every part ships),
 // and return them in canonical STAGES order so writes are deterministic. An
@@ -5566,6 +5567,9 @@ function resolvePartStages(input: Stage[] | undefined): Stage[] {
   if (set.size === 0) {
     for (const s of DEFAULT_NEW_PART_STAGES) set.add(s)
   }
+  // 丝印 renders as 后处理 at Yingma — the mandatory final production step,
+  // mirrored by ALWAYS_ON in the route picker so client and server agree.
+  set.add('丝印')
   set.add('出货')
   return STAGES.filter((s) => set.has(s))
 }

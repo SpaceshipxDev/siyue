@@ -10,14 +10,14 @@ import {
   type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { STAGES, partRoute, stageLabel, type Component, type Stage } from '@/lib/data'
+import { TRACKING_STAGES as STAGES, partRoute, stageLabel, type Component, type Stage } from '@/lib/data'
 import { mutate } from '@/lib/mutate'
 import type { SetPartRouteResult } from '@/lib/db'
 
-// 出货 is always in the route — every part eventually ships, so the row is
+// 后处理 is always the final production step at Yingma, so the row is
 // shown lit and non-interactive. Outsource-covered stages are also locked
 // (the block owns those stages, the picker can't take them out).
-const ALWAYS_ON: ReadonlySet<Stage> = new Set<Stage>(['出货'])
+const ALWAYS_ON: ReadonlySet<Stage> = new Set<Stage>(['丝印'])
 
 type ConflictDialogState = {
   desired: Stage[]

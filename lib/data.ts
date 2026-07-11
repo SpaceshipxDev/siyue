@@ -15,16 +15,21 @@ export const SCHEMA_VERSION = 8
 
 export type Stage = (typeof STAGES)[number]
 
+// Per-component CNC route: 编程 chooses how many OPs this particular part
+// needs. 后处理 is the terminal production step. Stable Yuenong database keys
+// remain underneath; only the factory-facing route vocabulary changes.
+export const TRACKING_STAGES: Stage[] = ['编程', '操机', '手工', '打磨', '喷漆', '质量', '丝印']
+
 const YINGMA_STAGE_LABEL: Record<Stage, string> = {
-  工程: '编程',
-  编程: 'OP10',
-  操机: 'OP20',
-  检验: '检验',
-  手工: 'OP30',
-  打磨: '去毛刺',
-  喷漆: '表处',
+  工程: '编程设置',
+  编程: 'OP1',
+  操机: 'OP2',
+  手工: 'OP3',
+  打磨: 'OP4',
+  喷漆: 'OP5',
+  质量: 'OP6',
   丝印: '后处理',
-  质量: '终检',
+  检验: '—',
   出货: '出货',
 }
 
@@ -503,7 +508,7 @@ export function jobComponentsTotal(job: Job): number {
 }
 
 export function partRoute(component: Component): Stage[] {
-  return STAGES.filter((s) => component.stages[s] !== undefined)
+  return TRACKING_STAGES.filter((s) => component.stages[s] !== undefined)
 }
 
 // How many of this component's qty have been finished at this stage,

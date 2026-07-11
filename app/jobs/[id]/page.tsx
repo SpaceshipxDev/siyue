@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import { withBase } from '@/lib/base-path'
 import {
-  STAGES,
+  TRACKING_STAGES as STAGES,
   componentShipmentEntries,
   daysFromToday,
   dueState,

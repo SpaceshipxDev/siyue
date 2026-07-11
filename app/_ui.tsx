@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import type { DueState, Rollup, StageState } from '@/lib/data'
-import { STAGES, formatCny, stageLabel } from '@/lib/data'
+import { STAGES as ALL_STAGES, TRACKING_STAGES as STAGES, formatCny, stageLabel } from '@/lib/data'
 import { today } from '@/lib/today'
 import type { Role } from '@/lib/auth'
 import type { OrderMoneyStatus } from '@/lib/order-money'
@@ -273,8 +273,8 @@ export function Pill({
 }
 
 export function StageHeader({ name }: { name: string }) {
-  const label = (STAGES as readonly string[]).includes(name)
-    ? stageLabel(name as (typeof STAGES)[number])
+  const label = (ALL_STAGES as readonly string[]).includes(name)
+    ? stageLabel(name as (typeof ALL_STAGES)[number])
     : name
   return (
     <div className="flex flex-col items-center justify-center gap-0.5">

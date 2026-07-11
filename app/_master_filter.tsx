@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import Link from 'next/link'
 import {
-  STAGES,
+  TRACKING_STAGES as STAGES,
   daysFromToday,
   dueState,
   fmtPlanLabel,
