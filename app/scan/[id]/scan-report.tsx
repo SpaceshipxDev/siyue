@@ -1,0 +1,7 @@
+'use client'
+import { useState } from 'react'
+import { currentOp, seedJobs } from '../../yingma-data'
+export function ScanReport({id}:{id:string}){
+ const job=seedJobs.find(j=>j.id===id)??seedJobs[0],op=currentOp(job); const remain=job.qty-op.doneQty; const [qty,setQty]=useState(remain); const [done,setDone]=useState(false)
+ return <div className="ym-scan"><header className="ym-scan-head"><b>盈玛精密 · 车间报工</b><span>扫码进入，无需安装</span></header><main className="ym-scan-main"><section className="ym-scan-card">{done?<div className="ym-success"><i>✓</i><h2>已报工</h2><p>{op.name} · 完成 {qty} 件</p><p>PMC 的进度表已经同步更新</p></div>:<><p className="ym-kicker">{job.customer} · {job.id}</p><h1>{job.product}</h1><p className="code">{job.drawing}</p><div className="ym-scan-facts"><span>总数量<b>{job.qty} 件</b></span><span>已完成<b>{op.doneQty} 件</b></span><span>还剩<b>{remain} 件</b></span></div><div className="ym-now"><small>当前要做的工序</small><h2>{op.name}</h2><p>{op.by?`${op.by} 已开始加工`:'点击下方按钮开始并完成'}</p></div><label className="ym-qty-label">这次完成多少件？</label><div className="ym-qty"><button onClick={()=>setQty(Math.max(1,qty-1))}>−</button><input type="number" value={qty} onChange={e=>setQty(Math.min(remain,Math.max(1,Number(e.target.value))))}/><button onClick={()=>setQty(Math.min(remain,qty+1))}>＋</button></div><button className="ym-finish-all" onClick={()=>{setQty(remain);setDone(true)}}>全部完成 · {remain} 件</button>{remain>1&&<button className="ym-partial" onClick={()=>setDone(true)}>只完成 {qty} 件</button>}</>}</section></main></div>
+}
