@@ -27,10 +27,7 @@ import { getUserById } from '@/lib/db'
 // '/api/leads' is the lead-capture POST from the public siyue.ai landing —
 // it does its own validation/honeypot/rate-limit; a session gate here would
 // 307 every prospect's form submit to /login.
-// A QR on a physical traveller is the worker's credential for this narrow
-// surface. The report endpoint only exposes the component and current OP;
-// the dashboard and all commercial context remain session-gated.
-const PUBLIC_PATHS = ['/login', '/join', '/w', '/x/demo', '/scan', '/api/leads']
+const PUBLIC_PATHS = ['/login', '/join', '/w', '/x/demo', '/api/leads']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only
