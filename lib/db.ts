@@ -5548,11 +5548,12 @@ export async function resetDb(): Promise<void> {
   })
 }
 
-// Default route for a fresh part — every stage is seeded as pending, and
-// 商务/工程 toggle off the ones a given part skips via the chip widget.
-// Keeps every dot clickable from row one rather than relying on AI to
-// guess which stages apply.
-export const DEFAULT_NEW_PART_STAGES: Stage[] = [...TRACKING_STAGES]
+// Default route for a fresh part — every visible OP is seeded as pending,
+// and 商务/工程 toggle off the ones a given part skips via the chip widget.
+// 出货 rides along invisibly: it never shows as a tick column at Yingma, but
+// the shipping flow (prepareShipping / vendor-line close-out) finishes that
+// row, so every part must carry it — same invariant resolvePartStages forces.
+export const DEFAULT_NEW_PART_STAGES: Stage[] = [...TRACKING_STAGES, '出货']
 
 // Sanitize an incoming stage list: dedupe, force 出货 in (every part ships),
 // and return them in canonical STAGES order so writes are deterministic. An
