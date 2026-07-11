@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import type { DueState, Rollup, StageState } from '@/lib/data'
-import { STAGES, formatCny } from '@/lib/data'
+import { STAGES, formatCny, stageLabel } from '@/lib/data'
 import { today } from '@/lib/today'
 import type { Role } from '@/lib/auth'
 import type { OrderMoneyStatus } from '@/lib/order-money'
@@ -39,7 +39,7 @@ function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): T
   const stageTabs = (except?: string): Tab[] =>
     STAGES.filter((s) => s !== except).map((s) => ({
       key: s as TabKey,
-      label: s,
+      label: stageLabel(s),
       href: `/?stage=${encodeURIComponent(s)}`,
     }))
   if (role === 'production') {
@@ -273,10 +273,13 @@ export function Pill({
 }
 
 export function StageHeader({ name }: { name: string }) {
+  const label = (STAGES as readonly string[]).includes(name)
+    ? stageLabel(name as (typeof STAGES)[number])
+    : name
   return (
     <div className="flex flex-col items-center justify-center gap-0.5">
       <span className="text-[12px] font-medium tracking-wider text-[var(--color-ink)]">
-        {name}
+        {label}
       </span>
     </div>
   )

@@ -23,6 +23,7 @@ export function MasterUploader() {
   const router = useRouter()
   const [items, setItems] = useState<Item[]>([])
   const [drag, setDrag] = useState(false)
+  const [creating, setCreating] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const update = useCallback((id: string, patch: Partial<Item>) => {
@@ -129,6 +130,19 @@ export function MasterUploader() {
 
   const parsing = items.filter((i) => i.status === 'parsing').length
 
+  const createManual = async () => {
+    if (creating) return
+    setCreating(true)
+    try {
+      const r = await fetch(withBase('/api/manual-job'), { method: 'POST' })
+      const data = await r.json() as { ok: boolean; jobId?: string; error?: string }
+      if (!r.ok || !data.ok || !data.jobId) throw new Error(data.error ?? '新建失败')
+      router.push(`/import/${data.jobId}`)
+    } finally {
+      setCreating(false)
+    }
+  }
+
   return (
     <section className="mb-8 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
       <div className="grid grid-cols-12 gap-0">
@@ -167,6 +181,14 @@ export function MasterUploader() {
           <p className="mt-1 text-[12px] text-[var(--color-ink-3)]">
             支持 .xlsx / .xls / .csv · {BRAND.code}-* 报价单 / 生产单
           </p>
+          <button
+            type="button"
+            disabled={creating}
+            onClick={(e) => { e.stopPropagation(); void createManual() }}
+            className="mt-4 border border-[var(--color-border-strong)] rounded-[2px] px-3 py-1.5 text-[12px] font-medium text-[var(--color-ink)] hover:border-[var(--color-ink)] disabled:opacity-50"
+          >
+            {creating ? '正在新建…' : '+ 手工新建一个零件'}
+          </button>
         </div>
 
         <div className="col-span-7 px-6 py-5">

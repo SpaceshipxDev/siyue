@@ -11,6 +11,7 @@ import {
   formatCny,
   jobIntakeDate,
   jobNoSortKey,
+  stageLabel,
   stagePlanState,
   type Stage,
 } from '@/lib/data'
@@ -838,7 +839,7 @@ export function MasterSheet({
                             : undefined
                         }
                       >
-                        {s}
+                        {stageLabel(s)}
                       </span>
                       {treatAsOverview && (
                         <HeaderFilter

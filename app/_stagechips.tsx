@@ -10,7 +10,7 @@ import {
   type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { STAGES, partRoute, type Component, type Stage } from '@/lib/data'
+import { STAGES, partRoute, stageLabel, type Component, type Stage } from '@/lib/data'
 import { mutate } from '@/lib/mutate'
 import type { SetPartRouteResult } from '@/lib/db'
 
@@ -376,7 +376,7 @@ function RoutePicker({
                       : 'text-[var(--color-ink-3)]'
                 }`}
               >
-                {stage}
+                {stageLabel(stage)}
               </span>
               <span className="label text-[10px] text-[var(--color-ink-4)]">
                 {isAlwaysOn ? '必经' : isOutsource ? '已外协' : ''}

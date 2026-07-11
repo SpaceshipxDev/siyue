@@ -15,6 +15,23 @@ export const SCHEMA_VERSION = 8
 
 export type Stage = (typeof STAGES)[number]
 
+const YINGMA_STAGE_LABEL: Record<Stage, string> = {
+  工程: '编程',
+  编程: 'OP10',
+  操机: 'OP20',
+  检验: '检验',
+  手工: 'OP30',
+  打磨: '去毛刺',
+  喷漆: '表处',
+  丝印: '后处理',
+  质量: '终检',
+  出货: '出货',
+}
+
+export function stageLabel(stage: Stage): string {
+  return YINGMA_STAGE_LABEL[stage]
+}
+
 // 出货 is always an in-house terminal stage: vendors never ship to the
 // customer directly — they ship parts back to us, then we ship to the
 // customer. Outsource blocks therefore cover production stages only.
