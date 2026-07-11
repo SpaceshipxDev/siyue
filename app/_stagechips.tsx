@@ -197,7 +197,7 @@ export function StageChips({
 function routeTitle(inRoute: Stage[], lockedByOutsource: Set<Stage>): string {
   if (inRoute.length === 0) return '未设工序'
   return inRoute
-    .map((s) => (lockedByOutsource.has(s) ? `${s}(外协)` : s))
+    .map((s) => (lockedByOutsource.has(s) ? `${stageLabel(s)}(外协)` : stageLabel(s)))
     .join(' → ')
 }
 
@@ -222,12 +222,12 @@ function RouteSummary({
       <>
         <span className="text-[var(--color-ink-4)]">跳过 </span>
         <span className="text-[var(--color-ink-2)] line-through decoration-[var(--color-ink-4)]">
-          {skipped.join('·')}
+          {skipped.map(stageLabel).join('·')}
         </span>
       </>
     )
   } else if (inRoute.length <= 4) {
-    main = <span>{inRoute.join('·')}</span>
+    main = <span>{inRoute.map(stageLabel).join('·')}</span>
   } else {
     main = (
       <span className="whitespace-nowrap">

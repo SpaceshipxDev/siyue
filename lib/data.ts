@@ -52,13 +52,11 @@ export const OUTSOURCEABLE_STAGES: Stage[] = PRODUCTION_STAGES.filter(
   (s) => s !== '工程',
 )
 
-// 计划交期 / 排产 — the stages a job can carry a PLANNED finish date for. 检验
-// is a verdict gate with no in-house duration and 出货's plan would just be the
-// contract 交期, so neither is plannable. Order follows STAGES so a plan strip
-// reads left-to-right the way parts actually flow.
-export const PLANNABLE_STAGES: Stage[] = PRODUCTION_STAGES.filter(
-  (s) => s !== '检验',
-)
+// 计划交期 / 排产 — the stages a job can carry a PLANNED finish date for.
+// At Yingma this is exactly the visible OP route: planning a date for a
+// stage the board doesn't show would be noise. Order follows the route so a
+// plan strip reads left-to-right the way parts actually flow.
+export const PLANNABLE_STAGES: Stage[] = [...TRACKING_STAGES]
 
 // 外协 carries one job-level planned return date alongside the in-house 工段
 // plans — same stage_plan map, one extra key. Deliberately NOT a Stage: it has
