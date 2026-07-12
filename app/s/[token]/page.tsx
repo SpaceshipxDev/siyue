@@ -1,9 +1,13 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { cookies } from 'next/headers'
 import { stageLabel } from '@/lib/data'
 import { getPartScanView } from '@/lib/db'
+import { workerToday } from '@/lib/packets'
 import { BRAND } from '@/lib/brand'
-import { scanReport, scanSetWorker } from './_actions'
+import { scanSetWorker } from './_actions'
+import { ReportForm } from './_report_form'
+import { TallyStrip } from './_tally'
 import { WORKER_COOKIE, decodeWorker } from './_worker'
 
 // 车间报工 — what a worker's phone shows after scanning the traveller QR.
@@ -46,6 +50,8 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
   const view = await getPartScanView(token)
   const jar = await cookies()
   const worker = decodeWorker(jar.get(WORKER_COOKIE)?.value)
+  const src = sp.via === 'photo' ? 'photo' : 'scan'
+  const tally = worker ? await workerToday(worker) : undefined
 
   if (!view) {
     return (
@@ -66,7 +72,6 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
     ? view.stages.find((s) => s.stage === view.currentStage)
     : undefined
   const remaining = current ? Math.max(0, view.qty - current.doneQty) : 0
-  const doneOps = view.stages.filter((s) => s.status === 'done').length
   const allDone = !view.currentStage
 
   return (
@@ -84,9 +89,17 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
         {reported !== undefined && Number.isFinite(reported) ? (
           <div className="bg-[var(--color-success-soft)] border border-[var(--color-success)] rounded-[3px] px-4 py-3">
             <p className="text-[13px] font-semibold text-[var(--color-success)]">
-              ✓ 已报工，进度表已同步更新
+              ✓ 已报工 +{reported} 件，进度表已同步更新
             </p>
           </div>
+        ) : null}
+
+        {worker && tally && (tally.pieces > 0 || reported !== undefined) ? (
+          <TallyStrip
+            pieces={tally.pieces}
+            reports={tally.reports}
+            justAdded={reported}
+          />
         ) : null}
 
         {/* The part — same six facts as the paper this QR is printed on. */}
@@ -118,61 +131,43 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
           </div>
         </section>
 
-        {/* Route — where this part is. The current OP carries the color. */}
-        <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-5">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-[12px] font-semibold tracking-[0.15em]">
-              工序进度
-            </h2>
-            <span className="text-[11px] text-[var(--color-ink-2)]">
-              {doneOps} / {view.stages.length}
-            </span>
-          </div>
-          <ol className="mt-3">
-            {view.stages.map((s, i) => {
+        {/* Route — the same chip row the dashboard speaks: green ✓ done,
+            amber a/b in progress, gray waiting. No prose. */}
+        <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-4">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {view.stages.map((s) => {
               const isCurrent = s.stage === view.currentStage
-              return (
-                <li
-                  key={s.stage}
-                  className={`flex items-center gap-3 py-2.5 ${
-                    i > 0 ? 'border-t border-[var(--color-border)]' : ''
-                  }`}
-                >
+              if (s.status === 'done') {
+                return (
                   <span
-                    className={`w-6 h-6 shrink-0 rounded-full border text-[11px] flex items-center justify-center font-mono ${
-                      s.status === 'done'
-                        ? 'bg-[var(--color-success)] border-[var(--color-success)] text-white'
-                        : isCurrent
-                          ? 'border-[var(--color-success)] text-[var(--color-success)] font-semibold'
-                          : 'border-[var(--color-border-strong)] text-[var(--color-ink-3)]'
-                    }`}
+                    key={s.stage}
+                    className="inline-flex items-center h-7 px-2.5 rounded-[3px] text-[12px] font-medium bg-[var(--color-success-soft)] text-[var(--color-success)] border border-[var(--color-success)]"
                   >
-                    {s.status === 'done' ? '✓' : i + 1}
+                    {stageLabel(s.stage)} ✓
                   </span>
+                )
+              }
+              if (isCurrent) {
+                return (
                   <span
-                    className={`text-[14px] ${
-                      isCurrent
-                        ? 'font-semibold'
-                        : s.status === 'done'
-                          ? 'text-[var(--color-ink-2)]'
-                          : 'text-[var(--color-ink-3)]'
-                    }`}
+                    key={s.stage}
+                    className="inline-flex items-center h-7 px-2.5 rounded-[3px] text-[12px] font-semibold bg-[color-mix(in_srgb,var(--color-warning)_14%,transparent)] text-[var(--color-warning)] border border-[var(--color-warning)]"
                   >
                     {stageLabel(s.stage)}
+                    {s.doneQty > 0 ? ` ${s.doneQty}/${view.qty}` : ''}
                   </span>
-                  <span className="ml-auto text-[11px] text-[var(--color-ink-3)] text-right">
-                    {s.status === 'done'
-                      ? `${s.by ?? ''} ${s.completedAt ?? ''}`.trim() || '已完成'
-                      : isCurrent
-                        ? s.doneQty > 0
-                          ? `已完成 ${s.doneQty} / ${view.qty} 件`
-                          : '当前工序'
-                        : ''}
-                  </span>
-                </li>
+                )
+              }
+              return (
+                <span
+                  key={s.stage}
+                  className="inline-flex items-center h-7 px-2.5 rounded-[3px] text-[12px] text-[var(--color-ink-3)] border border-[var(--color-border)]"
+                >
+                  {stageLabel(s.stage)}
+                </span>
               )
             })}
-          </ol>
+          </div>
         </section>
 
         {allDone ? (
@@ -222,45 +217,19 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
                 : `共 ${view.qty} 件`}
             </p>
 
-            {/* The default: one tap, everything remaining at this OP. */}
-            <form action={scanReport} className="mt-4">
-              <input type="hidden" name="token" value={token} />
-              <input type="hidden" name="mode" value="all" />
-              <button
-                type="submit"
-                className="w-full h-14 text-[16px] font-semibold bg-[var(--color-success)] text-white rounded-[3px]"
-              >
-                全部完成 · {remaining} 件
-              </button>
-            </form>
-
-            {remaining > 1 ? (
-              <form
-                action={scanReport}
-                className="mt-3 flex gap-2 items-center border-t border-[var(--color-border)] pt-3"
-              >
-                <input type="hidden" name="token" value={token} />
-                <input type="hidden" name="mode" value="some" />
-                <input
-                  name="qty"
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={remaining}
-                  placeholder="件数"
-                  required
-                  className="w-24 h-11 px-3 text-[15px] text-center font-mono border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)] outline-none focus:border-[var(--color-ink)]"
-                />
-                <button
-                  type="submit"
-                  className="flex-1 h-11 text-[13px] font-medium border border-[var(--color-border-strong)] text-[var(--color-ink)] rounded-[3px]"
-                >
-                  只完成一部分
-                </button>
-              </form>
-            ) : null}
+            {/* One control: the count arrives prefilled with everything still
+                open (the default act is "finished the rest"); −/+ or typing
+                adjusts it; one button reports. */}
+            <ReportForm token={token} src={src} remaining={remaining} />
           </section>
         )}
+
+        <Link
+          href="/p"
+          className="w-full h-12 text-[14px] font-medium border border-[var(--color-border-strong)] text-[var(--color-ink)] rounded-[3px] bg-[var(--color-surface)] flex items-center justify-center"
+        >
+          📷 拍照报下一单
+        </Link>
 
         <p className="text-center text-[10px] text-[var(--color-ink-4)] pt-2 pb-6">
           {BRAND.software} · {BRAND.domain}

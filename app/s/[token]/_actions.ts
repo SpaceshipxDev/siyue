@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import { getPartScanView, reportPartScan } from '@/lib/db'
+import { logReportEvent } from '@/lib/packets'
 import { WORKER_COOKIE, decodeWorker } from './_worker'
 
 // Scan-page server actions. No session: identity IS the traveller token,
@@ -56,11 +57,26 @@ export async function scanReport(formData: FormData): Promise<void> {
   }
   if (doneNow <= 0) redirect(`/s/${token}`)
 
+  const prevDone = current?.doneQty ?? 0
   const result = await reportPartScan(token, doneNow, actor)
   // The master board and job detail read these rows — refresh them so the
   // PMC's screen reflects the scan without a manual reload.
   revalidatePath('/')
   revalidatePath(`/jobs/${view!.jobId}`)
   if (!result.ok) redirect(`/s/${token}`)
-  redirect(`/s/${token}?reported=${result.totalDone ?? doneNow}`)
+  // Append-only history — part_stages only keeps the latest state, but the
+  // job page's worker timeline and the daily tallies need every report.
+  const applied = Math.max(0, (result.totalDone ?? prevDone + doneNow) - prevDone)
+  if (applied > 0 && result.stage) {
+    await logReportEvent({
+      partId: view!.componentId,
+      jobId: view!.jobId,
+      stage: result.stage,
+      actor,
+      qty: applied,
+      cumulative: result.totalDone ?? prevDone + applied,
+      source: str(formData, 'src') === 'photo' ? 'photo' : 'scan',
+    })
+  }
+  redirect(`/s/${token}?reported=${applied}`)
 }

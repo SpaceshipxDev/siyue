@@ -33,7 +33,11 @@ import { getUserById } from '@/lib/db'
 // same way the '/w' vendor portal does. It exposes one part's route/progress
 // and accepts one narrow write (report qty at the current OP) — no prices,
 // no other parts, no dashboard.
-const PUBLIC_PATHS = ['/login', '/join', '/w', '/s', '/x/demo', '/api/leads']
+// '/p' + '/api/match-photo' are the photo-报工 loop — public for the same
+// reason '/s' is: the worker's credential is the physical sheet in their
+// hand, and a successful match only resolves to the same narrow /s surface
+// the printed QR opens (rate-limited inside the route).
+const PUBLIC_PATHS = ['/login', '/join', '/w', '/s', '/p', '/api/match-photo', '/x/demo', '/api/leads']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only

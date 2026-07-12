@@ -1,0 +1,17 @@
+ECHANGEUR 33 A10
+ASF 79360
+GRAN2AV-GRIPT
+Tel :3605
+RECU
+N° R1211249075330200103
+Date............01/05/15
+Sortie............Soudan
+Entree......... Niort-Sud
+Classe-tarif..1 km..037
+PRIX HT.......2,08 euros
+TVA 20,00%....0,42 euros
+PRIX TTC......2,50 euros
+RECU VALANT FACTURE
+COMPLETER AU VERSO
+Paiement....2,50 E ..CB
+N° carte: ..........6690
