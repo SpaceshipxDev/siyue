@@ -1,0 +1,1155 @@
+{
+  "generatedAt": "2026-07-12T13:35:00.141670+00:00",
+  "root": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/matcher-lab-100",
+  "referenceCount": 30,
+  "variantCount": 120,
+  "chosenCount": 30,
+  "documents": [
+    {
+      "id": "sd-datasheet001",
+      "label": "SmartDoc \u00b7 datasheet001",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-datasheet001.jpeg",
+      "thumbnail": "thumbnails/references/sd-datasheet001.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/datasheet001/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-datasheet001/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet001/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/datasheet001/frame_0079.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-datasheet001/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet001/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/datasheet001/frame_0038.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-datasheet001/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet001/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/datasheet001/frame_0036.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-datasheet001/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet001/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/datasheet001/frame_0028.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-datasheet002",
+      "label": "SmartDoc \u00b7 datasheet002",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-datasheet002.jpeg",
+      "thumbnail": "thumbnails/references/sd-datasheet002.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/datasheet002/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-datasheet002/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet002/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/datasheet002/frame_0067.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-datasheet002/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet002/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/datasheet002/frame_0033.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-datasheet002/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet002/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/datasheet002/frame_0039.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-datasheet002/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet002/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/datasheet002/frame_0029.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-datasheet003",
+      "label": "SmartDoc \u00b7 datasheet003",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-datasheet003.jpeg",
+      "thumbnail": "thumbnails/references/sd-datasheet003.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/datasheet003/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-datasheet003/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet003/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/datasheet003/frame_0071.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-datasheet003/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet003/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/datasheet003/frame_0034.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-datasheet003/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet003/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/datasheet003/frame_0031.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-datasheet003/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet003/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/datasheet003/frame_0027.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-datasheet004",
+      "label": "SmartDoc \u00b7 datasheet004",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-datasheet004.jpeg",
+      "thumbnail": "thumbnails/references/sd-datasheet004.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/datasheet004/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-datasheet004/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet004/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/datasheet004/frame_0068.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-datasheet004/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet004/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/datasheet004/frame_0035.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-datasheet004/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet004/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/datasheet004/frame_0031.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-datasheet004/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet004/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/datasheet004/frame_0029.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-datasheet005",
+      "label": "SmartDoc \u00b7 datasheet005",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-datasheet005.jpeg",
+      "thumbnail": "thumbnails/references/sd-datasheet005.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/datasheet005/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-datasheet005/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet005/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/datasheet005/frame_0079.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-datasheet005/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet005/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/datasheet005/frame_0036.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-datasheet005/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet005/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/datasheet005/frame_0035.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-datasheet005/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-datasheet005/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/datasheet005/frame_0024.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-letter001",
+      "label": "SmartDoc \u00b7 letter001",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-letter001.jpeg",
+      "thumbnail": "thumbnails/references/sd-letter001.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/letter001/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-letter001/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter001/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/letter001/frame_0065.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-letter001/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter001/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/letter001/frame_0036.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-letter001/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter001/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/letter001/frame_0033.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-letter001/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter001/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/letter001/frame_0025.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-letter002",
+      "label": "SmartDoc \u00b7 letter002",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-letter002.jpeg",
+      "thumbnail": "thumbnails/references/sd-letter002.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/letter002/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-letter002/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter002/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/letter002/frame_0067.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-letter002/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter002/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/letter002/frame_0033.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-letter002/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter002/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/letter002/frame_0032.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-letter002/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter002/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/letter002/frame_0025.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-letter003",
+      "label": "SmartDoc \u00b7 letter003",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-letter003.jpeg",
+      "thumbnail": "thumbnails/references/sd-letter003.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/letter003/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-letter003/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter003/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/letter003/frame_0069.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-letter003/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter003/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/letter003/frame_0042.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-letter003/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter003/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/letter003/frame_0034.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-letter003/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter003/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/letter003/frame_0025.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-letter004",
+      "label": "SmartDoc \u00b7 letter004",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-letter004.jpeg",
+      "thumbnail": "thumbnails/references/sd-letter004.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/letter004/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-letter004/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter004/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/letter004/frame_0071.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-letter004/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter004/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/letter004/frame_0032.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-letter004/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter004/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/letter004/frame_0030.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-letter004/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter004/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/letter004/frame_0024.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-letter005",
+      "label": "SmartDoc \u00b7 letter005",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-letter005.jpeg",
+      "thumbnail": "thumbnails/references/sd-letter005.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/letter005/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-letter005/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter005/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/letter005/frame_0068.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-letter005/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter005/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/letter005/frame_0037.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-letter005/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter005/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/letter005/frame_0034.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-letter005/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-letter005/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/letter005/frame_0025.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-magazine001",
+      "label": "SmartDoc \u00b7 magazine001",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-magazine001.jpeg",
+      "thumbnail": "thumbnails/references/sd-magazine001.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/magazine001/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-magazine001/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine001/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/magazine001/frame_0071.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-magazine001/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine001/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/magazine001/frame_0035.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-magazine001/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine001/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/magazine001/frame_0033.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-magazine001/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine001/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/magazine001/frame_0026.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-magazine002",
+      "label": "SmartDoc \u00b7 magazine002",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-magazine002.jpeg",
+      "thumbnail": "thumbnails/references/sd-magazine002.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/magazine002/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-magazine002/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine002/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/magazine002/frame_0076.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-magazine002/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine002/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/magazine002/frame_0034.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-magazine002/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine002/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/magazine002/frame_0037.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-magazine002/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine002/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/magazine002/frame_0024.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-magazine003",
+      "label": "SmartDoc \u00b7 magazine003",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-magazine003.jpeg",
+      "thumbnail": "thumbnails/references/sd-magazine003.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/magazine003/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-magazine003/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine003/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/magazine003/frame_0069.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-magazine003/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine003/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/magazine003/frame_0032.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-magazine003/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine003/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/magazine003/frame_0033.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-magazine003/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine003/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/magazine003/frame_0029.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-magazine004",
+      "label": "SmartDoc \u00b7 magazine004",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-magazine004.jpeg",
+      "thumbnail": "thumbnails/references/sd-magazine004.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/magazine004/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-magazine004/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine004/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/magazine004/frame_0075.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-magazine004/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine004/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/magazine004/frame_0038.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-magazine004/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine004/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/magazine004/frame_0031.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-magazine004/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine004/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/magazine004/frame_0023.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-magazine005",
+      "label": "SmartDoc \u00b7 magazine005",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-magazine005.jpeg",
+      "thumbnail": "thumbnails/references/sd-magazine005.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/magazine005/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-magazine005/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine005/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/magazine005/frame_0065.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-magazine005/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine005/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/magazine005/frame_0029.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-magazine005/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine005/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/magazine005/frame_0030.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-magazine005/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-magazine005/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/magazine005/frame_0026.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-paper001",
+      "label": "SmartDoc \u00b7 paper001",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-paper001.jpeg",
+      "thumbnail": "thumbnails/references/sd-paper001.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/paper001/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-paper001/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper001/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/paper001/frame_0066.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-paper001/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper001/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/paper001/frame_0044.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-paper001/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper001/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/paper001/frame_0031.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-paper001/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper001/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/paper001/frame_0021.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-paper002",
+      "label": "SmartDoc \u00b7 paper002",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-paper002.jpeg",
+      "thumbnail": "thumbnails/references/sd-paper002.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/paper002/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-paper002/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper002/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/paper002/frame_0071.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-paper002/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper002/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/paper002/frame_0036.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-paper002/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper002/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/paper002/frame_0033.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-paper002/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper002/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/paper002/frame_0023.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-paper003",
+      "label": "SmartDoc \u00b7 paper003",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-paper003.jpeg",
+      "thumbnail": "thumbnails/references/sd-paper003.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/paper003/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-paper003/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper003/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/paper003/frame_0069.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-paper003/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper003/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/paper003/frame_0036.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-paper003/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper003/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/paper003/frame_0033.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-paper003/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper003/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/paper003/frame_0024.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-paper004",
+      "label": "SmartDoc \u00b7 paper004",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-paper004.jpeg",
+      "thumbnail": "thumbnails/references/sd-paper004.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/paper004/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-paper004/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper004/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/paper004/frame_0069.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-paper004/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper004/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/paper004/frame_0031.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-paper004/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper004/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/paper004/frame_0034.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-paper004/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper004/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/paper004/frame_0020.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-paper005",
+      "label": "SmartDoc \u00b7 paper005",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-paper005.jpeg",
+      "thumbnail": "thumbnails/references/sd-paper005.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/paper005/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-paper005/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper005/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/paper005/frame_0063.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-paper005/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper005/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/paper005/frame_0033.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-paper005/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper005/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/paper005/frame_0034.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-paper005/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-paper005/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/paper005/frame_0022.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-patent001",
+      "label": "SmartDoc \u00b7 patent001",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-patent001.jpeg",
+      "thumbnail": "thumbnails/references/sd-patent001.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/patent001/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-patent001/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent001/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/patent001/frame_0063.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-patent001/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent001/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/patent001/frame_0028.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-patent001/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent001/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/patent001/frame_0036.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-patent001/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent001/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/patent001/frame_0022.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-patent002",
+      "label": "SmartDoc \u00b7 patent002",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-patent002.jpeg",
+      "thumbnail": "thumbnails/references/sd-patent002.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/patent002/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-patent002/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent002/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/patent002/frame_0065.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-patent002/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent002/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/patent002/frame_0028.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-patent002/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent002/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/patent002/frame_0034.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-patent002/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent002/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/patent002/frame_0022.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-patent003",
+      "label": "SmartDoc \u00b7 patent003",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-patent003.jpeg",
+      "thumbnail": "thumbnails/references/sd-patent003.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/patent003/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-patent003/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent003/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/patent003/frame_0068.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-patent003/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent003/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/patent003/frame_0031.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-patent003/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent003/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/patent003/frame_0033.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-patent003/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent003/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/patent003/frame_0022.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-patent004",
+      "label": "SmartDoc \u00b7 patent004",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-patent004.jpeg",
+      "thumbnail": "thumbnails/references/sd-patent004.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/patent004/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-patent004/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent004/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/patent004/frame_0075.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-patent004/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent004/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/patent004/frame_0036.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-patent004/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent004/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/patent004/frame_0032.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-patent004/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent004/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/patent004/frame_0023.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-patent005",
+      "label": "SmartDoc \u00b7 patent005",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-patent005.jpeg",
+      "thumbnail": "thumbnails/references/sd-patent005.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/patent005/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-patent005/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent005/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/patent005/frame_0067.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-patent005/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent005/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/patent005/frame_0035.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-patent005/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent005/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/patent005/frame_0038.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-patent005/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-patent005/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/patent005/frame_0023.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-tax001",
+      "label": "SmartDoc \u00b7 tax001",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-tax001.jpeg",
+      "thumbnail": "thumbnails/references/sd-tax001.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/tax001/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-tax001/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax001/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/tax001/frame_0069.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-tax001/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax001/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/tax001/frame_0020.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-tax001/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax001/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/tax001/frame_0040.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-tax001/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax001/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/tax001/frame_0019.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-tax002",
+      "label": "SmartDoc \u00b7 tax002",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-tax002.jpeg",
+      "thumbnail": "thumbnails/references/sd-tax002.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/tax002/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-tax002/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax002/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/tax002/frame_0070.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-tax002/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax002/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/tax002/frame_0037.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-tax002/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax002/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/tax002/frame_0028.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-tax002/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax002/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/tax002/frame_0019.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-tax003",
+      "label": "SmartDoc \u00b7 tax003",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-tax003.jpeg",
+      "thumbnail": "thumbnails/references/sd-tax003.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/tax003/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-tax003/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax003/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/tax003/frame_0067.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-tax003/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax003/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/tax003/frame_0030.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-tax003/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax003/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/tax003/frame_0032.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-tax003/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax003/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/tax003/frame_0018.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-tax004",
+      "label": "SmartDoc \u00b7 tax004",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-tax004.jpeg",
+      "thumbnail": "thumbnails/references/sd-tax004.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/tax004/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-tax004/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax004/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/tax004/frame_0055.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-tax004/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax004/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/tax004/frame_0035.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-tax004/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax004/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/tax004/frame_0035.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-tax004/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax004/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/tax004/frame_0021.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "sd-tax005",
+      "label": "SmartDoc \u00b7 tax005",
+      "family": "handheld-angle-zoom-crop",
+      "asset": "references/sd-tax005.jpeg",
+      "thumbnail": "thumbnails/references/sd-tax005.jpg",
+      "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/tax005/frame_0001.jpeg",
+      "variants": [
+        {
+          "id": "view-01",
+          "label": "closer handheld view",
+          "asset": "angle-zoom-crop/sd-tax005/view-01.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax005/view-01.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background01/tax005/frame_0081.jpeg"
+        },
+        {
+          "id": "view-02",
+          "label": "left or right camera angle",
+          "asset": "angle-zoom-crop/sd-tax005/view-02.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax005/view-02.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background02/tax005/frame_0037.jpeg"
+        },
+        {
+          "id": "view-03",
+          "label": "rotated handheld view",
+          "asset": "angle-zoom-crop/sd-tax005/view-03.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax005/view-03.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background03/tax005/frame_0035.jpeg"
+        },
+        {
+          "id": "view-04",
+          "label": "wider view with partial crop",
+          "asset": "angle-zoom-crop/sd-tax005/view-04.jpeg",
+          "thumbnail": "thumbnails/angle-zoom-crop/sd-tax005/view-04.jpg",
+          "source": "/Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/services/matcher/testdata/external/smartdoc15-ch1/frames/background04/tax005/frame_0022.jpeg"
+        }
+      ]
+    }
+  ],
+  "dataset": {
+    "name": "ICDAR 2015 SmartDoc Challenge 1",
+    "source": "https://zenodo.org/records/1230218",
+    "license": "CC BY 4.0",
+    "profile": "clear handheld documents with angle, zoom, rotation, and partial crop"
+  }
+}

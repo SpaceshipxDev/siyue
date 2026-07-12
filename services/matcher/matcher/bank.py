@@ -19,6 +19,7 @@ class Page:
     image_path: Path
     feature_path: Path
     embedding: np.ndarray
+    gemini_embedding: np.ndarray | None = None
 
 
 class PageBank:
@@ -47,6 +48,11 @@ class PageBank:
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )""")
+            columns = {row[1] for row in db.execute("PRAGMA table_info(pages)").fetchall()}
+            if "gemini_embedding" not in columns:
+                db.execute("ALTER TABLE pages ADD COLUMN gemini_embedding BLOB")
+            if "gemini_dim" not in columns:
+                db.execute("ALTER TABLE pages ADD COLUMN gemini_dim INTEGER")
 
     @staticmethod
     def _slug(page_id: str) -> str:
@@ -56,6 +62,7 @@ class PageBank:
     def upsert(
         self, page_id: str, component_id: str, kind: str, image_rgb: np.ndarray,
         embedding: np.ndarray, features: dict[str, np.ndarray],
+        gemini_embedding: np.ndarray | None = None,
     ) -> None:
         slug = self._slug(page_id)
         image_rel = Path("pages") / f"{slug}.jpg"
@@ -72,15 +79,27 @@ class PageBank:
             tmp_image.replace(self.root / image_rel)
             tmp_features.replace(self.root / feature_rel)
             vector = np.asarray(embedding, dtype=np.float32)
+            gemini_vector = (
+                np.asarray(gemini_embedding, dtype=np.float32)
+                if gemini_embedding is not None else None
+            )
             with self._connect() as db:
                 db.execute("""INSERT INTO pages
-                    (page_id, component_id, kind, image_path, feature_path, embedding, embedding_dim)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (page_id, component_id, kind, image_path, feature_path, embedding, embedding_dim,
+                     gemini_embedding, gemini_dim)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(page_id) DO UPDATE SET component_id=excluded.component_id,
                     kind=excluded.kind, image_path=excluded.image_path,
                     feature_path=excluded.feature_path, embedding=excluded.embedding,
-                    embedding_dim=excluded.embedding_dim, updated_at=CURRENT_TIMESTAMP""",
-                    (page_id, component_id, kind, str(image_rel), str(feature_rel), vector.tobytes(), len(vector)))
+                    embedding_dim=excluded.embedding_dim,
+                    gemini_embedding=excluded.gemini_embedding, gemini_dim=excluded.gemini_dim,
+                    updated_at=CURRENT_TIMESTAMP""",
+                    (
+                        page_id, component_id, kind, str(image_rel), str(feature_rel),
+                        vector.tobytes(), len(vector),
+                        gemini_vector.tobytes() if gemini_vector is not None else None,
+                        len(gemini_vector) if gemini_vector is not None else None,
+                    ))
 
     def delete(self, page_id: str) -> bool:
         with self.lock, self._connect() as db:
@@ -99,6 +118,10 @@ class PageBank:
             row["page_id"], row["component_id"], row["kind"],
             self.root / row["image_path"], self.root / row["feature_path"],
             np.frombuffer(row["embedding"], np.float32, row["embedding_dim"]).copy(),
+            (
+                np.frombuffer(row["gemini_embedding"], np.float32, row["gemini_dim"]).copy()
+                if row["gemini_embedding"] is not None else None
+            ),
         ) for row in rows]
 
     def get(self, page_id: str) -> Page | None:

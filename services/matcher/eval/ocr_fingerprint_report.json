@@ -1,0 +1,10 @@
+{
+  "references": 30,
+  "queries": 300,
+  "top1": 22,
+  "top1_pct": 7.33,
+  "top5": 68,
+  "top5_pct": 22.67,
+  "latency_p50_ms": 489.9,
+  "latency_p95_ms": 1152.4
+}

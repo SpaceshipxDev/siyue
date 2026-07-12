@@ -4,6 +4,12 @@ __pycache__/
 .tmp/
 *.pyc
 data/
-models/
+models/*
+!models/document_corners_mobilenet_v3_small.pt
 synthetic/
 eval/results.json
+data-eval-v2/
+testdata/external/smartdoc15-ch1/detector-crops/
+testdata/external/smartdoc15-ch1/oracle-crops/
+matcher-serve.log
+data-test-debug/

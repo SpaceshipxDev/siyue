@@ -1,0 +1,8 @@
+{
+  "queries": 300,
+  "correct": 291,
+  "accuracy_pct": 97.0,
+  "fallbacks": 45,
+  "fallback_latency_p50_ms": 441.9,
+  "fallback_latency_p95_ms": 538.0
+}

@@ -4,7 +4,8 @@ Production-oriented physical-sheet copy detection for photographed factory paper
 
 ## Reproduce
 
-Python 3.12 is required. All state, dependencies, and downloaded weights remain under this directory.
+Python 3.12 is required. All state, dependencies, datasets, evaluation artifacts,
+and downloaded weights remain under this directory on the external SSD.
 
 ```bash
 ./run.sh setup
@@ -19,6 +20,9 @@ Environment:
 - `MATCHER_TOKEN` — bearer token, default `dev`.
 - `MATCHER_DATA` — persistent bank root, default `./data`.
 - `MATCHER_MODELS` — model directory, default `./models`.
+- `GEMINI_API_KEY` — optional. When present, registration caches a Gemini
+  Embedding 2 vector and local `no_match` decisions use it as the deformation
+  fallback. Normal matching never waits for Gemini.
 - Every threshold below can be overridden by its named environment variable.
 
 Example:
@@ -36,19 +40,35 @@ curl -H 'Authorization: Bearer dev' \
 
 ## Pipeline
 
-1. Pillow applies EXIF orientation. The image is converted to RGB and reduced to a 1600-pixel long side. Conservative quadrilateral rectification exists and can be enabled with `MATCHER_DOC_CROP=1`; failing to find a page boundary is never an error.
+1. Pillow applies EXIF orientation and bounds the image to 1600 pixels. A
+   deterministic contour rectifier handles sheets that fill most of the frame.
+   Otherwise a 5.9 MB MobileNetV3 corner regressor localizes pages in clutter
+   in about 42–51 ms CPU. Already document-centred images are not unnecessarily
+   re-warped.
 2. SSCD receives a single batch containing the query at 0, 90, 180, and 270 degrees. The maximum cosine over rotations ranks the persistent embedding bank, and the best rotation is retained per candidate.
-3. The eight best vectors form the shortlist. SuperPoint is extracted once for each query rotation actually needed. Reference SuperPoint keypoints, scores, descriptors, and image size are loaded from registration-time `.npz` caches.
-4. LightGlue matches local features. OpenCV `findHomography` with `USAC_MAGSAC` and a 3-pixel threshold rejects inconsistent correspondences.
-5. Inliers must span at least 8 distinct cells of a 4x4 reference grid. This prevents a shared logo, heading, or title block from proving identity.
+3. A cosine lead of at least 0.03 is the fast path: only the winner receives a
+   reduced-budget geometric proof. A smaller margin activates a five-candidate
+   rerank. SuperPoint uses 288 cached keypoints at 416px.
+4. LightGlue matches local features. OpenCV `findHomography` with
+   `USAC_MAGSAC` supplies correspondence evidence. Candidate identity ranking
+   uses inlier consensus first.
+5. Accepted local candidates require at least 10 inliers, 0.11 inlier ratio,
+   and coverage of 3 cells in the 4x4 reference grid.
 6. Reference Canny edges are warped through the homography. Symmetric overlap against dilated query/reference edges measures agreement over the visible warp.
-7. Candidates rank by `inliers * inlier_ratio * occupied_grid_cells * edge_agreement`, never raw match count. A candidate must pass every independent gate. Two passing, highly similar candidates within the score margin produce `ambiguous`.
+7. If local evidence abstains and cached Gemini vectors are available,
+   `gemini-embedding-2` resolves the non-planar/deformation tail. Responses
+   expose `via: local|gemini_embedding_2`.
 
-If the SSCD winner has a wide cosine lead, the engine exits early only after that winner passes every geometric gate. A failed winner causes verification to continue down the shortlist.
+The local fast path remains entirely offline. Gemini is never called for a
+locally accepted query.
 
 ## Persistence
 
-`MATCHER_DATA/bank.db` stores page metadata and float32 SSCD vectors. Originals (normalized registration JPEGs) live in `pages/`; compressed SuperPoint tensors live in `features/`. SQLite uses WAL mode. Filenames are SHA-256-derived rather than using untrusted `page_id` text. The intended bank size is a few thousand pages, for which an in-memory NumPy cosine matrix is simpler and fast enough.
+`MATCHER_DATA/bank.db` stores page metadata, float32 SSCD vectors, and optional
+Gemini vectors. Originals (normalized registration JPEGs) live in `pages/`;
+compressed SuperPoint tensors live in `features/`. SQLite migrations add the
+Gemini columns to existing banks in place. Filenames are SHA-256-derived rather
+than using untrusted `page_id` text.
 
 ## Tunables
 
@@ -58,22 +78,43 @@ Defaults are defined in `matcher/config.py` and are included in `GET /stats` and
 |---|---:|---|
 | `MATCHER_MAX_SIDE` | 1600 | Preprocessed long side |
 | `MATCHER_EMBED_SIZE` | 320 | SSCD square input |
-| `MATCHER_FEATURE_RESIZE` | 768 | SuperPoint extraction long side |
-| `MATCHER_MAX_KEYPOINTS` | 768 | SuperPoint budget per page |
+| `MATCHER_FEATURE_RESIZE` | 416 | SuperPoint extraction long side |
+| `MATCHER_MAX_KEYPOINTS` | 288 | SuperPoint budget per page |
 | `MATCHER_SHORTLIST_K` | 8 | Cosine shortlist size |
 | `MATCHER_VERIFY_K` | 5 | Maximum candidates geometrically checked |
 | `MATCHER_MIN_COSINE` | 0.20 | Lowest acceptable SSCD similarity |
-| `MATCHER_MIN_INLIERS` | 35 | Minimum MAGSAC inlier count |
-| `MATCHER_MIN_INLIER_RATIO` | 0.22 | Minimum inliers / LightGlue matches |
-| `MATCHER_MIN_COVERAGE` | 8 | Minimum occupied 4x4 cells |
+| `MATCHER_MIN_INLIERS` | 10 | Minimum MAGSAC inlier count |
+| `MATCHER_MIN_INLIER_RATIO` | 0.11 | Minimum inliers / LightGlue matches |
+| `MATCHER_MIN_COVERAGE` | 3 | Minimum occupied 4x4 cells |
 | `MATCHER_MIN_EDGE` | 0.10 | Minimum symmetric edge overlap |
 | `MATCHER_MIN_SCORE` | 300.0 | Minimum composite score |
 | `MATCHER_H_THRESHOLD` | 3.0 | MAGSAC reprojection threshold in pixels |
-| `MATCHER_EARLY_COSINE_MARGIN` | 0.08 | Lead needed for post-proof early exit |
+| `MATCHER_EARLY_COSINE_MARGIN` | 0.03 | Lead needed for one-candidate fast path |
 | `MATCHER_AMBIGUOUS_MARGIN` | 0.18 | Maximum relative top-two score gap for ambiguity |
 | `MATCHER_AMBIGUOUS_COSINE` | 0.72 | Second candidate similarity required for ambiguity |
 
-The independent gates are intentional. Lowering only the composite threshold cannot compensate for title-block-only coverage, too few inliers, or weak edge agreement.
+`MATCHER_LEARNED_CROP=0` disables the MobileNet page detector. The legacy
+`MATCHER_DOC_CROP` switch remains for deployments without the learned model.
+
+## Real external evaluation (v2)
+
+These are end-to-end `MatcherEngine` results, not retrieval-only probes:
+
+| Slice | Accuracy | Wrong | Abstain | p50 | p95 |
+|---|---:|---:|---:|---:|---:|
+| SmartDoc-QA phone distortion, 135 queries | 98.52% | 0 | 2 | 506 ms | 677 ms |
+| SmartDoc15 clutter/video, 300 queries | 96.33% | 1 | 10 | 557 ms | 770 ms |
+| DocUNet crumpled + Gemini fallback, 65 queries | 95.38% | 3 | 0 | 556 ms | 2087 ms |
+| SmartDoc15 with 250-page bank, 300 queries | 96.33% | 1 | 10 | 533 ms | 676 ms |
+
+Gemini handled 21/65 DocUNet queries; normal local queries remained sub-second.
+The accepted 95% target is met on all three real datasets.
+
+This operating point is **closed-set**: the caller asserts that a query is one
+of the enrolled documents. It is not a calibrated open-set recognizer. In the
+SmartDoc-QA exclusion test, only 15/50 unknown pages were rejected locally.
+Do not use a returned identity as proof that an arbitrary unknown page was
+enrolled; add an explicit unknown/confirmation model for that separate use case.
 
 ## Synthetic data and evaluation
 
@@ -103,5 +144,11 @@ On a non-container host, install Python 3.12, run `./run.sh setup`, set the toke
 
 - SSCD is downloaded from the official Facebook Research artifact endpoint by `scripts/get_models.py`; the upstream code is MIT licensed.
 - LightGlue is pinned to commit `eb42fee2d71449efb0aa5c10549752b5d75384d8`; LightGlue weights/code are Apache-2.0. SuperPoint has its separate upstream license, which should be reviewed for the intended commercial deployment.
+- The MobileNetV3 paper-corner regressor is trained by
+  `scripts/train_doc_detector.py` from the CC BY 4.0 SmartDoc15 annotations.
+  Its held-out-page median polygon IoU is 0.824; the trained 5.9 MB state dict
+  is included under `models/`.
+- Gemini Embedding 2 is optional and billed by Google. The benchmark used far
+  less than USD $1 of the provided cap; no remote model is on the normal path.
 
 The SSCD endpoint was reachable during this build; DINOv2 fallback was not used.

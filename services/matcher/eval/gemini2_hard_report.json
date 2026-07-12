@@ -1,0 +1,24 @@
+[
+  {
+    "slice": "smartdoc15",
+    "references": 30,
+    "queries": 870,
+    "top1": 450,
+    "top1_pct": 51.72,
+    "top5": 696,
+    "top5_pct": 80.0,
+    "api_latency_p50_ms": 860.2,
+    "api_latency_p95_ms": 2104.4
+  },
+  {
+    "slice": "docunet",
+    "references": 65,
+    "queries": 65,
+    "top1": 65,
+    "top1_pct": 100.0,
+    "top5": 65,
+    "top5_pct": 100.0,
+    "api_latency_p50_ms": 2675.9,
+    "api_latency_p95_ms": 10733.4
+  }
+]
