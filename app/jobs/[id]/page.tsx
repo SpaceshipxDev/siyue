@@ -54,6 +54,7 @@ import {
   JobText,
 } from '@/app/_editable'
 import { WaixieTable } from './_waixie'
+import { HeaderEdit } from './_header_edit'
 import { OutsourceFlag } from '@/app/_outsource_flag'
 import { ExternalBadge } from '@/app/_externalbadge'
 import { ComponentImageUploader } from '@/app/_image_uploader'
@@ -205,14 +206,16 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // narrow read here.
   const headerQtyTotal = job.components.reduce((s, c) => s + (c.qty || 0), 0)
   let headerDrawingNo: string | undefined
+  let headerPartRowId: string | undefined
   {
     const { data } = await supabase
       .from('parts')
-      .select('drawing_no')
+      .select('id, drawing_no')
       .eq('job_id', job.id)
-      .not('drawing_no', 'is', null)
-      .limit(1)
-    headerDrawingNo = (data?.[0]?.drawing_no as string | null) ?? undefined
+      .limit(5)
+    headerDrawingNo =
+      (data?.find((r) => r.drawing_no)?.drawing_no as string | null) ?? undefined
+    headerPartRowId = (data?.[0]?.id as string | null) ?? undefined
   }
 
   // 排产 — the plannable 工段 this job actually routes through, each with its
@@ -308,9 +311,29 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
 
         {/* Component identity header — the six facts on the stamped paper,
             nothing else. No invented work ids, no commerce metadata; the
-            customer's own 货号/图纸号 is the reference everyone speaks. */}
+            customer's own 货号/图纸号 is the reference everyone speaks.
+            Every fact is editable in place — the card is AI-extracted from
+            photos and a scribbled stamp can misread (数量 32 → 2). */}
         <div className="mb-8 border-b border-[var(--color-border)] pb-6">
-          <p className="label mb-1">{job.customer}</p>
+          <div className="flex items-start justify-between gap-4">
+            <p className="label mb-1">{job.customer}</p>
+            {job.components[0] ? (
+              <HeaderEdit
+                jobId={job.id}
+                componentId={job.components[0].id}
+                partId={headerPartRowId}
+                initial={{
+                  name: job.product,
+                  customer: job.customer,
+                  partNo: job.components[0].partNo ?? '',
+                  drawingNo: headerDrawingNo ?? '',
+                  qty: headerQtyTotal,
+                  dueDate: job.dueDate ?? '',
+                  material: job.components[0].material ?? '',
+                }}
+              />
+            ) : null}
+          </div>
           <h1 className="text-[26px] font-semibold tracking-tight text-[var(--color-ink)]">
             {job.product}
           </h1>

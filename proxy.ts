@@ -37,7 +37,10 @@ import { getUserById } from '@/lib/db'
 // reason '/s' is: the worker's credential is the physical sheet in their
 // hand, and a successful match only resolves to the same narrow /s surface
 // the printed QR opens (rate-limited inside the route).
-const PUBLIC_PATHS = ['/login', '/join', '/w', '/s', '/p', '/api/match-photo', '/x/demo', '/api/leads']
+// '/api/unmatched-report' is the no-match valve — same trust model as
+// /api/match-photo (rate-limited inside the route; writes only an unresolved
+// review row for the PMC, never the part state machine).
+const PUBLIC_PATHS = ['/login', '/join', '/w', '/s', '/p', '/api/match-photo', '/api/unmatched-report', '/x/demo', '/api/leads']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only
@@ -52,6 +55,8 @@ const PRODUCTION_FORBIDDEN_PREFIXES = [
   '/import',
   '/print',
   '/backend',
+  '/matcher-lab',
+  '/api/matcher-lab',
   '/station/outsource',
 ]
 
@@ -126,6 +131,15 @@ export async function proxy(request: NextRequest) {
     }
     if (isPublic) return NextResponse.next()
     const url = request.nextUrl.clone()
+    // A session-less phone opening the bare domain is a WORKER (the QR on
+    // the machine, the link pinned in the factory 群) — land them straight
+    // in the camera port. PMC/boss phones carry a session and fall through
+    // to the board; a worker who somehow needs /login can still reach it.
+    if (pathname === '/' && /Mobile|Android|iPhone/i.test(request.headers.get('user-agent') ?? '')) {
+      url.pathname = '/p'
+      url.search = ''
+      return NextResponse.redirect(url)
+    }
     url.pathname = '/login'
     url.search = ''
     return NextResponse.redirect(url)

@@ -37,5 +37,12 @@ export default async function LoginPage(props: PageProps<'/login'>) {
   const others = active.filter((p) => p.id !== boss.id)
   const tiles = [boss, ...others]
   const admins = tiles.filter((u) => isAdminUser(u.id))
-  return <LoginClient users={tiles} boss={boss} admins={admins} />
+  return (
+    <LoginClient
+      users={tiles}
+      boss={boss}
+      admins={admins}
+      open={process.env.OPEN_LOGIN === '1'}
+    />
+  )
 }

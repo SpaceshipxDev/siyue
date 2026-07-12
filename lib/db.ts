@@ -8907,19 +8907,27 @@ export async function getPartScanView(
   }
 }
 
-// The one shop-floor write. The token IS the auth and the CURRENT stage is
-// re-derived server-side on every call — the phone never names a stage, so a
-// tampered form can't tick an arbitrary OP. `doneNow` is incremental ("这次
-// 完成 N 件"); we clamp the cumulative count to the part qty and hand it to
-// setStageDoneQty, which owns the partial/done/cascade state machine.
+// The one shop-floor write. The token IS the auth. The phone may NAME one of
+// the part's own not-done route stages (two workers legitimately run OP1's
+// tail and OP2's start at the same time), but it can never invent one — the
+// stage is validated against the server-derived route and falls back to the
+// current stage. `doneNow` is incremental ("这次完成 N 件"); we clamp the
+// cumulative count to the part qty and hand it to setStageDoneQty, which
+// owns the partial/done/cascade state machine.
 export async function reportPartScan(
   token: string,
   doneNow: number,
   actor: string,
+  stage?: Stage,
 ): Promise<{ ok: boolean; stage?: Stage; totalDone?: number; finished?: boolean }> {
   const view = await getPartScanView(token)
-  if (!view || !view.currentStage) return { ok: false }
-  const st = view.stages.find((s) => s.stage === view.currentStage)
+  if (!view) return { ok: false }
+  const target =
+    stage && view.stages.some((s) => s.stage === stage && s.status !== 'done')
+      ? stage
+      : view.currentStage
+  if (!target) return { ok: false }
+  const st = view.stages.find((s) => s.stage === target)
   if (!st) return { ok: false }
   const inc = Math.max(0, Math.floor(doneNow))
   if (inc === 0) return { ok: false }
@@ -8927,13 +8935,13 @@ export async function reportPartScan(
   await setStageDoneQty(
     view.jobId,
     view.componentId,
-    view.currentStage,
+    target,
     cumulative,
     actor,
   )
   return {
     ok: true,
-    stage: view.currentStage,
+    stage: target,
     totalDone: cumulative,
     finished: cumulative >= view.qty,
   }

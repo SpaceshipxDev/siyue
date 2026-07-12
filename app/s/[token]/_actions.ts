@@ -4,13 +4,15 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import { getPartScanView, reportPartScan } from '@/lib/db'
-import { logReportEvent } from '@/lib/packets'
+import { logReportEvent, upsertWorker } from '@/lib/packets'
+import { TRACKING_STAGES, type Stage } from '@/lib/data'
 import { WORKER_COOKIE, decodeWorker } from './_worker'
 
 // Scan-page server actions. No session: identity IS the traveller token,
-// re-verified inside reportPartScan on every call, and the CURRENT stage is
-// re-derived server-side there — the phone never names a stage, so a forged
-// form can't tick an arbitrary OP.
+// re-verified inside reportPartScan on every call. The form may name a stage
+// (the chips on /s are links), but reportPartScan validates it against the
+// part's own server-derived route — a forged form still can't tick an
+// arbitrary OP, only choose among this part's open stages.
 //
 // Plain FormData actions because the page renders native <form> POSTs —
 // they must work in decade-old WeChat webviews, JS or no JS.
@@ -20,23 +22,31 @@ function str(fd: FormData, key: string): string {
   return typeof v === 'string' ? v.trim() : ''
 }
 
+function stageOf(raw: string): Stage | undefined {
+  return (TRACKING_STAGES as string[]).includes(raw) ? (raw as Stage) : undefined
+}
+
 export async function scanSetWorker(formData: FormData): Promise<void> {
   const token = str(formData, 'token')
   const name = str(formData, 'name').slice(0, 20)
+  const stage = str(formData, 'stage')
   if (name) {
     const jar = await cookies()
+    // Path '/' (not '/s'): the /p camera port and the no-match valve carry
+    // the same identity, so one name-pick covers the whole floor loop.
     jar.set(WORKER_COOKIE, encodeURIComponent(name), {
-      path: '/s',
+      path: '/',
       maxAge: 60 * 60 * 24 * 365,
       sameSite: 'lax',
     })
+    // Lazy roster: first report from a new hire adds them to the grid.
+    await upsertWorker(name).catch(() => {})
   }
-  redirect(`/s/${token}`)
+  redirect(`/s/${token}${stage ? `?stage=${encodeURIComponent(stage)}` : ''}`)
 }
 
-// 报工 — mode 'all' finishes the remaining quantity at the current OP (the
-// default one-tap path); mode 'some' reports the typed count. Both funnel
-// into reportPartScan, which clamps and owns the state machine.
+// 报工 — the count arrives prefilled with everything still open at the
+// selected stage; reportPartScan clamps and owns the state machine.
 export async function scanReport(formData: FormData): Promise<void> {
   const token = str(formData, 'token')
   const mode = str(formData, 'mode')
@@ -44,9 +54,15 @@ export async function scanReport(formData: FormData): Promise<void> {
   const actor = decodeWorker(jar.get(WORKER_COOKIE)?.value)
   if (!actor) redirect(`/s/${token}`)
 
+  const stage = stageOf(str(formData, 'stage'))
   const view = await getPartScanView(token)
-  if (!view || !view.currentStage) redirect(`/s/${token}`)
-  const current = view!.stages.find((s) => s.stage === view!.currentStage)
+  if (!view) redirect(`/s/${token}`)
+  const target =
+    stage && view!.stages.some((s) => s.stage === stage && s.status !== 'done')
+      ? stage
+      : view!.currentStage
+  if (!target) redirect(`/s/${token}`)
+  const current = view!.stages.find((s) => s.stage === target)
   const remaining = Math.max(0, view!.qty - (current?.doneQty ?? 0))
 
   let doneNow = remaining
@@ -58,7 +74,7 @@ export async function scanReport(formData: FormData): Promise<void> {
   if (doneNow <= 0) redirect(`/s/${token}`)
 
   const prevDone = current?.doneQty ?? 0
-  const result = await reportPartScan(token, doneNow, actor)
+  const result = await reportPartScan(token, doneNow, actor, target)
   // The master board and job detail read these rows — refresh them so the
   // PMC's screen reflects the scan without a manual reload.
   revalidatePath('/')

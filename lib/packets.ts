@@ -128,6 +128,18 @@ export async function createComponentFromPacket(input: {
     // No invented work ids — the part's own identity (货号, else 图纸号) IS
     // the reference everyone already uses on paper and in the customer Excel.
     jobNo = extract.partNo ?? extract.drawingNo ?? extract.name
+    // Repeat orders overlap: the same 货号/图纸 can be in production twice at
+    // once (two physical packets, two batches). The matcher tells the SHEETS
+    // apart, but the humans need the CARDS told apart too — the second
+    // concurrent batch gets a -B/-C suffix on the board identity.
+    const [dupEq, dupLike] = await Promise.all([
+      supabase.from('jobs').select('id').eq('job_no', jobNo).in('status', ['draft', 'ready']),
+      supabase.from('jobs').select('id').like('job_no', `${jobNo}-_`).in('status', ['draft', 'ready']),
+    ])
+    const concurrent = (dupEq.data?.length ?? 0) + (dupLike.data?.length ?? 0)
+    if (concurrent > 0) {
+      jobNo = `${jobNo}-${String.fromCharCode(65 + Math.min(concurrent, 24))}` // -B, -C, …
+    }
     const job = await createJob({
       jobNo,
       customer: extract.customer ?? '禾牧',
@@ -685,4 +697,118 @@ export async function componentBoardRows(): Promise<ComponentBoardRow[]> {
     return a.jobNo < b.jobNo ? -1 : 1
   })
   return rows
+}
+
+// ---------- worker roster (0084) ----------
+
+// The floor roster. Names are added lazily the first time someone reports —
+// no admin screen, no accounts. The grid on /s reads this so 20 workers pick
+// instead of type (typo-split identities would wreck the per-worker tallies
+// the boss reads).
+export async function listWorkers(): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('workers')
+    .select('name')
+    .order('created_at', { ascending: true })
+    .limit(60)
+  if (error) return []
+  return (data ?? []).map((r) => String(r.name))
+}
+
+export async function upsertWorker(name: string): Promise<void> {
+  const n = name.trim().slice(0, 20)
+  if (!n) return
+  await supabase.from('workers').upsert({ name: n }, { onConflict: 'name' })
+}
+
+// ---------- no-match valve (0084) ----------
+
+export type PendingReport = {
+  id: string
+  photoKey: string
+  claimedStage?: string
+  qty?: number
+  actor?: string
+  createdAt: string
+}
+
+export function pendingPhotoKey(id: string): string {
+  return `unmatched/${id}.jpg`
+}
+
+export async function createPendingReport(input: {
+  photoKey: string
+  claimedStage?: string
+  qty?: number
+  actor?: string
+}): Promise<string> {
+  const id = rid('pr')
+  const { error } = await supabase.from('pending_reports').insert({
+    id,
+    photo_key: input.photoKey,
+    claimed_stage: input.claimedStage ?? null,
+    qty: input.qty ?? null,
+    actor: input.actor ?? null,
+  })
+  if (error) throw error
+  return id
+}
+
+export async function listPendingReports(): Promise<PendingReport[]> {
+  const { data, error } = await supabase
+    .from('pending_reports')
+    .select('*')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+    .limit(100)
+  if (error) throw error
+  return (data ?? []).map((r) => ({
+    id: String(r.id),
+    photoKey: String(r.photo_key),
+    claimedStage: (r.claimed_stage as string | null) ?? undefined,
+    qty: r.qty == null ? undefined : Number(r.qty),
+    actor: (r.actor as string | null) ?? undefined,
+    createdAt: String(r.created_at),
+  }))
+}
+
+export async function pendingReportCount(): Promise<number> {
+  const { count, error } = await supabase
+    .from('pending_reports')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending')
+  if (error) return 0
+  return count ?? 0
+}
+
+export async function resolvePendingReport(input: {
+  id: string
+  status: 'attached' | 'dismissed'
+  partId?: string
+  appliedStage?: Stage
+  resolvedBy: string
+}): Promise<PendingReport | undefined> {
+  const { data, error } = await supabase
+    .from('pending_reports')
+    .update({
+      status: input.status,
+      part_id: input.partId ?? null,
+      applied_stage: input.appliedStage ?? null,
+      resolved_at: new Date().toISOString(),
+      resolved_by: input.resolvedBy,
+    })
+    .eq('id', input.id)
+    .eq('status', 'pending')
+    .select('*')
+  if (error) throw error
+  const r = data?.[0]
+  if (!r) return undefined
+  return {
+    id: String(r.id),
+    photoKey: String(r.photo_key),
+    claimedStage: (r.claimed_stage as string | null) ?? undefined,
+    qty: r.qty == null ? undefined : Number(r.qty),
+    actor: (r.actor as string | null) ?? undefined,
+    createdAt: String(r.created_at),
+  }
 }

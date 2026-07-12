@@ -9,7 +9,10 @@ export const maxDuration = 60
 // leads to the same /s surface the printed QR exposes.
 
 const WINDOW_MS = 60_000
-const MAX_PER_WINDOW = 30
+// The live camera port on /p streams a frame roughly every second while a
+// worker is aiming — 120/min accommodates aiming workers behind one factory
+// NAT IP without opening the endpoint to abuse.
+const MAX_PER_WINDOW = 120
 const hits = new Map<string, number[]>()
 
 function limited(ip: string): boolean {

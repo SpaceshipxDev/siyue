@@ -4,36 +4,47 @@ import { useState } from 'react'
 import { scanReport } from './_actions'
 
 // One control, one button. The number arrives prefilled with everything
-// still open at this OP (the 9-of-10 case is "I finished the rest"), and
-// the worker can − / + or type over it. Submitting IS the report — no
-// mode choice, no second path.
+// still open at the selected stage (the 9-of-10 case is "I finished the
+// rest"); −10/−/+/+10 or typing over it adjusts. Submitting IS the report —
+// no mode choice, no second path. The stage rides along as a hidden field
+// and is re-validated server-side against the part's own route.
 export function ReportForm({
   token,
   src,
+  stage,
   remaining,
 }: {
   token: string
   src: string
+  stage: string
   remaining: number
 }) {
   const [qty, setQty] = useState(remaining)
 
   const clamp = (n: number) => Math.max(1, Math.min(remaining, Math.floor(n) || 1))
 
+  const step = (d: number) => (
+    <button
+      type="button"
+      aria-label={d > 0 ? `加${d}件` : `减${-d}件`}
+      onClick={() => setQty((q) => clamp(q + d))}
+      className={`h-14 shrink-0 font-semibold border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)] active:bg-[var(--color-bg)] ${
+        Math.abs(d) === 10 ? 'w-14 text-[15px]' : 'w-12 text-[22px]'
+      }`}
+    >
+      {d > 0 ? (d === 1 ? '+' : `+${d}`) : d === -1 ? '−' : `−${-d}`}
+    </button>
+  )
+
   return (
     <form action={scanReport} className="mt-4">
       <input type="hidden" name="token" value={token} />
       <input type="hidden" name="src" value={src} />
+      <input type="hidden" name="stage" value={stage} />
       <input type="hidden" name="mode" value="some" />
-      <div className="flex items-stretch gap-2">
-        <button
-          type="button"
-          aria-label="减一件"
-          onClick={() => setQty((q) => clamp(q - 1))}
-          className="w-14 h-14 shrink-0 text-[22px] font-semibold border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)] active:bg-[var(--color-bg)]"
-        >
-          −
-        </button>
+      <div className="flex items-stretch gap-1.5">
+        {step(-10)}
+        {step(-1)}
         <input
           name="qty"
           type="number"
@@ -46,16 +57,10 @@ export function ReportForm({
             setQty(Number.isFinite(n) ? Math.max(1, Math.min(remaining, n)) : 1)
           }}
           onFocus={(e) => e.target.select()}
-          className="flex-1 h-14 text-center text-[24px] font-semibold font-mono border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)] outline-none focus:border-[var(--color-ink)] tabular-nums"
+          className="flex-1 min-w-0 h-14 text-center text-[26px] font-semibold font-mono border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)] outline-none focus:border-[var(--color-ink)] tabular-nums"
         />
-        <button
-          type="button"
-          aria-label="加一件"
-          onClick={() => setQty((q) => clamp(q + 1))}
-          className="w-14 h-14 shrink-0 text-[22px] font-semibold border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)] active:bg-[var(--color-bg)]"
-        >
-          +
-        </button>
+        {step(1)}
+        {step(10)}
       </div>
       <button
         type="submit"

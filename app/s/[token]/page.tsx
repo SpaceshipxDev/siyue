@@ -1,9 +1,9 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { cookies } from 'next/headers'
-import { stageLabel } from '@/lib/data'
+import { stageLabel, type Stage } from '@/lib/data'
 import { getPartScanView } from '@/lib/db'
-import { workerToday } from '@/lib/packets'
+import { workerToday, listWorkers } from '@/lib/packets'
 import { BRAND } from '@/lib/brand'
 import { scanSetWorker } from './_actions'
 import { ReportForm } from './_report_form'
@@ -11,10 +11,11 @@ import { TallyStrip } from './_tally'
 import { WORKER_COOKIE, decodeWorker } from './_worker'
 
 // 车间报工 — what a worker's phone shows after scanning the traveller QR.
-// One part, its route, the current OP, and exactly one act: 报数量. The
-// default tap is 全部完成 (finish the remaining count at this OP) because
-// that's what happens 9 times out of 10 on the floor; a partial count is the
-// secondary path, never the primary.
+// One part, its route, and exactly one act: 报数量. The stage chips ARE the
+// stage picker (links, so no JS needed): the next unfinished stage arrives
+// pre-selected, but the second guy who is already running OP2 while OP1's
+// tail is open just taps his chip. The count arrives prefilled with
+// everything still open at the selected stage; −10/−/+/+10 adjust it.
 //
 // Server-rendered, plain <form> POSTs — must work in decade-old WeChat
 // webviews, JS or no JS. The token in the URL is the auth; the page and
@@ -68,11 +69,22 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
     )
   }
 
-  const current = view.currentStage
-    ? view.stages.find((s) => s.stage === view.currentStage)
+  // Selected stage: ?stage= wins when it names one of THIS part's open
+  // stages; otherwise the first unfinished stage. Chips link back here.
+  const requested = typeof sp.stage === 'string' ? (sp.stage as Stage) : undefined
+  const selectedStage =
+    requested && view.stages.some((s) => s.stage === requested && s.status !== 'done')
+      ? requested
+      : view.currentStage
+  const selected = selectedStage
+    ? view.stages.find((s) => s.stage === selectedStage)
     : undefined
-  const remaining = current ? Math.max(0, view.qty - current.doneQty) : 0
+  const remaining = selected ? Math.max(0, view.qty - selected.doneQty) : 0
   const allDone = !view.currentStage
+  const chipHref = (stage: Stage) =>
+    `/s/${token}?stage=${encodeURIComponent(stage)}${src === 'photo' ? '&via=photo' : ''}`
+
+  const roster = worker || allDone ? [] : await listWorkers()
 
   return (
     <main className="min-h-dvh bg-[var(--color-bg)]">
@@ -114,7 +126,7 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
         ) : null}
 
         {/* The part — one tight block: who/what on top, one inline facts
-            line, then the route chips. No label/value grid to decode. */}
+            line, then the route chips. The chips are the stage picker. */}
         <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-5">
           <p className="text-[11px] text-[var(--color-ink-3)]">
             {view.customer}
@@ -132,35 +144,38 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
           </p>
           <div className="flex items-center gap-1.5 flex-wrap mt-3 pt-3 border-t border-[var(--color-border)]">
             {view.stages.map((s) => {
-              const isCurrent = s.stage === view.currentStage
+              const isSelected = s.stage === selectedStage
               if (s.status === 'done') {
                 return (
                   <span
                     key={s.stage}
-                    className="inline-flex items-center h-7 px-2.5 rounded-[3px] text-[12px] font-medium bg-[var(--color-success-soft)] text-[var(--color-success)] border border-[var(--color-success)]"
+                    className="inline-flex items-center h-9 px-3 rounded-[3px] text-[13px] font-medium bg-[var(--color-success-soft)] text-[var(--color-success)] border border-[var(--color-success)]"
                   >
                     {stageLabel(s.stage)} ✓
                   </span>
                 )
               }
-              if (isCurrent) {
+              if (isSelected) {
                 return (
                   <span
                     key={s.stage}
-                    className="inline-flex items-center h-7 px-2.5 rounded-[3px] text-[12px] font-semibold bg-[color-mix(in_srgb,var(--color-warning)_14%,transparent)] text-[var(--color-warning)] border border-[var(--color-warning)]"
+                    className="inline-flex items-center h-9 px-3 rounded-[3px] text-[13px] font-semibold bg-[color-mix(in_srgb,var(--color-warning)_14%,transparent)] text-[var(--color-warning)] border-2 border-[var(--color-warning)]"
                   >
                     {stageLabel(s.stage)}
                     {s.doneQty > 0 ? ` ${s.doneQty}/${view.qty}` : ''}
                   </span>
                 )
               }
+              // Open, not selected → a tap moves the report target here.
               return (
-                <span
+                <Link
                   key={s.stage}
-                  className="inline-flex items-center h-7 px-2.5 rounded-[3px] text-[12px] text-[var(--color-ink-3)] border border-[var(--color-border)]"
+                  href={chipHref(s.stage)}
+                  className="inline-flex items-center h-9 px-3 rounded-[3px] text-[13px] text-[var(--color-ink-2)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] active:bg-[var(--color-bg)]"
                 >
                   {stageLabel(s.stage)}
-                </span>
+                  {s.doneQty > 0 ? ` ${s.doneQty}/${view.qty}` : ''}
+                </Link>
               )
             })}
           </div>
@@ -176,19 +191,42 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
             </p>
           </section>
         ) : !worker ? (
-          /* First scan on this phone: one name, once, then never again. */
+          /* First scan on this phone: pick your name from the roster grid —
+             once. Free text stays for a new hire (lazily joins the grid). */
           <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-5">
             <h2 className="text-[14px] font-semibold">你是谁？</h2>
             <p className="text-[11px] text-[var(--color-ink-2)] mt-1">
-              只填一次，以后扫码直接报工。
+              点一次自己的名字，以后扫码直接报工。
             </p>
+            {roster.length > 0 ? (
+              <form action={scanSetWorker} className="mt-3 grid grid-cols-3 gap-2">
+                <input type="hidden" name="token" value={token} />
+                {selectedStage ? (
+                  <input type="hidden" name="stage" value={selectedStage} />
+                ) : null}
+                {roster.map((name) => (
+                  <button
+                    key={name}
+                    type="submit"
+                    name="name"
+                    value={name}
+                    className="h-12 px-1 text-[14px] font-medium border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)] active:bg-[var(--color-bg)] truncate"
+                  >
+                    {name}
+                  </button>
+                ))}
+              </form>
+            ) : null}
             <form action={scanSetWorker} className="mt-3 flex gap-2">
               <input type="hidden" name="token" value={token} />
+              {selectedStage ? (
+                <input type="hidden" name="stage" value={selectedStage} />
+              ) : null}
               <input
                 name="name"
                 required
                 maxLength={20}
-                placeholder="例如：王师傅"
+                placeholder={roster.length > 0 ? '不在上面？输入名字' : '例如：王师傅'}
                 className="flex-1 h-12 px-3 text-[15px] border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)] outline-none focus:border-[var(--color-ink)]"
               />
               <button
@@ -202,21 +240,28 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
         ) : (
           <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-5">
             <p className="text-[10px] tracking-[0.18em] text-[var(--color-ink-3)] uppercase">
-              当前工序
+              报工工序 · 点上面的工序可切换
             </p>
             <h2 className="text-[20px] font-semibold mt-1">
-              {view.currentStage ? stageLabel(view.currentStage) : ''}
+              {selectedStage ? stageLabel(selectedStage) : ''}
             </h2>
             <p className="text-[12px] text-[var(--color-ink-2)] mt-1">
-              {current && current.doneQty > 0
-                ? `已完成 ${current.doneQty} 件，还剩 ${remaining} 件`
+              {selected && selected.doneQty > 0
+                ? `已完成 ${selected.doneQty} 件，还剩 ${remaining} 件`
                 : `共 ${view.qty} 件`}
             </p>
 
             {/* One control: the count arrives prefilled with everything still
-                open (the default act is "finished the rest"); −/+ or typing
-                adjusts it; one button reports. */}
-            <ReportForm token={token} src={src} remaining={remaining} />
+                open (the default act is "finished the rest"); −10/−/+/+10 or
+                typing adjusts it; one button reports. */}
+            {selectedStage ? (
+              <ReportForm
+                token={token}
+                src={src}
+                stage={selectedStage}
+                remaining={remaining}
+              />
+            ) : null}
           </section>
         )}
 

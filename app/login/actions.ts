@@ -1,7 +1,7 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { isAdminUser, verifyUserPin } from '@/lib/db'
+import { getUserById, isAdminUser, verifyUserPin } from '@/lib/db'
 import { createSession, deleteSession } from '@/lib/session'
 import { landingPathFor } from '@/lib/auth'
 
@@ -69,6 +69,35 @@ export async function loginAction(
   // 工程 head → / (holistic view), other production stations → their
   // /?stage=... master grid. Bypassing it here is what was sending 工程
   // back to the old per-stage workbench right after sign-in.
+  const redirectTo = user.defaultStage
+    ? landingPathFor({
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        defaultStage: user.defaultStage,
+        isFinance: user.isFinance,
+      })
+    : user.role === 'commerce'
+      ? '/'
+      : '/login'
+  return { ok: true, redirectTo }
+}
+
+// Pilot-phase gate removal: with OPEN_LOGIN=1, tapping a name IS the login —
+// no PIN. Deployment friction matters more than security while the factory
+// is being onboarded; unset the env var and the PIN keypad is back. The
+// 管理员工 admin surface keeps its PIN either way.
+export async function loginOpenAction(userId: string): Promise<LoginResult> {
+  if (process.env.OPEN_LOGIN !== '1') return { ok: false, error: '请输入 PIN' }
+  const user = await getUserById(userId)
+  if (!user) return { ok: false, error: '账号不存在' }
+
+  await createSession({
+    sub: user.id,
+    role: user.role,
+    ds: user.defaultStage,
+  })
+
   const redirectTo = user.defaultStage
     ? landingPathFor({
         id: user.id,

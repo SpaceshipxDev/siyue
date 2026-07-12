@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import type { AppUser } from '@/lib/db'
-import { loginAction, loginAdminAction } from './actions'
+import { loginAction, loginAdminAction, loginOpenAction } from './actions'
 
 const PIN_LENGTH = 4
 
@@ -18,6 +18,7 @@ export function LoginClient({
   users,
   boss,
   admins,
+  open = false,
 }: {
   users: AppUser[]
   boss: AppUser
@@ -25,15 +26,43 @@ export function LoginClient({
   // With more than one, 管理员工 asks which admin is signing in; with just
   // the boss it jumps straight to his keypad (the original behaviour).
   admins: AppUser[]
+  // OPEN_LOGIN=1 pilot mode: tapping a name IS the login. The server action
+  // re-checks the env var, so this prop is display-flow only.
+  open?: boolean
 }) {
   const [view, setView] = useState<View>({ kind: 'grid' })
+  const [pendingId, setPendingId] = useState<string | undefined>()
+  const [isPending, startTransition] = useTransition()
+  const router = useRouter()
+
+  function pick(u: AppUser) {
+    if (!open) {
+      setView({ kind: 'keypad', user: u, mode: 'login' })
+      return
+    }
+    if (isPending) return
+    setPendingId(u.id)
+    startTransition(async () => {
+      const res = await loginOpenAction(u.id)
+      if (res.ok) {
+        router.replace(res.redirectTo)
+        router.refresh()
+      } else {
+        // Env flag off on the server (or user vanished) — fall back to PIN.
+        setPendingId(undefined)
+        setView({ kind: 'keypad', user: u, mode: 'login' })
+      }
+    })
+  }
 
   if (view.kind === 'grid') {
     return (
       <UserGrid
         users={users}
         bossId={boss.id}
-        onPick={(u) => setView({ kind: 'keypad', user: u, mode: 'login' })}
+        open={open}
+        pendingId={isPending ? pendingId : undefined}
+        onPick={pick}
         onManage={() =>
           admins.length > 1
             ? setView({ kind: 'admin-pick' })
@@ -177,11 +206,15 @@ function AdminPick({
 function UserGrid({
   users,
   bossId,
+  open,
+  pendingId,
   onPick,
   onManage,
 }: {
   users: AppUser[]
   bossId: string
+  open: boolean
+  pendingId?: string
   onPick: (u: AppUser) => void
   onManage: () => void
 }) {
@@ -206,10 +239,10 @@ function UserGrid({
       </header>
       <main className="w-full max-w-[1100px] px-4 md:px-10 py-10 md:py-16 flex-1">
         <h1 className="text-[28px] font-semibold tracking-tight text-[var(--color-ink)] mb-1">
-          请选择身份
+          {open ? '点你的名字，直接进入' : '请选择身份'}
         </h1>
         <p className="text-[13px] text-[var(--color-ink-2)] mb-8">
-          点击你的姓名，然后输入 4 位 PIN
+          {open ? '不用密码。' : '点击你的姓名，然后输入 4 位 PIN'}
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
           {users.map((u) => (
@@ -217,6 +250,7 @@ function UserGrid({
               key={u.id}
               user={u}
               isBoss={u.id === bossId}
+              pending={pendingId === u.id}
               onPick={onPick}
             />
           ))}
@@ -229,10 +263,12 @@ function UserGrid({
 function UserTile({
   user,
   isBoss,
+  pending = false,
   onPick,
 }: {
   user: AppUser
   isBoss: boolean
+  pending?: boolean
   onPick: (u: AppUser) => void
 }) {
   const subtitle = isBoss
@@ -244,14 +280,15 @@ function UserTile({
     <button
       type="button"
       onClick={() => onPick(user)}
+      disabled={pending}
       className={`w-full flex flex-col items-start gap-1 rounded-[2px] border bg-[var(--color-surface)] px-5 py-5 text-left transition-colors ${
         isBoss
           ? 'border-[var(--color-ink)] hover:opacity-80'
           : 'border-[var(--color-border)] hover:border-[var(--color-ink)]'
-      }`}
+      } ${pending ? 'opacity-60' : ''}`}
     >
       <span className="text-[18px] font-semibold tracking-tight text-[var(--color-ink)]">
-        {user.name}
+        {pending ? '正在进入…' : user.name}
       </span>
       <span
         className={`label ${isBoss ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-3)]'}`}

@@ -5,7 +5,7 @@ import {
   formatCny,
   type Stage,
 } from '@/lib/data'
-import { componentBoardRows, todaySummary } from '@/lib/packets'
+import { componentBoardRows, todaySummary, pendingReportCount } from '@/lib/packets'
 import { ComponentSheet } from './_components_sheet'
 import { today } from '@/lib/today'
 import { APP_TITLE } from '@/lib/brand'
@@ -221,9 +221,9 @@ export default async function MasterBoard(
   // 编程 → OPs → 后处理 → 出货. Station drill-downs (?stage=) keep the
   // original workbench below.
   const isComponentBoard = !stageFilter
-  const [boardRows, reportToday] = isComponentBoard
-    ? await Promise.all([componentBoardRows(), todaySummary()])
-    : [[], undefined]
+  const [boardRows, reportToday, pendingCount] = isComponentBoard
+    ? await Promise.all([componentBoardRows(), todaySummary(), pendingReportCount()])
+    : [[], undefined, 0]
 
   return (
     <div className="flex-1 flex flex-col">
@@ -285,6 +285,17 @@ export default async function MasterBoard(
               </p>
             </div>
             <div className="flex items-center gap-2">
+              {pendingCount > 0 ? (
+                // The no-match valve's outbox: worker photos that matched
+                // nothing, waiting for the PMC to attach from her desk.
+                <Link
+                  href="/review"
+                  className="h-10 px-4 inline-flex items-center gap-1.5 text-[13px] font-semibold border border-[var(--color-warning)] text-[var(--color-warning)] rounded-[3px] bg-[color-mix(in_srgb,var(--color-warning)_8%,transparent)]"
+                >
+                  待归档
+                  <span className="font-mono">{pendingCount}</span>
+                </Link>
+              ) : null}
               <Link
                 href="/ingest"
                 className="h-10 px-4 inline-flex items-center text-[13px] font-semibold bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[3px]"
