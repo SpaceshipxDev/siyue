@@ -194,6 +194,12 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   }
   const pct = totalCells === 0 ? 0 : Math.round((doneCells / totalCells) * 100)
 
+  // Only the stages this job's parts actually route through become columns.
+  // A 2-OP part shows OP1 · OP2 · 后处理 — never a crossed-out OP3..OP6.
+  const visibleStages = STAGES.filter((s) =>
+    job.components.some((c) => c.stages[s] !== undefined),
+  )
+
   // Header identity facts — 数量 straight off the parts; 图纸号 lives in the
   // new drawing_no column (0083), which the snapshot layer predates, so one
   // narrow read here.
@@ -387,7 +393,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   wrong width and 备注/单价/小计 fall off the end of the
                   colgroup. */}
               <col style={{ width: 150 }} />
-              {STAGES.map((s) => (
+              {visibleStages.map((s) => (
                 <col key={s} style={{ width: 90 }} />
               ))}
               <col style={{ width: 170 }} />
@@ -418,7 +424,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 <th className="px-4 py-3 label whitespace-nowrap">材料</th>
                 <th className="px-4 py-3 label whitespace-nowrap">表面处理</th>
                 <th className="px-4 py-3 label whitespace-nowrap">工序</th>
-                {STAGES.map((s) => (
+                {visibleStages.map((s) => (
                   <th
                     key={s}
                     data-stage-col={s}
@@ -491,7 +497,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       )}
                     </div>
                   </td>
-                  {STAGES.map((stage) => {
+                  {visibleStages.map((stage) => {
                     const kind = planByStage.get(stage)
                     return (
                       <td
@@ -695,7 +701,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         readOnly={!canEditPartRoute(user)}
                       />
                     </td>
-                    {STAGES.map((stage) => {
+                    {visibleStages.map((stage) => {
                       // 工程 + commerce can flip any stage cell from anywhere
                       // on the job detail page — 工程 routinely fixes routing
                       // mistakes by stepping parts forward/back across stages.
