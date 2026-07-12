@@ -94,6 +94,17 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
           </div>
         ) : null}
 
+        {/* Just reported → the next act is almost always "scan the next
+            sheet". Give it the biggest button, right here at the top. */}
+        {reported !== undefined && Number.isFinite(reported) ? (
+          <Link
+            href="/p"
+            className="w-full h-16 text-[17px] font-semibold bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[3px] flex items-center justify-center"
+          >
+            📷 拍照报下一单
+          </Link>
+        ) : null}
+
         {worker && tally && (tally.pieces > 0 || reported !== undefined) ? (
           <TallyStrip
             pieces={tally.pieces}
@@ -102,39 +113,24 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
           />
         ) : null}
 
-        {/* The part — same six facts as the paper this QR is printed on. */}
+        {/* The part — one tight block: who/what on top, one inline facts
+            line, then the route chips. No label/value grid to decode. */}
         <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-5">
-          <p className="text-[10px] tracking-[0.18em] text-[var(--color-ink-3)] uppercase">
+          <p className="text-[11px] text-[var(--color-ink-3)]">
             {view.customer}
+            {view.partNo ? (
+              <span className="font-mono ml-2 break-all">{view.partNo}</span>
+            ) : null}
           </p>
-          <h1 className="text-[22px] font-semibold tracking-tight mt-1">
+          <h1 className="text-[24px] font-semibold tracking-tight mt-0.5">
             {view.partName || view.product}
           </h1>
-          {view.partNo ? (
-            <p className="font-mono text-[11px] text-[var(--color-ink-2)] mt-0.5 break-all">
-              {view.partNo}
-            </p>
-          ) : null}
-          <div className="grid grid-cols-3 border-t border-[var(--color-border)] mt-4 pt-3">
-            {(
-              [
-                ['数量', `${view.qty} 件`],
-                ['材质', view.material || '—'],
-                ['交期', mdCn(view.dueDate) || '—'],
-              ] as const
-            ).map(([label, value]) => (
-              <div key={label}>
-                <p className="text-[10px] text-[var(--color-ink-3)]">{label}</p>
-                <p className="text-[13px] font-semibold mt-0.5">{value}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Route — the same chip row the dashboard speaks: green ✓ done,
-            amber a/b in progress, gray waiting. No prose. */}
-        <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-4">
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <p className="text-[14px] mt-1">
+            <span className="font-semibold font-mono">{view.qty}</span> 件
+            {view.material ? <span className="text-[var(--color-ink-2)]"> · {view.material}</span> : null}
+            {view.dueDate ? <span className="text-[var(--color-ink-2)]"> · 交期 {mdCn(view.dueDate)}</span> : null}
+          </p>
+          <div className="flex items-center gap-1.5 flex-wrap mt-3 pt-3 border-t border-[var(--color-border)]">
             {view.stages.map((s) => {
               const isCurrent = s.stage === view.currentStage
               if (s.status === 'done') {
@@ -224,12 +220,14 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
           </section>
         )}
 
-        <Link
-          href="/p"
-          className="w-full h-12 text-[14px] font-medium border border-[var(--color-border-strong)] text-[var(--color-ink)] rounded-[3px] bg-[var(--color-surface)] flex items-center justify-center"
-        >
-          📷 拍照报下一单
-        </Link>
+        {reported === undefined ? (
+          <Link
+            href="/p"
+            className="w-full h-12 text-[14px] font-medium border border-[var(--color-border-strong)] text-[var(--color-ink)] rounded-[3px] bg-[var(--color-surface)] flex items-center justify-center"
+          >
+            📷 拍照报下一单
+          </Link>
+        ) : null}
 
         <p className="text-center text-[10px] text-[var(--color-ink-4)] pt-2 pb-6">
           {BRAND.software} · {BRAND.domain}
