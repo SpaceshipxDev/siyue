@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation'
-import { STAGES } from '@/lib/data'
 import { getActiveUsers, getAllUsers, getBossUser, isAdminUser } from '@/lib/db'
 import { currentUser, landingPathFor } from '@/lib/auth'
 import { LoginClient } from './_login_client'
@@ -15,14 +14,12 @@ export default async function LoginPage(props: PageProps<'/login'>) {
   // Boss arriving via the 管理员工 flow gets the admin panel inline on /login
   // — same URL, just a different view.
   if (u && wantsAdmin && u.role === 'commerce') {
-    const [allUsers, boss] = await Promise.all([getAllUsers(), getBossUser()])
+    const allUsers = await getAllUsers()
     return (
       <AdminView
         bossName={u.name}
-        bossId={boss.id}
         adminIds={allUsers.filter((x) => isAdminUser(x.id)).map((x) => x.id)}
         users={allUsers}
-        stages={STAGES as readonly string[]}
       />
     )
   }

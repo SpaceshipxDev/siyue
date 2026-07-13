@@ -271,11 +271,11 @@ function UserTile({
   pending?: boolean
   onPick: (u: AppUser) => void
 }) {
-  const subtitle = isBoss
-    ? '老板'
-    : user.role === 'commerce'
-      ? '商务'
-      : `生产 · ${user.defaultStage ?? ''}`
+  const subtitle = user.employeeRole === 'management'
+    ? '管理'
+    : user.employeeRole === 'post_processing'
+      ? '后处理'
+      : '操机'
   return (
     <button
       type="button"
@@ -344,11 +344,11 @@ function Keypad({
           {user.name}
         </h1>
         <p className="label text-[var(--color-ink-3)] mb-10">
-          {isBoss
-            ? '老板'
-            : user.role === 'commerce'
-              ? '商务'
-              : `生产 · ${user.defaultStage ?? ''}`}
+          {user.employeeRole === 'management'
+            ? '管理'
+            : user.employeeRole === 'post_processing'
+              ? '后处理'
+              : '操机'}
         </p>
 
         <div

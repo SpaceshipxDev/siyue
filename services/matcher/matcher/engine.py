@@ -110,7 +110,10 @@ class MatcherEngine:
         embed_ms = (time.perf_counter() - t0) * 1000
 
         t0 = time.perf_counter()
-        pages = self.bank.all()
+        # The bank may still contain program sheets enrolled by older app
+        # versions. Ignore them at query time so the policy applies immediately
+        # without requiring a destructive migration of the matcher data dir.
+        pages = [page for page in self.bank.all() if page.kind == "drawing"]
         if not pages:
             return self._response("no_match", None, [], started, embed_ms, 0.0, 0.0)
         bank_vectors = np.stack([page.embedding for page in pages])

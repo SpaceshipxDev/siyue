@@ -211,6 +211,7 @@ export async function extractPacket(
 // we look the part up by 图纸号/货号 instead. Slower than the matcher but
 // keeps the floor loop alive.
 export type PhotoIdRead = {
+  kind: 'drawing' | 'program' | 'other'
   partNo?: string
   drawingNo?: string
   qty?: number
@@ -219,11 +220,13 @@ export type PhotoIdRead = {
 const ID_SCHEMA = {
   type: Type.OBJECT,
   properties: {
+    kind: { type: Type.STRING, enum: ['drawing', 'program', 'other'] },
     partNo: { type: Type.STRING, nullable: true },
     drawingNo: { type: Type.STRING, nullable: true },
     qty: { type: Type.INTEGER, nullable: true },
   },
-  propertyOrdering: ['partNo', 'drawingNo', 'qty'],
+  required: ['kind'],
+  propertyOrdering: ['kind', 'partNo', 'drawingNo', 'qty'],
 }
 
 export async function readPhotoIdentity(image: {
@@ -241,7 +244,7 @@ export async function readPhotoIdentity(image: {
             role: 'user',
             parts: [
               {
-                text: '这是车间里一张2D图纸或CNC程序单的照片。只提取：partNo(货号，如 ZRY0056484)、drawingNo(图纸号/模具编号，如 BSZ4255.04.01.01.09.021，带版本后缀则保留)、qty(蓝色印章手写数量)。找不到的留 null，不要猜。',
+                text: '这是车间里一张纸张的照片。先判断 kind：工程2D图纸为 drawing，《CNC程序单》为 program，其他为 other。然后只从2D图纸提取 partNo(货号，如 ZRY0056484)、drawingNo(图纸号，如 BSZ4255.04.01.01.09.021，带版本后缀则保留)、qty(蓝色印章手写数量)。如果 kind 不是 drawing，其他字段全部留 null。不要猜。',
               },
               { inlineData: { mimeType: image.mimeType, data: image.data } },
             ],
@@ -256,11 +259,16 @@ export async function readPhotoIdentity(image: {
       const text = response.text
       if (!text) throw new Error('empty')
       const parsed = JSON.parse(text) as {
+        kind?: string
         partNo?: string | null
         drawingNo?: string | null
         qty?: number | null
       }
       return {
+        kind:
+          parsed.kind === 'drawing' || parsed.kind === 'program'
+            ? parsed.kind
+            : 'other',
         partNo: clean(parsed.partNo),
         drawingNo: clean(parsed.drawingNo),
         qty:

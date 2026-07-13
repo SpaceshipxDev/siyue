@@ -105,7 +105,7 @@ budget — OCR routinely drops a digit group from long drawing numbers
 
 ## 4. 报工 (`/p` → `/s/<token>`)
 
-- `/p` (public): one button → photo → `/api/match-photo` → redirect to
+- `/p` (public): take photo → review and confirm → `/api/match-photo` → redirect to
   `/s/<token>` — the same page the printed QR opens, so QR and photo are
   interchangeable credentials for the same narrow surface.
 - `/s`: part block (name, 货号, one facts line, stage chips), then ONE

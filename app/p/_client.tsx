@@ -11,481 +11,311 @@ type Candidate = {
   drawingNo?: string
   qty: number
   dueDate?: string
-  customer?: string
 }
 
 type MatchJson =
-  | { decision: 'match'; token: string; latencyMs?: number; part?: { name?: string } }
+  | { decision: 'match'; token: string; latencyMs?: number }
   | { decision: 'ambiguous'; candidates: Candidate[]; latencyMs?: number }
-  | { decision: 'no_match'; latencyMs?: number; error?: string }
+  | { decision: 'no_match'; latencyMs?: number }
 
-function mdCn(ymd?: string): string {
-  if (!ymd || !/^\d{4}-\d{2}-\d{2}/.test(ymd)) return ymd ?? ''
-  const [, m, d] = ymd.slice(0, 10).split('-').map(Number)
-  return `${m}月${d}日`
-}
-
-// The generic stage vocabulary a worker can claim on an unmatched photo.
-// Free text on the server side — the PMC re-decides at 归档 time anyway.
 const VALVE_STAGES = ['OP1', 'OP2', 'OP3', 'OP4', '后处理', '出货']
 
-// The camera IS the page. /p opens straight into a live viewfinder that
-// keeps matching frames until the sheet in view resolves — no shutter in the
-// happy path (~0.4s per attempt, retries are free). Branches:
-//   · ambiguous  → "两个单子长得一样，选一下" (repeat orders)
-//   · 3 misses   → the valve slides up: 先记上，跟单员归档 (never a dead end)
-//   · no camera  → the old tap-to-shoot flow (decade-old WeChat webviews)
+function mdCn(value?: string) {
+  if (!value) return ''
+  const [, month, day] = value.slice(0, 10).split('-')
+  return `${Number(month)}月${Number(day)}日`
+}
+
+// The camera is the page: open directly into a live viewfinder, then one tap
+// captures a still and starts matching. The file input is only a compatibility
+// fallback for older embedded browsers without getUserMedia.
 export function ScanClient({ workerName }: { workerName?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const cameraRequestRef = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
-  const lastFrameRef = useRef<Blob | null>(null)
-  const missesRef = useRef(0)
-  const stopRef = useRef(false)
-  const startedAtRef = useRef(0)
-
-  const [phase, setPhase] = useState<
-    'boot' | 'live' | 'paused' | 'pick' | 'valve' | 'sent' | 'fallback' | 'busy'
-  >('boot')
+  const [phase, setPhase] = useState<'boot' | 'live' | 'busy' | 'fallback' | 'pick' | 'miss' | 'valve' | 'sent'>('boot')
+  const [photo, setPhoto] = useState<Blob | null>(null)
+  const [preview, setPreview] = useState<string>()
   const [candidates, setCandidates] = useState<Candidate[]>([])
-  const [ms, setMs] = useState<number | undefined>()
-  const [flash, setFlash] = useState<string | undefined>()
-  const [showValveCta, setShowValveCta] = useState(false)
-  const [valveThumb, setValveThumb] = useState<string | undefined>()
+  const [latency, setLatency] = useState<number>()
+  const [error, setError] = useState<string>()
 
-  const stopStream = useCallback(() => {
-    stopRef.current = true
-    streamRef.current?.getTracks().forEach((t) => t.stop())
+  const clearPhoto = useCallback(() => {
+    setPreview((current) => {
+      if (current) URL.revokeObjectURL(current)
+      return undefined
+    })
+    setPhoto(null)
+    setCandidates([])
+    setLatency(undefined)
+    setError(undefined)
+  }, [])
+
+  const stopCamera = useCallback(() => {
+    cameraRequestRef.current += 1
+    streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
   }, [])
 
-  const handleResult = useCallback(
-    (json: MatchJson): boolean => {
-      setMs(json.latencyMs)
-      if (json.decision === 'match') {
-        navigator.vibrate?.(80)
-        setFlash(json.part?.name ? `✓ ${json.part.name}` : '✓ 认到了')
-        window.location.href = withBase(`/s/${json.token}?via=photo`)
-        return true
-      }
-      if (json.decision === 'ambiguous' && json.candidates.length > 0) {
-        navigator.vibrate?.([40, 60, 40])
-        setCandidates(json.candidates)
-        setPhase('pick')
-        return true
-      }
-      missesRef.current += 1
-      if (missesRef.current >= 3) setShowValveCta(true)
-      return false
-    },
-    [],
-  )
-
-  // One frame in flight at a time; the next is scheduled only after the
-  // previous answer. ~0.4s matcher + upload ≈ a fresh attempt every second.
-  const pollLoop = useCallback(async () => {
-    while (!stopRef.current) {
-      const video = videoRef.current
-      if (!video || video.readyState < 2 || document.hidden) {
-        await new Promise((r) => setTimeout(r, 300))
-        continue
-      }
-      if (Date.now() - startedAtRef.current > 90_000) {
-        stopStream()
-        setPhase('paused')
-        return
-      }
-      try {
-        const canvas = document.createElement('canvas')
-        const scale = Math.min(1, 1280 / Math.max(video.videoWidth, video.videoHeight))
-        canvas.width = Math.round(video.videoWidth * scale)
-        canvas.height = Math.round(video.videoHeight * scale)
-        canvas.getContext('2d')!.drawImage(video, 0, 0, canvas.width, canvas.height)
-        const blob = await new Promise<Blob | null>((resolve) =>
-          canvas.toBlob(resolve, 'image/jpeg', 0.72),
-        )
-        if (!blob) continue
-        lastFrameRef.current = blob
-        const fd = new FormData()
-        fd.append('image', blob, 'frame.jpg')
-        const res = await fetch(withBase('/api/match-photo'), { method: 'POST', body: fd })
-        if (res.status === 429) {
-          await new Promise((r) => setTimeout(r, 3000))
-          continue
-        }
-        const json = (await res.json()) as MatchJson
-        if (handleResult(json)) {
-          stopStream()
-          return
-        }
-      } catch {
-        /* transient network/camera hiccup — keep scanning */
-      }
-      await new Promise((r) => setTimeout(r, 400))
-    }
-  }, [handleResult, stopStream])
-
-  const startLive = useCallback(async () => {
-    stopRef.current = false
-    missesRef.current = 0
-    setShowValveCta(false)
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1440 } },
-        audio: false,
-      })
-      streamRef.current = stream
-      setPhase('live')
-      startedAtRef.current = Date.now()
-      // The <video> mounts with the 'live' render; attach on next tick.
-      setTimeout(() => {
-        const video = videoRef.current
-        if (!video) return
-        video.srcObject = stream
-        void video.play().catch(() => {})
-        void pollLoop()
-      }, 0)
-    } catch {
-      setPhase('fallback')
-    }
-  }, [pollLoop])
-
-  useEffect(() => {
+  const startCamera = useCallback(async () => {
+    clearPhoto()
+    stopCamera()
     if (!navigator.mediaDevices?.getUserMedia) {
       setPhase('fallback')
       return
     }
-    void startLive()
-    return () => stopStream()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    setPhase('boot')
+    const requestId = cameraRequestRef.current
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1440 },
+        },
+        audio: false,
+      })
+      if (requestId !== cameraRequestRef.current) {
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
+      streamRef.current = stream
+      setPhase('live')
+    } catch {
+      setPhase('fallback')
+    }
+  }, [clearPhoto, stopCamera])
 
-  // Old-webview / manual high-res path: tap-to-shoot via the OS camera.
+  useEffect(() => {
+    const timer = window.setTimeout(() => void startCamera(), 0)
+    return () => {
+      window.clearTimeout(timer)
+      stopCamera()
+    }
+  }, [startCamera, stopCamera])
+
+  useEffect(() => {
+    if (phase !== 'live' || !videoRef.current || !streamRef.current) return
+    videoRef.current.srcObject = streamRef.current
+    void videoRef.current.play().catch(() => {})
+  }, [phase])
+
+  async function match(blob: Blob) {
+    setPhase('busy')
+    setError(undefined)
+    try {
+      const body = new FormData()
+      body.append('image', blob, 'drawing.jpg')
+      const response = await fetch(withBase('/api/match-photo'), { method: 'POST', body })
+      if (!response.ok) throw new Error()
+      const result = (await response.json()) as MatchJson
+      setLatency(result.latencyMs)
+      if (result.decision === 'match') {
+        navigator.vibrate?.(80)
+        window.location.href = withBase(`/s/${result.token}?via=photo`)
+        return
+      }
+      if (result.decision === 'ambiguous' && result.candidates.length > 0) {
+        setCandidates(result.candidates)
+        setPhase('pick')
+        return
+      }
+      setPhase('miss')
+    } catch {
+      setError('网络不稳定，请重拍')
+      setPhase('miss')
+    }
+  }
+
+  function snap() {
+    const video = videoRef.current
+    if (!video || video.readyState < 2 || video.videoWidth === 0) return
+    const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(video.videoWidth * scale)
+    canvas.height = Math.round(video.videoHeight * scale)
+    canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height)
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        setError('照片读取失败，请重拍')
+        return
+      }
+      stopCamera()
+      setPhoto(blob)
+      setPreview(URL.createObjectURL(blob))
+      void match(blob)
+    }, 'image/jpeg', 0.8)
+  }
+
   async function onPick(files: FileList | null) {
     const file = files?.[0]
     if (inputRef.current) inputRef.current.value = ''
     if (!file) return
-    setPhase('busy')
     try {
       const blob = await downscaleToJpeg(file, 1600, 0.8)
-      lastFrameRef.current = blob
-      const fd = new FormData()
-      fd.append('image', blob, 'query.jpg')
-      const res = await fetch(withBase('/api/match-photo'), { method: 'POST', body: fd })
-      const json = (await res.json()) as MatchJson
-      if (!handleResult(json)) {
-        missesRef.current = 3
-        setShowValveCta(true)
-        setPhase('fallback')
-      }
+      setPhoto(blob)
+      setPreview(URL.createObjectURL(blob))
+      await match(blob)
     } catch {
+      setError('照片读取失败，请重拍')
       setPhase('fallback')
     }
   }
 
-  function openValve() {
-    stopStream()
-    const frame = lastFrameRef.current
-    setValveThumb(frame ? URL.createObjectURL(frame) : undefined)
-    setPhase('valve')
+  if (phase === 'sent') {
+    return (
+      <div className="mx-auto max-w-md px-4 py-6">
+        <section className="rounded-[8px] border border-[var(--color-success)] bg-[var(--color-success-soft)] p-8 text-center">
+          <p className="text-[20px] font-semibold text-[var(--color-success)]">✓ 已记上</p>
+          <p className="mt-2 text-[12px] text-[var(--color-ink-2)]">跟单员会把照片归档。</p>
+        </section>
+        <button onClick={() => void startCamera()} className="mt-4 h-16 w-full rounded-[8px] bg-[var(--color-ink)] text-[17px] font-semibold text-white">
+          扫下一单
+        </button>
+      </div>
+    )
   }
 
-  const resume = () => {
-    setCandidates([])
-    void startLive()
+  if (phase === 'valve') {
+    return (
+      <div className="mx-auto max-w-md px-4 py-5">
+        <ValveForm photo={photo} preview={preview} workerName={workerName}
+          onSent={() => setPhase('sent')} onBack={() => setPhase('miss')} />
+      </div>
+    )
+  }
+
+  if (phase === 'pick') {
+    return (
+      <div className="mx-auto max-w-md space-y-2 px-4 py-5">
+        <div className="mb-3">
+          <h1 className="text-[18px] font-semibold">请选择这张单</h1>
+          <p className="mt-1 text-[12px] text-[var(--color-ink-2)]">有几张很像，对一下数量或交期。</p>
+        </div>
+        {candidates.map((candidate) => (
+          <a key={candidate.token} href={withBase(`/s/${candidate.token}?via=photo`)}
+            className="block rounded-[8px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-4 active:bg-[var(--color-muted-bg)]">
+            <p className="text-[16px] font-semibold">{candidate.name}</p>
+            <p className="mt-1 font-mono text-[11px] text-[var(--color-ink-3)]">{candidate.partNo || candidate.drawingNo}</p>
+            <p className="mt-3 text-[13px]"><b>{candidate.qty} 件</b>{candidate.dueDate ? ` · 交期 ${mdCn(candidate.dueDate)}` : ''}</p>
+          </a>
+        ))}
+        <button onClick={() => void startCamera()} className="mt-3 h-12 w-full rounded-[8px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[14px] font-semibold">都不是 · 重拍</button>
+      </div>
+    )
   }
 
   return (
-    <div className="max-w-md mx-auto px-4 py-4 space-y-3">
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={(e) => onPick(e.target.files)}
-      />
+    <div className="mx-auto max-w-md px-4 py-5">
+      <input ref={inputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => void onPick(event.target.files)} />
 
-      {phase === 'pick' ? (
+      {phase === 'boot' || phase === 'live' ? (
         <>
-          <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-4">
-            <p className="text-[14px] font-semibold">有 {candidates.length} 个很像的单子</p>
-            <p className="text-[11px] text-[var(--color-ink-2)] mt-1">
-              对一下纸上的数量和交期，点你手里这张。
-            </p>
-          </section>
-          {candidates.map((c) => (
-            <a
-              key={c.token}
-              href={withBase(`/s/${c.token}?via=photo`)}
-              className="block bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-4 active:bg-[var(--color-bg)]"
-            >
-              <p className="text-[16px] font-semibold">{c.name}</p>
-              {c.partNo || c.drawingNo ? (
-                <p className="font-mono text-[11px] text-[var(--color-ink-2)] mt-0.5 break-all">
-                  {c.partNo ?? c.drawingNo}
-                </p>
-              ) : null}
-              <p className="text-[13px] mt-2">
-                <span className="font-semibold">{c.qty} 件</span>
-                {c.dueDate ? (
-                  <span className="text-[var(--color-ink-2)]"> · 交期 {mdCn(c.dueDate)}</span>
-                ) : null}
-                {c.customer ? (
-                  <span className="text-[var(--color-ink-2)]"> · {c.customer}</span>
-                ) : null}
-              </p>
-            </a>
-          ))}
-          <button
-            onClick={resume}
-            className="w-full h-12 text-[14px] font-medium border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)]"
-          >
-            都不是 · 重新对准
-          </button>
+          <div className="relative h-[62dvh] overflow-hidden rounded-[10px] bg-black">
+            <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+            <div className="pointer-events-none absolute inset-3 rounded-[8px] border-2 border-white/45" />
+            {phase === 'boot' ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-[16px] font-semibold text-white">正在打开相机…</div>
+            ) : (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-4 pb-4 pt-12 text-center text-[13px] text-white">让整张2D图纸进入框内</div>
+            )}
+          </div>
+          <button onClick={snap} disabled={phase !== 'live'} className="mt-3 h-20 w-full rounded-[10px] bg-[var(--color-ink)] text-[19px] font-semibold text-white disabled:opacity-50">拍照识别</button>
         </>
-      ) : phase === 'valve' ? (
-        <ValveForm
-          thumb={valveThumb}
-          frame={lastFrameRef.current}
-          workerName={workerName}
-          onSent={() => setPhase('sent')}
-          onBack={resume}
-        />
-      ) : phase === 'sent' ? (
+      ) : phase === 'fallback' ? (
         <>
-          <section className="bg-[var(--color-success-soft)] border border-[var(--color-success)] rounded-[3px] p-6 text-center">
-            <p className="text-[16px] font-semibold text-[var(--color-success)]">✓ 已记上</p>
-            <p className="text-[12px] text-[var(--color-ink-2)] mt-1 leading-relaxed">
-              跟单员会把这单归档，件数不会丢。
-            </p>
+          <section className="rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-8 text-center">
+            <h1 className="text-[18px] font-semibold">无法直接打开相机</h1>
+            <p className="mt-2 text-[12px] text-[var(--color-ink-2)]">请允许相机权限，或使用手机相机拍摄2D图纸。</p>
           </section>
-          <button
-            onClick={resume}
-            className="w-full h-16 text-[17px] font-semibold bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[3px]"
-          >
-            📷 拍下一单
-          </button>
+          {error ? <p className="mt-3 text-center text-[12px] text-[var(--color-overdue)]">{error}</p> : null}
+          <button onClick={() => inputRef.current?.click()} className="mt-4 h-20 w-full rounded-[10px] bg-[var(--color-ink)] text-[19px] font-semibold text-white">拍照识别</button>
         </>
-      ) : phase === 'paused' ? (
-        <button
-          onClick={resume}
-          className="w-full h-[56dvh] text-[18px] font-semibold border-2 border-dashed border-[var(--color-border-strong)] rounded-[6px] bg-[var(--color-surface)]"
-        >
-          📷 点一下继续识别
-        </button>
-      ) : phase === 'fallback' || phase === 'busy' ? (
+      ) : phase === 'busy' ? (
         <>
-          <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-6 text-center">
-            <p className="text-[40px] leading-none">📄</p>
-            <h1 className="text-[17px] font-semibold mt-3">拍一下手里的单子</h1>
-            <p className="text-[12px] text-[var(--color-ink-2)] mt-1 leading-relaxed">
-              对准整页（图纸或程序单都行），
-              <br />
-              拍完自动认出是哪个零件，直接报工。
-            </p>
-          </section>
-          {showValveCta ? (
-            <section className="bg-[var(--color-surface)] border border-red-300 rounded-[3px] p-4 text-center">
-              <p className="text-[13px] font-semibold text-red-600">没认出来</p>
-              <p className="text-[11px] text-[var(--color-ink-2)] mt-1">
-                再拍一张（整页入镜、拍正一点），或者：
-              </p>
-              <button
-                onClick={openValve}
-                className="mt-2 w-full h-11 text-[14px] font-semibold border border-red-300 text-red-600 rounded-[3px] bg-[var(--color-surface)]"
-              >
-                先记上 · 让跟单员归档
-              </button>
-            </section>
+          {preview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={preview} alt="正在识别的2D图纸" className="max-h-[55dvh] w-full rounded-[10px] border border-[var(--color-border-strong)] bg-black object-contain" />
           ) : null}
-          <button
-            onClick={() => inputRef.current?.click()}
-            disabled={phase === 'busy'}
-            className="w-full h-20 text-[18px] font-semibold bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[3px] disabled:opacity-60"
-          >
-            {phase === 'busy' ? '正在识别…' : '📷 拍照识别'}
-          </button>
-          {ms != null && phase !== 'busy' ? (
-            <p className="text-center text-[10px] text-[var(--color-ink-4)]">
-              识别用时 {(ms / 1000).toFixed(1)}s
-            </p>
-          ) : null}
+          <div className="py-8 text-center">
+            <p className="text-[17px] font-semibold">正在识别…</p>
+            <p className="mt-2 text-[12px] text-[var(--color-ink-3)]">请稍候</p>
+          </div>
         </>
       ) : (
-        /* boot + live: the viewfinder IS the interface. */
-        <>
-          <div className="relative rounded-[6px] overflow-hidden bg-black h-[56dvh]">
-            <video
-              ref={videoRef}
-              playsInline
-              muted
-              autoPlay
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-            {/* Corner guides + status line. */}
-            <div className="absolute inset-3 border-2 border-white/40 rounded-[8px] pointer-events-none" />
-            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-4 pb-3 pt-8 text-center">
-              <p className="text-white text-[15px] font-semibold drop-shadow">
-                {flash ?? (phase === 'boot' ? '正在打开相机…' : '对准手里的单子 · 自动识别')}
-              </p>
-              {phase === 'live' && !flash ? (
-                <p className="text-white/70 text-[11px] mt-0.5">
-                  整页入镜，稳住一秒{ms != null ? ` · 上次 ${(ms / 1000).toFixed(1)}s` : ''}
-                </p>
-              ) : null}
-            </div>
-            {flash ? (
-              <div className="absolute inset-0 bg-[var(--color-success)]/25 flex items-center justify-center">
-                <p className="text-white text-[24px] font-bold drop-shadow-lg">{flash}</p>
-              </div>
-            ) : null}
-          </div>
-
-          {showValveCta ? (
-            <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-3 flex items-center gap-3">
-              <p className="flex-1 text-[12px] text-[var(--color-ink-2)] leading-snug">
-                一直认不出来？可能这单还没录入。
-              </p>
-              <button
-                onClick={openValve}
-                className="h-11 px-4 shrink-0 text-[13px] font-semibold border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)]"
-              >
-                先记上
-              </button>
-            </section>
+        <div className="pt-4 text-center">
+          {preview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={preview} alt="未匹配的2D图纸" className="max-h-[45dvh] w-full rounded-[10px] border border-[var(--color-border-strong)] bg-black object-contain" />
           ) : null}
-
-          <button
-            onClick={() => inputRef.current?.click()}
-            className="w-full h-11 text-[13px] font-medium border border-[var(--color-border-strong)] text-[var(--color-ink-2)] rounded-[3px] bg-[var(--color-surface)]"
-          >
-            拍不清楚？拍一张高清照
-          </button>
-        </>
+          <h1 className="mt-4 text-[18px] font-semibold text-[var(--color-overdue)]">没有认出这张图纸</h1>
+          <p className="mt-1 text-[12px] text-[var(--color-ink-2)]">请拍清楚整张2D图纸。</p>
+          {error ? <p className="mt-2 text-[12px] text-[var(--color-overdue)]">{error}</p> : null}
+          {latency != null ? <p className="mt-1 text-[10px] text-[var(--color-ink-4)]">识别用时 {(latency / 1000).toFixed(1)} 秒</p> : null}
+          <button onClick={() => void startCamera()} className="mt-4 h-14 w-full rounded-[8px] bg-[var(--color-ink)] text-[16px] font-semibold text-white">重拍</button>
+          <button onClick={() => setPhase('valve')} className="mt-2 h-12 w-full rounded-[8px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[14px] font-semibold">先保存，稍后归档</button>
+        </div>
       )}
     </div>
   )
 }
 
-// The no-match valve: the photo + claimed stage + count land in the PMC's
-// 待归档 queue. The worker is NEVER blocked by an un-ingested packet.
-function ValveForm({
-  thumb,
-  frame,
-  workerName,
-  onSent,
-  onBack,
-}: {
-  thumb?: string
-  frame: Blob | null
+function ValveForm({ photo, preview, workerName, onSent, onBack }: {
+  photo: Blob | null
+  preview?: string
   workerName?: string
   onSent: () => void
   onBack: () => void
 }) {
-  const [stage, setStage] = useState<string>('')
-  const [qty, setQty] = useState<string>('')
-  const [name, setName] = useState(workerName ?? '')
+  const [stage, setStage] = useState('')
+  const [qty, setQty] = useState('')
+  const [name, setName] = useState(workerName || '')
   const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | undefined>()
+  const [error, setError] = useState<string>()
 
   async function submit() {
-    if (!frame) {
-      setErr('没有照片，请返回重拍')
-      return
-    }
-    const n = Number.parseInt(qty, 10)
-    if (!stage || !Number.isFinite(n) || n <= 0 || !name.trim()) {
-      setErr('选工序、填件数、填名字')
+    const count = Number.parseInt(qty, 10)
+    if (!photo || !stage || !name.trim() || !Number.isFinite(count) || count < 1) {
+      setError('请选择工序，并填写件数和姓名')
       return
     }
     setBusy(true)
-    setErr(undefined)
+    setError(undefined)
     try {
-      const fd = new FormData()
-      fd.append('image', frame, 'unmatched.jpg')
-      fd.append('stage', stage)
-      fd.append('qty', String(n))
-      fd.append('name', name.trim().slice(0, 20))
-      const res = await fetch(withBase('/api/unmatched-report'), { method: 'POST', body: fd })
-      if (!res.ok) throw new Error(String(res.status))
+      const body = new FormData()
+      body.append('image', photo, 'unmatched.jpg')
+      body.append('stage', stage)
+      body.append('qty', String(count))
+      body.append('name', name.trim())
+      const response = await fetch(withBase('/api/unmatched-report'), { method: 'POST', body })
+      if (!response.ok) throw new Error()
       onSent()
     } catch {
-      setErr('没发出去，再点一次')
+      setError('保存失败，请再试一次')
       setBusy(false)
     }
   }
 
   return (
-    <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-4 space-y-3">
+    <section className="rounded-[8px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-4">
       <div className="flex items-center gap-3">
-        {thumb ? (
+        {preview ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={thumb} alt="拍到的单子" className="w-16 h-16 object-cover rounded-[3px] border border-[var(--color-border)]" />
+          <img src={preview} alt="未匹配照片" className="h-16 w-16 rounded-[5px] object-cover" />
         ) : null}
-        <div>
-          <p className="text-[14px] font-semibold">先记上，跟单员归档</p>
-          <p className="text-[11px] text-[var(--color-ink-2)] mt-0.5">
-            这单可能还没录入，件数照样算你的。
-          </p>
-        </div>
+        <div><h1 className="text-[16px] font-semibold">保存待归档</h1><p className="mt-1 text-[11px] text-[var(--color-ink-2)]">补三项，件数会记到你名下。</p></div>
       </div>
-
-      <div>
-        <p className="text-[11px] text-[var(--color-ink-3)] mb-1.5">做到哪道工序？</p>
-        <div className="grid grid-cols-3 gap-1.5">
-          {VALVE_STAGES.map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setStage(s)}
-              className={`h-11 text-[13px] font-medium rounded-[3px] border ${
-                stage === s
-                  ? 'border-2 border-[var(--color-warning)] text-[var(--color-warning)] font-semibold bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)]'
-                  : 'border-[var(--color-border-strong)] bg-[var(--color-surface)]'
-              }`}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        {VALVE_STAGES.map((value) => <button key={value} type="button" onClick={() => setStage(value)} className={`h-11 rounded-[5px] border text-[13px] font-semibold ${stage === value ? 'border-[var(--color-warning)] bg-[var(--color-warning-soft)] text-[var(--color-warning)]' : 'border-[var(--color-border)]'}`}>{value}</button>)}
       </div>
-
-      <div className="flex gap-2">
-        <input
-          type="number"
-          inputMode="numeric"
-          min={1}
-          placeholder="完成件数"
-          value={qty}
-          onChange={(e) => setQty(e.target.value)}
-          className="flex-1 h-12 px-3 text-[16px] font-mono border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)] outline-none focus:border-[var(--color-ink)]"
-        />
-        <input
-          maxLength={20}
-          placeholder="你的名字"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="flex-1 h-12 px-3 text-[15px] border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)] outline-none focus:border-[var(--color-ink)]"
-        />
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <input value={qty} onChange={(event) => setQty(event.target.value)} type="number" inputMode="numeric" placeholder="完成件数" className="h-12 min-w-0 rounded-[5px] border border-[var(--color-border-strong)] px-3 text-[16px]" />
+        <input value={name} onChange={(event) => setName(event.target.value)} maxLength={20} placeholder="姓名" className="h-12 min-w-0 rounded-[5px] border border-[var(--color-border-strong)] px-3 text-[16px]" />
       </div>
-
-      {err ? <p className="text-[12px] text-red-600">{err}</p> : null}
-
-      <button
-        onClick={submit}
-        disabled={busy}
-        className="w-full h-14 text-[16px] font-semibold bg-[var(--color-success)] text-white rounded-[3px] disabled:opacity-60"
-      >
-        {busy ? '发送中…' : '记上 · 交给跟单员'}
-      </button>
-      <button
-        onClick={onBack}
-        disabled={busy}
-        className="w-full h-11 text-[13px] font-medium border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)]"
-      >
-        返回 · 再试一次识别
-      </button>
+      {error ? <p className="mt-2 text-[12px] text-[var(--color-overdue)]">{error}</p> : null}
+      <button onClick={() => void submit()} disabled={busy} className="mt-3 h-14 w-full rounded-[8px] bg-[var(--color-success)] text-[16px] font-semibold text-white disabled:opacity-60">{busy ? '保存中…' : '保存'}</button>
+      <button onClick={onBack} disabled={busy} className="mt-2 h-11 w-full text-[13px] text-[var(--color-ink-2)]">返回</button>
     </section>
   )
 }

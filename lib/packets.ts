@@ -1,6 +1,7 @@
 import 'server-only'
 import { supabase, STORAGE_BUCKET } from './supabase'
 import { createJob, setPartRoute, ensurePartQrToken } from './db'
+import { fallbackDueDate } from './gemini'
 import { TRACKING_STAGES, stageLabel, type Stage, type StageStatus } from './data'
 import type { PacketExtract } from './packet-extract'
 
@@ -144,7 +145,11 @@ export async function createComponentFromPacket(input: {
       jobNo,
       customer: extract.customer ?? '禾牧',
       product: extract.name,
-      dueDate: extract.dueDate ?? '',
+      // jobs.due_date is a NOT NULL date column — '' is a Postgres error
+      // (22007), which used to kill the whole 录入 whenever the stamp had no
+      // legible 交货期. Same today+15 estimate as the xlsx path; the PMC
+      // corrects it on the editable card.
+      dueDate: extract.dueDate ?? fallbackDueDate(),
       notes: extract.notes,
       sourceFile: '拍照录入',
       components: [
@@ -393,6 +398,7 @@ export async function listUnregisteredPages(limit = 50): Promise<PacketPageRow[]
     .from('packet_pages')
     .select('*')
     .eq('registered', false)
+    .eq('kind', 'drawing')
     .order('created_at', { ascending: true })
     .limit(limit)
   if (error) throw error

@@ -2,7 +2,7 @@ import 'server-only'
 import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import type { Stage } from './data'
-import { getUserById, isAdminUser } from './db'
+import { getUserById, type EmployeeRole } from './db'
 import { readSession } from './session'
 
 export type Role = 'commerce' | 'production'
@@ -11,6 +11,7 @@ export type AuthUser = {
   id: string
   name: string
   role: Role
+  employeeRole: EmployeeRole
   defaultStage?: Stage
   // 财务可见性 flag from users.is_finance (migration 0051). Gates the
   // 支出/月度 tabs — payroll amounts are sensitive, so ordinary 商务 keep
@@ -32,6 +33,7 @@ export const currentUser = cache(async (): Promise<AuthUser | null> => {
     id: user.id,
     name: user.name,
     role: user.role,
+    employeeRole: user.employeeRole,
     defaultStage: user.defaultStage,
     isFinance: user.isFinance,
   }
@@ -58,7 +60,7 @@ export async function requireCommerce(): Promise<AuthUser> {
 // a "what can this user see" decision should take Scope, not Role — because
 // 出货 (shipping) station heads run as production but need commerce-flavored
 // visibility into customer data so they can print 出货单.
-export type Scope = Pick<AuthUser, 'role' | 'defaultStage'>
+export type Scope = Pick<AuthUser, 'role' | 'defaultStage' | 'employeeRole'>
 
 export function canSeeMoney(s: Scope): boolean {
   return s.role === 'commerce'
@@ -70,8 +72,7 @@ export function canSeeMoney(s: Scope): boolean {
 // unconditionally so a half-applied migration can never lock the boss out of
 // his own books.
 export function canSeeExpenses(u: AuthUser): boolean {
-  if (u.role !== 'commerce') return false
-  return u.isFinance || isAdminUser(u.id)
+  return u.role === 'commerce'
 }
 
 // Page guard for the 支出/月度 finance tabs. Non-finance commerce users land
@@ -205,12 +206,6 @@ export async function requireReportViewer(): Promise<AuthUser> {
 }
 
 export function landingPathFor(user: AuthUser): string {
-  if (user.role === 'commerce') return '/'
-  // 工程 head sees the same holistic master view as commerce by default —
-  // no auto-applied station filter. They can still drill into ?stage=X
-  // explicitly via the master grid headers.
-  if (user.defaultStage === '工程') return '/'
-  return user.defaultStage
-    ? `/?stage=${encodeURIComponent(user.defaultStage)}`
-    : '/'
+  void user
+  return '/'
 }

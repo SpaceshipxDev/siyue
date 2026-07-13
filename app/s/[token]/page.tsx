@@ -9,6 +9,9 @@ import { scanSetWorker } from './_actions'
 import { ReportForm } from './_report_form'
 import { TallyStrip } from './_tally'
 import { WORKER_COOKIE, decodeWorker } from './_worker'
+import { SESSION_COOKIE } from '@/lib/session'
+import { MobileNav } from '@/app/_mobile_nav'
+import { currentUser } from '@/lib/auth'
 
 // 车间报工 — what a worker's phone shows after scanning the traveller QR.
 // One part, its route, and exactly one act: 报数量. The stage chips ARE the
@@ -36,12 +39,6 @@ export async function generateMetadata({
   return { title, description: '扫码报工 — 这道工序完成多少件' }
 }
 
-function mdCn(ymd?: string): string {
-  if (!ymd || !/^\d{4}-\d{2}-\d{2}/.test(ymd)) return ymd ?? ''
-  const [, m, d] = ymd.slice(0, 10).split('-').map(Number)
-  return `${m}月${d}日`
-}
-
 export default async function ScanPage(props: PageProps<'/s/[token]'>) {
   const { token } = await props.params
   const sp = await props.searchParams
@@ -50,7 +47,11 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
 
   const view = await getPartScanView(token)
   const jar = await cookies()
-  const worker = decodeWorker(jar.get(WORKER_COOKIE)?.value)
+  const sessionUser = await currentUser()
+  const rememberedWorker = decodeWorker(jar.get(WORKER_COOKIE)?.value)
+  const worker =
+    sessionUser?.role === 'production' ? sessionUser.name : rememberedWorker
+  const hasSession = Boolean(jar.get(SESSION_COOKIE)?.value)
   const src = sp.via === 'photo' ? 'photo' : 'scan'
   const tally = worker ? await workerToday(worker) : undefined
 
@@ -87,7 +88,7 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
   const roster = worker || allDone ? [] : await listWorkers()
 
   return (
-    <main className="min-h-dvh bg-[var(--color-bg)]">
+    <main className="min-h-dvh bg-[var(--color-bg)] pb-20 md:pb-0">
       <header className="h-12 px-4 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center justify-between">
         <span className="text-[13px] font-semibold">
           {BRAND.shortName} · 车间报工
@@ -128,19 +129,12 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
         {/* The part — one tight block: who/what on top, one inline facts
             line, then the route chips. The chips are the stage picker. */}
         <section className="bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] p-5">
-          <p className="text-[11px] text-[var(--color-ink-3)]">
-            {view.customer}
-            {view.partNo ? (
-              <span className="font-mono ml-2 break-all">{view.partNo}</span>
-            ) : null}
-          </p>
+          {view.partNo ? <p className="font-mono text-[11px] text-[var(--color-ink-3)] break-all">{view.partNo}</p> : null}
           <h1 className="text-[24px] font-semibold tracking-tight mt-0.5">
             {view.partName || view.product}
           </h1>
           <p className="text-[14px] mt-1">
             <span className="font-semibold font-mono">{view.qty}</span> 件
-            {view.material ? <span className="text-[var(--color-ink-2)]"> · {view.material}</span> : null}
-            {view.dueDate ? <span className="text-[var(--color-ink-2)]"> · 交期 {mdCn(view.dueDate)}</span> : null}
           </p>
           <div className="flex items-center gap-1.5 flex-wrap mt-3 pt-3 border-t border-[var(--color-border)]">
             {view.stages.map((s) => {
@@ -278,6 +272,7 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
           {BRAND.software} · {BRAND.domain}
         </p>
       </div>
+      <MobileNav current="scan" authenticated={hasSession} />
     </main>
   )
 }

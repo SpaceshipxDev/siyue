@@ -1,13 +1,12 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import type { Stage } from '@/lib/data'
 import {
   createUser,
   deleteUser,
   resetUserPin,
   updateUser,
-  type Role,
+  type EmployeeRole,
 } from '@/lib/db'
 import { requireCommerce } from '@/lib/auth'
 
@@ -21,20 +20,17 @@ export async function createUserFormAction(
   await requireCommerce()
   const name = String(formData.get('name') ?? '').trim()
   const pin = String(formData.get('pin') ?? '')
-  const role = String(formData.get('role') ?? '') as Role
-  const stage = String(formData.get('default_stage') ?? '').trim() as Stage
-  if (role !== 'commerce' && role !== 'production') {
-    return { ok: false, error: '请选择身份' }
+  const employeeRole = String(formData.get('employee_role') ?? '') as EmployeeRole
+  if (!['management', 'machine', 'post_processing'].includes(employeeRole)) {
+    return { ok: false, error: '请选择角色' }
   }
-  if (role === 'production' && !stage) {
-    return { ok: false, error: '请选择工段' }
-  }
+  const role = employeeRole === 'management' ? 'commerce' : 'production'
   try {
     await createUser({
       name,
       pin,
       role,
-      defaultStage: role === 'production' ? stage : undefined,
+      employeeRole,
     })
     revalidatePath('/login')
     return { ok: true }

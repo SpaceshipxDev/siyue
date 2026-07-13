@@ -78,14 +78,17 @@ export async function POST(req: Request): Promise<Response> {
       createdBy: user.name,
     })
 
-    // 4. Register reference pages with the matcher — best-effort; failures
-    // stay registered=false and the sweep re-pushes them later.
+    // 4. Register only the 2D drawing with the matcher. CNC program sheets
+    // remain stored as packet source material, but must never identify a part
+    // in the worker-facing photo matcher.
     await Promise.all(
       result.pageIds.map(async (pageId, i) => {
+        const kind = extract.pages.find((pg) => pg.index === i)?.kind
+        if (kind !== 'drawing') return
         const ok = await registerPage({
           pageId,
           partId: result.partId,
-          kind: extract.pages.find((pg) => pg.index === i)?.kind,
+          kind,
           bytes: pages[i].bytes,
           contentType: pages[i].contentType,
         })
@@ -109,7 +112,19 @@ export async function POST(req: Request): Promise<Response> {
   } catch (err) {
     console.error('[packet-ingest] failed:', err)
     return Response.json(
-      { ok: false, error: err instanceof Error ? err.message : '录入失败' },
+      {
+        ok: false,
+        error:
+          err instanceof Error
+            ? err.message
+            : (() => {
+                try {
+                  return JSON.stringify(err)
+                } catch {
+                  return String(err)
+                }
+              })() || '录入失败',
+      },
       { status: 500 },
     )
   }

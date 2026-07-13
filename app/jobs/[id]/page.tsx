@@ -41,7 +41,6 @@ import { StageHeader, TopBar, type TabKey } from '@/app/_ui'
 import { EffectiveStageCell } from '@/app/_stagecell'
 import { BackButton } from '@/app/_back'
 import {
-  ComponentLineTotal,
   ComponentNotes,
   ComponentQty,
   ComponentText,
@@ -408,12 +407,11 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               <col style={{ width: 200 }} />
               <col style={{ width: 120 }} />
               <col style={{ width: 130 }} />
-              <col style={{ width: 130 }} />
               <col style={{ width: 180 }} />
               <col style={{ width: 220 }} />
               {/* 工序 (StageChips) — sits between 表面处理 and the stage grid.
                   Without its own <col> every column to the right inherits the
-                  wrong width and 备注/单价/小计 fall off the end of the
+                  wrong width and 备注/单价 fall off the end of the
                   colgroup. */}
               <col style={{ width: 150 }} />
               {visibleStages.map((s) => (
@@ -422,7 +420,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               <col style={{ width: 170 }} />
               {canEditFields && <col style={{ width: 170 }} />}
               {showMoney && <col style={{ width: 110 }} />}
-              {showMoney && <col style={{ width: 100 }} />}
             </colgroup>
             <thead>
               <tr className="text-[var(--color-ink-2)]">
@@ -440,7 +437,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   零件
                 </th>
                 <th className="px-4 py-3 label whitespace-nowrap">料号</th>
-                <th className="px-4 py-3 label whitespace-nowrap">加工工艺</th>
                 <th className="px-4 py-3 text-right label whitespace-nowrap">
                   数量
                 </th>
@@ -474,11 +470,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     单价
                   </th>
                 )}
-                {showMoney && (
-                  <th className="px-4 py-3 text-right label whitespace-nowrap">
-                    小计
-                  </th>
-                )}
               </tr>
             </thead>
             <tbody>
@@ -490,7 +481,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               {planStages.length > 0 && (
                 <tr className="align-middle">
                   <td
-                    colSpan={9}
+                    colSpan={8}
                     className="px-4"
                     style={{
                       background: 'var(--color-lane)',
@@ -548,7 +539,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   })}
                   <td
                     colSpan={
-                      2 + (canEditFields ? 1 : 0) + (showMoney ? 2 : 0)
+                      2 + (canEditFields ? 1 : 0) + (showMoney ? 1 : 0)
                     }
                     style={{
                       background: 'var(--color-lane)',
@@ -654,23 +645,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     </td>
                     <td className="px-3 py-3 align-top">
                       {canEditFields ? (
-                        <ComponentText
-                          jobId={job.id}
-                          componentId={c.id}
-                          field="process"
-                          value={c.process}
-                          placeholder="—"
-                          multiline
-                          className="text-[12px] text-[var(--color-ink-2)] leading-snug"
-                        />
-                      ) : (
-                        <span className="text-[12px] text-[var(--color-ink-2)] leading-snug whitespace-pre-wrap break-words">
-                          {c.process ?? ''}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 align-top">
-                      {canEditFields ? (
                         <ComponentQty
                           jobId={job.id}
                           componentId={c.id}
@@ -762,16 +736,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           jobId={job.id}
                           componentId={c.id}
                           value={c.unitPriceCny}
-                          className="text-[13px] text-[var(--color-ink)]"
-                        />
-                      </td>
-                    )}
-                    {showMoney && (
-                      <td className="px-3 py-3">
-                        <ComponentLineTotal
-                          jobId={job.id}
-                          componentId={c.id}
-                          value={c.lineTotalCny}
                           className="text-[13px] text-[var(--color-ink)]"
                         />
                       </td>
@@ -972,7 +936,7 @@ function JobFinancePanel({
           >
             财务
           </a>
-          ，单价 / 小计 可在「零件」逐件填写。
+          ，单价可在「零件」逐件填写。
         </p>
       </div>
     </div>

@@ -1,9 +1,20 @@
 'use server'
 
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { getUserById, isAdminUser, verifyUserPin } from '@/lib/db'
 import { createSession, deleteSession } from '@/lib/session'
 import { landingPathFor } from '@/lib/auth'
+import { WORKER_COOKIE } from '@/app/s/[token]/_worker'
+
+async function rememberWorker(name: string): Promise<void> {
+  const jar = await cookies()
+  jar.set(WORKER_COOKIE, encodeURIComponent(name), {
+    path: '/',
+    maxAge: 60 * 60 * 24 * 365,
+    sameSite: 'lax',
+  })
+}
 
 // In-process brute-force counter. Five wrong PINs in five minutes locks the
 // user id out for five minutes from this serverless instance. Cross-instance
@@ -64,22 +75,16 @@ export async function loginAction(
     role: user.role,
     ds: user.defaultStage,
   })
+  if (user.role === 'production') await rememberWorker(user.name)
 
-  // landingPathFor is the single source of truth — commerce → /,
-  // 工程 head → / (holistic view), other production stations → their
-  // /?stage=... master grid. Bypassing it here is what was sending 工程
-  // back to the old per-stage workbench right after sign-in.
-  const redirectTo = user.defaultStage
-    ? landingPathFor({
-        id: user.id,
-        name: user.name,
-        role: user.role,
-        defaultStage: user.defaultStage,
-        isFinance: user.isFinance,
-      })
-    : user.role === 'commerce'
-      ? '/'
-      : '/login'
+  const redirectTo = landingPathFor({
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    employeeRole: user.employeeRole,
+    defaultStage: user.defaultStage,
+    isFinance: user.isFinance,
+  })
   return { ok: true, redirectTo }
 }
 
@@ -97,18 +102,16 @@ export async function loginOpenAction(userId: string): Promise<LoginResult> {
     role: user.role,
     ds: user.defaultStage,
   })
+  if (user.role === 'production') await rememberWorker(user.name)
 
-  const redirectTo = user.defaultStage
-    ? landingPathFor({
-        id: user.id,
-        name: user.name,
-        role: user.role,
-        defaultStage: user.defaultStage,
-        isFinance: user.isFinance,
-      })
-    : user.role === 'commerce'
-      ? '/'
-      : '/login'
+  const redirectTo = landingPathFor({
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    employeeRole: user.employeeRole,
+    defaultStage: user.defaultStage,
+    isFinance: user.isFinance,
+  })
   return { ok: true, redirectTo }
 }
 

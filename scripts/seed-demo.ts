@@ -373,15 +373,13 @@ async function seedUsers(): Promise<void> {
   await supabase.from('users').delete().eq('id', BOSS_DEMO_ID)
 
   const rows: Record<string, unknown>[] = []
-  // boss (fixed id) + commerce staff — commerce role MUST have null default_stage
-  rows.push({ id: BOSS_DEMO_ID, name: BOSS_DEMO_NAME, pin_hash: pinHash, role: 'commerce', default_stage: null, active: true })
+  rows.push({ id: BOSS_DEMO_ID, name: BOSS_DEMO_NAME, pin_hash: pinHash, role: 'commerce', employee_role: 'management', default_stage: null, active: true })
   COMMERCE.forEach((name, i) =>
-    rows.push({ id: `u-demo-c-${i}`, name, pin_hash: pinHash, role: 'commerce', default_stage: null, active: true }),
+    rows.push({ id: `u-demo-c-${i}`, name, pin_hash: pinHash, role: 'commerce', employee_role: 'management', default_stage: null, active: true }),
   )
-  rows.push({ id: 'u-demo-c-wx', name: OUTSOURCE_HANDLER, pin_hash: pinHash, role: 'commerce', default_stage: null, active: true })
-  // production workers — role production MUST carry a default_stage
+  rows.push({ id: 'u-demo-c-wx', name: OUTSOURCE_HANDLER, pin_hash: pinHash, role: 'commerce', employee_role: 'management', default_stage: null, active: true })
   WORKER_ROSTER.forEach(([name, stage], i) =>
-    rows.push({ id: `u-demo-w-${i}`, name, pin_hash: pinHash, role: 'production', default_stage: stage, active: true }),
+    rows.push({ id: `u-demo-w-${i}`, name, pin_hash: pinHash, role: 'production', employee_role: stage === '丝印' ? 'post_processing' : 'machine', default_stage: null, active: true }),
   )
 
   const { error } = await supabase.from('users').insert(rows)

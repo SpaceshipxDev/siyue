@@ -7023,11 +7023,13 @@ export async function ensureOutsourceDocNo(blockId: string): Promise<string> {
 // === Users ===
 
 export type Role = 'commerce' | 'production'
+export type EmployeeRole = 'management' | 'machine' | 'post_processing'
 
 export type AppUser = {
   id: string
   name: string
   role: Role
+  employeeRole: EmployeeRole
   defaultStage?: Stage
   active: boolean
   // 财务可见性 — gates the 支出/月度 tabs (payroll amounts are sensitive).
@@ -7041,11 +7043,22 @@ export type AppUser = {
 type UserRow = AppUser & { pinHash: string }
 
 function fromUser(r: AnyRow): UserRow {
+  const employeeRole: EmployeeRole =
+    r.employee_role === 'management' ||
+    r.employee_role === 'machine' ||
+    r.employee_role === 'post_processing'
+      ? (r.employee_role as EmployeeRole)
+      : r.role === 'commerce'
+        ? 'management'
+        : r.default_stage === '丝印' || r.default_stage === '后处理'
+          ? 'post_processing'
+          : 'machine'
   return {
     id: r.id as string,
     name: r.name as string,
     pinHash: r.pin_hash as string,
     role: r.role as Role,
+    employeeRole,
     defaultStage: (r.default_stage as Stage | null) ?? undefined,
     active: r.active as boolean,
     isFinance: (r.is_finance as boolean | null) ?? false,
@@ -7059,6 +7072,7 @@ function toUserRow(r: UserRow): AnyRow {
     name: r.name,
     pin_hash: r.pinHash,
     role: r.role,
+    employee_role: r.employeeRole,
     default_stage: r.defaultStage ?? null,
     active: r.active,
   }
@@ -7123,6 +7137,7 @@ export async function ensureBootstrapUser(): Promise<void> {
       name: BOSS_NAME,
       pinHash,
       role: 'commerce',
+      employeeRole: 'management',
       active: true,
       isFinance: true,
       createdAt: new Date().toISOString(),
@@ -7178,6 +7193,7 @@ function stripPinHash(row: UserRow): AppUser {
     id: row.id,
     name: row.name,
     role: row.role,
+    employeeRole: row.employeeRole,
     defaultStage: row.defaultStage,
     active: row.active,
     isFinance: row.isFinance,
@@ -7216,7 +7232,7 @@ export type NewUserInput = {
   name: string
   pin: string
   role: Role
-  defaultStage?: Stage
+  employeeRole: EmployeeRole
 }
 
 export async function createUser(input: NewUserInput): Promise<AppUser> {
@@ -7224,11 +7240,8 @@ export async function createUser(input: NewUserInput): Promise<AppUser> {
     const name = input.name.trim()
     if (!name) throw new Error('用户姓名不能为空')
     if (!/^\d{4}$/.test(input.pin)) throw new Error('PIN 必须为 4 位数字')
-    if (input.role === 'production' && !input.defaultStage) {
-      throw new Error('生产用户必须指定工段')
-    }
-    if (input.role === 'commerce' && input.defaultStage) {
-      throw new Error('商务用户不能绑定工段')
+    if ((input.employeeRole === 'management') !== (input.role === 'commerce')) {
+      throw new Error('员工角色无效')
     }
     const bcrypt = await import('bcryptjs')
     const pinHash = await bcrypt.hash(input.pin, 10)
@@ -7237,7 +7250,8 @@ export async function createUser(input: NewUserInput): Promise<AppUser> {
       name,
       pinHash,
       role: input.role,
-      defaultStage: input.defaultStage,
+      employeeRole: input.employeeRole,
+      defaultStage: undefined,
       active: true,
       isFinance: false,
       createdAt: new Date().toISOString(),

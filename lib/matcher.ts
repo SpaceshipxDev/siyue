@@ -131,6 +131,9 @@ async function ocrFallback(
       mimeType: contentType,
       data: Buffer.from(bytes).toString('base64'),
     })
+    if (read.kind !== 'drawing') {
+      return { decision: 'no_match', via: 'ocr', latencyMs: Date.now() - started }
+    }
     if (!read.partNo && !read.drawingNo) {
       return { decision: 'no_match', via: 'ocr', latencyMs: Date.now() - started }
     }
