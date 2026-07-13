@@ -80,6 +80,7 @@ import {
 import { DrawingChangeBanner } from '@/app/_drawing_change'
 import { PartDrawingChange } from '@/app/_part_drawing_change'
 import { ShippingComposerButton } from '@/app/_shipping'
+import { ShipCell, ShipProvider } from '@/app/_ship_cell'
 import { ShipmentHistoryButton } from '@/app/_shipment_history'
 import { JobTypeEditor } from '@/app/_type_chip'
 import { jobSourceImageGroups, listJobReportEvents } from '@/lib/packets'
@@ -197,7 +198,8 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   const pct = totalCells === 0 ? 0 : Math.round((doneCells / totalCells) * 100)
 
   // Only the stages this job's parts actually route through become columns.
-  // A 2-OP part shows OP1 · OP2 · 后处理 — never a crossed-out OP3..OP6.
+  // A 2-OP part shows OP1 · OP2 · optional 铣床 · required 检验 — never a
+  // crossed-out OP3..OP6.
   const visibleStages = STAGES.filter((s) =>
     job.components.some((c) => c.stages[s] !== undefined),
   )
@@ -337,7 +339,12 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           ) : null}
         </div>
 
-        <JobSourceImages groups={sourceImageGroups} />
+        <JobSourceImages
+          groups={sourceImageGroups}
+          jobId={job.id}
+          partId={headerPartRowId}
+          canAttach={canEditFields}
+        />
 
         {/* 工单明细 tabs — 零件 / 外协 / 财务. Each big section below is wrapped
             in a data-jobtab div that <JobTabs> shows/hides, so nobody scrolls
@@ -368,6 +375,11 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           </p>
         </div>
 
+        <ShipProvider
+          jobId={job.id}
+          shipped={jobIsShipped(job)}
+          canTick={!isProduction || canEditFields || myStage === '出货'}
+        >
         <ComponentsScrollArea
           myStage={myStage}
           className="overflow-x-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]"
@@ -388,6 +400,8 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               {visibleStages.map((s) => (
                 <col key={s} style={{ width: 90 }} />
               ))}
+              {/* 出货 — terminal tick column, after the last tracked stage. */}
+              <col style={{ width: 90 }} />
               <col style={{ width: 170 }} />
               {canEditFields && <col style={{ width: 170 }} />}
               {showMoney && <col style={{ width: 110 }} />}
@@ -432,6 +446,16 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     </span>
                   </th>
                 ))}
+                <th
+                  data-stage-col="出货"
+                  className={`px-2 py-3 text-center whitespace-nowrap ${
+                    myStage === '出货'
+                      ? 'font-semibold text-[var(--color-ink)]'
+                      : ''
+                  }`}
+                >
+                  <StageHeader name="出货" />
+                </th>
                 <th className="px-3 py-3 label whitespace-nowrap">动态</th>
                 {canEditFields && (
                   <th className="px-4 py-3 label whitespace-nowrap">备注</th>
@@ -452,7 +476,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               {planStages.length > 0 && (
                 <tr className="align-middle">
                   <td
-                    colSpan={8}
+                    colSpan={7}
                     className="px-4"
                     style={{
                       background: 'var(--color-lane)',
@@ -510,7 +534,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   })}
                   <td
                     colSpan={
-                      2 + (canEditFields ? 1 : 0) + (showMoney ? 1 : 0)
+                      3 + (canEditFields ? 1 : 0) + (showMoney ? 1 : 0)
                     }
                     style={{
                       background: 'var(--color-lane)',
@@ -688,6 +712,14 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         </td>
                       )
                     })}
+                    {/* 出货 — one tick ships the WHOLE order (same job-level
+                        finishJobStage as the master board's 出货 cell): sweeps
+                        every part, cascades prior stations, settles vendor
+                        lines. Any row's tick acts on the job; the ShipProvider
+                        context flips all rows together. */}
+                    <td className="p-0 h-[60px]">
+                      <ShipCell state={c.stages['出货']} />
+                    </td>
                     <ActivityCell component={c} />
                     {canEditFields && (
                       <td className="px-3 py-3 align-top">
@@ -716,6 +748,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             </tbody>
           </table>
         </ComponentsScrollArea>
+        </ShipProvider>
         </JobPartFilterProvider>
           </div>
           {/* /零件 tab */}
