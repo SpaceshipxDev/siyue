@@ -1,0 +1,504 @@
+@import "tailwindcss";
+
+:root {
+  /* warm-paper palette — Swiss + Apple */
+  --color-bg: #fbfaf7;
+  --color-surface: #ffffff;
+  --color-border: #e7e5e0;
+  --color-border-strong: #d6d3cc;
+  --color-ink: #14130f;
+  --color-ink-2: #5a5851;
+  --color-ink-3: #9b988f;
+  --color-ink-4: #c4c1b8;
+  --color-overdue: #b8341c;
+  --color-overdue-soft: #fbeae5;
+  --color-warning: #b8881c;
+  --color-warning-soft: #f8eeca;
+  --color-success: #2f6b4a;
+  --color-success-soft: #eaf2ec;
+  --color-info: #2c5e8c;
+  --color-info-soft: #e6eef6;
+  --color-muted-bg: #f1efe9;
+  --color-active-bg: #efece4;
+  /* 排产 lane — the plan row on the job page and the plan rail inside board
+   * cells share this wash: one shade deeper than bg, shallower than muted-bg,
+   * so the schedule track reads as a distinct layer without shouting. */
+  --color-lane: #f7f5ee;
+  /* Boss's pin: bright yellow. Loud on purpose — a filled pin star is a
+   * deliberate management mark; it should pop against the warm-paper field
+   * even at thumbnail scale on the wall TV. */
+  --color-pin: #facc15;
+  --color-pin-stroke: #b58705;
+
+  /* Job-type signals. Tonal palette — saturated text + a very soft wash,
+   * iOS / macOS chip style. 加急 is RED (not the boss's old yellow): it
+   * shares the urgency vocabulary with --color-overdue so a row that's
+   * both 加急 AND overdue reads doubly hot, while the duration tags
+   * stay cool and recede.
+   *   加急 / rush    — overdue red. Loudest of the four; reinforces 交期 cues.
+   *   短期 / short   — amber. "Soon, but not on fire."
+   *   中期 / medium  — steel blue. Calm, mid-horizon.
+   *   长期 / long    — warm grey. Recedes into the field. */
+  --color-type-rush: #b8341c;
+  --color-type-short: #b8881c;
+  --color-type-medium: #2c5e8c;
+  --color-type-long: #9b988f;
+  /* 产品 — independent stack-on-top tag. Forest green so it reads as a
+     parallel signal, not another duration bucket. */
+  --color-type-product: #2f6b3d;
+  /* 暂停 — independent on-hold flag. Burnt amber reads as "stopped / caution"
+     and stays distinct from rush red, short's yellow-amber, and product green. */
+  --color-type-paused: #bf6a1a;
+}
+
+@theme inline {
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-border: var(--color-border);
+  --color-border-strong: var(--color-border-strong);
+  --color-ink: var(--color-ink);
+  --color-ink-2: var(--color-ink-2);
+  --color-ink-3: var(--color-ink-3);
+  --color-ink-4: var(--color-ink-4);
+  --color-overdue: var(--color-overdue);
+  --color-warning: var(--color-warning);
+  --color-success: var(--color-success);
+  --color-muted-bg: var(--color-muted-bg);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html, body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  /* iOS Safari: stop the auto-zoom-on-focus quirk that fires when an input
+   * has font-size < 16px. We override per-element where layout matters. */
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Hide scrollbars on the horizontal tab/table strips while keeping scrollability. */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+/* Hide the native horizontal scrollbar on a scroll container that's paired
+ * with <StickyHorizontalScrollbar>. The proxy bar pinned to the viewport
+ * bottom becomes the single visible control — two bars would compete and
+ * the native one only appears at the table's bottom edge anyway. */
+.siyue-hscroll-hide-native::-webkit-scrollbar { display: none; }
+.siyue-hscroll-hide-native { scrollbar-width: none; }
+
+/* Floating horizontal scrollbar pinned to the viewport bottom while a wide
+ * table extends past it. Thin frosted-glass strip with a manually-painted
+ * thumb — Apple Notes / Numbers vintage — so the control stays visible on
+ * every platform regardless of the OS "overlay scrollbar" preference (which
+ * would otherwise hide a native ::-webkit-scrollbar thumb when not actively
+ * scrolling). */
+.siyue-sticky-hscroll {
+  position: fixed;
+  bottom: 0;
+  height: 14px;
+  background-color: rgba(251, 250, 247, 0.78);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  backdrop-filter: saturate(180%) blur(14px);
+  border-top: 1px solid var(--color-border);
+  z-index: 30;
+  transition: opacity 180ms cubic-bezier(0.32, 0.72, 0.18, 1);
+  cursor: pointer;
+  touch-action: none;
+}
+.siyue-sticky-hscroll-thumb {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  height: 8px;
+  border-radius: 999px;
+  background-color: rgba(20, 19, 15, 0.32);
+  transition: background-color 140ms cubic-bezier(0.32, 0.72, 0.18, 1),
+              height 140ms cubic-bezier(0.32, 0.72, 0.18, 1),
+              top 140ms cubic-bezier(0.32, 0.72, 0.18, 1);
+  will-change: transform;
+  cursor: grab;
+}
+.siyue-sticky-hscroll:hover .siyue-sticky-hscroll-thumb,
+.siyue-sticky-hscroll-thumb.is-dragging {
+  background-color: rgba(20, 19, 15, 0.52);
+  height: 10px;
+  top: 2px;
+}
+.siyue-sticky-hscroll-thumb.is-dragging {
+  cursor: grabbing;
+}
+@media (prefers-reduced-motion: reduce) {
+  .siyue-sticky-hscroll,
+  .siyue-sticky-hscroll-thumb { transition: none; }
+}
+
+/* Toggle a node between screen and print. Used by editable wrappers that render
+ * a hidden plain-text fallback so the printed doc never carries native input
+ * chrome (date pickers, datalist arrows, number-input layout quirks). */
+.screen-only { display: revert; }
+.print-only  { display: none; }
+@media print {
+  .screen-only { display: none !important; }
+  .print-only  { display: inline !important; }
+}
+
+/* Job-type tag. Tonal Apple-style chip — saturated text + a soft wash +
+ * a hairline border drawn with inset box-shadow (sub-pixel sharper than
+ * a 1px border at any DPR). Sits inline BEFORE the 工号 and IS the
+ * priority signal — no separate stripe, no filled blob.
+ *
+ * 加急 is RED. Slightly more saturated wash + tighter border than the
+ * three passive duration tags, so it carries the row's "escalated"
+ * weight without screaming. The duration tags recede into classification.
+ *
+ * Geometry: 4px corners (square-ish — matches the sheet's table cell
+ * geometry), 20px tall × 38px min-width (exactly large enough for two
+ * Chinese characters + breathing room). */
+.type-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  min-width: 38px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  white-space: nowrap;
+  background: transparent;
+  flex-shrink: 0;
+  /* No vertical metrics shift on hover — keep the row's baseline rock-steady. */
+  transition: background-color 140ms cubic-bezier(0.32, 0.72, 0.18, 1),
+              box-shadow     140ms cubic-bezier(0.32, 0.72, 0.18, 1);
+}
+
+/* 加急 — the loudest. ~12% wash, hairline border at ~40% saturation.
+ * Reads as "this is flagged" from across the room without filling the
+ * cell with red. */
+.type-chip[data-job-type="rush"] {
+  color: var(--color-type-rush);
+  background: color-mix(in srgb, var(--color-type-rush) 11%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-rush) 42%, transparent);
+}
+.type-chip[data-job-type="rush"]:hover {
+  background: color-mix(in srgb, var(--color-type-rush) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-rush) 55%, transparent);
+}
+
+/* Passive duration tags — more recessed. 7% wash, 28% border. Stays
+ * out of the way of the jobNo text it's labeling. */
+.type-chip[data-job-type="short"]  { color: var(--color-type-short);  background: color-mix(in srgb, var(--color-type-short)  7%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-short)  28%, transparent); }
+.type-chip[data-job-type="medium"] { color: var(--color-type-medium); background: color-mix(in srgb, var(--color-type-medium) 7%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-medium) 28%, transparent); }
+.type-chip[data-job-type="long"]   { color: var(--color-type-long);   background: color-mix(in srgb, var(--color-type-long)   8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-long)   34%, transparent); }
+.type-chip[data-job-type="product"] { color: var(--color-type-product); background: color-mix(in srgb, var(--color-type-product) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-product) 34%, transparent); }
+.type-chip[data-job-type="product"]:hover { background: color-mix(in srgb, var(--color-type-product) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-product) 48%, transparent); }
+
+/* 暂停 — filled like 加急 (a blocked job is loud, you want to see it), in amber. */
+.type-chip[data-job-type="paused"] {
+  color: var(--color-type-paused);
+  background: color-mix(in srgb, var(--color-type-paused) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-paused) 44%, transparent);
+}
+.type-chip[data-job-type="paused"]:hover {
+  background: color-mix(in srgb, var(--color-type-paused) 17%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-paused) 56%, transparent);
+}
+.type-chip[data-job-type="short"]:hover,
+.type-chip[data-job-type="medium"]:hover,
+.type-chip[data-job-type="long"]:hover {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 45%, transparent);
+}
+
+/* Passive status badges on the row (外协 / 退货). Same geometry as the
+ * type chip so the row's chip lineup aligns on one baseline with no
+ * size jumps. Color tone differs — 外协 = info blue (informational),
+ * 退货 = overdue red (in-flight return is a time pressure signal). */
+.row-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  min-width: 38px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  white-space: nowrap;
+  background: transparent;
+  flex-shrink: 0;
+}
+.row-badge[data-tone="info"] {
+  color: var(--color-info);
+  background: color-mix(in srgb, var(--color-info) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-info) 28%, transparent);
+}
+.row-badge[data-tone="overdue"] {
+  color: var(--color-overdue);
+  background: color-mix(in srgb, var(--color-overdue) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-overdue) 38%, transparent);
+}
+.row-badge[data-tone="warning"] {
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-warning) 34%, transparent);
+}
+.row-badge[data-tone="neutral"] {
+  color: var(--color-ink-2);
+  background: color-mix(in srgb, var(--color-ink) 5%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-ink) 18%, transparent);
+}
+
+/* Empty / 未分类. Same geometry, dashed hairline. Hidden until the row
+ * is hovered — the 300-row scan stays clean; the affordance is one
+ * pixel away once the user is on the row. */
+.type-chip-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  min-width: 38px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+  color: var(--color-ink-3);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--color-ink-4);
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 140ms cubic-bezier(0.32, 0.72, 0.18, 1);
+}
+.group\/row:hover .type-chip-empty,
+.type-chip-empty:focus-visible {
+  opacity: 1;
+}
+
+/* spreadsheet primitives */
+.sheet {
+  font-variant-numeric: tabular-nums;
+  /* Honor <colgroup> widths — without this, long content (e.g. vendor names
+   * inside stage cells) shrinks adjacent columns like 零件. */
+  table-layout: fixed;
+}
+.sheet th, .sheet td {
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  overflow: hidden;
+}
+.sheet thead th {
+  background: #f5f3ed;
+  border-bottom: 1px solid var(--color-border-strong);
+  border-top: 1px solid var(--color-border-strong);
+}
+.sheet tbody tr:hover td {
+  background: #faf8f2;
+}
+/* Frozen identifier columns — keep "which row am I on" visible while the
+ * stage columns scroll horizontally. The table sets `left` inline per col. */
+.sheet .sticky-col {
+  position: sticky;
+  z-index: 1;
+  background: var(--color-surface);
+}
+.sheet thead th.sticky-col {
+  z-index: 11;
+  background: #f5f3ed;
+}
+.sheet tbody tr:hover td.sticky-col {
+  background: #faf8f2;
+}
+.sheet .sticky-col-edge {
+  box-shadow: 6px 0 6px -6px rgba(0, 0, 0, 0.08);
+}
+.mono {
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-ink-3);
+  font-weight: 500;
+}
+
+/* Reserve bold-weight width on every tab so the active tab's font-semibold
+ * does not shift its neighbors. The ::before paints an invisible bold ghost
+ * (zero height) that fixes the column width to the bold metrics. */
+.tab-link {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.tab-link::before {
+  content: attr(data-text);
+  font-weight: 600;
+  height: 0;
+  visibility: hidden;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Skeleton shimmer for Suspense fallbacks. One base muted color, one
+ * traveling highlight band — no layout cost, fades into the real content
+ * the moment Suspense resolves. */
+.siyue-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-muted-bg);
+}
+.siyue-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.7) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: siyue-shimmer-slide 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes siyue-shimmer-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .siyue-shimmer::after { animation: none; }
+}
+
+/* Hide native number-input spinners — they overlap right-aligned values in narrow cells. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+@keyframes cell-done-pop {
+  0%   { transform: scale(0.94); opacity: 0; }
+  55%  { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-cell-done {
+  animation: cell-done-pop 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Smooth row reorders + cell repaints when state changes via useTransition. */
+::view-transition-group(*) {
+  animation-duration: 720ms;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0.18, 1);
+}
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation-duration: 480ms;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0.18, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+  }
+}
+
+.doc {
+  --doc-width: 210mm;
+  --doc-pad: 18mm;
+  width: var(--doc-width);
+  margin: 0 auto;
+  padding: var(--doc-pad);
+  background: #fff;
+  color: var(--color-ink);
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.doc table { width: 100%; border-collapse: collapse; }
+.doc th, .doc td { padding: 6px 8px; border-bottom: 1px solid #c4c1b8; text-align: left; vertical-align: top; }
+.doc td { font-size: 12px; line-height: 1.45; }
+.doc th { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #5a5851; font-weight: 500; border-bottom: 1px solid #14130f; }
+.doc-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border: 1px solid #d6d3cc;
+  border-radius: 2px;
+  display: block;
+  background: #fff;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+@media screen {
+  .doc {
+    margin: 24px auto 96px;
+    box-shadow: 0 0 0 1px var(--color-border), 0 12px 40px rgba(0,0,0,0.06);
+  }
+}
+
+@media print {
+  @page { size: A4 portrait; margin: 0; }
+  body { background: #fff !important; }
+  .doc {
+    --doc-pad: 14mm;
+    margin: 0;
+    box-shadow: none;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .no-print { display: none !important; }
+  /* Editable fields collapse to inline plain text — no hover/focus borders,
+   * no native date/datalist/number chrome, no placeholder dashes, no
+   * intrinsic input width that breaks horizontal flow. */
+  .doc input, .doc textarea, .doc select {
+    display: inline !important;
+    width: auto !important;
+    min-width: 0 !important;
+    /* `field-sizing: content` shrinks the input to fit its value, ignoring
+     * the `size` HTML attribute (default 20). Without it, an input with
+     * `width: auto` still rounds to ~20ch and leaves a visible gap on print. */
+    field-sizing: content !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    outline: none !important;
+    border: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    color: inherit !important;
+    font: inherit !important;
+    line-height: inherit !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+  }
+  .doc input::placeholder, .doc textarea::placeholder { color: transparent !important; }
+  .doc input::-webkit-calendar-picker-indicator,
+  .doc input::-webkit-list-button,
+  .doc input::-webkit-inner-spin-button,
+  .doc input::-webkit-outer-spin-button {
+    display: none !important;
+    -webkit-appearance: none !important;
+  }
+  /* `.screen-only` / `.print-only` must beat the `.doc input` rule above
+   * (same specificity, earlier in source). Re-state with `.doc` prefix to
+   * bump specificity by one class. */
+  .doc .screen-only { display: none !important; }
+  .doc .print-only  { display: inline !important; }
+}

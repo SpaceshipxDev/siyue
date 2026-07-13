@@ -1,0 +1,29 @@
+[
+  {
+    "slice": "smartdoc-qa/phone-ref",
+    "references": 15,
+    "queries": 135,
+    "correct": 111,
+    "accuracy_pct": 82.22,
+    "latency_p50_ms": 306.9,
+    "latency_p95_ms": 413.5
+  },
+  {
+    "slice": "smartdoc15/all-video-frames",
+    "references": 30,
+    "queries": 870,
+    "correct": 609,
+    "accuracy_pct": 70.0,
+    "latency_p50_ms": 175.9,
+    "latency_p95_ms": 289.4
+  },
+  {
+    "slice": "docunet/crumpled-pairs",
+    "references": 65,
+    "queries": 65,
+    "correct": 58,
+    "accuracy_pct": 89.23,
+    "latency_p50_ms": 283.3,
+    "latency_p95_ms": 450.0
+  }
+]

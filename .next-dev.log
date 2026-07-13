@@ -1,0 +1,96 @@
+
+> siyue-industrial@0.1.0 dev
+> next dev
+
+▲ Next.js 16.2.4 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.2:3000
+- Environments: .env.local
+✓ Ready in 476ms
+⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of /Volumes/Minas Tirith/xDocuments/package-lock.json as the root directory.
+ To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+ Detected additional lockfiles: 
+   * /Volumes/Minas Tirith/xDocuments/yingma.siyue.ai/package-lock.json
+
+- Experiments (use with caution):
+  · proxyClientMaxBodySize: "50mb"
+  ✓ viewTransition
+
+ GET / 200 in 2.1s (next.js: 172ms, proxy.ts: 290ms, application-code: 1633ms)
+ GET /login 200 in 391ms (next.js: 83ms, proxy.ts: 7ms, application-code: 300ms)
+ GET /jobs/J-mrgo6q8e-qjqv3q 200 in 886ms (next.js: 607ms, proxy.ts: 6ms, application-code: 273ms)
+ GET /api/order-money?jobId=J-mrgo6q8e-qjqv3q 200 in 175ms (next.js: 136ms, proxy.ts: 3ms, application-code: 35ms)
+ GET /api/order-money?jobId=J-mrgo6q8e-qjqv3q 200 in 26ms (next.js: 3ms, proxy.ts: 4ms, application-code: 19ms)
+ GET / 200 in 244ms (next.js: 6ms, proxy.ts: 4ms, application-code: 234ms)
+✓ Compiled in 849ms
+ GET /jobs/J-mrgo6q8e-qjqv3q 200 in 2.6s (next.js: 70ms, proxy.ts: 8ms, application-code: 2.5s)
+ GET /jobs/J-mrgo6q8e-qjqv3q 200 in 129ms (next.js: 10ms, proxy.ts: 14ms, application-code: 106ms)
+ GET /api/order-money?jobId=J-mrgo6q8e-qjqv3q 200 in 119ms (next.js: 6ms, proxy.ts: 9ms, application-code: 105ms)
+ GET /jobs/J-mrgo6q8e-qjqv3q 200 in 196ms (next.js: 55ms, proxy.ts: 5ms, application-code: 136ms)
+ GET /ingest 200 in 2.1s (next.js: 1663ms, proxy.ts: 12ms, application-code: 437ms)
+ POST /api/packet-ingest 200 in 25.2s (next.js: 1624ms, proxy.ts: 61ms, application-code: 23.6s)
+✓ Compiled in 573ms
+ GET /ingest 200 in 609ms (next.js: 9ms, proxy.ts: 7ms, application-code: 593ms)
+ GET /ingest 200 in 583ms (next.js: 158ms, proxy.ts: 152ms, application-code: 273ms)
+ GET /ingest 200 in 178ms (next.js: 6ms, proxy.ts: 11ms, application-code: 161ms)
+ GET /ingest 200 in 242ms (next.js: 11ms, proxy.ts: 11ms, application-code: 221ms)
+ GET /ingest 200 in 151ms (next.js: 14ms, proxy.ts: 18ms, application-code: 119ms)
+✓ Compiled in 138ms
+ GET /ingest 200 in 590ms (next.js: 115ms, proxy.ts: 164ms, application-code: 311ms)
+ GET /ingest 200 in 224ms (next.js: 4ms, proxy.ts: 140ms, application-code: 80ms)
+ GET /ingest 200 in 87ms (next.js: 4ms, proxy.ts: 6ms, application-code: 77ms)
+ GET /ingest 200 in 81ms (next.js: 4ms, proxy.ts: 6ms, application-code: 71ms)
+ GET /ingest 200 in 40ms (next.js: 5ms, proxy.ts: 5ms, application-code: 30ms)
+ GET /ingest 200 in 32ms (next.js: 6ms, proxy.ts: 3ms, application-code: 23ms)
+✓ Compiled in 74ms
+ GET /ingest 200 in 38ms (next.js: 4ms, proxy.ts: 10ms, application-code: 25ms)
+✓ Compiled in 52ms
+✓ Compiled in 193ms
+ GET /ingest 200 in 718ms (next.js: 251ms, proxy.ts: 193ms, application-code: 274ms)
+ GET /ingest 200 in 101ms (next.js: 4ms, proxy.ts: 7ms, application-code: 90ms)
+ GET /ingest 200 in 57ms (next.js: 5ms, proxy.ts: 6ms, application-code: 46ms)
+ GET /p 200 in 922ms (next.js: 791ms, proxy.ts: 43ms, application-code: 88ms)
+ POST /api/match-photo 200 in 7.6s (next.js: 572ms, proxy.ts: 12ms, application-code: 7.0s)
+ POST /api/match-photo 200 in 10.8s (next.js: 7ms, proxy.ts: 15ms, application-code: 10.8s)
+ GET /p 200 in 56ms (next.js: 6ms, proxy.ts: 13ms, application-code: 37ms)
+✓ Compiled in 367ms
+ GET /p 200 in 57ms (next.js: 6ms, proxy.ts: 8ms, application-code: 43ms)
+ POST /api/match-photo 200 in 7.5s (next.js: 31ms, proxy.ts: 13ms, application-code: 7.4s)
+ GET /p 200 in 460ms (next.js: 157ms, proxy.ts: 231ms, application-code: 71ms)
+ GET /s/ffeeed93e7c74bbd9066a3f269ed1af2?via=photo 200 in 2.5s (next.js: 2.0s, proxy.ts: 53ms, application-code: 424ms)
+ GET /s/ffeeed93e7c74bbd9066a3f269ed1af2?reported=120 200 in 168ms (next.js: 7ms, proxy.ts: 3ms, application-code: 158ms)
+ POST /s/ffeeed93e7c74bbd9066a3f269ed1af2?via=photo 303 in 595ms (next.js: 95ms, proxy.ts: 10ms, application-code: 490ms)
+  └─ ƒ scanReport({}) in 234ms app/s/[token]/_actions.ts
+ GET / 200 in 427ms (next.js: 56ms, proxy.ts: 3ms, application-code: 368ms)
+✓ Compiled in 40ms
+ GET / 200 in 62ms (next.js: 1359µs, proxy.ts: 3ms, application-code: 57ms)
+✓ Compiled in 166ms
+ GET / 200 in 346ms (next.js: 882µs, proxy.ts: 1600µs, application-code: 343ms)
+ GET / 200 in 371ms (next.js: 82ms, proxy.ts: 108ms, application-code: 181ms)
+ GET / 200 in 117ms (next.js: 3ms, proxy.ts: 4ms, application-code: 110ms)
+ GET / 200 in 98ms (next.js: 1923µs, proxy.ts: 18ms, application-code: 78ms)
+ GET / 200 in 107ms (next.js: 1517µs, proxy.ts: 24ms, application-code: 82ms)
+ GET / 200 in 85ms (next.js: 1176µs, proxy.ts: 15ms, application-code: 69ms)
+ GET / 200 in 61ms (next.js: 2ms, proxy.ts: 21ms, application-code: 38ms)
+ GET /s/ffeeed93e7c74bbd9066a3f269ed1af2 200 in 279ms (next.js: 50ms, proxy.ts: 2ms, application-code: 227ms)
+ GET /s/ffeeed93e7c74bbd9066a3f269ed1af2 200 in 110ms (next.js: 9ms, proxy.ts: 4ms, application-code: 97ms)
+ GET /s/ffeeed93e7c74bbd9066a3f269ed1af2 200 in 84ms (next.js: 12ms, proxy.ts: 8ms, application-code: 64ms)
+ POST /api/match-photo 200 in 18.1s (next.js: 148ms, proxy.ts: 7ms, application-code: 17.9s)
+ POST /api/match-photo 200 in 2.6s (next.js: 4ms, proxy.ts: 15ms, application-code: 2.5s)
+ POST /api/match-photo 200 in 2.8s (next.js: 7ms, proxy.ts: 57ms, application-code: 2.8s)
+ POST /api/match-photo 200 in 2.4s (next.js: 3ms, proxy.ts: 15ms, application-code: 2.4s)
+ GET /p 200 in 166ms (next.js: 28ms, proxy.ts: 27ms, application-code: 111ms)
+ GET /p 200 in 117ms (next.js: 19ms, proxy.ts: 41ms, application-code: 58ms)
+✓ Compiled in 316ms
+ GET /p 200 in 292ms (next.js: 10ms, proxy.ts: 14ms, application-code: 267ms)
+ GET /s/ffeeed93e7c74bbd9066a3f269ed1af2 200 in 492ms (next.js: 67ms, proxy.ts: 22ms, application-code: 403ms)
+ GET /s/ffeeed93e7c74bbd9066a3f269ed1af2?reported=120 200 in 348ms (next.js: 14ms, proxy.ts: 63ms, application-code: 271ms)
+✓ Compiled in 206ms
+✓ Compiled in 274ms
+ GET /p 200 in 99ms (next.js: 13ms, proxy.ts: 17ms, application-code: 68ms)
+ GET /p 200 in 35ms (next.js: 3ms, proxy.ts: 4ms, application-code: 29ms)
+✓ Compiled in 87ms
+ GET /jobs/J-mrhfqq9g-hanpwh 200 in 2.6s (next.js: 203ms, proxy.ts: 16ms, application-code: 2.4s)
+ GET /api/order-money?jobId=J-mrhfqq9g-hanpwh 200 in 254ms (next.js: 203ms, proxy.ts: 9ms, application-code: 42ms)

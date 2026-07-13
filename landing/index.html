@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>思跃 MES — 还在用 Excel 管理工厂？</title>
+<meta name="description" content="为手板 / CNC / 非标机加工做的生产管理。排产表粘贴进来就能用，工人点一下报工，老板抬头就能看到每个零件在哪。">
+<link rel="icon" href="/landing/favicon.ico">
+<meta property="og:title" content="思跃 MES — 还在用 Excel 管理工厂？">
+<meta property="og:description" content="排产表粘贴进来就能用，工人点一下报工，老板抬头看到全厂。为手板 / CNC / 非标机加工而做。">
+<meta property="og:image" content="https://siyue.ai/landing/assets/og.png">
+<meta property="og:url" content="https://siyue.ai/">
+<meta property="og:type" content="website">
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --surface: #ffffff;
+    --border: #e7e5e0;
+    --border-strong: #d6d3cc;
+    --ink: #14130f;
+    --ink-2: #5a5851;
+    --ink-3: #9b988f;
+    --ink-4: #c4c1b8;
+    --overdue: #b8341c;
+    --success: #2f6b4a;
+    --muted-bg: #f1efe9;
+    --active-bg: #efece4;
+    --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    font-size: 16px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+  a { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+  ::selection { background: var(--active-bg); }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+
+  /* ---- top bar ---- */
+  .bar {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(251, 250, 247, 0.92);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    border-bottom: 1px solid transparent;
+    transition: border-color 400ms var(--ease);
+  }
+  .bar.hairline { border-bottom-color: var(--border); }
+  .bar-in { display: flex; align-items: baseline; gap: 14px; height: 56px; align-items: center; }
+  .wordmark { font-size: 17px; font-weight: 650; letter-spacing: 0.06em; }
+  .wordmark small { font-family: var(--mono); font-size: 11px; color: var(--ink-3); font-weight: 400; margin-left: 8px; letter-spacing: 0.02em; }
+  .bar-links { margin-left: auto; display: flex; align-items: center; gap: 22px; font-size: 14px; }
+  .bar-links a { color: var(--ink-2); transition: color 300ms var(--ease); }
+  .bar-links a:hover { color: var(--ink); }
+  .bar-links a.solid {
+    color: var(--ink); border: 1px solid var(--border-strong); background: var(--surface);
+    padding: 6px 16px; border-radius: 2px; font-weight: 550;
+    transition: background 300ms var(--ease), border-color 300ms var(--ease);
+  }
+  .bar-links a.solid:hover { border-color: var(--ink-4); background: var(--muted-bg); }
+
+  /* ---- hero ---- */
+  .hero { padding: 88px 0 0; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em;
+    color: var(--ink-3); margin-bottom: 26px;
+  }
+  h1 {
+    font-size: clamp(38px, 7.4vw, 72px);
+    line-height: 1.14; font-weight: 700; letter-spacing: 0.01em;
+    max-width: 15em;
+  }
+  .lede {
+    margin-top: 28px; max-width: 34em;
+    font-size: clamp(16px, 2.2vw, 19px); line-height: 1.85; color: var(--ink-2);
+  }
+  .lede b { color: var(--ink); font-weight: 600; }
+
+  /* ---- lead form ---- */
+  .lead { margin-top: 40px; max-width: 460px; }
+  .lead-row { display: flex; border: 1px solid var(--border-strong); background: var(--surface); border-radius: 2px; padding: 4px; }
+  .lead-row input {
+    flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+    font: inherit; font-size: 16px; padding: 10px 12px; color: var(--ink);
+    font-family: var(--mono); letter-spacing: 0.04em;
+  }
+  .lead-row input::placeholder { font-family: var(--sans); color: var(--ink-3); letter-spacing: 0; }
+  .lead-row button {
+    border: 0; cursor: pointer; font: inherit; font-size: 15px; font-weight: 600;
+    background: var(--ink); color: var(--bg); padding: 10px 22px; border-radius: 2px;
+    white-space: nowrap; transition: opacity 300ms var(--ease), transform 200ms var(--ease);
+  }
+  .lead-row button:hover { opacity: 0.88; }
+  .lead-row button:active { transform: scale(0.985); }
+  .lead-row button:disabled { opacity: 0.5; cursor: default; }
+  .lead-note { margin-top: 12px; font-size: 13px; color: var(--ink-3); }
+  .lead-note a { color: var(--ink-2); border-bottom: 1px solid var(--border-strong); transition: color 300ms var(--ease), border-color 300ms var(--ease); }
+  .lead-note a:hover { color: var(--ink); border-color: var(--ink-3); }
+  .lead-err { display: none; margin-top: 10px; font-size: 13px; color: var(--overdue); }
+  .lead.error .lead-err { display: block; }
+  .lead.error .lead-row { border-color: var(--overdue); }
+  .lead-done {
+    display: none; border: 1px solid var(--border); background: var(--surface);
+    border-left: 3px solid var(--success); border-radius: 2px; padding: 16px 18px; font-size: 15px;
+  }
+  .lead-done b { color: var(--success); font-weight: 650; }
+  .lead.done .lead-done { display: block; }
+  .lead.done .lead-row, .lead.done .lead-err { display: none; }
+  .hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+
+  /* ---- screenshot frames ---- */
+  .frame-tray {
+    background: var(--muted-bg); border: 1px solid var(--border);
+    border-radius: 4px; padding: 6px;
+  }
+  .frame {
+    display: block; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 2px; overflow: hidden; position: relative;
+  }
+  .frame-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 14px; border-bottom: 1px solid var(--border);
+    font-family: var(--mono); font-size: 12px; color: var(--ink-3);
+    background: var(--bg);
+  }
+  .frame-head .dot { width: 7px; height: 7px; border-radius: 1px; background: var(--border-strong); }
+  .frame-head .go {
+    margin-left: auto; color: var(--ink-2); font-family: var(--sans); font-size: 12px; font-weight: 550;
+    transition: color 300ms var(--ease);
+  }
+  .frame-shot { position: relative; overflow: hidden; }
+  .frame-shot img {
+    width: 100%; height: 100%; object-fit: cover; object-position: top;
+    transform: scale(1); transition: transform 900ms var(--ease);
+  }
+  a.frame:hover .frame-shot img { transform: scale(1.012); }
+  a.frame:hover .frame-head .go { color: var(--ink); }
+
+  .hero-shot { margin-top: 64px; }
+  .hero-shot .frame-shot { aspect-ratio: 1600 / 940; }
+
+  /* ---- proof strip ---- */
+  .proof { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin-top: 88px; }
+  .proof-in { padding: 26px 0; display: flex; flex-direction: column; gap: 10px; }
+  .proof-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; color: var(--ink-3); }
+  .proof-names { font-size: 15px; color: var(--ink-2); line-height: 2; letter-spacing: 0.02em; }
+  .proof-names span { white-space: nowrap; }
+  .proof-names i { font-style: normal; color: var(--ink-4); padding: 0 10px; }
+
+  /* ---- feature sections ---- */
+  .feat { padding: 110px 0 0; }
+  .feat:last-of-type { padding-bottom: 20px; }
+  .feat-head { max-width: 620px; }
+  .feat-no { font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; color: var(--ink-3); margin-bottom: 16px; }
+  h2 { font-size: clamp(26px, 4.4vw, 40px); line-height: 1.3; font-weight: 700; letter-spacing: 0.01em; }
+  .feat-copy { margin-top: 18px; font-size: 16.5px; color: var(--ink-2); line-height: 1.9; }
+  .feat-copy b { color: var(--ink); font-weight: 600; }
+  .feat-points { margin-top: 20px; border-top: 1px solid var(--border); }
+  .feat-points li {
+    list-style: none; display: flex; gap: 12px; align-items: baseline;
+    padding: 11px 2px; border-bottom: 1px solid var(--border); font-size: 14.5px; color: var(--ink-2);
+  }
+  .feat-points li::before { content: "✓"; color: var(--success); font-weight: 700; font-size: 13px; }
+  .feat-shot { margin-top: 44px; }
+  .feat-shot .frame-shot { aspect-ratio: 1600 / 860; }
+  .feat-shot.tall .frame-shot { aspect-ratio: 1440 / 1010; }
+  .feat-shot.sheet .frame-shot { aspect-ratio: 1280 / 560; }
+  @media (min-width: 880px) {
+    .feat-grid { display: grid; grid-template-columns: 5fr 7fr; gap: 56px; align-items: start; }
+    .feat-grid .feat-shot { margin-top: 6px; }
+    .feat-grid.flip { grid-template-columns: 7fr 5fr; }
+    .feat-grid.flip .feat-head { order: 2; }
+    .feat-grid.flip .feat-shot { order: 1; }
+  }
+
+  /* ---- big cta ---- */
+  .cta { margin-top: 130px; border-top: 1px solid var(--border); background: var(--surface); }
+  .cta-in { padding: 96px 0 104px; }
+  .cta h2 { max-width: 22em; }
+  .cta .lede { margin-top: 20px; }
+  .cta .lead { margin-top: 36px; }
+
+  /* ---- footer ---- */
+  footer { border-top: 1px solid var(--border); }
+  .foot-in {
+    padding: 30px 0 44px; display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: baseline;
+    font-size: 13px; color: var(--ink-3);
+  }
+  .foot-in .fm { font-family: var(--mono); letter-spacing: 0.04em; }
+  .foot-links { margin-left: auto; display: flex; gap: 22px; }
+  .foot-links a { color: var(--ink-3); transition: color 300ms var(--ease); }
+  .foot-links a:hover { color: var(--ink); }
+
+  /* ---- scroll reveal ---- */
+  .rv { opacity: 0; transform: translateY(16px); transition: opacity 800ms var(--ease), transform 800ms var(--ease); }
+  .rv.on { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .rv { opacity: 1; transform: none; transition: none; }
+    html { scroll-behavior: auto; }
+  }
+
+  @media (max-width: 560px) {
+    .hero { padding-top: 56px; }
+    .hero-shot { margin-top: 44px; }
+    .feat { padding-top: 78px; }
+    .cta { margin-top: 90px; }
+    .cta-in { padding: 68px 0 76px; }
+    .lead-row { flex-direction: column; gap: 6px; padding: 6px; }
+    .lead-row button { padding: 12px 22px; }
+    .bar-links { gap: 14px; }
+    .foot-links { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="bar" id="bar">
+  <div class="wrap bar-in">
+    <div class="wordmark">思跃<small>siyue.ai</small></div>
+    <div class="bar-links">
+      <a href="https://yuenong.siyue.ai/demo" target="_blank" rel="noopener">在线演示</a>
+      <a class="solid" href="https://yuenong.siyue.ai/">登录</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow rv">思跃 MES · 为手板 / CNC / 非标机加工而做</p>
+    <h1 class="rv">还在用 Excel<br>管理工厂？</h1>
+    <p class="lede rv">继续用你熟悉的表——但这张表是<b>活的</b>。工单粘贴进来，工人点一下就是报工，老板抬头就能看到每个零件在哪、哪单要逾期、多少钱压在外面。</p>
+
+    <form class="lead rv" data-lead>
+      <div class="lead-row">
+        <input type="tel" name="phone" inputmode="numeric" autocomplete="tel" maxlength="16" placeholder="您的手机号" aria-label="手机号">
+        <input class="hp" type="text" name="hp" tabindex="-1" autocomplete="off">
+        <button type="submit">预约演示</button>
+      </div>
+      <p class="lead-err">请输入正确的手机号</p>
+      <div class="lead-done"><b>✓ 已收到。</b>我们当天回电，给您的厂开一个账号。</div>
+      <p class="lead-note">留手机号当天回电 · 或先进 <a href="https://yuenong.siyue.ai/demo" target="_blank" rel="noopener">在线演示</a> 随便点，无需注册</p>
+    </form>
+  </div>
+
+  <div class="wrap hero-shot rv">
+    <div class="frame-tray">
+      <a class="frame" href="https://yuenong.siyue.ai/demo" target="_blank" rel="noopener">
+        <div class="frame-head"><span class="dot"></span><span class="dot"></span><span>yuenong.siyue.ai/demo · 商务总览</span><span class="go">点击进入真实演示 ↗</span></div>
+        <div class="frame-shot"><img src="/landing/assets/demo-board-grid.webp" width="2400" height="1500" alt="思跃 MES 商务总览看板：全部在产工单，每个工段的完成状态" fetchpriority="high"></div>
+      </a>
+    </div>
+  </div>
+
+  <div class="proof rv">
+    <div class="wrap proof-in">
+      <span class="proof-label">试点工厂全线运行中 · 演示看板上的在产客户</span>
+      <p class="proof-names">
+        <span>海康威视</span><i>·</i><span>大疆创新</span><i>·</i><span>比亚迪</span><i>·</i><span>蔚来</span><i>·</i><span>立讯精密</span><i>·</i><span>迈瑞医疗</span><i>·</i><span>科沃斯</span><i>·</i><span>宇树科技</span><i>·</i><span>理想汽车</span><i>·</i><span>先临三维</span>
+      </p>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="feat">
+    <div class="wrap feat-grid">
+      <div class="feat-head rv">
+        <p class="feat-no">01 · 开单</p>
+        <h2>你的排产表，粘贴进来就能用</h2>
+        <p class="feat-copy">在 WPS / Excel 里复制那几行，回到思跃按 <b>Ctrl+V</b>——名称、数量、交期、图片，原样落进表格。不用建模板，不用逐条录入，会用 Excel 的人十分钟上手。</p>
+        <ul class="feat-points">
+          <li>带表头粘贴，整单直接生成</li>
+          <li>⌘C 还能原样复制回 Excel，两边不打架</li>
+          <li>零件图片直接拖进单元格</li>
+        </ul>
+      </div>
+      <div class="feat-shot sheet rv">
+        <div class="frame-tray">
+          <a class="frame" href="https://yuenong.siyue.ai/demo/x" target="_blank" rel="noopener">
+            <div class="frame-head"><span class="dot"></span><span class="dot"></span><span>生产表</span><span class="go">去演示里贴一张表 ↗</span></div>
+            <div class="frame-shot"><img src="/landing/assets/demo-x-filled.webp" width="2560" height="1600" alt="生产表：从 Excel 粘贴进来的一单零件，含图片、材料、表面处理" loading="lazy"></div>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="feat">
+    <div class="wrap feat-grid flip">
+      <div class="feat-head rv">
+        <p class="feat-no">02 · 报工</p>
+        <h2>工人点一下，就是报工</h2>
+        <p class="feat-copy">每个工段一张队列，按交期排好，该做什么不用问。开始点 <b>▶</b>，做完点 <b>✓</b>——几件就是几分之几，名字和时间自动记上。不用扫码枪，不用培训。</p>
+        <ul class="feat-points">
+          <li>逾期的排最上面，红字标出来</li>
+          <li>还在上游手里的，看得见但催不错人</li>
+          <li>报了多少工，月底直接导出</li>
+        </ul>
+      </div>
+      <div class="feat-shot tall rv">
+        <div class="frame-tray">
+          <a class="frame" href="https://yuenong.siyue.ai/demo/station/%E6%93%8D%E6%9C%BA" target="_blank" rel="noopener">
+            <div class="frame-head"><span class="dot"></span><span class="dot"></span><span>操机 工段</span><span class="go">看这个工段的队列 ↗</span></div>
+            <div class="frame-shot"><img src="/landing/assets/demo-station2.webp" width="2400" height="1833" alt="操机工段队列：按交期排序的待做工单，一键开始与报工" loading="lazy"></div>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="feat">
+    <div class="wrap feat-grid">
+      <div class="feat-head rv">
+        <p class="feat-no">03 · 看厂</p>
+        <h2>老板抬头，全厂在一行表头里</h2>
+        <p class="feat-copy">逾期几单、今天交什么、在产多少、应收压了多少——<b>打开就是答案</b>。每一格都能点进去，不用再在微信群里问"这单到哪了"。</p>
+        <ul class="feat-points">
+          <li>逾期 / 今日 / 在产 / 应收，常驻表头</li>
+          <li>每单毛利、外发金额，算好放在行里</li>
+          <li>手机上打开，看到的是同一张表</li>
+        </ul>
+      </div>
+      <div class="feat-shot rv">
+        <div class="frame-tray">
+          <a class="frame" href="https://yuenong.siyue.ai/demo" target="_blank" rel="noopener">
+            <div class="frame-head"><span class="dot"></span><span class="dot"></span><span>商务总览</span><span class="go">进商务总览 ↗</span></div>
+            <div class="frame-shot"><img src="/landing/assets/demo-board.webp" width="2400" height="1500" alt="商务总览：逾期、今日、在产、应收的全厂统计与工单明细" loading="lazy"></div>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="feat">
+    <div class="wrap feat-grid flip">
+      <div class="feat-head rv">
+        <p class="feat-no">04 · 外协</p>
+        <h2>外协出去的件，进度自己回来</h2>
+        <p class="feat-copy">在外的零件按供应商分组，逾期自动标红，<b>该催谁一眼就有</b>。给厂商一条链接——不装 App、不注册，他点一下诺期、发货，你的表上就更新了。</p>
+        <ul class="feat-points">
+          <li>催货微信一键复制，直接粘到群里</li>
+          <li>外协单上印二维码，厂商扫码就能回话</li>
+          <li>回厂点收件，钱和件都对得上</li>
+        </ul>
+      </div>
+      <div class="feat-shot rv">
+        <div class="frame-tray">
+          <a class="frame" href="https://yuenong.siyue.ai/demo/station/outsource" target="_blank" rel="noopener">
+            <div class="frame-head"><span class="dot"></span><span class="dot"></span><span>外协台</span><span class="go">看外协台 ↗</span></div>
+            <div class="frame-shot"><img src="/landing/assets/demo-waixie.webp" width="2400" height="1500" alt="外协台：在外零件按供应商分组，逾期标红，一键复制催货微信" loading="lazy"></div>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="wrap cta-in">
+      <h2 class="rv">把 Excel 换成思跃，一天就够。</h2>
+      <p class="lede rv">你现在的表格原样导入，第二天全厂就在同一张表上干活。留个手机号，我们当天回电。</p>
+      <form class="lead rv" data-lead>
+        <div class="lead-row">
+          <input type="tel" name="phone" inputmode="numeric" autocomplete="tel" maxlength="16" placeholder="您的手机号" aria-label="手机号">
+          <input class="hp" type="text" name="hp" tabindex="-1" autocomplete="off">
+          <button type="submit">预约演示</button>
+        </div>
+        <p class="lead-err">请输入正确的手机号</p>
+        <div class="lead-done"><b>✓ 已收到。</b>我们当天回电，给您的厂开一个账号。</div>
+        <p class="lead-note">也可以先进 <a href="https://yuenong.siyue.ai/demo" target="_blank" rel="noopener">在线演示</a>，不用注册，随便点</p>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot-in">
+    <span>思跃 <span class="fm">siyue.ai</span> · © 2026</span>
+    <div class="foot-links">
+      <a href="https://yuenong.siyue.ai/demo" target="_blank" rel="noopener">在线演示</a>
+      <a href="https://yuenong.siyue.ai/">登录</a>
+      <a href="https://bom.siyue.ai/login">拆件工具</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // hairline under the bar once scrolled
+  var bar = document.getElementById('bar');
+  var onScroll = function () { bar.classList.toggle('hairline', window.scrollY > 8); };
+  onScroll();
+  addEventListener('scroll', onScroll, { passive: true });
+
+  // scroll reveal
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('on'); io.unobserve(e.target); } });
+  }, { rootMargin: '0px 0px -8% 0px' });
+  document.querySelectorAll('.rv').forEach(function (el) { io.observe(el); });
+
+  // lead forms
+  document.querySelectorAll('[data-lead]').forEach(function (form) {
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var phone = (form.phone.value || '').replace(/[\s-]/g, '');
+      var ok = /^1[3-9]\d{9}$/.test(phone) || /^0\d{9,11}$/.test(phone);
+      form.classList.toggle('error', !ok);
+      if (!ok) { form.phone.focus(); return; }
+      var btn = form.querySelector('button');
+      btn.disabled = true;
+      fetch('/api/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: phone, hp: form.hp.value || '' })
+      }).then(function (r) {
+        if (r.ok) { form.classList.remove('error'); form.classList.add('done'); }
+        else { form.classList.add('error'); btn.disabled = false; }
+      }).catch(function () { form.classList.add('error'); btn.disabled = false; });
+    });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>思跃 MES 产品介绍</title>
+<style>
+  @page { size: A4; margin: 0; }
+  :root {
+    --bg: #fbfaf7;
+    --border: #e7e5e0;
+    --ink: #14130f;
+    --ink-2: #5a5851;
+    --ink-3: #9b988f;
+    --success: #2f6b4a;
+    --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--sans); color: var(--ink); background: var(--bg); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page {
+    width: 210mm; height: 296mm; padding: 16mm 16mm 12mm;
+    page-break-after: always; position: relative; background: var(--bg);
+    display: flex; flex-direction: column;
+  }
+  .page:last-child { page-break-after: auto; }
+  .head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding-bottom: 5mm; border-bottom: 1px solid var(--border); margin-bottom: 8mm;
+  }
+  .wordmark { font-size: 15px; font-weight: 650; letter-spacing: 0.06em; }
+  .wordmark small { font-family: var(--mono); font-size: 10px; color: var(--ink-3); font-weight: 400; margin-left: 6px; }
+  .head .pg { font-family: var(--mono); font-size: 10px; color: var(--ink-3); letter-spacing: 0.1em; }
+  .eyebrow { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.16em; color: var(--ink-3); margin-bottom: 6mm; }
+  h1 { font-size: 40px; line-height: 1.25; font-weight: 700; letter-spacing: 0.01em; }
+  .lede { margin-top: 7mm; font-size: 15.5px; line-height: 2; color: var(--ink-2); max-width: 150mm; }
+  .lede b { color: var(--ink); font-weight: 650; }
+  h2 { font-size: 22px; font-weight: 700; margin-bottom: 3mm; }
+  .no { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.16em; color: var(--ink-3); margin-bottom: 3mm; }
+  .copy { font-size: 13.5px; line-height: 1.95; color: var(--ink-2); max-width: 160mm; }
+  .copy b { color: var(--ink); font-weight: 650; }
+  .points { margin-top: 4mm; border-top: 1px solid var(--border); max-width: 160mm; }
+  .points li {
+    list-style: none; display: flex; gap: 8px; align-items: baseline;
+    padding: 2.6mm 1mm; border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--ink-2);
+  }
+  .points li::before { content: "✓"; color: var(--success); font-weight: 700; font-size: 11px; }
+  .shot { margin-top: 6mm; background: #f1efe9; border: 1px solid var(--border); border-radius: 3px; padding: 2mm; }
+  .shot img { display: block; width: 100%; border: 1px solid var(--border); border-radius: 2px; }
+  .shot .cap { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); padding: 2mm 1mm 0.5mm; letter-spacing: 0.06em; }
+  .foot {
+    margin-top: auto; padding-top: 4mm; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; font-family: var(--mono);
+    font-size: 9.5px; color: var(--ink-3); letter-spacing: 0.05em;
+  }
+  .proof { margin-top: 8mm; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 5mm 0; }
+  .proof-label { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em; color: var(--ink-3); margin-bottom: 2mm; }
+  .proof-names { font-size: 13px; color: var(--ink-2); line-height: 2; }
+  .proof-names i { font-style: normal; color: #c4c1b8; padding: 0 7px; }
+  .bigcta { margin-top: 8mm; }
+  .bigcta .row { display: flex; gap: 6mm; margin-top: 5mm; }
+  .card {
+    flex: 1; border: 1px solid var(--border); background: #fff; border-radius: 3px; padding: 5mm 6mm;
+  }
+  .card .t { font-weight: 650; font-size: 14px; margin-bottom: 1.5mm; }
+  .card .d { font-size: 12px; color: var(--ink-2); line-height: 1.85; }
+  .card .d b { color: var(--ink); }
+  .steps { margin-top: 5mm; max-width: 160mm; }
+  .steps li { list-style: none; display: flex; gap: 10px; padding: 3mm 1mm; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--ink-2); align-items: baseline; }
+  .steps li b.n { font-family: var(--mono); color: var(--ink-3); font-weight: 400; font-size: 11px; }
+  .steps li b { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<!-- PAGE 1 — cover -->
+<div class="page">
+  <div class="head"><span class="wordmark">思跃<small>siyue.ai</small></span><span class="pg">产品介绍 · 01</span></div>
+  <p class="eyebrow">思跃 MES · 为多品种小批量 / 非标加工而做</p>
+  <h1>还在用 Excel<br>管理工厂？</h1>
+  <p class="lede">继续用你熟悉的表——但这张表是<b>活的</b>。工单粘贴进来，工人点一下就是报工，老板抬头就能看到每个零件在哪、哪单要逾期、多少钱压在外面。<br><b>现有排产表原样导入，当天上线</b>，不改变厂里原来的做事习惯。上过系统没用起来的厂，一样两周切过来。</p>
+  <div class="shot">
+    <div class="cap">商务总览 · 全部在产工单，每个工段的完成状态</div>
+    <img src="assets/demo-board-grid.webp" alt="">
+  </div>
+  <div class="proof">
+    <div class="proof-label">试点工厂全线运行中 · 在产客户包括</div>
+    <p class="proof-names">海康威视<i>·</i>大疆创新<i>·</i>比亚迪<i>·</i>蔚来<i>·</i>立讯精密<i>·</i>迈瑞医疗<i>·</i>科沃斯<i>·</i>宇树科技<i>·</i>理想汽车<i>·</i>先临三维</p>
+  </div>
+  <div class="foot"><span>思跃 siyue.ai · © 2026</span><span>在线演示：yuenong.siyue.ai/demo（免注册）</span></div>
+</div>
+
+<!-- PAGE 2 — 开单 + 报工 -->
+<div class="page">
+  <div class="head"><span class="wordmark">思跃<small>siyue.ai</small></span><span class="pg">产品介绍 · 02</span></div>
+
+  <p class="no">01 · 开单</p>
+  <h2>你的排产表，粘贴进来就能用</h2>
+  <p class="copy">在 WPS / Excel 里复制那几行，回到思跃按 <b>Ctrl+V</b>——名称、数量、交期、图片，原样落进表格。不用建模板，不用逐条录入，会用 Excel 的人十分钟上手。</p>
+  <div class="shot">
+    <div class="cap">生产表 · 从 Excel 粘贴进来的一单零件，含图片、材料、表面处理</div>
+    <img src="assets/demo-x-filled.webp" alt="">
+  </div>
+
+  <div style="height:8mm"></div>
+
+  <p class="no">02 · 报工</p>
+  <h2>工人点一下，就是报工</h2>
+  <p class="copy">每个工段一张队列，按交期排好，该做什么不用问。开始点 <b>▶</b>，做完点 <b>✓</b>——名字和时间自动记上。不用扫码枪，不用培训。逾期的排最上面，红字标出来。</p>
+
+  <div class="foot"><span>思跃 siyue.ai · © 2026</span><span>在线演示：yuenong.siyue.ai/demo（免注册）</span></div>
+</div>
+
+<!-- PAGE 3 — 看厂 + 外协 -->
+<div class="page">
+  <div class="head"><span class="wordmark">思跃<small>siyue.ai</small></span><span class="pg">产品介绍 · 03</span></div>
+
+  <p class="no">03 · 看厂</p>
+  <h2>老板抬头，全厂在一行表头里</h2>
+  <p class="copy">逾期几单、今天交什么、在产多少、应收压了多少——<b>打开就是答案</b>。每一格都能点进去，不用再在微信群里问"这单到哪了"。手机上打开，看到的是同一张表。</p>
+  <div class="shot">
+    <div class="cap">商务总览 · 逾期 / 今日 / 在产 / 应收，常驻表头</div>
+    <img src="assets/demo-board.webp" alt="">
+  </div>
+
+  <div style="height:8mm"></div>
+
+  <p class="no">04 · 外协</p>
+  <h2>外协出去的件，进度自己回来</h2>
+  <p class="copy">在外的零件按供应商分组，逾期自动标红，<b>该催谁一眼就有</b>。给厂商一条链接——不装 App、不注册，他点一下诺期、发货，你的表上就更新了。催货微信一键复制。</p>
+
+  <div class="foot"><span>思跃 siyue.ai · © 2026</span><span>在线演示：yuenong.siyue.ai/demo（免注册）</span></div>
+</div>
+
+<!-- PAGE 4 — 定制 / 设备 / 上线方式 -->
+<div class="page">
+  <div class="head"><span class="wordmark">思跃<small>siyue.ai</small></span><span class="pg">产品介绍 · 04</span></div>
+
+  <p class="no">05 · 上过系统，没用起来？</p>
+  <h2>不是你的厂不适合系统，<br>是系统没按你的厂做</h2>
+  <p class="copy">很多厂都经历过：上系统先要改自己的流程去迁就软件，实施拖几个月，工人嫌麻烦不肯点，最后全厂回到 Excel。我们反过来——<b>字段、工序、看板都按你厂里的实际流程来配</b>，工人只要会点两个键。机床 / 设备的数据采集和对接也是定制接入，<b>杂牌设备、老设备都能接</b>。</p>
+
+  <div style="height:6mm"></div>
+
+  <p class="no">06 · 上线方式</p>
+  <h2>两周免费试点，跑不起来不收钱</h2>
+  <ul class="steps">
+    <li><b class="n">第 1 天</b><span>现有 Excel 排产表原样导入，<b>当天全厂能用</b></span></li>
+    <li><b class="n">第 1 周</b><span>我们的人上门，按厂里流程调整字段、工序、看板</span></li>
+    <li><b class="n">第 2 周</b><span>全厂正常跑单，老板手机上看全厂</span></li>
+    <li><b class="n">两周后</b><span>觉得有用再谈合作；<b>觉得没用，数据导出还你，不收一分钱</b></span></li>
+  </ul>
+
+  <div class="bigcta">
+    <div class="row">
+      <div class="card">
+        <div class="t">在线演示</div>
+        <div class="d">手机 / 电脑直接打开，<b>免注册随便点</b>：<br><b>yuenong.siyue.ai/demo</b></div>
+      </div>
+      <div class="card">
+        <div class="t">预约上门</div>
+        <div class="d">官网留手机号当天回电：<b>siyue.ai</b><br>或直接联系介绍您来的对接人</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot"><span>思跃 siyue.ai · © 2026</span><span>在线演示：yuenong.siyue.ai/demo（免注册）</span></div>
+</div>
+
+</body>
+</html>

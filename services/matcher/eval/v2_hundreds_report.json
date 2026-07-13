@@ -1,0 +1,10 @@
+{
+  "bank_size": 250,
+  "queries": 300,
+  "correct": 289,
+  "accuracy_pct": 96.33,
+  "wrong_match": 1,
+  "no_match": 10,
+  "latency_p50_ms": 532.9,
+  "latency_p95_ms": 675.7
+}
