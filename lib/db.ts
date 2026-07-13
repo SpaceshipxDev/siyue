@@ -40,6 +40,7 @@ import type {
   Verdict,
 } from './data'
 import { supabase } from './supabase'
+import { removeJobStorage } from './job-storage'
 import { docNoDayPrefix, formatDocNo } from './brand'
 import { rowRollupStage, type MasterAggregates, type MasterCell, type MasterRow } from './master'
 import type { FinanceRow } from './finance'
@@ -5381,10 +5382,38 @@ export async function confirmJob(jobId: string): Promise<void> {
 }
 
 export async function deleteJob(jobId: string): Promise<void> {
+  // Capture packet object keys before the FK cascade removes packet_pages.
+  // Storage cleanup happens only after the DB commit; a cleanup failure can
+  // leave harmless orphaned bytes, but can never leave a live job with broken
+  // images because its files were removed before a failed SQL delete.
+  const { data: partRows, error: partError } = await supabase
+    .from('parts')
+    .select('id')
+    .eq('job_id', jobId)
+  if (partError) throw partError
+  const partIds = (partRows ?? []).map((row) => row.id as string)
+  let packetPageKeys: string[] = []
+  if (partIds.length > 0) {
+    const { data: pageRows, error: pageError } = await supabase
+      .from('packet_pages')
+      .select('storage_key')
+      .in('part_id', partIds)
+    if (pageError) throw pageError
+    packetPageKeys = (pageRows ?? []).map((row) => row.storage_key as string)
+  }
+
   await withWriteLock(async () => {
     const { error } = await supabase.from('jobs').delete().eq('id', jobId)
     if (error) throw error
   })
+
+  try {
+    await removeJobStorage(jobId, packetPageKeys)
+  } catch (error) {
+    // The database is the source of truth and has already committed. Surface
+    // cleanup trouble to logs without making the client think deletion failed.
+    console.error('[deleteJob] storage cleanup failed', jobId, error)
+  }
 }
 
 // Row-level boss pin for the master grid. Independent of setJobStagePin.

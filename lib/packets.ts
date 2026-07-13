@@ -4,6 +4,7 @@ import { createJob, setPartRoute, ensurePartQrToken, setStageDoneQty } from './d
 import { fallbackDueDate } from './gemini'
 import { TRACKING_STAGES, stageLabel, type Stage, type StageStatus } from './data'
 import type { PacketExtract } from './packet-extract'
+import { proxiedKeyUrl } from './storage-url'
 
 // Packet ingestion + 报工 event data layer. All NEW tables (0083) are owned
 // here; writes to the EXISTING job/part/stage tables go through lib/db.ts's
@@ -581,6 +582,11 @@ export type BoardStageChip = {
   by?: string
 }
 
+export type BoardSourceImage = {
+  url: string
+  label: string
+}
+
 export type ComponentBoardRow = {
   jobId: string
   partId: string
@@ -602,6 +608,8 @@ export type ComponentBoardRow = {
   /** First unfinished visible stage — where the part IS right now. */
   current?: BoardStageChip
   lastReport?: { actor: string; qty: number; stage: string; at: string }
+  /** Original packet photos, plus the imported reference image when present. */
+  sourceImages: BoardSourceImage[]
   shipped: boolean
 }
 
@@ -613,7 +621,7 @@ export async function componentBoardRows(): Promise<ComponentBoardRow[]> {
       .in('status', ['ready', 'draft']),
     supabase
       .from('parts')
-      .select('id, job_id, name, qty, part_no, drawing_no, position'),
+      .select('id, job_id, name, qty, part_no, drawing_no, image_url, position'),
   ])
   if (jerr) throw jerr
   if (perr) throw perr
@@ -630,18 +638,29 @@ export async function componentBoardRows(): Promise<ComponentBoardRow[]> {
 
   const stageRows: Record<string, unknown>[] = []
   const packetRows: Record<string, unknown>[] = []
+  const pageRows: Record<string, unknown>[] = []
   for (const ids of chunk(partIds, 200)) {
-    const [{ data: st, error: serr }, { data: pk, error: pkerr }] = await Promise.all([
+    const [
+      { data: st, error: serr },
+      { data: pk, error: pkerr },
+      { data: pg, error: pgerr },
+    ] = await Promise.all([
       supabase
         .from('part_stages')
         .select('part_id, stage, status, done_qty, by_actor, completed_at, finished_at, started_at, started_by_actor')
         .in('part_id', ids),
       supabase.from('packets').select('part_id, created_by, created_at').in('part_id', ids),
+      supabase
+        .from('packet_pages')
+        .select('part_id, idx, kind, op_no, storage_key')
+        .in('part_id', ids),
     ])
     if (serr) throw serr
     if (pkerr) throw pkerr
+    if (pgerr) throw pgerr
     stageRows.push(...(st ?? []))
     packetRows.push(...(pk ?? []))
+    pageRows.push(...(pg ?? []))
   }
 
   // Latest 报工 per part in one sweep (bounded window — the board only needs
@@ -674,6 +693,16 @@ export async function componentBoardRows(): Promise<ComponentBoardRow[]> {
   for (const r of packetRows) {
     if (!packetByPart.has(r.part_id as string)) packetByPart.set(r.part_id as string, r)
   }
+  const pagesByPart = new Map<string, Record<string, unknown>[]>()
+  for (const r of pageRows) {
+    const pid = r.part_id as string
+    const list = pagesByPart.get(pid) ?? []
+    list.push(r)
+    pagesByPart.set(pid, list)
+  }
+  for (const list of pagesByPart.values()) {
+    list.sort((a, b) => Number(a.idx ?? 0) - Number(b.idx ?? 0))
+  }
 
   const chipOf = (partQty: number, stage: Stage, r?: Record<string, unknown>): BoardStageChip | undefined => {
     if (!r) return undefined
@@ -703,6 +732,26 @@ export async function componentBoardRows(): Promise<ComponentBoardRow[]> {
     const visible = [...ops, ...(post ? [post] : [])]
     const current = visible.find((c) => c.status !== 'done')
     const packet = packetByPart.get(pid)
+    const sourceImages: BoardSourceImage[] = (pagesByPart.get(pid) ?? []).map(
+      (page) => {
+        const kind = page.kind as string | null
+        const opNo = page.op_no as number | null
+        const label =
+          kind === 'drawing'
+            ? '图纸'
+            : kind === 'program'
+              ? `程序单${opNo ? ` OP${opNo}` : ''}`
+              : '资料'
+        return {
+          url: proxiedKeyUrl(String(page.storage_key), 'source'),
+          label,
+        }
+      },
+    )
+    const referenceImageUrl = (p.image_url as string | null) ?? undefined
+    if (referenceImageUrl) {
+      sourceImages.push({ url: referenceImageUrl, label: '零件图' })
+    }
     return {
       jobId,
       partId: pid,
@@ -722,6 +771,7 @@ export async function componentBoardRows(): Promise<ComponentBoardRow[]> {
       ship,
       current,
       lastReport: lastByPart.get(pid),
+      sourceImages,
       shipped: ship?.status === 'done',
     }
   })

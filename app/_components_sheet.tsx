@@ -1,8 +1,10 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { ComponentBoardRow, BoardStageChip } from '@/lib/packets'
+import { proxiedStorageUrl } from '@/lib/storage-url'
+import { mutate } from '@/lib/mutate'
 
 // The PMC's board — every live component as one row, read left to right the
 // way a part physically flows: 编程 → CNC OPs → 后处理 → 出货. The 进度
@@ -66,10 +68,22 @@ function Chip({ chip, qty }: { chip: BoardStageChip; qty: number }) {
 
 type Seg = 'active' | 'shipped' | 'all'
 
-export function ComponentSheet({ rows }: { rows: ComponentBoardRow[] }) {
+export function ComponentSheet({
+  rows,
+  canDeleteJobs = false,
+}: {
+  rows: ComponentBoardRow[]
+  canDeleteJobs?: boolean
+}) {
   const [q, setQ] = useState('')
   const [seg, setSeg] = useState<Seg>('active')
   const [customer, setCustomer] = useState('')
+  const [deletedJobIds, setDeletedJobIds] = useState<Set<string>>(new Set())
+  const [deletingJobIds, setDeletingJobIds] = useState<Set<string>>(new Set())
+  const [viewer, setViewer] = useState<{
+    row: ComponentBoardRow
+    index: number
+  } | null>(null)
 
   const customers = useMemo(
     () => [...new Set(rows.map((r) => r.customer).filter(Boolean))].sort(),
@@ -79,6 +93,7 @@ export function ComponentSheet({ rows }: { rows: ComponentBoardRow[] }) {
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
     return rows.filter((r) => {
+      if (deletedJobIds.has(r.jobId)) return false
       if (seg === 'active' && r.shipped) return false
       if (seg === 'shipped' && !r.shipped) return false
       if (customer && r.customer !== customer) return false
@@ -87,7 +102,37 @@ export function ComponentSheet({ rows }: { rows: ComponentBoardRow[] }) {
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(needle))
     })
-  }, [rows, q, seg, customer])
+  }, [rows, q, seg, customer, deletedJobIds])
+
+  async function removeJob(row: ComponentBoardRow) {
+    const partCount = rows.filter((candidate) => candidate.jobId === row.jobId).length
+    if (
+      !confirm(
+        `永久删除工单「${row.jobNo}」及其 ${partCount} 个零件？\n\n生产进度、报工记录和上传资料也会一并删除，此操作无法撤销。`,
+      )
+    ) {
+      return
+    }
+
+    setDeletingJobIds((current) => new Set(current).add(row.jobId))
+    setDeletedJobIds((current) => new Set(current).add(row.jobId))
+    try {
+      await mutate({ kind: 'deleteJob', jobId: row.jobId })
+    } catch (error) {
+      setDeletedJobIds((current) => {
+        const next = new Set(current)
+        next.delete(row.jobId)
+        return next
+      })
+      alert(error instanceof Error ? `删除失败：${error.message}` : '删除失败')
+    } finally {
+      setDeletingJobIds((current) => {
+        const next = new Set(current)
+        next.delete(row.jobId)
+        return next
+      })
+    }
+  }
 
   return (
     <div>
@@ -140,7 +185,18 @@ export function ComponentSheet({ rows }: { rows: ComponentBoardRow[] }) {
         <table className="w-full min-w-[1080px] border-collapse">
           <thead>
             <tr className="border-b border-[var(--color-border-strong)] text-left">
-              {['客户', '货号', '描述', '图纸号', '数量', '交期', '工序', '最近报工'].map(
+              {[
+                '源图',
+                '客户',
+                '货号',
+                '描述',
+                '图纸号',
+                '数量',
+                '交期',
+                '工序',
+                '最近报工',
+                ...(canDeleteJobs ? ['操作'] : []),
+              ].map(
                 (h) => (
                   <th
                     key={h}
@@ -158,6 +214,9 @@ export function ComponentSheet({ rows }: { rows: ComponentBoardRow[] }) {
                 key={r.partId}
                 className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-bg)]"
               >
+                <td className="px-3 py-2">
+                  <SourceImagesButton row={r} onOpen={() => setViewer({ row: r, index: 0 })} />
+                </td>
                 <td className="px-3 py-2.5 text-[12px] text-[var(--color-ink-2)] whitespace-nowrap">
                   {r.customer || '—'}
                 </td>
@@ -227,11 +286,28 @@ export function ComponentSheet({ rows }: { rows: ComponentBoardRow[] }) {
                     '—'
                   )}
                 </td>
+                {canDeleteJobs ? (
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      type="button"
+                      disabled={deletingJobIds.has(r.jobId)}
+                      onClick={() => void removeJob(r)}
+                      title={`删除工单 ${r.jobNo}`}
+                      aria-label={`删除工单 ${r.jobNo}`}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-[3px] text-[var(--color-ink-3)] transition-colors hover:bg-[var(--color-overdue-soft)] hover:text-[var(--color-overdue)] disabled:opacity-40"
+                    >
+                      <TrashIcon />
+                    </button>
+                  </td>
+                ) : null}
               </tr>
             ))}
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-10 text-center text-[13px] text-[var(--color-ink-3)]">
+                <td
+                  colSpan={canDeleteJobs ? 10 : 9}
+                  className="px-3 py-10 text-center text-[13px] text-[var(--color-ink-3)]"
+                >
                   没有匹配的零件 — 编程拍照录入后会自动出现在这里
                 </td>
               </tr>
@@ -239,6 +315,196 @@ export function ComponentSheet({ rows }: { rows: ComponentBoardRow[] }) {
           </tbody>
         </table>
       </div>
+      {viewer ? (
+        <SourceImageViewer
+          row={viewer.row}
+          index={viewer.index}
+          onIndexChange={(index) => setViewer({ row: viewer.row, index })}
+          onClose={() => setViewer(null)}
+        />
+      ) : null}
     </div>
+  )
+}
+
+function SourceImagesButton({
+  row,
+  onOpen,
+}: {
+  row: ComponentBoardRow
+  onOpen: () => void
+}) {
+  const first = row.sourceImages[0]
+  if (!first) {
+    return (
+      <span className="flex h-10 w-10 items-center justify-center rounded-[3px] border border-dashed border-[var(--color-border)] text-[10px] text-[var(--color-ink-4)]">
+        —
+      </span>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`查看 ${row.partNo || row.jobNo} 的源图，共 ${row.sourceImages.length} 张`}
+      title={`查看源图 · ${row.sourceImages.length} 张`}
+      className="group relative block h-10 w-10 overflow-hidden rounded-[3px] border border-[var(--color-border-strong)] bg-[var(--color-muted-bg)] hover:border-[var(--color-ink)]"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={proxiedStorageUrl(first.url)}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        className="h-full w-full object-cover transition-transform group-hover:scale-105"
+      />
+      {row.sourceImages.length > 1 ? (
+        <span className="absolute bottom-0 right-0 min-w-4 bg-black/75 px-1 py-0.5 text-[9px] font-semibold leading-none text-white">
+          {row.sourceImages.length}
+        </span>
+      ) : null}
+    </button>
+  )
+}
+
+function SourceImageViewer({
+  row,
+  index,
+  onIndexChange,
+  onClose,
+}: {
+  row: ComponentBoardRow
+  index: number
+  onIndexChange: (index: number) => void
+  onClose: () => void
+}) {
+  const images = row.sourceImages
+  const image = images[index]
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+      if (event.key === 'ArrowLeft' && images.length > 1) {
+        onIndexChange((index - 1 + images.length) % images.length)
+      }
+      if (event.key === 'ArrowRight' && images.length > 1) {
+        onIndexChange((index + 1) % images.length)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [images.length, index, onClose, onIndexChange])
+
+  if (!image) return null
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${row.partNo || row.jobNo} 源图`}
+      className="fixed inset-0 z-[100] flex flex-col bg-black/88 p-3 md:p-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 text-white">
+        <div className="min-w-0">
+          <p className="truncate text-[14px] font-semibold">
+            {row.partNo || row.jobNo} · {row.name}
+          </p>
+          <p className="mt-0.5 text-[11px] text-white/65">
+            {image.label} · {index + 1}/{images.length}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="关闭源图"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-[24px] leading-none hover:bg-white/20"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="relative mx-auto mt-3 flex min-h-0 w-full max-w-6xl flex-1 items-center justify-center">
+        {images.length > 1 ? (
+          <button
+            type="button"
+            onClick={() => onIndexChange((index - 1 + images.length) % images.length)}
+            aria-label="上一张源图"
+            className="absolute left-0 z-10 flex h-12 w-10 items-center justify-center rounded-r-[4px] bg-black/50 text-[28px] text-white hover:bg-black/75 md:left-2"
+          >
+            ‹
+          </button>
+        ) : null}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={proxiedStorageUrl(image.url)}
+          alt={`${row.partNo || row.jobNo} · ${image.label}`}
+          className="max-h-full max-w-full object-contain"
+        />
+        {images.length > 1 ? (
+          <button
+            type="button"
+            onClick={() => onIndexChange((index + 1) % images.length)}
+            aria-label="下一张源图"
+            className="absolute right-0 z-10 flex h-12 w-10 items-center justify-center rounded-l-[4px] bg-black/50 text-[28px] text-white hover:bg-black/75 md:right-2"
+          >
+            ›
+          </button>
+        ) : null}
+      </div>
+
+      {images.length > 1 ? (
+        <div className="mx-auto mt-3 flex max-w-full gap-2 overflow-x-auto pb-1">
+          {images.map((candidate, candidateIndex) => (
+            <button
+              type="button"
+              key={`${candidate.url}-${candidateIndex}`}
+              onClick={() => onIndexChange(candidateIndex)}
+              aria-label={`查看第 ${candidateIndex + 1} 张源图`}
+              className={`h-14 w-14 shrink-0 overflow-hidden rounded-[3px] border-2 bg-white/5 ${
+                candidateIndex === index ? 'border-white' : 'border-transparent opacity-60 hover:opacity-100'
+              }`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={proxiedStorageUrl(candidate.url)}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-cover"
+              />
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v5M14 11v5" />
+    </svg>
   )
 }

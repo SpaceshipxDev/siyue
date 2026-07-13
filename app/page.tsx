@@ -351,7 +351,7 @@ export default async function MasterBoard(
         )}
 
         {isComponentBoard ? (
-          <ComponentSheet rows={boardRows} />
+          <ComponentSheet rows={boardRows} canDeleteJobs={user.role === 'commerce'} />
         ) : useMasterSheet ? (
           // Rows are fetched client-side from /api/master/rows (see
           // _master_loaders) rather than serialized into this RSC payload —
