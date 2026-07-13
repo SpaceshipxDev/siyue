@@ -1,16 +1,18 @@
 import { canSeeFactoryPulse, currentUser } from '@/lib/auth'
-import { getMachineDashboard } from '@/lib/machines'
+import { getMachineDashboard, machineDashboardProxyMatches } from '@/lib/machines'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-export async function GET(): Promise<Response> {
-  const user = await currentUser()
-  if (!user) {
-    return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 })
-  }
-  if (!canSeeFactoryPulse(user)) {
-    return Response.json({ ok: false, error: 'forbidden' }, { status: 403 })
+export async function GET(request: Request): Promise<Response> {
+  if (!machineDashboardProxyMatches(request.headers)) {
+    const user = await currentUser()
+    if (!user) {
+      return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 })
+    }
+    if (!canSeeFactoryPulse(user)) {
+      return Response.json({ ok: false, error: 'forbidden' }, { status: 403 })
+    }
   }
 
   try {

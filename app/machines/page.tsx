@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
+import { headers } from 'next/headers'
 import { requirePulseViewer } from '@/lib/auth'
-import { getMachineDashboard } from '@/lib/machines'
+import { getMachineDashboard, machineDashboardProxyMatches } from '@/lib/machines'
 import { MachineDashboard } from './_dashboard'
 
 export const metadata: Metadata = {
@@ -10,7 +11,8 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic'
 
 export default async function MachinesPage() {
-  const user = await requirePulseViewer()
+  const proxyAccess = machineDashboardProxyMatches(await headers())
+  const userName = proxyAccess ? '老板' : (await requirePulseViewer()).name
   let initial: Awaited<ReturnType<typeof getMachineDashboard>> = {
     machines: [],
     events: [],
@@ -22,5 +24,5 @@ export default async function MachinesPage() {
     // The client feed keeps retrying. This also lets the page render a useful
     // empty state during the brief deploy window before migration 0088 lands.
   }
-  return <MachineDashboard initial={initial} userName={user.name} />
+  return <MachineDashboard initial={initial} userName={userName} />
 }

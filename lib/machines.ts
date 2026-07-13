@@ -164,6 +164,15 @@ export function machineTokenMatches(request: Request): boolean {
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
+export function machineDashboardProxyMatches(headers: Pick<Headers, 'get'>): boolean {
+  const expected = process.env.MACHINE_DASHBOARD_PROXY_KEY
+  if (!expected || expected.length < 24) return false
+  const supplied = headers.get('x-yingma-machine-dashboard') ?? ''
+  const a = Buffer.from(expected)
+  const b = Buffer.from(supplied)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
 export function parseMachineIngest(input: unknown): MachineIngest {
   const root = record(input, 'payload')
   const watcherId = requiredId(root.watcherId, 'watcherId')

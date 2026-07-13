@@ -96,7 +96,17 @@ export async function proxy(request: NextRequest) {
       pathname.startsWith('/machine-kit/') ||
       pathname === '/api/lynuc' ||
       pathname.startsWith('/api/lynuc/'))
-  const isPublic = isLocalMachineKit || PUBLIC_PATHS.some(
+  const machineProxyKey = process.env.MACHINE_DASHBOARD_PROXY_KEY
+  const isTrustedMachineDashboard = Boolean(
+    machineProxyKey &&
+      machineProxyKey.length >= 24 &&
+      request.headers.get('x-yingma-machine-dashboard') === machineProxyKey &&
+      (pathname === '/machines' ||
+        pathname.startsWith('/machines/') ||
+        pathname === '/api/machines' ||
+        pathname.startsWith('/api/machines/')),
+  )
+  const isPublic = isLocalMachineKit || isTrustedMachineDashboard || PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   )
 
