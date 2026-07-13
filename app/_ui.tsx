@@ -12,6 +12,7 @@ export type TabKey =
   | '笔记'
   | '重点'
   | '现场'
+  | '机器'
   | '交接'
   | '采购'
   | '报工'
@@ -48,6 +49,7 @@ function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): T
         { key: '工程', label: '工单', href: '/' },
         { key: '笔记', label: '笔记', href: '/notes' },
         { key: '重点', label: '重点', href: '/daily' },
+        { key: '机器', label: '机器', href: '/machines' },
         ...(canSeeReport ? [{ key: '报工' as TabKey, label: '报工', href: '/report' }] : []),
         { key: '录入', label: '拍照录入', href: '/ingest' },
       ]
@@ -61,6 +63,7 @@ function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): T
     { key: '商务', label: '工单', href: '/' },
     { key: '笔记', label: '笔记', href: '/notes' },
     { key: '重点', label: '重点', href: '/daily' },
+    { key: '机器', label: '机器', href: '/machines' },
     { key: '报工', label: '报工', href: '/report' },
     { key: '录入', label: '拍照录入', href: '/ingest' },
   ]

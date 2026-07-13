@@ -41,7 +41,7 @@ import { isMobileUserAgent } from '@/lib/mobile'
 // '/api/unmatched-report' is the no-match valve — same trust model as
 // /api/match-photo (rate-limited inside the route; writes only an unresolved
 // review row for the PMC, never the part state machine).
-const PUBLIC_PATHS = ['/login', '/join', '/w', '/s', '/p', '/api/match-photo', '/api/unmatched-report', '/x/demo', '/api/leads']
+const PUBLIC_PATHS = ['/login', '/join', '/w', '/s', '/p', '/api/match-photo', '/api/unmatched-report', '/api/machines/ingest', '/x/demo', '/api/leads']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only
