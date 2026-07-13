@@ -1,6 +1,8 @@
 import 'server-only'
 
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
+import path from 'node:path'
 import { supabase } from './supabase'
 
 export const MACHINE_STATES = [
@@ -140,6 +142,12 @@ type SnapshotRow = {
   updated_at: string
 }
 
+type MachineFileStore = {
+  version: 1
+  machines: Record<string, MachineView>
+  events: MachineEventView[]
+}
+
 const MAX_MACHINES = 20
 const MAX_TEXT = 1_000
 const ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/
@@ -254,6 +262,19 @@ function parseRecentPrograms(value: unknown): RecentMachineProgram[] {
 }
 
 export async function ingestMachineSnapshots(payload: MachineIngest): Promise<void> {
+  if (process.env.MACHINE_STORE_MODE === 'file') {
+    await ingestMachineFile(payload)
+    return
+  }
+  try {
+    await ingestMachineDatabase(payload)
+  } catch (error) {
+    if (!isMissingMachineTable(error)) throw error
+    await ingestMachineFile(payload)
+  }
+}
+
+async function ingestMachineDatabase(payload: MachineIngest): Promise<void> {
   const ids = payload.machines.map((machine) => machine.id)
   const { data: existingData, error: existingError } = await supabase
     .from('machine_snapshots')
@@ -363,6 +384,20 @@ export async function getMachineDashboard(): Promise<{
   events: MachineEventView[]
   serverTime: string
 }> {
+  if (process.env.MACHINE_STORE_MODE === 'file') return getMachineFileDashboard()
+  try {
+    return await getMachineDatabaseDashboard()
+  } catch (error) {
+    if (!isMissingMachineTable(error)) throw error
+    return getMachineFileDashboard()
+  }
+}
+
+async function getMachineDatabaseDashboard(): Promise<{
+  machines: MachineView[]
+  events: MachineEventView[]
+  serverTime: string
+}> {
   const [snapshotResult, eventResult] = await Promise.all([
     supabase.from('machine_snapshots').select('*').order('machine_id'),
     supabase
@@ -387,6 +422,104 @@ export async function getMachineDashboard(): Promise<{
     })),
     serverTime: new Date().toISOString(),
   }
+}
+
+const MACHINE_STORE_PATH = process.env.MACHINE_STORE_PATH ||
+  path.join(process.cwd(), 'data', 'machines.json')
+
+async function readMachineFile(): Promise<MachineFileStore> {
+  try {
+    const parsed = JSON.parse(await readFile(MACHINE_STORE_PATH, 'utf8')) as MachineFileStore
+    if (parsed?.version !== 1 || !parsed.machines || !Array.isArray(parsed.events)) {
+      throw new Error('machine telemetry file has an invalid format')
+    }
+    return parsed
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { version: 1, machines: {}, events: [] }
+    }
+    throw error
+  }
+}
+
+async function writeMachineFile(store: MachineFileStore): Promise<void> {
+  await mkdir(path.dirname(MACHINE_STORE_PATH), { recursive: true })
+  const temporary = `${MACHINE_STORE_PATH}.${process.pid}.${randomUUID()}.tmp`
+  await writeFile(temporary, JSON.stringify(store), { encoding: 'utf8', mode: 0o600 })
+  await rename(temporary, MACHINE_STORE_PATH)
+}
+
+async function ingestMachineFile(payload: MachineIngest): Promise<void> {
+  const store = await readMachineFile()
+  const updatedAt = new Date().toISOString()
+
+  for (const machine of payload.machines) {
+    const before = store.machines[machine.id]
+    const sameJob = Boolean(before && before.currentProgram === machine.currentProgram)
+    const jobStartedAt = machine.currentProgram
+      ? sameJob
+        ? before.jobStartedAt ?? machine.jobStartedAt ?? machine.observedAt
+        : machine.jobStartedAt ?? machine.programModifiedAt ?? machine.observedAt
+      : null
+    const eventType = changedFileEvent(before, machine)
+
+    store.machines[machine.id] = {
+      ...machine,
+      jobStartedAt,
+      lastSeenAt: machine.connected ? machine.observedAt : before?.lastSeenAt ?? null,
+      collectorId: payload.watcherId,
+      collectorVersion: payload.watcherVersion,
+      updatedAt,
+    }
+
+    if (eventType) {
+      store.events.unshift({
+        id: randomUUID(),
+        machineId: machine.id,
+        eventType,
+        observedAt: machine.observedAt,
+        state: machine.state,
+        programName: machine.currentProgram,
+        sourcePart: machine.sourcePart,
+      })
+    }
+  }
+
+  store.events = store.events
+    .sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt))
+    .slice(0, 200)
+  await writeMachineFile(store)
+}
+
+async function getMachineFileDashboard(): Promise<{
+  machines: MachineView[]
+  events: MachineEventView[]
+  serverTime: string
+}> {
+  const store = await readMachineFile()
+  return {
+    machines: Object.values(store.machines).sort((a, b) => a.id.localeCompare(b.id)),
+    events: store.events.slice(0, 40),
+    serverTime: new Date().toISOString(),
+  }
+}
+
+function changedFileEvent(
+  before: MachineView | undefined,
+  machine: MachineWireSnapshot,
+): MachineEventView['eventType'] | null {
+  if (!before) return 'first_seen'
+  if (before.connected !== machine.connected) return machine.connected ? 'connected' : 'disconnected'
+  if (before.currentProgram !== machine.currentProgram) return 'program_changed'
+  if (before.state !== machine.state) return 'state_changed'
+  return null
+}
+
+function isMissingMachineTable(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as { code?: unknown; message?: unknown }
+  return candidate.code === '42P01' ||
+    (typeof candidate.message === 'string' && candidate.message.includes('machine_snapshots'))
 }
 
 function toMachineView(row: SnapshotRow): MachineView {
