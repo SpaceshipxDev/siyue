@@ -1,5 +1,6 @@
 import {
   BLOCKING_VERDICTS,
+  CNC_OP_STAGES,
   JOBS as SEED,
   STAGES,
   TRACKING_STAGES,
@@ -5582,7 +5583,12 @@ export async function resetDb(): Promise<void> {
 // 出货 rides along invisibly: it never shows as a tick column at Yingma, but
 // the shipping flow (prepareShipping / vendor-line close-out) finishes that
 // row, so every part must carry it — same invariant resolvePartStages forces.
-export const DEFAULT_NEW_PART_STAGES: Stage[] = [...TRACKING_STAGES, '出货']
+export const DEFAULT_NEW_PART_STAGES: Stage[] = [
+  ...CNC_OP_STAGES.slice(0, 6),
+  '丝印',
+  '检验',
+  '出货',
+]
 
 // Sanitize an incoming stage list: dedupe, force 出货 in (every part ships),
 // and return them in canonical STAGES order so writes are deterministic. An

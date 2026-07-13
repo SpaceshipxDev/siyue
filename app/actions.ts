@@ -73,6 +73,7 @@ import {
   requireCommerce,
   requireOutsourceManager,
   requirePartRouteEditor,
+  requireRouteEditor,
   requireUser,
 } from '@/lib/auth'
 
@@ -303,7 +304,7 @@ export async function setPartRouteAction(
   stages: Stage[],
   options: { force?: boolean } = {},
 ): Promise<SetPartRouteResult> {
-  await requirePartRouteEditor()
+  await requireRouteEditor()
   const result = await setPartRoute(jobId, componentId, stages, options)
   if (result.ok) {
     revalidatePath('/')

@@ -110,26 +110,36 @@ export function canEditJob(s: Scope): boolean {
   return s.role === 'commerce'
 }
 
-// Stage chips on import draft (商务) and job detail (工程) pages. 商务 owns
-// the initial route; 工程 keeps editing rights post-import because they
-// catch routing mistakes once the part actually hits the floor. Other
-// production stations only see the chips read-only.
+// Stage chips on the job detail page. Route corrections are deliberately
+// broader than full job/part-field editing; see canEditProductionFields.
 export function canEditPartRoute(s: Scope): boolean {
+  // Route corrections happen on the floor: the person holding the part is
+  // often the first to discover that it needs one more (or one fewer) OP.
+  // Every authenticated employee may edit only the route itself.
+  void s
+  return true
+}
+
+// 工程 sees the same holistic master view as 商务 minus customer/money and
+// edits the same non-commercial job/component fields commerce edits. This is
+// intentionally narrower than canEditPartRoute.
+export function canEditProductionFields(s: Scope): boolean {
   return s.role === 'commerce' || s.defaultStage === '工程'
 }
 
-// 工程 sees the same holistic master view as 商务 minus customer/money,
-// and edits the same non-commercial job/component fields commerce edits
-// (product, jobNo, dueDate, qty, material, etc). Same scope as
-// canEditPartRoute today; named separately so the UI/action gates read
-// at the right level of intent.
-export function canEditProductionFields(s: Scope): boolean {
-  return canEditPartRoute(s)
+// Existing full-edit guard used by job fields, component fields, imports, and
+// returns. Kept separate from the narrower route-only guard below.
+export async function requirePartRouteEditor(): Promise<AuthUser> {
+  const u = await requireUser()
+  if (canEditProductionFields(u)) return u
+  redirect(landingPathFor(u))
 }
 
-// Server-action guard for setPartRouteAction. Mirrors requireCommerce —
-// throws via redirect when a non-editor tries to save.
-export async function requirePartRouteEditor(): Promise<AuthUser> {
+// Narrow guard for the route picker. Keep this separate from
+// requirePartRouteEditor: that older guard also protects full job/part field
+// edits, imports, and returns, which ordinary manufacturing users must not
+// gain merely because they can correct a route.
+export async function requireRouteEditor(): Promise<AuthUser> {
   const u = await requireUser()
   if (canEditPartRoute(u)) return u
   redirect(landingPathFor(u))

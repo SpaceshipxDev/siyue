@@ -10,7 +10,15 @@ import {
   type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { TRACKING_STAGES as STAGES, partRoute, stageLabel, type Component, type Stage } from '@/lib/data'
+import {
+  CNC_OP_STAGES,
+  MAX_CNC_OPS,
+  TRACKING_STAGES as STAGES,
+  partRoute,
+  stageLabel,
+  type Component,
+  type Stage,
+} from '@/lib/data'
 import { mutate } from '@/lib/mutate'
 import type { SetPartRouteResult } from '@/lib/db'
 
@@ -117,6 +125,26 @@ export function StageChips({
     void apply(next, false)
   }
 
+  const onSetOpCount = (requested: number) => {
+    if (readOnly || !Number.isFinite(requested)) return
+    const highestLockedOp = CNC_OP_STAGES.reduce(
+      (highest, stage, index) =>
+        lockedByOutsource.has(stage) ? Math.max(highest, index + 1) : highest,
+      0,
+    )
+    const count = Math.max(
+      1,
+      highestLockedOp,
+      Math.min(MAX_CNC_OPS, Math.round(requested)),
+    )
+    const next = new Set(currentRoute)
+    CNC_OP_STAGES.forEach((stage, index) => {
+      if (index < count) next.add(stage)
+      else next.delete(stage)
+    })
+    void apply(next, false)
+  }
+
   const summary = (
     <RouteSummary route={currentRoute} lockedByOutsource={lockedByOutsource} />
   )
@@ -158,6 +186,7 @@ export function StageChips({
           lockedByOutsource={lockedByOutsource}
           pending={pending}
           onToggle={onToggle}
+          onSetOpCount={onSetOpCount}
           onClose={() => setAnchor(null)}
         />
       ) : null}
@@ -253,7 +282,7 @@ function RouteSummary({
 // so the table's scroll container can't clip it; flips above the trigger when
 // there's no room below.
 const PICKER_W = 224
-const PICKER_EST_H = 36 + STAGES.length * 32 + 44 // header + rows + footer
+const PICKER_EST_H = 96 + STAGES.length * 32 + 44 // header/count + rows + footer
 
 function RoutePicker({
   anchor,
@@ -262,6 +291,7 @@ function RoutePicker({
   lockedByOutsource,
   pending,
   onToggle,
+  onSetOpCount,
   onClose,
 }: {
   anchor: DOMRect
@@ -270,6 +300,7 @@ function RoutePicker({
   lockedByOutsource: Set<Stage>
   pending: boolean
   onToggle: (stage: Stage) => void
+  onSetOpCount: (count: number) => void
   onClose: () => void
 }) {
   const panelRef = useRef<HTMLDivElement>(null)
@@ -321,6 +352,7 @@ function RoutePicker({
     : { left, top: anchor.bottom + 6 }
 
   const count = STAGES.filter((s) => route.has(s)).length
+  const opCount = CNC_OP_STAGES.filter((s) => route.has(s)).length
 
   return createPortal(
     <div
@@ -333,8 +365,49 @@ function RoutePicker({
       <div className="flex shrink-0 items-baseline justify-between px-3 pt-2.5 pb-1.5">
         <span className="label text-[var(--color-ink-3)]">工序 · 点选切换</span>
         <span className="mono text-[11px] tabular-nums text-[var(--color-ink-4)]">
-          {count}/{STAGES.length}
+          {count} 道已启用
         </span>
+      </div>
+
+      <div className="mx-1.5 mb-1.5 flex shrink-0 items-center gap-2 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-canvas)] px-2 py-2">
+        <span className="mr-auto text-[12px] font-medium tracking-wider text-[var(--color-ink-2)]">
+          CNC 工序数
+        </span>
+        <button
+          type="button"
+          aria-label="减少一道 CNC 工序"
+          disabled={pending || opCount <= 1}
+          onClick={() => onSetOpCount(opCount - 1)}
+          className="h-7 w-7 rounded-[2px] border border-[var(--color-border-strong)] text-[16px] leading-none text-[var(--color-ink-2)] hover:bg-[var(--color-active-bg)] disabled:opacity-30"
+        >
+          −
+        </button>
+        <input
+          key={opCount}
+          type="number"
+          min={1}
+          max={MAX_CNC_OPS}
+          defaultValue={opCount}
+          aria-label="CNC 工序数量"
+          disabled={pending}
+          onBlur={(event) => onSetOpCount(Number(event.currentTarget.value))}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              event.currentTarget.blur()
+            }
+          }}
+          className="h-7 w-12 rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-center mono text-[13px] tabular-nums text-[var(--color-ink)] outline-none focus:border-[var(--color-ink-3)]"
+        />
+        <button
+          type="button"
+          aria-label="增加一道 CNC 工序"
+          disabled={pending || opCount >= MAX_CNC_OPS}
+          onClick={() => onSetOpCount(opCount + 1)}
+          className="h-7 w-7 rounded-[2px] border border-[var(--color-border-strong)] text-[16px] leading-none text-[var(--color-ink-2)] hover:bg-[var(--color-active-bg)] disabled:opacity-30"
+        >
+          +
+        </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5">

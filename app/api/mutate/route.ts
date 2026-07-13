@@ -115,6 +115,7 @@ import {
   requireCommerce,
   requireOutsourceManager,
   requirePartRouteEditor,
+  requireRouteEditor,
   requireUser,
   type AuthUser,
 } from '@/lib/auth'
@@ -794,7 +795,7 @@ async function dispatch(
         !stages.every(isStage)
       )
         return err('bad setPartRoute args')
-      await requirePartRouteEditor()
+      await requireRouteEditor()
       const result = await setPartRoute(jobId, componentId, stages as Stage[], {
         force,
       })
