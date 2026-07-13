@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 import { getActiveUsers, getAllUsers, getBossUser, isAdminUser } from '@/lib/db'
 import { currentUser, landingPathFor } from '@/lib/auth'
+import { isMobileUserAgent } from '@/lib/mobile'
 import { LoginClient } from './_login_client'
 import { AdminView } from './_admin_view'
 
@@ -10,6 +12,7 @@ export default async function LoginPage(props: PageProps<'/login'>) {
   const sp = await props.searchParams
   const wantsAdmin = sp?.admin === '1'
   const u = await currentUser()
+  const isMobile = isMobileUserAgent((await headers()).get('user-agent'))
 
   // Boss arriving via the 管理员工 flow gets the admin panel inline on /login
   // — same URL, just a different view.
@@ -39,7 +42,7 @@ export default async function LoginPage(props: PageProps<'/login'>) {
       users={tiles}
       boss={boss}
       admins={admins}
-      open={process.env.OPEN_LOGIN === '1'}
+      open={process.env.OPEN_LOGIN === '1' && !isMobile}
     />
   )
 }

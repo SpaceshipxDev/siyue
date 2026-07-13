@@ -1,10 +1,11 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { getUserById, isAdminUser, verifyUserPin } from '@/lib/db'
 import { createSession, deleteSession } from '@/lib/session'
 import { landingPathFor } from '@/lib/auth'
+import { isMobileUserAgent } from '@/lib/mobile'
 import { WORKER_COOKIE } from '@/app/s/[token]/_worker'
 
 async function rememberWorker(name: string): Promise<void> {
@@ -93,7 +94,10 @@ export async function loginAction(
 // is being onboarded; unset the env var and the PIN keypad is back. The
 // 管理员工 admin surface keeps its PIN either way.
 export async function loginOpenAction(userId: string): Promise<LoginResult> {
-  if (process.env.OPEN_LOGIN !== '1') return { ok: false, error: '请输入 PIN' }
+  const isMobile = isMobileUserAgent((await headers()).get('user-agent'))
+  if (process.env.OPEN_LOGIN !== '1' || isMobile) {
+    return { ok: false, error: '请输入 PIN' }
+  }
   const user = await getUserById(userId)
   if (!user) return { ok: false, error: '账号不存在' }
 

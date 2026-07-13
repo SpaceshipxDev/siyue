@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { decrypt, encrypt, SESSION_COOKIE } from '@/lib/session'
 import { getUserById } from '@/lib/db'
+import { isMobileUserAgent } from '@/lib/mobile'
 
 // Next 16 proxy (formerly middleware.ts). Runs at Node runtime before route
 // rendering. We do an *optimistic* gate here using the JWT — page-level
@@ -99,24 +100,6 @@ export async function proxy(request: NextRequest) {
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   )
 
-  // Phones ARE the shop floor: any mobile hit on the bare domain lands in
-  // the camera port — logged in or not (the PMC's phone session must never
-  // strand her in the desktop board's station view). Desktop keeps the
-  // board; a phone that truly needs the board uses the explicit /?board=1
-  // escape (linked from /p's header for logged-in users). GET only, so
-  // server actions posting to '/' are untouched.
-  if (
-    request.method === 'GET' &&
-    pathname === '/' &&
-    !request.nextUrl.searchParams.has('board') &&
-    /Mobile|Android|iPhone/i.test(request.headers.get('user-agent') ?? '')
-  ) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/p'
-    url.search = ''
-    return NextResponse.redirect(url)
-  }
-
   const token = request.cookies.get(SESSION_COOKIE)?.value
   const session = await decrypt(token)
 
@@ -150,6 +133,24 @@ export async function proxy(request: NextRequest) {
     if (isPublic) return NextResponse.next()
     const url = request.nextUrl.clone()
     url.pathname = '/login'
+    url.search = ''
+    return NextResponse.redirect(url)
+  }
+
+  // A phone becomes the shop floor only after the worker has authenticated.
+  // First-time and expired-session visits fall through to the normal login
+  // above, where the worker picks an account and enters its PIN. That login
+  // stores a persistent session cookie, so subsequent visits (including from
+  // WeChat's in-app browser) can return directly to the camera port. Desktop
+  // keeps the board; /?board=1 remains the explicit mobile board escape.
+  if (
+    request.method === 'GET' &&
+    pathname === '/' &&
+    !request.nextUrl.searchParams.has('board') &&
+    isMobileUserAgent(request.headers.get('user-agent'))
+  ) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/p'
     url.search = ''
     return NextResponse.redirect(url)
   }
