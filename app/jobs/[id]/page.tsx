@@ -84,7 +84,6 @@ import { PartDrawingChange } from '@/app/_part_drawing_change'
 import { ShippingComposerButton } from '@/app/_shipping'
 import { ShipmentHistoryButton } from '@/app/_shipment_history'
 import { JobTypeEditor } from '@/app/_type_chip'
-import { JobSourceImageGallery } from './_source_image_gallery'
 
 // Intentionally not `force-dynamic`. The page still ends up dynamic because
 // `requireUser()` reads cookies and `getJob` is uncached, but leaving Next's
@@ -556,21 +555,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             />
           </div>
         </div>
-
-        <JobSourceImageGallery
-          images={job.components.flatMap((component) =>
-            component.imageUrl
-              ? [
-                  {
-                    componentId: component.id,
-                    name: component.name,
-                    partNo: component.partNo,
-                    url: component.imageUrl,
-                  },
-                ]
-              : [],
-          )}
-        />
 
         {/* 工单明细 tabs — 零件 / 外协 / 财务. Each big section below is wrapped
             in a data-jobtab div that <JobTabs> shows/hides, so nobody scrolls

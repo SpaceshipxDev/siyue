@@ -45,7 +45,6 @@ import { ExportExcelButton } from './_export_excel'
 import { usePersistentState } from './_persist'
 import { StickyHorizontalScrollbar } from './_sticky_hscroll'
 import type { JobType } from '@/lib/data'
-import { mutate } from '@/lib/mutate'
 
 // Role mirrored locally so this client component doesn't import lib/auth
 // (which is server-only).
@@ -277,7 +276,6 @@ export function MasterSheet({
     'all',
   )
   const moneyActive = moneyFilter !== 'all'
-  const [removedJobIds, setRemovedJobIds] = useState<Set<string>>(new Set())
 
   const isProduction = role === 'production'
   const showMoney = role === 'commerce'
@@ -296,31 +294,6 @@ export function MasterSheet({
     setIsProduct,
     setPaused,
   } = useOptimisticJobType(rows)
-  const activeRows = useMemo(
-    () => rows.filter((row) => !removedJobIds.has(row.id)),
-    [rows, removedJobIds],
-  )
-
-  async function removeJob(row: MasterRow) {
-    if (
-      !confirm(
-        `永久删除工单「${row.jobNo}」？\n\n零件、生产进度和报工记录会一并删除，此操作无法撤销。`,
-      )
-    ) {
-      return
-    }
-    setRemovedJobIds((current) => new Set(current).add(row.id))
-    try {
-      await mutate({ kind: 'deleteJob', jobId: row.id })
-    } catch (error) {
-      setRemovedJobIds((current) => {
-        const next = new Set(current)
-        next.delete(row.id)
-        return next
-      })
-      alert(error instanceof Error ? `删除失败：${error.message}` : '删除失败')
-    }
-  }
 
   // Ref handed to <StickyHorizontalScrollbar>: the grid is hundreds of rows
   // tall, so the native horizontal bar at the table's bottom is invisible
@@ -353,7 +326,7 @@ export function MasterSheet({
     let live = 0
     let paused = 0
     let shipped = 0
-    for (const r of activeRows) {
+    for (const r of rows) {
       // 收件箱 jobs (parsing/draft/failed) are not confirmed orders — they never
       // belong to any production bucket. The board feed already excludes them;
       // this guards the optimistic by-id refresh path from re-introducing them.
@@ -363,20 +336,20 @@ export function MasterSheet({
       else live++
     }
     return { liveCount: live, pausedCount: paused, shippedCount: shipped }
-  }, [activeRows, effectiveIsPaused])
+  }, [rows, effectiveIsPaused])
 
   const scopedRows = useMemo(() => {
-    if (!showShipTabs) return activeRows.filter((r) => !rowIsInbox(r))
+    if (!showShipTabs) return rows.filter((r) => !rowIsInbox(r))
     if (shipFilter === 'shipped')
-      return activeRows.filter((r) => !rowIsInbox(r) && rowIsShipped(r))
+      return rows.filter((r) => !rowIsInbox(r) && rowIsShipped(r))
     if (shipFilter === 'paused')
-      return activeRows.filter(
+      return rows.filter(
         (r) => !rowIsInbox(r) && !rowIsShipped(r) && effectiveIsPaused(r),
       )
-    return activeRows.filter(
+    return rows.filter(
       (r) => !rowIsInbox(r) && !rowIsShipped(r) && !effectiveIsPaused(r),
     )
-  }, [activeRows, showShipTabs, shipFilter, effectiveIsPaused])
+  }, [rows, showShipTabs, shipFilter, effectiveIsPaused])
   // Highlight the user's home station for production; otherwise highlight the
   // URL stage (so commerce navigating to a station sees the same emphasis).
   const highlightStage: Stage | undefined = defaultStage ?? stageFilter
@@ -978,7 +951,6 @@ export function MasterSheet({
                   onTypeChange={(next) => setType(row, next)}
                   onProductChange={(next) => setIsProduct(row, next)}
                   onPauseChange={(next, reason) => setPaused(row, next, reason)}
-                  onDelete={showMoney ? () => void removeJob(row) : undefined}
                 />
               )
             })}
@@ -1321,7 +1293,6 @@ function JobRow({
   onTypeChange,
   onProductChange,
   onPauseChange,
-  onDelete,
 }: {
   measureRef?: (node: HTMLTableRowElement | null) => void
   virtualIndex?: number
@@ -1351,7 +1322,6 @@ function JobRow({
   onTypeChange: (next: JobType | null) => void
   onProductChange: (next: boolean) => void
   onPauseChange: (next: boolean, reason?: string) => void
-  onDelete?: () => void
 }) {
   // Timer chip: only for the viewer's own station column, and only when this
   // row is "mine" there (in_progress here, or pending with all priors done).
@@ -1643,54 +1613,18 @@ function JobRow({
         // Click bubbles up from the input — stop the row's hover/link feel.
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2">
-          <div className="min-w-0 flex-1">
-            <JobNotesInline
-              jobId={row.id}
-              value={row.notes}
-              placeholder="备注…"
-              className={`text-[12px] ${
-                row.notes && row.notes.includes('催')
-                  ? 'text-[var(--color-overdue)]'
-                  : 'text-[var(--color-ink-2)]'
-              }`}
-            />
-          </div>
-          {onDelete ? (
-            <button
-              type="button"
-              onClick={onDelete}
-              title={`删除工单 ${row.jobNo}`}
-              aria-label={`删除工单 ${row.jobNo}`}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[2px] text-[var(--color-ink-4)] opacity-100 transition hover:bg-[var(--color-overdue-soft)] hover:text-[var(--color-overdue)] md:opacity-0 md:group-hover/row:opacity-100 focus:opacity-100"
-            >
-              <TrashIcon />
-            </button>
-          ) : null}
-        </div>
+        <JobNotesInline
+          jobId={row.id}
+          value={row.notes}
+          placeholder="备注…"
+          className={`text-[12px] ${
+            row.notes && row.notes.includes('催')
+              ? 'text-[var(--color-overdue)]'
+              : 'text-[var(--color-ink-2)]'
+          }`}
+        />
       </td>
     </tr>
-  )
-}
-
-function TrashIcon() {
-  return (
-    <svg
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M3 6h18" />
-      <path d="M8 6V4h8v2" />
-      <path d="M19 6l-1 14H6L5 6" />
-      <path d="M10 11v5M14 11v5" />
-    </svg>
   )
 }
 

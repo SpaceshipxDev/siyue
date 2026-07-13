@@ -21,7 +21,6 @@ import {
   createReturn,
   createVendor,
   deleteDailyFocusItem,
-  deleteJob,
   deleteExpense,
   deleteHandover,
   deleteProcurement,
@@ -640,17 +639,6 @@ async function dispatch(
       if (notes !== null && !isString(notes)) return err('bad notes')
       await requireUser()
       await updateJob(jobId, { notes: notes as string | null })
-      revalidateJob(jobId)
-      return Response.json(ok())
-    }
-
-    case 'deleteJob': {
-      const jobId = body.jobId
-      if (!isString(jobId)) return err('bad deleteJob args')
-      // A live job deletion removes its full production-history cascade.
-      // Keep that destructive permission commerce-only.
-      await requireCommerce()
-      await deleteJob(jobId)
       revalidateJob(jobId)
       return Response.json(ok())
     }
