@@ -82,9 +82,10 @@ import { PartDrawingChange } from '@/app/_part_drawing_change'
 import { ShippingComposerButton } from '@/app/_shipping'
 import { ShipmentHistoryButton } from '@/app/_shipment_history'
 import { JobTypeEditor } from '@/app/_type_chip'
-import { listJobReportEvents } from '@/lib/packets'
+import { jobSourceImageGroups, listJobReportEvents } from '@/lib/packets'
 import { supabase } from '@/lib/supabase'
 import { BaogongPanel } from './_baogong'
+import { JobSourceImages } from './_source_images'
 
 // Intentionally not `force-dynamic`. The page still ends up dynamic because
 // `requireUser()` reads cookies and `getJob` is uncached, but leaving Next's
@@ -108,11 +109,12 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // load (the caiwu tab must add zero latency to the floor's hot path). The
   // 开票/回款 state is lazy-loaded by JobMoneyEditor itself, so it never touches
   // the server critical path at all.
-  const [rawJob, fetchedVendors, contractFiles, reportEvents] = await Promise.all([
+  const [rawJob, fetchedVendors, contractFiles, reportEvents, sourceImageGroups] = await Promise.all([
     getJob(id),
     getVendors(),
     showMoney ? getContractFiles(id) : Promise.resolve([]),
     listJobReportEvents(id).catch(() => []),
+    jobSourceImageGroups(id).catch(() => []),
   ])
   if (!rawJob) notFound()
   // Portal tokens power the 微信 share button on each 委外 row. No-op once
@@ -334,6 +336,8 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             />
           ) : null}
         </div>
+
+        <JobSourceImages groups={sourceImageGroups} />
 
         {/* 工单明细 tabs — 零件 / 外协 / 财务. Each big section below is wrapped
             in a data-jobtab div that <JobTabs> shows/hides, so nobody scrolls

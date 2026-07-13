@@ -587,6 +587,78 @@ export type BoardSourceImage = {
   label: string
 }
 
+export type JobSourceImageGroup = {
+  componentId: string
+  name: string
+  partNo?: string
+  images: BoardSourceImage[]
+}
+
+/**
+ * Original uploaded material for a job detail page. Packet photos are the
+ * actual camera-uploaded source sheets; image_url is the reference image
+ * extracted from an imported workbook or uploaded by an editor.
+ */
+export async function jobSourceImageGroups(
+  jobId: string,
+): Promise<JobSourceImageGroup[]> {
+  const { data: parts, error: partError } = await supabase
+    .from('parts')
+    .select('id, name, part_no, image_url, position')
+    .eq('job_id', jobId)
+    .order('position')
+  if (partError) throw partError
+  const partIds = (parts ?? []).map((part) => part.id as string)
+  if (partIds.length === 0) return []
+
+  const { data: pages, error: pageError } = await supabase
+    .from('packet_pages')
+    .select('part_id, idx, kind, op_no, storage_key')
+    .in('part_id', partIds)
+  if (pageError) throw pageError
+
+  const pagesByPart = new Map<string, Record<string, unknown>[]>()
+  for (const page of pages ?? []) {
+    const partId = page.part_id as string
+    const list = pagesByPart.get(partId) ?? []
+    list.push(page)
+    pagesByPart.set(partId, list)
+  }
+  for (const list of pagesByPart.values()) {
+    list.sort((a, b) => Number(a.idx ?? 0) - Number(b.idx ?? 0))
+  }
+
+  return (parts ?? []).flatMap((part) => {
+    const partId = part.id as string
+    const images: BoardSourceImage[] = (pagesByPart.get(partId) ?? []).map(
+      (page) => {
+        const kind = page.kind as string | null
+        const opNo = page.op_no as number | null
+        return {
+          url: proxiedKeyUrl(String(page.storage_key), 'source'),
+          label:
+            kind === 'drawing'
+              ? '图纸'
+              : kind === 'program'
+                ? `程序单${opNo ? ` OP${opNo}` : ''}`
+                : '资料',
+        }
+      },
+    )
+    const referenceUrl = (part.image_url as string | null) ?? undefined
+    if (referenceUrl) images.push({ url: referenceUrl, label: '零件图' })
+    if (images.length === 0) return []
+    return [
+      {
+        componentId: componentIdOf(jobId, partId),
+        name: String(part.name ?? ''),
+        partNo: (part.part_no as string | null) ?? undefined,
+        images,
+      },
+    ]
+  })
+}
+
 export type ComponentBoardRow = {
   jobId: string
   partId: string
