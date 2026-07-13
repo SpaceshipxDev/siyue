@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { TRACKING_STAGES as STAGES, type Stage, type JobStatus } from '@/lib/data'
+import { STAGES, type Stage, type JobStatus } from '@/lib/data'
 import { confirmJobAction } from './actions'
 import { mutate } from '@/lib/mutate'
 import { EditableText } from './_editable'

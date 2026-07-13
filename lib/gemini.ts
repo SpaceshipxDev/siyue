@@ -170,10 +170,7 @@ export type ExtractInput = {
 
 const FALLBACK_DUE_OFFSET_DAYS = 15
 
-// jobs.due_date is NOT NULL (0001_init.sql) — every ingest path must supply
-// a date. Exported so the photo-packet path can apply the same estimate when
-// the blue stamp has no legible 交货期.
-export function fallbackDueDate(): string {
+function fallbackDueDate(): string {
   const [y, m, d] = today().split('-').map(Number)
   const t = new Date(Date.UTC(y, m - 1, d + FALLBACK_DUE_OFFSET_DAYS))
   return t.toISOString().slice(0, 10)

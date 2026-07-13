@@ -1,12 +1,14 @@
 import { notFound, redirect } from 'next/navigation'
 import { withBase } from '@/lib/base-path'
 import {
-  TRACKING_STAGES as STAGES,
+  STAGES,
+  componentShipmentEntries,
   daysFromToday,
   dueState,
   effectiveStageState,
   formatActivityTimestamp,
   formatCny,
+  formatShipmentLog,
   isBlockClosed,
   isBlockingVerdict,
   jobComponentsTotal,
@@ -41,6 +43,7 @@ import { StageHeader, TopBar, type TabKey } from '@/app/_ui'
 import { EffectiveStageCell } from '@/app/_stagecell'
 import { BackButton } from '@/app/_back'
 import {
+  ComponentLineTotal,
   ComponentNotes,
   ComponentQty,
   ComponentText,
@@ -53,7 +56,6 @@ import {
   JobText,
 } from '@/app/_editable'
 import { WaixieTable } from './_waixie'
-import { HeaderEdit } from './_header_edit'
 import { OutsourceFlag } from '@/app/_outsource_flag'
 import { ExternalBadge } from '@/app/_externalbadge'
 import { ComponentImageUploader } from '@/app/_image_uploader'
@@ -82,10 +84,6 @@ import { PartDrawingChange } from '@/app/_part_drawing_change'
 import { ShippingComposerButton } from '@/app/_shipping'
 import { ShipmentHistoryButton } from '@/app/_shipment_history'
 import { JobTypeEditor } from '@/app/_type_chip'
-import { jobSourceImageGroups, listJobReportEvents } from '@/lib/packets'
-import { supabase } from '@/lib/supabase'
-import { BaogongPanel } from './_baogong'
-import { JobSourceImages } from './_source_images'
 
 // Intentionally not `force-dynamic`. The page still ends up dynamic because
 // `requireUser()` reads cookies and `getJob` is uncached, but leaving Next's
@@ -109,12 +107,10 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // load (the caiwu tab must add zero latency to the floor's hot path). The
   // 开票/回款 state is lazy-loaded by JobMoneyEditor itself, so it never touches
   // the server critical path at all.
-  const [rawJob, fetchedVendors, contractFiles, reportEvents, sourceImageGroups] = await Promise.all([
+  const [rawJob, fetchedVendors, contractFiles] = await Promise.all([
     getJob(id),
     getVendors(),
     showMoney ? getContractFiles(id) : Promise.resolve([]),
-    listJobReportEvents(id).catch(() => []),
-    jobSourceImageGroups(id).catch(() => []),
   ])
   if (!rawJob) notFound()
   // Portal tokens power the 微信 share button on each 委外 row. No-op once
@@ -196,29 +192,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   }
   const pct = totalCells === 0 ? 0 : Math.round((doneCells / totalCells) * 100)
 
-  // Only the stages this job's parts actually route through become columns.
-  // A 2-OP part shows OP1 · OP2 · 后处理 — never a crossed-out OP3..OP6.
-  const visibleStages = STAGES.filter((s) =>
-    job.components.some((c) => c.stages[s] !== undefined),
-  )
-
-  // Header identity facts — 数量 straight off the parts; 图纸号 lives in the
-  // new drawing_no column (0083), which the snapshot layer predates, so one
-  // narrow read here.
-  const headerQtyTotal = job.components.reduce((s, c) => s + (c.qty || 0), 0)
-  let headerDrawingNo: string | undefined
-  let headerPartRowId: string | undefined
-  {
-    const { data } = await supabase
-      .from('parts')
-      .select('id, drawing_no')
-      .eq('job_id', job.id)
-      .limit(5)
-    headerDrawingNo =
-      (data?.find((r) => r.drawing_no)?.drawing_no as string | null) ?? undefined
-    headerPartRowId = (data?.[0]?.id as string | null) ?? undefined
-  }
-
   // 排产 — the plannable 工段 this job actually routes through, each with its
   // job-level rollup (for slip-tinting). Drives the pinned 排产 plan row at the
   // top of the 零件进度 table (a plan date is a property of its stage column, so
@@ -279,24 +252,26 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   const openOutsourceCount = blockRows.filter(
     (r) => !isBlockClosed(r.block),
   ).length
-  void openOutsourceCount
-  // Yingma job page = 零件 (progress) + 报工 (who did how many, the full
-  // timeline). The parent's 外协/财务 tabs are deliberately not offered —
-  // their sections below stay hidden.
   const jobTabs = [
     { key: 'parts', label: '零件' },
-    {
-      key: 'baogong',
-      label: '报工',
-      badge: reportEvents.length > 0 ? String(reportEvents.length) : undefined,
-    },
+    ...(canManageOutsource(user)
+      ? [
+          {
+            key: 'waixie',
+            label: '外协',
+            badge: openOutsourceCount > 0 ? String(openOutsourceCount) : undefined,
+            alarm: openOutsourceCount > 0,
+          },
+        ]
+      : []),
+    ...(showMoney ? [{ key: 'caiwu', label: '财务' }] : []),
   ]
 
   return (
     <div className="flex-1 flex flex-col">
       <TopBar
-        title={job.product}
-        subtitle="零件详情"
+        title={`${job.jobNo} · ${job.product}`}
+        subtitle="工单明细"
         currentTab={currentTab}
         role={user.role}
         defaultStage={user.defaultStage}
@@ -306,38 +281,280 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
 
       <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">
         <ComponentAnchorScroller />
-        <div className="mb-6">
+        {/* 图纸变更报警 — headlines the page while any part has an open change.
+            The floor opens this page at every station; the alarm has to be the
+            first thing read. Derived from the parts, raised/cleared per-part. */}
+        <DrawingChangeBanner
+          parts={partsWithDrawingChange.map((c) => ({ id: c.id, name: c.name }))}
+          note={
+            job.drawingChangeOpen
+              ? job.drawingChangeNote?.trim() || undefined
+              : undefined
+          }
+        />
+        <div className="mb-6 flex items-center justify-between gap-3">
           <BackButton fallback={backFallback} />
-        </div>
-
-        {/* Component identity header — the six facts on the stamped paper,
-            nothing else. No invented work ids, no commerce metadata; the
-            customer's own 货号/图纸号 is the reference everyone speaks.
-            Every fact is editable in place — the card is AI-extracted from
-            photos and a scribbled stamp can misread (数量 32 → 2). */}
-        <div className="mb-8 border-b border-[var(--color-border)] pb-6">
-          {job.components[0] ? (
-            <HeaderEdit
+          <div className="flex items-center gap-3 flex-wrap justify-end">
+            {job.activeReturn ? (
+              <ActiveReturnBadge
+                ret={job.activeReturn}
+                canEdit={canEditPartRoute(user)}
+              />
+            ) : (
+              jobIsShipped(job) &&
+              canEditPartRoute(user) && (
+                <OpenReturnButton
+                  jobId={job.id}
+                  jobNo={job.jobNo}
+                  components={job.components}
+                />
+              )
+            )}
+            <ShippingComposerButton
               jobId={job.id}
-              componentId={job.components[0].id}
-              partId={headerPartRowId}
-              initial={{
-                name: job.product,
-                customer: job.customer,
-                partNo: job.components[0].partNo ?? '',
-                drawingNo: headerDrawingNo ?? '',
-                qty: headerQtyTotal,
-                dueDate: job.dueDate ?? '',
-                material: job.components[0].material ?? '',
-              }}
-              dueState={ds}
-              dueDays={days}
-              progress={{ percent: pct, done: doneCells, total: totalCells }}
+              components={job.components}
+              shipments={job.shipments}
             />
-          ) : null}
+            <ShipmentHistoryButton
+              jobId={job.id}
+              components={job.components}
+              shipments={job.shipments}
+            />
+          </div>
+        </div>
+        <div className="mb-8 grid grid-cols-2 md:grid-cols-12 gap-4 md:gap-8 border-b border-[var(--color-border)] pb-8">
+          <div className="col-span-1 md:col-span-2">
+            <p className="label mb-1">{showCustomer ? '客户' : '产品'}</p>
+            {!showCustomer ? (
+              canEditFields ? (
+                // 工程 head edits the product name (the only customer-side
+                // identifier they get) inline like commerce.
+                <JobText
+                  jobId={job.id}
+                  field="product"
+                  value={job.product}
+                  multiline
+                  className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]"
+                  placeholder="产品"
+                />
+              ) : (
+                <p className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]">
+                  {job.product}
+                </p>
+              )
+            ) : isProduction ? (
+              // 出货 station: read-only customer + product. They see the same
+              // header as commerce, but can't edit (commerce owns the master
+              // record).
+              <>
+                <p className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]">
+                  {job.customer}
+                </p>
+                <p className="mt-1 text-[14px] text-[var(--color-ink-2)]">
+                  {job.product}
+                </p>
+              </>
+            ) : (
+              <>
+                <JobText
+                  jobId={job.id}
+                  field="customer"
+                  value={job.customer}
+                  multiline
+                  className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]"
+                  placeholder="客户"
+                />
+                {/* The two people who own this order. No labels — the field
+                    name lives in the placeholder, so an empty field reads
+                    "客户工程师" / "越侬商务" and your text types straight over it.
+                    job.engineer = the customer's rep (AI-extracted on import);
+                    job.yuenongBusiness = OUR salesperson (human-filled). */}
+                <div className="mt-2 flex items-baseline gap-x-6">
+                  <JobShippingText
+                    jobId={job.id}
+                    field="engineer"
+                    value={job.engineer}
+                    className="text-[14px] text-[var(--color-ink-2)]"
+                    placeholder="客户工程师"
+                  />
+                  <JobShippingText
+                    jobId={job.id}
+                    field="yuenongBusiness"
+                    value={job.yuenongBusiness}
+                    className="text-[14px] text-[var(--color-ink-2)]"
+                    placeholder={BRAND.commerceLabel}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+          <div className="col-span-1 md:col-span-2">
+            <p className="label mb-2">工号</p>
+            <div className="flex items-center gap-2">
+              {canEditFields ? (
+                <JobText
+                  jobId={job.id}
+                  field="jobNo"
+                  value={job.jobNo}
+                  mono
+                  className="text-[15px] text-[var(--color-ink)]"
+                  placeholder="工号"
+                />
+              ) : (
+                <p className="mono text-[15px] text-[var(--color-ink)]">
+                  {job.jobNo}
+                </p>
+              )}
+              <JobTypeEditor
+                jobId={job.id}
+                jobNo={job.jobNo}
+                initialType={job.jobType}
+                initialIsProduct={job.isProduct}
+                initialPaused={Boolean(job.pausedAt)}
+                initialPauseReason={job.pauseReason}
+                canEdit={canManageOutsource(user)}
+              />
+            </div>
+          </div>
+          {/* 金额 / 外发 / 毛利 moved into the 财务 tab below — keeps the header
+              to identity + schedule, and gives 财务 its own editable home. */}
+          <div className="col-span-1 md:col-span-2">
+            <p className="label mb-2">交期</p>
+            <div className="flex flex-col gap-0.5">
+              {canEditFields ? (
+                <JobDueDate
+                  jobId={job.id}
+                  value={job.dueDate}
+                  className="text-[15px] text-[var(--color-ink)]"
+                />
+              ) : (
+                <p className="mono text-[15px] text-[var(--color-ink)]">
+                  {job.dueDate}
+                </p>
+              )}
+              <DueDelta state={ds} days={days} />
+            </div>
+            {/* 二次交期 — optional second ship date, blank on most jobs. Lives
+                in the 交期 column so it reads as a continuation of the same
+                fact, never competing with the primary date's urgency delta. */}
+            <p className="label mb-1 mt-3">二次交期</p>
+            {canEditFields ? (
+              <JobSecondaryDueDate
+                jobId={job.id}
+                value={job.secondaryDueDate}
+                className="text-[15px] text-[var(--color-ink)]"
+              />
+            ) : (
+              <p className="mono text-[15px] text-[var(--color-ink)]">
+                {job.secondaryDueDate ?? '—'}
+              </p>
+            )}
+          </div>
+          <div className="col-span-2 md:col-span-6">
+            <p className="label mb-2">总进度</p>
+            <div className="flex items-baseline gap-2">
+              <span className="mono text-[15px] text-[var(--color-ink)]">{pct}%</span>
+              <span className="label">
+                {doneCells}/{totalCells}
+              </span>
+            </div>
+            <div className="mt-2 h-[2px] w-full bg-[var(--color-border)]">
+              <div
+                className="h-full bg-[var(--color-ink)]"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
         </div>
 
-        <JobSourceImages groups={sourceImageGroups} />
+        {/* Metadata row — left cell is 工程师 (出货) or 产品 (commerce), right
+            cell is 合同号. 工程师 is AI-extracted on import when present in the
+            source file; 合同号 is always blank on import and commerce fills it in
+            once the customer assigns one. Hidden from pure production users since
+            all of these are customer-facing (gated through scrubJob → customerOk). */}
+        {showCustomer && (
+          <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              {/* 出货 (production w/ customer view) keeps 工程师 here — they read
+                  the same header as commerce (客户 + 产品) so engineer belongs in
+                  this metadata row for them. Commerce/boss moved 工程师 up under
+                  the customer name, so they edit 产品 here instead. */}
+              {isProduction ? (
+                // 出货 reads the same two contacts as commerce, read-only.
+                <div className="flex gap-x-10">
+                  <div>
+                    <p className="label mb-2 whitespace-nowrap">客户工程师</p>
+                    <p className="text-[13px] text-[var(--color-ink)]">
+                      {job.engineer ?? '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="label mb-2 whitespace-nowrap">{BRAND.commerceLabel}</p>
+                    <p className="text-[13px] text-[var(--color-ink)]">
+                      {job.yuenongBusiness ?? '—'}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="label mb-2">产品</p>
+                  {canEditFields ? (
+                    <JobText
+                      jobId={job.id}
+                      field="product"
+                      value={job.product}
+                      multiline
+                      className="text-[13px] text-[var(--color-ink)]"
+                      placeholder="产品"
+                    />
+                  ) : (
+                    <p className="text-[13px] text-[var(--color-ink)]">
+                      {job.product}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+            {/* 合同号 — commerce now edits it in the 财务 tab, grouped with
+                上传合同 (a contract is a number AND a document). 出货 reads it
+                here read-only: they print it on the 出货单 and have no 财务 tab. */}
+            {isProduction ? (
+              <div>
+                <p className="label mb-2">合同号</p>
+                <p className="mono text-[13px] text-[var(--color-ink)]">
+                  {job.contractNo ?? '—'}
+                </p>
+              </div>
+            ) : (
+              // 源文件 (file in) + 生产单 (file out) — sits here so the documents
+              // zone aligns on the same row as 产品 rather than dropping a row
+              // down next to 工单备注.
+              <div className="space-y-2">
+                <SourceFileRow
+                  jobId={job.id}
+                  fileName={job.sourceFile}
+                  url={job.sourceFileUrl}
+                />
+                <ProductionOrderRow jobId={job.id} jobNo={job.jobNo} />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 工单备注 is the one field everyone owns — production heads add 催单 /
+            shop-floor context, commerce reads + writes too. The 源文件 / 生产单
+            documents zone moved up next to 产品 so it aligns on that row. */}
+        <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <p className="label mb-2">工单备注</p>
+            <JobNotes
+              jobId={job.id}
+              value={job.notes}
+              placeholder="添加备注…"
+              className="text-[13px] text-[var(--color-ink)]"
+            />
+          </div>
+        </div>
 
         {/* 工单明细 tabs — 零件 / 外协 / 财务. Each big section below is wrapped
             in a data-jobtab div that <JobTabs> shows/hides, so nobody scrolls
@@ -375,22 +592,26 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           <table className="sheet w-full text-left text-[13px]">
             <colgroup>
               <col style={{ width: 56 }} />
+              <col style={{ width: 78 }} />
               <col style={{ width: 200 }} />
               <col style={{ width: 120 }} />
+              <col style={{ width: 130 }} />
               <col style={{ width: 130 }} />
               <col style={{ width: 180 }} />
               <col style={{ width: 220 }} />
               {/* 工序 (StageChips) — sits between 表面处理 and the stage grid.
                   Without its own <col> every column to the right inherits the
-                  wrong width and 备注/单价 fall off the end of the
+                  wrong width and 备注/单价/小计 fall off the end of the
                   colgroup. */}
               <col style={{ width: 150 }} />
-              {visibleStages.map((s) => (
+              {STAGES.map((s) => (
                 <col key={s} style={{ width: 90 }} />
               ))}
+              <col style={{ width: 160 }} />
               <col style={{ width: 170 }} />
               {canEditFields && <col style={{ width: 170 }} />}
               {showMoney && <col style={{ width: 110 }} />}
+              {showMoney && <col style={{ width: 100 }} />}
             </colgroup>
             <thead>
               <tr className="text-[var(--color-ink-2)]">
@@ -401,20 +622,27 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   #
                 </th>
                 <th
+                  className="sticky-col px-3 py-3 label whitespace-nowrap"
+                  style={{ left: 56 }}
+                >
+                  图
+                </th>
+                <th
                   data-sticky-edge
                   className="sticky-col sticky-col-edge px-4 py-3 label whitespace-nowrap"
-                  style={{ left: 56 }}
+                  style={{ left: 134 }}
                 >
                   零件
                 </th>
                 <th className="px-4 py-3 label whitespace-nowrap">料号</th>
+                <th className="px-4 py-3 label whitespace-nowrap">加工工艺</th>
                 <th className="px-4 py-3 text-right label whitespace-nowrap">
                   数量
                 </th>
                 <th className="px-4 py-3 label whitespace-nowrap">材料</th>
                 <th className="px-4 py-3 label whitespace-nowrap">表面处理</th>
                 <th className="px-4 py-3 label whitespace-nowrap">工序</th>
-                {visibleStages.map((s) => (
+                {STAGES.map((s) => (
                   <th
                     key={s}
                     data-stage-col={s}
@@ -432,6 +660,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     </span>
                   </th>
                 ))}
+                <th className="px-3 py-3 label whitespace-nowrap">出货记录</th>
                 <th className="px-3 py-3 label whitespace-nowrap">动态</th>
                 {canEditFields && (
                   <th className="px-4 py-3 label whitespace-nowrap">备注</th>
@@ -439,6 +668,11 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 {showMoney && (
                   <th className="px-4 py-3 text-right label whitespace-nowrap">
                     单价
+                  </th>
+                )}
+                {showMoney && (
+                  <th className="px-4 py-3 text-right label whitespace-nowrap">
+                    小计
                   </th>
                 )}
               </tr>
@@ -452,7 +686,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               {planStages.length > 0 && (
                 <tr className="align-middle">
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className="px-4"
                     style={{
                       background: 'var(--color-lane)',
@@ -482,7 +716,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       )}
                     </div>
                   </td>
-                  {visibleStages.map((stage) => {
+                  {STAGES.map((stage) => {
                     const kind = planByStage.get(stage)
                     return (
                       <td
@@ -510,7 +744,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   })}
                   <td
                     colSpan={
-                      2 + (canEditFields ? 1 : 0) + (showMoney ? 1 : 0)
+                      2 + (canEditFields ? 1 : 0) + (showMoney ? 2 : 0)
                     }
                     style={{
                       background: 'var(--color-lane)',
@@ -534,9 +768,18 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                     >
                       {String(i + 1).padStart(2, '0')}
                     </td>
+                    <td className="sticky-col px-3 py-2" style={{ left: 56 }}>
+                      <ComponentImageUploader
+                        jobId={job.id}
+                        componentId={c.id}
+                        imageUrl={c.imageUrl}
+                        size={56}
+                        readOnly={!canEditFields}
+                      />
+                    </td>
                     <td
                       className="sticky-col sticky-col-edge px-3 py-3"
-                      style={{ left: 56 }}
+                      style={{ left: 134 }}
                     >
                       {canEditFields ? (
                         <ComponentText
@@ -597,6 +840,30 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           />
                         </span>
                       )}
+                      {/* 出厂检验报告 — the 质量 step's standard template.
+                          One faint link per part; the report page itself
+                          gates editing. */}
+                      {/* 检验报告 + 图纸变更 share one line — keeps the row from
+                          growing taller. 图纸变更 is per-part (一次/二次/三次);
+                          floor reads it, 商务/工程 head raise + clear. */}
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                        <a
+                          href={withBase(`/jobs/${job.id}/print/inspection/${encodeURIComponent(c.id)}`)}
+                          target="_blank"
+                          rel="noopener"
+                          className="text-[10px] tracking-wider text-[var(--color-ink-4)] hover:text-[var(--color-ink)] transition-colors whitespace-nowrap"
+                        >
+                          检验报告 ↗
+                        </a>
+                        <PartDrawingChange
+                          jobId={job.id}
+                          partId={c.id}
+                          partName={c.name}
+                          imageUrl={c.imageUrl}
+                          changes={c.drawingChanges ?? []}
+                          canEdit={canEditFields}
+                        />
+                      </div>
                     </td>
                     <td className="px-3 py-3">
                       {canEditFields ? (
@@ -611,6 +878,23 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       ) : (
                         <span className="mono text-[12px] text-[var(--color-ink-2)]">
                           {c.partNo ?? ''}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 align-top">
+                      {canEditFields ? (
+                        <ComponentText
+                          jobId={job.id}
+                          componentId={c.id}
+                          field="process"
+                          value={c.process}
+                          placeholder="—"
+                          multiline
+                          className="text-[12px] text-[var(--color-ink-2)] leading-snug"
+                        />
+                      ) : (
+                        <span className="text-[12px] text-[var(--color-ink-2)] leading-snug whitespace-pre-wrap break-words">
+                          {c.process ?? ''}
                         </span>
                       )}
                     </td>
@@ -669,7 +953,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         readOnly={!canEditPartRoute(user)}
                       />
                     </td>
-                    {visibleStages.map((stage) => {
+                    {STAGES.map((stage) => {
                       // 工程 + commerce can flip any stage cell from anywhere
                       // on the job detail page — 工程 routinely fixes routing
                       // mistakes by stepping parts forward/back across stages.
@@ -688,6 +972,14 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         </td>
                       )
                     })}
+                    <ShipmentLogCell
+                      jobId={job.id}
+                      componentId={c.id}
+                      value={c.shipmentLog}
+                      entries={componentShipmentEntries(c.id, job.shipments)}
+                      totalQty={c.qty}
+                      canEdit={canEditFields}
+                    />
                     <ActivityCell component={c} />
                     {canEditFields && (
                       <td className="px-3 py-3 align-top">
@@ -711,6 +1003,16 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         />
                       </td>
                     )}
+                    {showMoney && (
+                      <td className="px-3 py-3">
+                        <ComponentLineTotal
+                          jobId={job.id}
+                          componentId={c.id}
+                          value={c.lineTotalCny}
+                          className="text-[13px] text-[var(--color-ink)]"
+                        />
+                      </td>
+                    )}
                   </tr>
               ))}
             </tbody>
@@ -719,15 +1021,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
         </JobPartFilterProvider>
           </div>
           {/* /零件 tab */}
-
-          <div data-jobtab="baogong" hidden>
-            <BaogongPanel
-              events={reportEvents}
-              partQtyById={Object.fromEntries(job.components.map((c) => [c.id, c.qty]))}
-              partNameById={Object.fromEntries(job.components.map((c) => [c.id, c.name]))}
-              multiPart={job.components.length > 1}
-            />
-          </div>
 
           {canManageOutsource(user) && (
             <div data-jobtab="waixie" hidden>
@@ -790,6 +1083,65 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   )
 }
 
+// Per-part 出货记录 (migration 0069). ONE surface, by design: the system
+// generates the batch log (制作出货单 → Shipment rows, newest first, each line
+// "YYYY-MM-DD HH:mm N/T" — shipped over part total) and that generated text IS
+// the editable field. Click
+// it, type, fix it.
+//   - Untouched (component.shipmentLog == null) the cell shows the LIVE derived
+//     log and stays live as new 出货单 batches land.
+//   - The moment the user edits, their text is stored as the override.
+//   - Clearing the field (empty → null) drops the override and the live log
+//     returns.
+// Floor users (no edit rights) read the same text, read-only. Empty state (no
+// override, no shipments) is a single muted dash so the column keeps its width.
+function ShipmentLogCell({
+  jobId,
+  componentId,
+  value,
+  entries,
+  totalQty,
+  canEdit,
+}: {
+  jobId: string
+  componentId: string
+  value: string | undefined
+  entries: ReturnType<typeof componentShipmentEntries>
+  totalQty: number
+  canEdit: boolean
+}) {
+  const derived = formatShipmentLog([...entries].reverse(), totalQty)
+  // The displayed/editable text: the hand-edited override if present, otherwise
+  // the live system log.
+  const display = value ?? derived
+  if (!canEdit) {
+    return (
+      <td className="px-3 py-3 align-top">
+        {display ? (
+          <pre className="mono text-[11px] leading-snug text-[var(--color-ink-2)] whitespace-pre-wrap font-normal">
+            {display}
+          </pre>
+        ) : (
+          <span className="text-[var(--color-ink-4)] mono text-[11px]">—</span>
+        )}
+      </td>
+    )
+  }
+  return (
+    <td className="px-3 py-3 align-top">
+      <ComponentText
+        jobId={jobId}
+        componentId={componentId}
+        field="shipmentLog"
+        value={display}
+        placeholder="出货记录…"
+        multiline
+        className="mono text-[11px] leading-snug text-[var(--color-ink-2)]"
+      />
+    </td>
+  )
+}
+
 // 动态 — the latest human touch on this part: who clicked, what they did, and
 // when (date + hour, factory-local). Kept flat — one small type size, no bold —
 // so it reads like any other cell in the sheet instead of a name shouting out
@@ -821,6 +1173,26 @@ function ActivityCell({ component }: { component: import('@/lib/data').Component
       </div>
     </td>
   )
+}
+
+function DueDelta({
+  state,
+  days,
+}: {
+  state: import('@/lib/data').DueState
+  days: number
+}) {
+  if (state === 'overdue') {
+    return (
+      <span className="label text-[var(--color-overdue)]">
+        逾期 {Math.abs(days)} 天
+      </span>
+    )
+  }
+  if (state === 'today') {
+    return <span className="label text-[var(--color-warning)]">今日</span>
+  }
+  return <span className="label text-[var(--color-ink-3)]">{days} 天后</span>
 }
 
 // 财务 tab — one order's money, end to end: the position (金额 / 毛利 / 外发 /
@@ -887,7 +1259,7 @@ function JobFinancePanel({
           >
             财务
           </a>
-          ，单价可在「零件」逐件填写。
+          ，单价 / 小计 可在「零件」逐件填写。
         </p>
       </div>
     </div>

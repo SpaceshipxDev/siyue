@@ -1,33 +1,27 @@
 import { Suspense } from 'react'
-import Link from 'next/link'
 import {
   STAGES,
   formatCny,
   type Stage,
 } from '@/lib/data'
-import { componentBoardRows, todaySummary, pendingReportCount } from '@/lib/packets'
-import { ComponentSheet } from './_components_sheet'
 import { today } from '@/lib/today'
 import { APP_TITLE } from '@/lib/brand'
 import {
   getDailyFocusItems,
+  getInboxRows,
   getMasterAggregates,
   getMasterRowsByIds,
   getOrderMoneyLightByJob,
   getStageFlowMinutes,
 } from '@/lib/db'
-import {
-  requireUser,
-  canEditProductionFields,
-  canSeeFactoryPulse,
-  canSeeMoney,
-  canSeeReport,
-} from '@/lib/auth'
+import { requireUser, canSeeFactoryPulse, canSeeMoney, canSeeReport } from '@/lib/auth'
 import { logBoardView } from '@/lib/access-log'
 import { scrubMasterRow } from '@/lib/dto'
 import { getStationWip, getWorkerSelfStats } from '@/lib/pulse'
 import { Pause, Pill, TopBar, type TabKey } from './_ui'
 import { MyToday } from './_my_today'
+import { MasterUploader } from './_uploader'
+import { InboxList } from './_inbox_list'
 import { MasterSheetLoader, StationWorkbenchLoader } from './_master_loaders'
 import { DailyFocusStrip, type FocusStripRow } from './_focus_strip'
 import { StationSummary } from './_station_summary'
@@ -84,7 +78,7 @@ export default async function MasterBoard(
   // job-detail page (/jobs/[id]) which still loads a single-job snapshot.
   const useMasterSheet = !stageFilter || stageFilter === '工程'
 
-  const [stageFlowMinutes, selfStats, focusItems, aggregates, moneyLite] =
+  const [stageFlowMinutes, selfStats, focusItems, aggregates, inboxRawRows, moneyLite] =
     await Promise.all([
       getStageFlowMinutes(),
       // The worker's own today/this-week numbers — fetched alongside the board so
@@ -93,6 +87,7 @@ export default async function MasterBoard(
       // 今日重点 — the boss's daily must-do list, mirrored onto every view.
       getDailyFocusItems(today()),
       getMasterAggregates(),
+      isProduction && !isEngineering ? Promise.resolve([]) : getInboxRows(),
       // 应收 headline — commerce only (the floor + 工程 head see no money).
       user.role === 'commerce'
         ? getOrderMoneyLightByJob()
@@ -140,6 +135,15 @@ export default async function MasterBoard(
   const [, fm, fd] = today().split('-')
   const focusDayLabel = `${parseInt(fm, 10)}月${parseInt(fd, 10)}日`
 
+  // 工程 head runs imports too, so they get the same draft/parsing inbox
+  // commerce sees. Pure-floor production users (焊接, 喷塑, etc.) still
+  // get an empty inbox — they don't own the import flow.
+  const inbox =
+    isProduction && !isEngineering
+      ? []
+      : isProduction
+        ? inboxRawRows.map((r) => scrubMasterRow(r, user))
+        : inboxRawRows
   const overdue = aggregates.overdue
   const dueToday = aggregates.dueToday
   const inProgressCount = aggregates.inProgress
@@ -222,15 +226,6 @@ export default async function MasterBoard(
   const stationWipRows = showBossStationExtras ? await getStationWip() : undefined
   const wipForStation = stationWipRows?.find((r) => r.stage === summaryStage)?.wipCny
 
-  // The component board — the product's home view. One row per live 零件
-  // (photo-ingested packets AND xlsx-imported orders), stages read
-  // 编程 → OPs → optional 铣床 → required 检验 → 出货. Station drill-downs (?stage=) keep the
-  // original workbench below.
-  const isComponentBoard = !stageFilter
-  const [boardRows, reportToday, pendingCount] = isComponentBoard
-    ? await Promise.all([componentBoardRows(), todaySummary(), pendingReportCount()])
-    : [[], undefined, 0]
-
   return (
     <div className="flex-1 flex flex-col">
       <TopBar
@@ -252,11 +247,21 @@ export default async function MasterBoard(
               <Pill tone="neutral" label="暂停/取消" value={pausedCount} />
             </div>
           ) : isProduction ? null : (
-            // Yingma: flow signals only — no money pills on the board.
             <div className="flex items-center gap-2">
               <Pill tone="overdue" label="逾期" value={overdue} />
               <Pill tone="warning" label="今日" value={dueToday} />
               <Pill tone="neutral" label="在产" value={inProgressCount} />
+              <Pill tone="neutral" label="暂停/取消" value={pausedCount} />
+              <Pill tone="info" label="总额" value={formatCny(totalAmount)} />
+              <Pill tone="info" label="外发" value={formatCny(totalExternal)} />
+              <Pill tone="success" label="毛利" value={formatCny(totalMargin)} />
+              {/* 应收 — cash still owed across the order book. Overdue tone the
+                  moment any order is past term, so the boss sees red up top. */}
+              <Pill
+                tone={arOverdueCount > 0 ? 'overdue' : 'info'}
+                label={arOverdueCount > 0 ? `应收 · 逾期${arOverdueCount}` : '应收'}
+                value={formatCny(arOutstanding)}
+              />
             </div>
           )
         }
@@ -278,73 +283,36 @@ export default async function MasterBoard(
 
 
         {showOverviewChrome && (
-          <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+          <div className="mb-6 flex items-baseline justify-between">
             <div>
               <p className="label mb-1">
-                {isEngineeringOverview ? '工程视图' : '生产总览'}
+                {isEngineeringOverview ? '工程视图' : '商务视图'}
               </p>
               <h2 className="text-[28px] font-semibold tracking-tight text-[var(--color-ink)]">
-                全部零件
+                全部工单
               </h2>
               <p className="mt-1 text-[13px] text-[var(--color-ink-2)]">
-                编程拍照录入 · 工人拍照报工 · 点零件名进入详情
+                点击工段格子直接报工 (▶ 开始 · ⏸ 完成 · ✓ 撤销) · 点击工号进入工单
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              {pendingCount > 0 ? (
-                // The no-match valve's outbox: worker photos that matched
-                // nothing, waiting for the PMC to attach from her desk.
-                <Link
-                  href="/review"
-                  className="h-10 px-4 inline-flex items-center gap-1.5 text-[13px] font-semibold border border-[var(--color-warning)] text-[var(--color-warning)] rounded-[3px] bg-[color-mix(in_srgb,var(--color-warning)_8%,transparent)]"
-                >
-                  待归档
-                  <span className="font-mono">{pendingCount}</span>
-                </Link>
-              ) : null}
-              <Link
-                href="/ingest"
-                className="h-10 px-4 inline-flex items-center text-[13px] font-semibold bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[3px]"
-              >
-                📷 拍照录入
-              </Link>
-              <Link
-                href="/p"
-                className="h-10 px-4 inline-flex items-center text-[13px] font-medium border border-[var(--color-border-strong)] rounded-[3px] bg-[var(--color-surface)]"
-              >
-                拍照报工
-              </Link>
-            </div>
+            <p className="label">{aggregates.totalJobs} 个工单</p>
           </div>
         )}
 
-        {isComponentBoard && reportToday && reportToday.reports > 0 ? (
-          <section className="mb-4 bg-[var(--color-surface)] border border-[var(--color-border-strong)] rounded-[3px] px-4 py-3 flex flex-wrap items-baseline gap-x-5 gap-y-1">
-            <span className="text-[11px] tracking-[0.15em] text-[var(--color-ink-3)]">
-              今日报工
-            </span>
-            <span className="text-[15px] font-semibold font-mono">
-              {reportToday.pieces} 件
-              <span className="text-[12px] font-normal text-[var(--color-ink-2)] ml-1">
-                · {reportToday.reports} 次
-              </span>
-            </span>
-            <span className="flex flex-wrap gap-x-4 gap-y-1">
-              {reportToday.workers.slice(0, 8).map((w) => (
-                <span key={w.actor} className="text-[12px] text-[var(--color-ink-2)]">
-                  {w.actor}{' '}
-                  <span className="font-mono font-semibold text-[var(--color-ink)]">
-                    {w.pieces}
-                  </span>
-                </span>
-              ))}
-            </span>
-          </section>
-        ) : null}
+        {showOverviewChrome && <MasterUploader />}
 
-        {/* No xlsx/manual order entry at Yingma — the programmer's photo
-            ingestion (/ingest) IS the input. MasterUploader/InboxList stay
-            out of the tree deliberately. */}
+        {showOverviewChrome && inbox.length > 0 ? (
+          <InboxList
+            inbox={inbox.map((d) => ({
+              id: d.id,
+              jobNo: d.jobNo,
+              customer: d.customer,
+              product: d.product,
+              status: d.status as 'parsing' | 'draft' | 'failed',
+              componentCount: d.componentCount,
+            }))}
+          />
+        ) : null}
 
         {summaryStage && (
           <StationSummary
@@ -356,13 +324,7 @@ export default async function MasterBoard(
           />
         )}
 
-        {isComponentBoard ? (
-          <ComponentSheet
-            rows={boardRows}
-            canDeleteJobs={user.role === 'commerce'}
-            canEditRoutes={canEditProductionFields(user)}
-          />
-        ) : useMasterSheet ? (
+        {useMasterSheet ? (
           // Rows are fetched client-side from /api/master/rows (see
           // _master_loaders) rather than serialized into this RSC payload —
           // that 660-row tree was the ~2.4s render bottleneck.
@@ -388,7 +350,7 @@ export default async function MasterBoard(
           </Suspense>
         )}
 
-        {stageFilter === '工程' && <Legend showMoney={false} />}
+        {showOverviewChrome && <Legend showMoney={isOverview} />}
       </main>
 
       <footer className="border-t border-[var(--color-border)] bg-[var(--color-surface)]">

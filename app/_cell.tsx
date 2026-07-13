@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import type { Stage, StageState } from '@/lib/data'
-import { STAGES, stageLabel } from '@/lib/data'
+import { STAGES } from '@/lib/data'
 import { Pause, stageTimeHint } from './_ui'
 import { mutate } from '@/lib/mutate'
 import { RowTimer } from './_row_timer'
@@ -133,7 +133,7 @@ export function StageCellButton({
       return (
         <div
           className={`flex h-full w-full items-center justify-center ${padding}`}
-          aria-label={`${stageLabel(stage)} · 待前序工段完成`}
+          aria-label={`${stage} · 待前序工段完成`}
         >
           <span className="mono text-[13px] text-[var(--color-ink-4)]">—</span>
         </div>
@@ -145,7 +145,7 @@ export function StageCellButton({
         disabled={pending}
         onClick={onStart}
         className={`group flex h-full w-full items-center justify-center ${padding} transition-colors ${error ? 'bg-[var(--color-overdue-soft)]' : 'hover:bg-[#f1eee4]'} focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:opacity-60`}
-        aria-label={`${stageLabel(stage)} · ${error ? '失败 · 重试' : '开始'}`}
+        aria-label={`${stage} · ${error ? '失败 · 重试' : '开始'}`}
       >
         {error ? (
           <span className="mono text-[11px] font-medium text-[var(--color-overdue)]">
@@ -175,7 +175,7 @@ export function StageCellButton({
           className={`flex w-full flex-1 items-center justify-center ${
             supportsPartial ? 'pt-2 pb-1' : padding
           } transition-colors hover:brightness-95 focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:cursor-not-allowed`}
-          aria-label={`${stageLabel(stage)} · ${error ? '失败 · 重试' : `完成全部 ${componentQty}`}`}
+          aria-label={`${stage} · ${error ? '失败 · 重试' : `完成全部 ${componentQty}`}`}
         >
           {error ? (
             <span className="mono text-[11px] font-medium text-[var(--color-overdue)]">
@@ -190,7 +190,7 @@ export function StageCellButton({
             type="button"
             disabled={pending}
             onClick={() => setEditorOpen(true)}
-            aria-label={`${stageLabel(stage)} · 编辑完成数量`}
+            aria-label={`${stage} · 编辑完成数量`}
             title="编辑完成数量"
             className="flex w-full items-center justify-center pb-1.5 mono text-[10px] tracking-wider text-[var(--color-warning)]/80 hover:text-[var(--color-warning)] hover:underline underline-offset-[3px] decoration-dotted focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:cursor-not-allowed"
           >
@@ -241,7 +241,7 @@ export function StageCellButton({
       disabled={pending}
       onClick={onUndo}
       title={attribution ?? '点击撤销 · 退回到进行中'}
-      aria-label={`${stageLabel(stage)} · ${error ? '失败 · 重试' : '撤销完成'}${attribution ? ` · ${attribution}` : ''}`}
+      aria-label={`${stage} · ${error ? '失败 · 重试' : '撤销完成'}${attribution ? ` · ${attribution}` : ''}`}
       className={`flex h-full w-full flex-col items-center justify-center gap-0.5 ${padding} ${optimistic?.status === 'done' ? 'animate-cell-done' : ''} ${error ? 'bg-[var(--color-overdue-soft)]' : 'hover:bg-[#f1eee4]'} focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:opacity-60`}
     >
       {doneInner}
@@ -378,7 +378,7 @@ export function JobStageActionButton({
         disabled={transition || !startable}
         onClick={onStart}
         className={`group flex h-full w-full items-center justify-center px-3 py-3 transition-colors ${error ? errorBg : hover} focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:opacity-60 disabled:cursor-not-allowed`}
-        aria-label={`${stageLabel(stage)} · ${error ? '失败 · 重试' : '开始整单'}`}
+        aria-label={`${stage} · ${error ? '失败 · 重试' : '开始整单'}`}
       >
         <span className="flex flex-col items-center gap-1.5 leading-none">
           {error ? (
@@ -434,7 +434,7 @@ export function JobStageActionButton({
         disabled={transition}
         onClick={onAdvance}
         className={`group flex h-full w-full items-center justify-center px-3 py-3 ${bg} transition-colors ${hover} focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:opacity-60`}
-        aria-label={`${stageLabel(stage)} · ${error ? '失败 · 重试' : advanceLabel}`}
+        aria-label={`${stage} · ${error ? '失败 · 重试' : advanceLabel}`}
       >
         <span className="flex flex-col items-center gap-1.5 leading-none">
           {error ? (
@@ -488,7 +488,7 @@ export function JobStageActionButton({
       disabled={transition}
       onClick={onUndo}
       title={attribution ?? '点击撤销 · 退回到进行中'}
-      aria-label={`${stageLabel(stage)} · ${error ? '失败 · 重试' : '撤销整单完成'}${attribution ? ` · ${attribution}` : ''}`}
+      aria-label={`${stage} · ${error ? '失败 · 重试' : '撤销整单完成'}${attribution ? ` · ${attribution}` : ''}`}
       className={`flex h-full w-full flex-col items-center justify-center gap-0.5 px-3 py-3 ${optimistic === 'done' ? 'animate-cell-done' : ''} ${error ? 'bg-[var(--color-overdue-soft)]' : hover} focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:opacity-60`}
     >
       {doneInner}

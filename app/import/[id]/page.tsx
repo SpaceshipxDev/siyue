@@ -95,9 +95,7 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
         </div>
 
         <div className="mb-6 rounded-[2px] border border-[var(--color-warning)] bg-[var(--color-warning-soft)] px-4 py-3 text-[12px] text-[var(--color-ink)]">
-          {job.sourceFile === '手工新建'
-            ? '手工新建 · 填好客户、零件、图纸号和交期，确认后进入看板，即可打印随工单。'
-            : 'AI 已自动抽取以下内容 · 请逐项核对、补全图片，确认后才会进入看板。'}
+          AI 已自动抽取以下内容 · 请逐项核对、补全图片，确认后才会进入看板。
         </div>
 
         <div className="mb-6">
@@ -223,7 +221,6 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
               <col style={{ width: 56 }} />
               <col style={{ width: 84 }} />
               <col style={{ width: 220 }} />
-              <col style={{ width: 150 }} />
               <col style={{ width: 80 }} />
               <col style={{ width: 160 }} />
               <col style={{ width: 200 }} />
@@ -239,7 +236,6 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
                 <th className="px-3 py-3 text-center label whitespace-nowrap">#</th>
                 <th className="px-3 py-3 label whitespace-nowrap">图</th>
                 <th className="px-4 py-3 label whitespace-nowrap">零件名称</th>
-                <th className="px-4 py-3 label whitespace-nowrap">图纸号</th>
                 <th className="px-4 py-3 text-right label whitespace-nowrap">
                   数量
                 </th>
@@ -269,7 +265,7 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
               {job.components.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={12}
+                    colSpan={11}
                     className="px-4 py-6 text-center text-[12px] text-[var(--color-ink-3)]"
                   >
                     无零件 · 添加一行开始
@@ -324,19 +320,6 @@ function ImportComponentRows({
           value={component.name}
           placeholder="零件名称"
           className="text-[14px] font-medium text-[var(--color-ink)]"
-        />
-      </td>
-      <td className="px-3 py-3">
-        {/* 图纸号 — at Yingma the drawing number IS the part's identity on
-            the floor; it prints big on the 随工单, so it's entered here at
-            creation, not discovered later on the job page. */}
-        <ComponentText
-          jobId={jobId}
-          componentId={component.id}
-          field="partNo"
-          value={component.partNo}
-          placeholder="图纸号"
-          className="mono text-[12px] text-[var(--color-ink-2)]"
         />
       </td>
       <td className="px-3 py-3">

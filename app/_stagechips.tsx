@@ -10,15 +10,14 @@ import {
   type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { TRACKING_STAGES as STAGES, partRoute, stageLabel, type Component, type Stage } from '@/lib/data'
+import { STAGES, partRoute, type Component, type Stage } from '@/lib/data'
 import { mutate } from '@/lib/mutate'
 import type { SetPartRouteResult } from '@/lib/db'
 
-// 检验 is always the final production gate at Yingma, so the row is shown lit
-// and non-interactive. 铣床 remains a normal optional toggle. Outsource-covered
-// stages are also locked (the block owns those stages, the picker can't take
-// them out).
-const ALWAYS_ON: ReadonlySet<Stage> = new Set<Stage>(['检验'])
+// 出货 is always in the route — every part eventually ships, so the row is
+// shown lit and non-interactive. Outsource-covered stages are also locked
+// (the block owns those stages, the picker can't take them out).
+const ALWAYS_ON: ReadonlySet<Stage> = new Set<Stage>(['出货'])
 
 type ConflictDialogState = {
   desired: Stage[]
@@ -198,7 +197,7 @@ export function StageChips({
 function routeTitle(inRoute: Stage[], lockedByOutsource: Set<Stage>): string {
   if (inRoute.length === 0) return '未设工序'
   return inRoute
-    .map((s) => (lockedByOutsource.has(s) ? `${stageLabel(s)}(外协)` : stageLabel(s)))
+    .map((s) => (lockedByOutsource.has(s) ? `${s}(外协)` : s))
     .join(' → ')
 }
 
@@ -223,12 +222,12 @@ function RouteSummary({
       <>
         <span className="text-[var(--color-ink-4)]">跳过 </span>
         <span className="text-[var(--color-ink-2)] line-through decoration-[var(--color-ink-4)]">
-          {skipped.map(stageLabel).join('·')}
+          {skipped.join('·')}
         </span>
       </>
     )
   } else if (inRoute.length <= 4) {
-    main = <span>{inRoute.map(stageLabel).join('·')}</span>
+    main = <span>{inRoute.join('·')}</span>
   } else {
     main = (
       <span className="whitespace-nowrap">
@@ -377,7 +376,7 @@ function RoutePicker({
                       : 'text-[var(--color-ink-3)]'
                 }`}
               >
-                {stageLabel(stage)}
+                {stage}
               </span>
               <span className="label text-[10px] text-[var(--color-ink-4)]">
                 {isAlwaysOn ? '必经' : isOutsource ? '已外协' : ''}

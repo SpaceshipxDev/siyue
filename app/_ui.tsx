@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import type { DueState, Rollup, StageState } from '@/lib/data'
-import { STAGES as ALL_STAGES, TRACKING_STAGES as STAGES, formatCny, stageLabel } from '@/lib/data'
+import { STAGES, formatCny } from '@/lib/data'
 import { today } from '@/lib/today'
 import type { Role } from '@/lib/auth'
 import type { OrderMoneyStatus } from '@/lib/order-money'
@@ -12,7 +12,6 @@ export type TabKey =
   | '笔记'
   | '重点'
   | '现场'
-  | '机器'
   | '交接'
   | '采购'
   | '报工'
@@ -21,7 +20,6 @@ export type TabKey =
   | (typeof STAGES)[number]
   | '外协'
   | '退货'
-  | '录入'
 
 type Tab = { key: TabKey; label: string; href: string }
 
@@ -37,35 +35,65 @@ type Tab = { key: TabKey; label: string; href: string }
 // EVERY role now carries the stage row (scoped floor accounts included):
 // one universal nav, your own station highlighted, the rest of the factory
 // one click away.
-// Yingma nav — the product is the component board plus the two photo loops
-// (拍照录入 for the programmer, 拍照报工 for the floor). The parent's
-// station / finance / outsource / procurement / handover / returns tabs are
-// deliberately gone: that's yuenong workflow, not this factory's. Old deep
-// links still work — only the nav stops advertising them.
 function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): Tab[] {
+  const stageTabs = (except?: string): Tab[] =>
+    STAGES.filter((s) => s !== except).map((s) => ({
+      key: s as TabKey,
+      label: s,
+      href: `/?stage=${encodeURIComponent(s)}`,
+    }))
   if (role === 'production') {
     if (defaultStage === '工程') {
+      // 工程 head's home tab IS bare / (their holistic master view), not
+      // /?stage=工程 — same place but reads as "go home" in the nav.
+      // Stage tabs after let them peek at any other station's queue the
+      // same way commerce can.
       return [
-        { key: '工程', label: '工单', href: '/' },
+        { key: '工程', label: '工程', href: '/' },
+        // 笔记 — same slot as commerce (right before 重点). The boss turned
+        // it into his command channel; the 工程 head gets the same scratchpad.
         { key: '笔记', label: '笔记', href: '/notes' },
         { key: '重点', label: '重点', href: '/daily' },
-        { key: '机器', label: '机器', href: '/machines' },
+        { key: '现场', label: '现场', href: '/pulse' },
+        { key: '交接', label: '交接', href: '/handover' },
+        { key: '采购', label: '采购', href: '/procurement' },
+        // 报工 shown only for explicitly-granted 工程 users (canSeeReport — e.g.
+        // 于海伟); the rest of 工程 don't get it. Gate: requireReportViewer.
         ...(canSeeReport ? [{ key: '报工' as TabKey, label: '报工', href: '/report' }] : []),
-        { key: '录入', label: '拍照录入', href: '/ingest' },
+        { key: '外协', label: '外协', href: '/station/outsource' },
+        ...stageTabs('工程'),
+        { key: '退货', label: '退货', href: '/returns' },
       ]
     }
+    // Pure single-station accounts (编程002, 金属操机001, …) get the same
+    // whole-factory nav as everyone else — 全部 (the master grid) plus every
+    // stage tab, with their own station lighting up as home. This is the
+    // structural answer to "pin everyone to 工程 so they can see everything":
+    // the account stays scoped to the worker's real station (landing = their
+    // own queue, attribution honest), and "everything" — the full board, the
+    // station before them, the station after — is one tab away. 采购 stays:
+    // the boss's rule is everyone on the floor buys things and must be able
+    // to log/see what's on the way, regardless of station.
     return [
-      { key: '工单', label: '工单', href: '/' },
-      { key: '录入', label: '拍照录入', href: '/ingest' },
+      { key: '工单', label: '全部', href: '/' },
+      ...stageTabs(),
+      { key: '采购', label: '采购', href: '/procurement' },
     ]
   }
   return [
-    { key: '商务', label: '工单', href: '/' },
+    { key: '商务', label: '商务', href: '/' },
+    // 笔记 — the boss's private scratchpad, right before 重点. Per-author, so
+    // each 商务 user only ever sees their own notes (it reads as "his").
     { key: '笔记', label: '笔记', href: '/notes' },
     { key: '重点', label: '重点', href: '/daily' },
-    { key: '机器', label: '机器', href: '/machines' },
+    { key: '现场', label: '现场', href: '/pulse' },
+    { key: '交接', label: '交接', href: '/handover' },
+    { key: '采购', label: '采购', href: '/procurement' },
     { key: '报工', label: '报工', href: '/report' },
-    { key: '录入', label: '拍照录入', href: '/ingest' },
+    { key: '财务', label: '财务', href: '/finance' },
+    { key: '外协', label: '外协', href: '/station/outsource' },
+    ...stageTabs(),
+    { key: '退货', label: '退货', href: '/returns' },
   ]
 }
 
@@ -245,13 +273,10 @@ export function Pill({
 }
 
 export function StageHeader({ name }: { name: string }) {
-  const label = (ALL_STAGES as readonly string[]).includes(name)
-    ? stageLabel(name as (typeof ALL_STAGES)[number])
-    : name
   return (
     <div className="flex flex-col items-center justify-center gap-0.5">
       <span className="text-[12px] font-medium tracking-wider text-[var(--color-ink)]">
-        {label}
+        {name}
       </span>
     </div>
   )

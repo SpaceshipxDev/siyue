@@ -15,17 +15,17 @@
 const env = process.env
 
 export const BRAND = {
-  legalName: env.NEXT_PUBLIC_BRAND_LEGAL_NAME || '盈玛精密',
-  shortName: env.NEXT_PUBLIC_BRAND_SHORT_NAME || '盈玛生产',
-  code: env.NEXT_PUBLIC_BRAND_CODE || 'YM',
-  address: env.NEXT_PUBLIC_BRAND_ADDRESS || '',
+  legalName: env.NEXT_PUBLIC_BRAND_LEGAL_NAME || '杭州越侬模型科技有限公司',
+  shortName: env.NEXT_PUBLIC_BRAND_SHORT_NAME || '越侬模型',
+  code: env.NEXT_PUBLIC_BRAND_CODE || 'YNMX',
+  address: env.NEXT_PUBLIC_BRAND_ADDRESS || '杭州市富阳区同登路中交智能物联科技园6栋',
   receivingContact: {
-    name: env.NEXT_PUBLIC_BRAND_CONTACT_NAME || '',
-    phone: env.NEXT_PUBLIC_BRAND_CONTACT_PHONE || '',
+    name: env.NEXT_PUBLIC_BRAND_CONTACT_NAME || '王雪梅',
+    phone: env.NEXT_PUBLIC_BRAND_CONTACT_PHONE || '15551519971',
   },
   // The label for OUR salesperson on an order. The real install says 越侬商务;
   // a demo relabels it to a neutral 商务 so the field never names the factory.
-  commerceLabel: env.NEXT_PUBLIC_BRAND_COMMERCE_LABEL || 'PMC',
+  commerceLabel: env.NEXT_PUBLIC_BRAND_COMMERCE_LABEL || '越侬商务',
   software: '思跃 MES',
   domain: 'siyue.ai',
   softwareCredit: '思跃 MES · siyue.ai',

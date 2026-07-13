@@ -1,8 +1,7 @@
 import { redirect } from 'next/navigation'
-import { headers } from 'next/headers'
+import { STAGES } from '@/lib/data'
 import { getActiveUsers, getAllUsers, getBossUser, isAdminUser } from '@/lib/db'
 import { currentUser, landingPathFor } from '@/lib/auth'
-import { isMobileUserAgent } from '@/lib/mobile'
 import { LoginClient } from './_login_client'
 import { AdminView } from './_admin_view'
 
@@ -12,17 +11,18 @@ export default async function LoginPage(props: PageProps<'/login'>) {
   const sp = await props.searchParams
   const wantsAdmin = sp?.admin === '1'
   const u = await currentUser()
-  const isMobile = isMobileUserAgent((await headers()).get('user-agent'))
 
   // Boss arriving via the 管理员工 flow gets the admin panel inline on /login
   // — same URL, just a different view.
   if (u && wantsAdmin && u.role === 'commerce') {
-    const allUsers = await getAllUsers()
+    const [allUsers, boss] = await Promise.all([getAllUsers(), getBossUser()])
     return (
       <AdminView
         bossName={u.name}
+        bossId={boss.id}
         adminIds={allUsers.filter((x) => isAdminUser(x.id)).map((x) => x.id)}
         users={allUsers}
+        stages={STAGES as readonly string[]}
       />
     )
   }
@@ -37,12 +37,5 @@ export default async function LoginPage(props: PageProps<'/login'>) {
   const others = active.filter((p) => p.id !== boss.id)
   const tiles = [boss, ...others]
   const admins = tiles.filter((u) => isAdminUser(u.id))
-  return (
-    <LoginClient
-      users={tiles}
-      boss={boss}
-      admins={admins}
-      open={process.env.OPEN_LOGIN === '1' && !isMobile}
-    />
-  )
+  return <LoginClient users={tiles} boss={boss} admins={admins} />
 }

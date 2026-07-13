@@ -4,14 +4,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import Link from 'next/link'
 import {
-  TRACKING_STAGES as STAGES,
+  STAGES,
   daysFromToday,
   dueState,
   fmtPlanLabel,
   formatCny,
   jobIntakeDate,
   jobNoSortKey,
-  stageLabel,
   stagePlanState,
   type Stage,
 } from '@/lib/data'
@@ -839,7 +838,7 @@ export function MasterSheet({
                             : undefined
                         }
                       >
-                        {stageLabel(s)}
+                        {s}
                       </span>
                       {treatAsOverview && (
                         <HeaderFilter

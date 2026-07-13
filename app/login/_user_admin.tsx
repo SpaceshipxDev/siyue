@@ -8,24 +8,30 @@ import {
   deleteUserAction,
   resetPinAction,
   setActiveAction,
+  setFinanceAction,
 } from './admin_actions'
 
 export function UserAdmin({
   users,
+  bossId,
   adminIds,
+  stages,
 }: {
   users: AppUser[]
+  bossId: string
   adminIds: string[]
+  stages: readonly string[]
 }) {
   return (
     <div className="space-y-10">
-      <NewUserForm />
-      <UserList users={users} adminIds={adminIds} />
+      <NewUserForm stages={stages} />
+      <UserList users={users} bossId={bossId} adminIds={adminIds} />
     </div>
   )
 }
 
-function NewUserForm() {
+function NewUserForm({ stages }: { stages: readonly string[] }) {
+  const [role, setRole] = useState<'commerce' | 'production'>('production')
   const [error, setError] = useState<string | null>(null)
   const [pending, start] = useTransition()
   const router = useRouter()
@@ -43,6 +49,7 @@ function NewUserForm() {
             if (res.ok) {
               const f = document.querySelector<HTMLFormElement>('#new-user-form')
               f?.reset()
+              setRole('production')
               router.refresh()
             } else {
               setError(res.error)
@@ -62,18 +69,38 @@ function NewUserForm() {
             className="w-full bg-transparent border-b border-[var(--color-border-strong)] px-1 py-1.5 text-[14px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)]"
           />
         </Field>
-        <Field label="角色" className="md:col-span-4">
+        <Field label="角色" className="md:col-span-2">
           <select
-            name="employee_role"
-            defaultValue="machine"
+            name="role"
+            value={role}
+            onChange={(e) =>
+              setRole(e.currentTarget.value as 'commerce' | 'production')
+            }
             className="w-full bg-transparent border-b border-[var(--color-border-strong)] px-1 py-1.5 text-[14px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)]"
           >
-            <option value="management">管理</option>
-            <option value="machine">操机</option>
-            <option value="post_processing">后处理</option>
+            <option value="production">生产</option>
+            <option value="commerce">商务</option>
           </select>
         </Field>
-        <Field label="PIN (4 位)" className="md:col-span-3">
+        <Field
+          label="工段"
+          className={`md:col-span-3 ${role === 'commerce' ? 'opacity-30 pointer-events-none' : ''}`}
+        >
+          <select
+            name="default_stage"
+            disabled={role === 'commerce'}
+            className="w-full bg-transparent border-b border-[var(--color-border-strong)] px-1 py-1.5 text-[14px] text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)]"
+            defaultValue=""
+          >
+            <option value="">— 选择工段 —</option>
+            {stages.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="PIN (4 位)" className="md:col-span-2">
           <input
             type="text"
             name="pin"
@@ -123,9 +150,11 @@ function Field({
 
 function UserList({
   users,
+  bossId,
   adminIds,
 }: {
   users: AppUser[]
+  bossId: string
   adminIds: string[]
 }) {
   return (
@@ -139,12 +168,14 @@ function UserList({
             <col style={{ width: 220 }} />
             <col style={{ width: 100 }} />
             <col style={{ width: 100 }} />
+            <col style={{ width: 100 }} />
             <col style={{ minWidth: 220 }} />
           </colgroup>
           <thead>
             <tr className="text-[var(--color-ink-2)]">
               <th className="px-4 py-3 label">姓名</th>
               <th className="px-4 py-3 label">角色</th>
+              <th className="px-4 py-3 label">工段</th>
               <th className="px-4 py-3 label">状态</th>
               <th className="px-4 py-3 label text-right">操作</th>
             </tr>
@@ -153,7 +184,7 @@ function UserList({
             {users.length === 0 ? (
               <tr>
                 <td
-                  colSpan={4}
+                  colSpan={5}
                   className="px-4 py-8 text-center text-[12px] text-[var(--color-ink-3)]"
                 >
                   暂无员工
@@ -164,6 +195,7 @@ function UserList({
                 <UserRow
                   key={u.id}
                   user={u}
+                  bossId={bossId}
                   locked={adminIds.includes(u.id)}
                 />
               ))
@@ -177,9 +209,11 @@ function UserList({
 
 function UserRow({
   user,
+  bossId,
   locked,
 }: {
   user: AppUser
+  bossId: string
   // 老板-level account (bootstrap 老板 or a promoted owner): protected from
   // deactivation / 财务 revocation / deletion, so those controls are hidden.
   locked: boolean
@@ -190,9 +224,22 @@ function UserRow({
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
 
+  const isBoss = user.id === bossId
+
   const onToggle = () => {
     start(async () => {
       const res = await setActiveAction(user.id, !user.active)
+      if (res.ok) {
+        router.refresh()
+      } else {
+        window.alert(res.error)
+      }
+    })
+  }
+
+  const onToggleFinance = () => {
+    start(async () => {
+      const res = await setFinanceAction(user.id, !user.isFinance)
       if (res.ok) {
         router.refresh()
       } else {
@@ -243,11 +290,15 @@ function UserRow({
         {user.name}
       </td>
       <td className="px-4 py-3 label">
-        {user.employeeRole === 'management'
-          ? '管理'
-          : user.employeeRole === 'post_processing'
-            ? '后处理'
-            : '操机'}
+        {isBoss ? '老板' : user.role === 'commerce' ? '商务' : '生产'}
+        {user.role === 'commerce' && (isBoss || user.isFinance) && (
+          <span className="ml-1.5 text-[10px] tracking-wider text-[var(--color-info)]">
+            财务
+          </span>
+        )}
+      </td>
+      <td className="px-4 py-3 mono text-[12px]">
+        {user.defaultStage ?? '—'}
       </td>
       <td className="px-4 py-3 label">
         {user.active ? (
@@ -304,6 +355,21 @@ function UserRow({
             >
               重置 PIN
             </button>
+            {!locked && user.role === 'commerce' && (
+              <button
+                type="button"
+                onClick={onToggleFinance}
+                disabled={pending}
+                title="财务可见性 — 支出台账与月度现金流（含工资）"
+                className={`label cursor-pointer disabled:opacity-50 ${
+                  user.isFinance
+                    ? 'hover:text-[var(--color-overdue)]'
+                    : 'hover:text-[var(--color-ink)]'
+                }`}
+              >
+                {user.isFinance ? '取消财务' : '设为财务'}
+              </button>
+            )}
             {!locked && (
               <>
                 <button

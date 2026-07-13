@@ -2,50 +2,18 @@ export const STAGES = [
   '工程',
   '编程',
   '操机',
+  '检验',
   '手工',
   '打磨',
   '喷漆',
-  '质量',
   '丝印',
-  '检验',
+  '质量',
   '出货',
 ] as const
 
 export const SCHEMA_VERSION = 8
 
 export type Stage = (typeof STAGES)[number]
-
-// Per-component CNC route: 编程 chooses how many OPs this particular part
-// needs. 铣床 is optional after OP6; 检验 is the mandatory terminal production
-// gate. Stable Yuenong database keys remain underneath; only the factory-facing
-// route vocabulary and order change.
-export const TRACKING_STAGES: Stage[] = [
-  '编程',
-  '操机',
-  '手工',
-  '打磨',
-  '喷漆',
-  '质量',
-  '丝印',
-  '检验',
-]
-
-const YINGMA_STAGE_LABEL: Record<Stage, string> = {
-  工程: '编程设置',
-  编程: 'OP1',
-  操机: 'OP2',
-  手工: 'OP3',
-  打磨: 'OP4',
-  喷漆: 'OP5',
-  质量: 'OP6',
-  丝印: '铣床',
-  检验: '检验',
-  出货: '出货',
-}
-
-export function stageLabel(stage: Stage): string {
-  return YINGMA_STAGE_LABEL[stage]
-}
 
 // 出货 is always an in-house terminal stage: vendors never ship to the
 // customer directly — they ship parts back to us, then we ship to the
@@ -62,11 +30,13 @@ export const OUTSOURCEABLE_STAGES: Stage[] = PRODUCTION_STAGES.filter(
   (s) => s !== '工程',
 )
 
-// 计划交期 / 排产 — the stages a job can carry a PLANNED finish date for.
-// At Yingma this is exactly the visible OP route: planning a date for a
-// stage the board doesn't show would be noise. Order follows the route so a
-// plan strip reads left-to-right the way parts actually flow.
-export const PLANNABLE_STAGES: Stage[] = [...TRACKING_STAGES]
+// 计划交期 / 排产 — the stages a job can carry a PLANNED finish date for. 检验
+// is a verdict gate with no in-house duration and 出货's plan would just be the
+// contract 交期, so neither is plannable. Order follows STAGES so a plan strip
+// reads left-to-right the way parts actually flow.
+export const PLANNABLE_STAGES: Stage[] = PRODUCTION_STAGES.filter(
+  (s) => s !== '检验',
+)
 
 // 外协 carries one job-level planned return date alongside the in-house 工段
 // plans — same stage_plan map, one extra key. Deliberately NOT a Stage: it has
@@ -516,7 +486,7 @@ export function jobComponentsTotal(job: Job): number {
 }
 
 export function partRoute(component: Component): Stage[] {
-  return TRACKING_STAGES.filter((s) => component.stages[s] !== undefined)
+  return STAGES.filter((s) => component.stages[s] !== undefined)
 }
 
 // How many of this component's qty have been finished at this stage,

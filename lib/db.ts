@@ -2,7 +2,6 @@ import {
   BLOCKING_VERDICTS,
   JOBS as SEED,
   STAGES,
-  TRACKING_STAGES,
   VENDORS as VENDOR_SEED,
   blockClosedAt,
   blockLineTotalsSum,
@@ -40,7 +39,6 @@ import type {
   Verdict,
 } from './data'
 import { supabase } from './supabase'
-import { removeJobStorage } from './job-storage'
 import { docNoDayPrefix, formatDocNo } from './brand'
 import { rowRollupStage, type MasterAggregates, type MasterCell, type MasterRow } from './master'
 import type { FinanceRow } from './finance'
@@ -5382,38 +5380,10 @@ export async function confirmJob(jobId: string): Promise<void> {
 }
 
 export async function deleteJob(jobId: string): Promise<void> {
-  // Capture packet object keys before the FK cascade removes packet_pages.
-  // Storage cleanup happens only after the DB commit; a cleanup failure can
-  // leave harmless orphaned bytes, but can never leave a live job with broken
-  // images because its files were removed before a failed SQL delete.
-  const { data: partRows, error: partError } = await supabase
-    .from('parts')
-    .select('id')
-    .eq('job_id', jobId)
-  if (partError) throw partError
-  const partIds = (partRows ?? []).map((row) => row.id as string)
-  let packetPageKeys: string[] = []
-  if (partIds.length > 0) {
-    const { data: pageRows, error: pageError } = await supabase
-      .from('packet_pages')
-      .select('storage_key')
-      .in('part_id', partIds)
-    if (pageError) throw pageError
-    packetPageKeys = (pageRows ?? []).map((row) => row.storage_key as string)
-  }
-
   await withWriteLock(async () => {
     const { error } = await supabase.from('jobs').delete().eq('id', jobId)
     if (error) throw error
   })
-
-  try {
-    await removeJobStorage(jobId, packetPageKeys)
-  } catch (error) {
-    // The database is the source of truth and has already committed. Surface
-    // cleanup trouble to logs without making the client think deletion failed.
-    console.error('[deleteJob] storage cleanup failed', jobId, error)
-  }
 }
 
 // Row-level boss pin for the master grid. Independent of setJobStagePin.
@@ -5577,12 +5547,11 @@ export async function resetDb(): Promise<void> {
   })
 }
 
-// Default route for a fresh part — every visible OP plus optional 铣床 is
-// seeded as pending, and 商务/工程 toggle off the ones a given part skips.
-// 出货 rides along invisibly: it never shows as a tick column at Yingma, but
-// the shipping flow (prepareShipping / vendor-line close-out) finishes that
-// row, so every part must carry it — same invariant resolvePartStages forces.
-export const DEFAULT_NEW_PART_STAGES: Stage[] = [...TRACKING_STAGES, '出货']
+// Default route for a fresh part — every stage is seeded as pending, and
+// 商务/工程 toggle off the ones a given part skips via the chip widget.
+// Keeps every dot clickable from row one rather than relying on AI to
+// guess which stages apply.
+export const DEFAULT_NEW_PART_STAGES: Stage[] = [...STAGES]
 
 // Sanitize an incoming stage list: dedupe, force 出货 in (every part ships),
 // and return them in canonical STAGES order so writes are deterministic. An
@@ -5597,10 +5566,6 @@ function resolvePartStages(input: Stage[] | undefined): Stage[] {
   if (set.size === 0) {
     for (const s of DEFAULT_NEW_PART_STAGES) set.add(s)
   }
-  // 检验 is the mandatory final production gate, mirrored by ALWAYS_ON in
-  // the route picker so a handcrafted mutation cannot remove it. 丝印 renders
-  // as optional 铣床 and is deliberately not injected here.
-  set.add('检验')
   set.add('出货')
   return STAGES.filter((s) => set.has(s))
 }
@@ -7053,13 +7018,11 @@ export async function ensureOutsourceDocNo(blockId: string): Promise<string> {
 // === Users ===
 
 export type Role = 'commerce' | 'production'
-export type EmployeeRole = 'management' | 'machine' | 'post_processing'
 
 export type AppUser = {
   id: string
   name: string
   role: Role
-  employeeRole: EmployeeRole
   defaultStage?: Stage
   active: boolean
   // 财务可见性 — gates the 支出/月度 tabs (payroll amounts are sensitive).
@@ -7073,22 +7036,11 @@ export type AppUser = {
 type UserRow = AppUser & { pinHash: string }
 
 function fromUser(r: AnyRow): UserRow {
-  const employeeRole: EmployeeRole =
-    r.employee_role === 'management' ||
-    r.employee_role === 'machine' ||
-    r.employee_role === 'post_processing'
-      ? (r.employee_role as EmployeeRole)
-      : r.role === 'commerce'
-        ? 'management'
-        : r.default_stage === '丝印' || r.default_stage === '后处理'
-          ? 'post_processing'
-          : 'machine'
   return {
     id: r.id as string,
     name: r.name as string,
     pinHash: r.pin_hash as string,
     role: r.role as Role,
-    employeeRole,
     defaultStage: (r.default_stage as Stage | null) ?? undefined,
     active: r.active as boolean,
     isFinance: (r.is_finance as boolean | null) ?? false,
@@ -7102,7 +7054,6 @@ function toUserRow(r: UserRow): AnyRow {
     name: r.name,
     pin_hash: r.pinHash,
     role: r.role,
-    employee_role: r.employeeRole,
     default_stage: r.defaultStage ?? null,
     active: r.active,
   }
@@ -7167,7 +7118,6 @@ export async function ensureBootstrapUser(): Promise<void> {
       name: BOSS_NAME,
       pinHash,
       role: 'commerce',
-      employeeRole: 'management',
       active: true,
       isFinance: true,
       createdAt: new Date().toISOString(),
@@ -7223,7 +7173,6 @@ function stripPinHash(row: UserRow): AppUser {
     id: row.id,
     name: row.name,
     role: row.role,
-    employeeRole: row.employeeRole,
     defaultStage: row.defaultStage,
     active: row.active,
     isFinance: row.isFinance,
@@ -7262,7 +7211,7 @@ export type NewUserInput = {
   name: string
   pin: string
   role: Role
-  employeeRole: EmployeeRole
+  defaultStage?: Stage
 }
 
 export async function createUser(input: NewUserInput): Promise<AppUser> {
@@ -7270,8 +7219,11 @@ export async function createUser(input: NewUserInput): Promise<AppUser> {
     const name = input.name.trim()
     if (!name) throw new Error('用户姓名不能为空')
     if (!/^\d{4}$/.test(input.pin)) throw new Error('PIN 必须为 4 位数字')
-    if ((input.employeeRole === 'management') !== (input.role === 'commerce')) {
-      throw new Error('员工角色无效')
+    if (input.role === 'production' && !input.defaultStage) {
+      throw new Error('生产用户必须指定工段')
+    }
+    if (input.role === 'commerce' && input.defaultStage) {
+      throw new Error('商务用户不能绑定工段')
     }
     const bcrypt = await import('bcryptjs')
     const pinHash = await bcrypt.hash(input.pin, 10)
@@ -7280,8 +7232,7 @@ export async function createUser(input: NewUserInput): Promise<AppUser> {
       name,
       pinHash,
       role: input.role,
-      employeeRole: input.employeeRole,
-      defaultStage: undefined,
+      defaultStage: input.defaultStage,
       active: true,
       isFinance: false,
       createdAt: new Date().toISOString(),
@@ -8817,179 +8768,4 @@ export async function upsertInspectionReport(
     })
     if (insErr) throw insErr
   })
-}
-
-
-// === 随工单扫码 (traveller QR, /s/<token>) ===
-//
-// One stable unguessable token per PART. The printed 随工单 travels with the
-// physical parts; its QR is the worker's credential for exactly one narrow
-// surface: this part, its current OP, a quantity. Minted lazily the first
-// time a traveller is printed — same pattern as vendors.portal_token.
-
-// Race-safe lazy mint. On a pre-migration DB (column missing) this returns
-// undefined and the traveller simply prints without a QR — no crash.
-// Takes (jobId, componentId) because the parts PK has two historical shapes
-// (`${jobId}:${componentId}` for modern rows, bare componentId for legacy) —
-// same resolution as findPartIdInSnap, done here with one indexed select.
-export async function ensurePartQrToken(
-  jobId: string,
-  componentId: string,
-): Promise<string | undefined> {
-  try {
-    const sel0 = await supabase
-      .from('parts')
-      .select('id, job_id, qr_token')
-      .in('id', [`${jobId}:${componentId}`, componentId])
-    if (sel0.error) throw sel0.error
-    const row = (sel0.data ?? []).find((r) => r.job_id === jobId)
-    if (!row) return undefined
-    const partId = row.id as string
-    const existing = (row.qr_token as string | null) ?? undefined
-    if (existing) return existing
-    const token = crypto.randomUUID().replace(/-/g, '')
-    const upd = await supabase
-      .from('parts')
-      .update({ qr_token: token })
-      .eq('id', partId)
-      .is('qr_token', null)
-    if (upd.error) throw upd.error
-    const sel = await supabase
-      .from('parts')
-      .select('qr_token')
-      .eq('id', partId)
-      .limit(1)
-    if (sel.error) throw sel.error
-    return (sel.data?.[0]?.qr_token as string | null) ?? undefined
-  } catch {
-    return undefined
-  }
-}
-
-// What the phone sees after a scan. Deliberately narrow: the part, its route
-// with per-stage progress, and the current OP — no prices, no notes, no
-// other parts. The customer name and 交期 ARE shown (workers already read
-// them off the paper traveller the QR is printed on).
-export type PartScanView = {
-  jobId: string
-  componentId: string
-  customer: string
-  product: string
-  partName: string
-  partNo?: string
-  qty: number
-  material?: string
-  dueDate: string
-  stages: Array<{
-    stage: Stage
-    status: StageStatus
-    doneQty: number
-    by?: string
-    completedAt?: string
-  }>
-  // First not-done stage in route order; undefined when the whole route is
-  // finished (the scan page shows 全部完成 instead of a report form).
-  currentStage?: Stage
-}
-
-export async function getPartScanView(
-  token: string,
-): Promise<PartScanView | undefined> {
-  const t = token.trim()
-  // Tokens are 32-hex UUIDs; refuse junk before it costs a DB roundtrip.
-  if (!/^[0-9a-f]{32}$/i.test(t)) return undefined
-  const partSel = await supabase
-    .from('parts')
-    .select('*')
-    .eq('qr_token', t)
-    .limit(1)
-  if (partSel.error) throw partSel.error
-  const partRow = partSel.data?.[0]
-  if (!partRow) return undefined
-  const part = fromPart(partRow)
-  const [jobSel, stageSel] = await Promise.all([
-    supabase.from('jobs').select('*').eq('id', part.jobId).limit(1),
-    supabase.from('part_stages').select('*').eq('part_id', part.id),
-  ])
-  if (jobSel.error) throw jobSel.error
-  if (stageSel.error) throw stageSel.error
-  const jobRow = jobSel.data?.[0]
-  if (!jobRow) return undefined
-  const byStage = new Map<Stage, PartStageRow>()
-  for (const r of stageSel.data ?? []) {
-    const row = fromPartStage(r)
-    byStage.set(row.stage, row)
-  }
-  // Only the visible production route — 出货 is a shipping act on the master
-  // board, never a shop-floor scan target.
-  const stages = TRACKING_STAGES.filter((s) => byStage.has(s)).map((s) => {
-    const row = byStage.get(s)!
-    return {
-      stage: s,
-      status: row.status,
-      doneQty:
-        row.status === 'done'
-          ? part.qty
-          : Math.min(part.qty, Math.max(0, row.doneQty ?? 0)),
-      by: row.by ?? row.startedBy,
-      completedAt: row.completedAt,
-    }
-  })
-  const currentStage = stages.find((s) => s.status !== 'done')?.stage
-  return {
-    jobId: part.jobId,
-    componentId: part.id,
-    customer: (jobRow.customer as string | null) ?? '',
-    product: (jobRow.product as string | null) ?? '',
-    partName: part.name,
-    partNo: part.partNo,
-    qty: part.qty,
-    material: part.material,
-    dueDate: (jobRow.due_date as string | null) ?? '',
-    stages,
-    currentStage,
-  }
-}
-
-// The one shop-floor write. The token IS the auth. The phone may NAME one of
-// the part's own not-done route stages (two workers legitimately run OP1's
-// tail and OP2's start at the same time), but it can never invent one — the
-// stage is validated against the server-derived route and falls back to the
-// current stage. `doneNow` is incremental ("这次完成 N 件"); we clamp the
-// cumulative count to the part qty and hand it to setStageDoneQty, which
-// owns the partial/done/cascade state machine.
-export async function reportPartScan(
-  token: string,
-  doneNow: number,
-  actor: string,
-  stage?: Stage,
-): Promise<{ ok: boolean; stage?: Stage; totalDone?: number; finished?: boolean }> {
-  const view = await getPartScanView(token)
-  if (!view) return { ok: false }
-  const target =
-    stage && view.stages.some((s) => s.stage === stage && s.status !== 'done')
-      ? stage
-      : view.currentStage
-  if (!target) return { ok: false }
-  // 检验 is a verdict gate (重做/返修/外修/OK), not an ordinary quantity
-  // report. Keep the QR reporting path from bypassing the inspector UI.
-  if (target === '检验') return { ok: false }
-  const st = view.stages.find((s) => s.stage === target)
-  if (!st) return { ok: false }
-  const inc = Math.max(0, Math.floor(doneNow))
-  if (inc === 0) return { ok: false }
-  const cumulative = Math.min(view.qty, st.doneQty + inc)
-  await setStageDoneQty(
-    view.jobId,
-    view.componentId,
-    target,
-    cumulative,
-    actor,
-  )
-  return {
-    ok: true,
-    stage: target,
-    totalDone: cumulative,
-    finished: cumulative >= view.qty,
-  }
 }

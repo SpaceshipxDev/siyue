@@ -6,7 +6,6 @@ import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
 import {
   fmtPlanLabel,
-  stageLabel,
   stagePlanState,
   type PlanKey,
   type RollupKind,
@@ -138,7 +137,7 @@ export function StagePlanBand({
           className="flex flex-1 flex-col items-center gap-2 px-2 py-3.5"
         >
           <span className="text-[12px] font-medium tracking-wide text-[var(--color-ink-2)]">
-            {stage === '外协' ? stage : stageLabel(stage)}
+            {stage}
           </span>
           <StagePlanDate
             jobId={jobId}

@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { decrypt, encrypt, SESSION_COOKIE } from '@/lib/session'
 import { getUserById } from '@/lib/db'
-import { isMobileUserAgent } from '@/lib/mobile'
 
 // Next 16 proxy (formerly middleware.ts). Runs at Node runtime before route
 // rendering. We do an *optimistic* gate here using the JWT — page-level
@@ -28,20 +27,7 @@ import { isMobileUserAgent } from '@/lib/mobile'
 // '/api/leads' is the lead-capture POST from the public siyue.ai landing —
 // it does its own validation/honeypot/rate-limit; a session gate here would
 // 307 every prospect's form submit to /login.
-// '/s' is the 随工单 scan surface (traveller QR) — the unguessable per-part
-// token printed on the paper IS the auth (verified server-side by
-// getPartScanView on every render and write), so the path stays open the
-// same way the '/w' vendor portal does. It exposes one part's route/progress
-// and accepts one narrow write (report qty at the current OP) — no prices,
-// no other parts, no dashboard.
-// '/p' + '/api/match-photo' are the photo-报工 loop — public for the same
-// reason '/s' is: the worker's credential is the physical sheet in their
-// hand, and a successful match only resolves to the same narrow /s surface
-// the printed QR opens (rate-limited inside the route).
-// '/api/unmatched-report' is the no-match valve — same trust model as
-// /api/match-photo (rate-limited inside the route; writes only an unresolved
-// review row for the PMC, never the part state machine).
-const PUBLIC_PATHS = ['/login', '/join', '/w', '/s', '/p', '/api/match-photo', '/api/unmatched-report', '/api/machines/ingest', '/x/demo', '/api/leads']
+const PUBLIC_PATHS = ['/login', '/join', '/w', '/x/demo', '/api/leads']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only
@@ -56,8 +42,6 @@ const PRODUCTION_FORBIDDEN_PREFIXES = [
   '/import',
   '/print',
   '/backend',
-  '/matcher-lab',
-  '/api/matcher-lab',
   '/station/outsource',
 ]
 
@@ -72,9 +56,6 @@ const PRODUCTION_FORBIDDEN_PREFIXES = [
 const ENGINEERING_ALLOWED_PREFIXES = [
   '/station/outsource',
   '/print/outsource',
-  // 随工单 — at Yingma the 编程/工程 head confirms the OP route and prints
-  // the traveller, so the print surface opens to them like /print/outsource.
-  '/print/traveller',
   '/import',
   '/api/ingest',
   '/pulse',
@@ -89,24 +70,7 @@ const ENGINEERING_ALLOWED_PREFIXES = [
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(request.nextUrl.hostname)
-  const isLocalMachineKit =
-    isLocalHost &&
-    (pathname === '/machine-kit' ||
-      pathname.startsWith('/machine-kit/') ||
-      pathname === '/api/lynuc' ||
-      pathname.startsWith('/api/lynuc/'))
-  const machineProxyKey = process.env.MACHINE_DASHBOARD_PROXY_KEY
-  const isTrustedMachineDashboard = Boolean(
-    machineProxyKey &&
-      machineProxyKey.length >= 24 &&
-      request.headers.get('x-yingma-machine-dashboard') === machineProxyKey &&
-      (pathname === '/machines' ||
-        pathname.startsWith('/machines/') ||
-        pathname === '/api/machines' ||
-        pathname.startsWith('/api/machines/')),
-  )
-  const isPublic = isLocalMachineKit || isTrustedMachineDashboard || PUBLIC_PATHS.some(
+  const isPublic = PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   )
 
@@ -143,24 +107,6 @@ export async function proxy(request: NextRequest) {
     if (isPublic) return NextResponse.next()
     const url = request.nextUrl.clone()
     url.pathname = '/login'
-    url.search = ''
-    return NextResponse.redirect(url)
-  }
-
-  // A phone becomes the shop floor only after the worker has authenticated.
-  // First-time and expired-session visits fall through to the normal login
-  // above, where the worker picks an account and enters its PIN. That login
-  // stores a persistent session cookie, so subsequent visits (including from
-  // WeChat's in-app browser) can return directly to the camera port. Desktop
-  // keeps the board; /?board=1 remains the explicit mobile board escape.
-  if (
-    request.method === 'GET' &&
-    pathname === '/' &&
-    !request.nextUrl.searchParams.has('board') &&
-    isMobileUserAgent(request.headers.get('user-agent'))
-  ) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/p'
     url.search = ''
     return NextResponse.redirect(url)
   }

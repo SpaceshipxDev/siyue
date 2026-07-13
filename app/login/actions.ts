@@ -1,21 +1,9 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { cookies, headers } from 'next/headers'
-import { getUserById, isAdminUser, verifyUserPin } from '@/lib/db'
+import { isAdminUser, verifyUserPin } from '@/lib/db'
 import { createSession, deleteSession } from '@/lib/session'
 import { landingPathFor } from '@/lib/auth'
-import { isMobileUserAgent } from '@/lib/mobile'
-import { WORKER_COOKIE } from '@/app/s/[token]/_worker'
-
-async function rememberWorker(name: string): Promise<void> {
-  const jar = await cookies()
-  jar.set(WORKER_COOKIE, encodeURIComponent(name), {
-    path: '/',
-    maxAge: 60 * 60 * 24 * 365,
-    sameSite: 'lax',
-  })
-}
 
 // In-process brute-force counter. Five wrong PINs in five minutes locks the
 // user id out for five minutes from this serverless instance. Cross-instance
@@ -76,46 +64,22 @@ export async function loginAction(
     role: user.role,
     ds: user.defaultStage,
   })
-  if (user.role === 'production') await rememberWorker(user.name)
 
-  const redirectTo = landingPathFor({
-    id: user.id,
-    name: user.name,
-    role: user.role,
-    employeeRole: user.employeeRole,
-    defaultStage: user.defaultStage,
-    isFinance: user.isFinance,
-  })
-  return { ok: true, redirectTo }
-}
-
-// Pilot-phase gate removal: with OPEN_LOGIN=1, tapping a name IS the login —
-// no PIN. Deployment friction matters more than security while the factory
-// is being onboarded; unset the env var and the PIN keypad is back. The
-// 管理员工 admin surface keeps its PIN either way.
-export async function loginOpenAction(userId: string): Promise<LoginResult> {
-  const isMobile = isMobileUserAgent((await headers()).get('user-agent'))
-  if (process.env.OPEN_LOGIN !== '1' || isMobile) {
-    return { ok: false, error: '请输入 PIN' }
-  }
-  const user = await getUserById(userId)
-  if (!user) return { ok: false, error: '账号不存在' }
-
-  await createSession({
-    sub: user.id,
-    role: user.role,
-    ds: user.defaultStage,
-  })
-  if (user.role === 'production') await rememberWorker(user.name)
-
-  const redirectTo = landingPathFor({
-    id: user.id,
-    name: user.name,
-    role: user.role,
-    employeeRole: user.employeeRole,
-    defaultStage: user.defaultStage,
-    isFinance: user.isFinance,
-  })
+  // landingPathFor is the single source of truth — commerce → /,
+  // 工程 head → / (holistic view), other production stations → their
+  // /?stage=... master grid. Bypassing it here is what was sending 工程
+  // back to the old per-stage workbench right after sign-in.
+  const redirectTo = user.defaultStage
+    ? landingPathFor({
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        defaultStage: user.defaultStage,
+        isFinance: user.isFinance,
+      })
+    : user.role === 'commerce'
+      ? '/'
+      : '/login'
   return { ok: true, redirectTo }
 }
 
