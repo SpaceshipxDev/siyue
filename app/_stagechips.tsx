@@ -14,10 +14,11 @@ import { TRACKING_STAGES as STAGES, partRoute, stageLabel, type Component, type 
 import { mutate } from '@/lib/mutate'
 import type { SetPartRouteResult } from '@/lib/db'
 
-// 后处理 is always the final production step at Yingma, so the row is
-// shown lit and non-interactive. Outsource-covered stages are also locked
-// (the block owns those stages, the picker can't take them out).
-const ALWAYS_ON: ReadonlySet<Stage> = new Set<Stage>(['丝印'])
+// 检验 is always the final production gate at Yingma, so the row is shown lit
+// and non-interactive. 铣床 remains a normal optional toggle. Outsource-covered
+// stages are also locked (the block owns those stages, the picker can't take
+// them out).
+const ALWAYS_ON: ReadonlySet<Stage> = new Set<Stage>(['检验'])
 
 type ConflictDialogState = {
   desired: Stage[]

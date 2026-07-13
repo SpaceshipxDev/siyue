@@ -21,6 +21,7 @@ type PacketDraft = {
   material?: string
   customer?: string
   opCount: number
+  includeMilling: boolean
   pages: PacketPage[]
   notes?: string
 }
@@ -48,10 +49,15 @@ const OP_STAGES: { key: Stage; label: string }[] = [
   { key: '质量', label: 'OP6' },
 ]
 
-const POST_STAGE = { key: '丝印' as Stage, label: '后处理' }
+const MILLING_STAGE = { key: '丝印' as Stage, label: '铣床' }
+const INSPECTION_STAGE = { key: '检验' as Stage, label: '检验' }
 
-function stagesFor(opCount: number) {
-  return [...OP_STAGES.slice(0, opCount), POST_STAGE]
+function stagesFor(opCount: number, includeMilling: boolean) {
+  return [
+    ...OP_STAGES.slice(0, opCount),
+    ...(includeMilling ? [MILLING_STAGE] : []),
+    INSPECTION_STAGE,
+  ]
 }
 
 function text(value: string | undefined): string {
@@ -159,8 +165,8 @@ export function IngestClient() {
   const [done, setDone] = useState<DoneInfo | null>(null)
 
   const routeStages = useMemo(
-    () => stagesFor(draft?.opCount ?? 1),
-    [draft?.opCount],
+    () => stagesFor(draft?.opCount ?? 1, draft?.includeMilling ?? true),
+    [draft?.includeMilling, draft?.opCount],
   )
 
   const busy = phase === 'extracting' || phase === 'saving'
@@ -210,7 +216,7 @@ export function IngestClient() {
       if (!res.ok || !json.ok || !json.draft) {
         throw new Error(json.error || '识别失败')
       }
-      setDraft(json.draft)
+      setDraft({ ...json.draft, includeMilling: json.draft.includeMilling !== false })
       setDueDateEstimated(Boolean(json.dueDateEstimated))
       setCompletedThrough(-1)
       setPhase('review')
@@ -225,8 +231,27 @@ export function IngestClient() {
   }
 
   function updateOpCount(opCount: number) {
+    const completedStage = routeStages[completedThrough]?.key
     updateDraft('opCount', opCount)
-    setCompletedThrough((current) => Math.min(current, stagesFor(opCount).length - 1))
+    const nextStages = stagesFor(opCount, draft?.includeMilling ?? true)
+    setCompletedThrough(() => {
+      if (!completedStage) return -1
+      const preserved = nextStages.findIndex((stage) => stage.key === completedStage)
+      if (preserved >= 0) return preserved
+      return Math.max(-1, Math.min(opCount, nextStages.length) - 1)
+    })
+  }
+
+  function updateIncludeMilling(includeMilling: boolean) {
+    const completedStage = routeStages[completedThrough]?.key
+    updateDraft('includeMilling', includeMilling)
+    const nextStages = stagesFor(draft?.opCount ?? 1, includeMilling)
+    setCompletedThrough(() => {
+      if (!completedStage) return -1
+      const preserved = nextStages.findIndex((stage) => stage.key === completedStage)
+      if (preserved >= 0) return preserved
+      return Math.max(-1, nextStages.findIndex((stage) => stage.key === '检验') - 1)
+    })
   }
 
   async function commit() {
@@ -444,6 +469,43 @@ export function IngestClient() {
                     {count}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="text-[11px] font-medium tracking-wide text-[var(--color-ink-2)]">
+                  后续工序
+                </span>
+                <span className="text-[11px] text-[var(--color-ink-4)]">检验为必经工序</span>
+              </div>
+              <div className="overflow-hidden rounded-[8px] border border-[var(--color-border-strong)]">
+                <button
+                  type="button"
+                  onClick={() => updateIncludeMilling(!draft.includeMilling)}
+                  aria-pressed={draft.includeMilling}
+                  className="flex h-12 w-full items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 text-left"
+                >
+                  <span
+                    className={`grid h-5 w-5 place-items-center rounded-[4px] border text-[11px] font-semibold ${
+                      draft.includeMilling
+                        ? 'border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-surface)]'
+                        : 'border-[var(--color-border-strong)] text-transparent'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    ✓
+                  </span>
+                  <span className="flex-1 text-[14px] font-medium">铣床</span>
+                  <span className="text-[11px] text-[var(--color-ink-4)]">可选 · 点此切换</span>
+                </button>
+                <div className="flex h-12 items-center gap-3 bg-[var(--color-bg)] px-3.5">
+                  <span className="grid h-5 w-5 place-items-center rounded-[4px] bg-[var(--color-success)] text-[11px] font-semibold text-white">
+                    ✓
+                  </span>
+                  <span className="flex-1 text-[14px] font-medium">检验</span>
+                  <span className="text-[11px] font-medium text-[var(--color-success)]">必经</span>
+                </div>
               </div>
             </div>
 

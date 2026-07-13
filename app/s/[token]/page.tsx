@@ -248,13 +248,17 @@ export default async function ScanPage(props: PageProps<'/s/[token]'>) {
             {/* One control: the count arrives prefilled with everything still
                 open (the default act is "finished the rest"); −10/−/+/+10 or
                 typing adjusts it; one button reports. */}
-            {selectedStage ? (
+            {selectedStage && selectedStage !== '检验' ? (
               <ReportForm
                 token={token}
                 src={src}
                 stage={selectedStage}
                 remaining={remaining}
               />
+            ) : selectedStage === '检验' ? (
+              <p className="mt-4 text-[12px] text-[var(--color-ink-2)]">
+                检验为必经工序 · 请在检验台完成判定
+              </p>
             ) : null}
           </section>
         )}

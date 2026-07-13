@@ -9,14 +9,16 @@ import { proxiedKeyUrl } from './storage-url'
 // Packet ingestion + 报工 event data layer. All NEW tables (0083) are owned
 // here; writes to the EXISTING job/part/stage tables go through lib/db.ts's
 // exported functions only (createJob / setPartRoute / ensurePartQrToken) so
-// the fork's invariants — 丝印+出货 always in route, cascade machine, board
+// the fork's invariants — 检验+出货 always in route, cascade machine, board
 // rollup triggers — keep holding without this file knowing about them.
 
 // The six OP-capable stage keys, in route order. DB keys stay the parent
 // vocabulary (编程/操机/…) and render as OP1..OP6 via stageLabel — a packet
-// with 加工次数 n seeds the first n keys. 丝印(后处理) and 出货 ride along
-// via resolvePartStages inside setPartRoute.
-const OP_KEYS: Stage[] = TRACKING_STAGES.filter((s) => s !== '丝印')
+// with 加工次数 n seeds the first n keys. 丝印 renders as optional 铣床;
+// 检验 and 出货 ride along via resolvePartStages inside setPartRoute.
+const OP_KEYS: Stage[] = TRACKING_STAGES.filter(
+  (s) => s !== '丝印' && s !== '检验',
+)
 
 function rid(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`
@@ -169,10 +171,11 @@ export async function createComponentFromPacket(input: {
 
   const componentId = componentIdOf(jobId, partId)
 
-  // Route sized to the packet's 加工次数 — resolvePartStages (inside
-  // setPartRoute) force-adds 丝印+出货, so we only name the OP keys.
+  // Route sized to the packet's 加工次数. Mobile review explicitly decides
+  // whether optional 铣床 is present; resolvePartStages force-adds 检验+出货.
   const ops = OP_KEYS.slice(0, Math.max(1, Math.min(OP_KEYS.length, extract.opCount)))
-  await setPartRoute(jobId, componentId, ops, { force: true })
+  const route = extract.includeMilling === false ? ops : [...ops, '丝印' as Stage]
+  await setPartRoute(jobId, componentId, route, { force: true })
 
   // The review screen is the user's final word. Persist every editable part
   // field even on the attach path, where an earlier Excel import may already
@@ -676,6 +679,7 @@ export type ComponentBoardRow = {
   programmedAt?: string
   ops: BoardStageChip[]
   post?: BoardStageChip
+  inspection?: BoardStageChip
   ship?: BoardStageChip
   /** First unfinished visible stage — where the part IS right now. */
   current?: BoardStageChip
@@ -800,8 +804,13 @@ export async function componentBoardRows(): Promise<ComponentBoardRow[]> {
     const ops = OP_KEYS.filter((s) => stageMap.has(s))
       .map((s) => chipOf(qty, s, stageMap.get(s))!)
     const post = chipOf(qty, '丝印', stageMap.get('丝印'))
+    const inspection = chipOf(qty, '检验', stageMap.get('检验'))
     const ship = chipOf(qty, '出货', stageMap.get('出货'))
-    const visible = [...ops, ...(post ? [post] : [])]
+    const visible = [
+      ...ops,
+      ...(post ? [post] : []),
+      ...(inspection ? [inspection] : []),
+    ]
     const current = visible.find((c) => c.status !== 'done')
     const packet = packetByPart.get(pid)
     const sourceImages: BoardSourceImage[] = (pagesByPart.get(pid) ?? []).map(
@@ -840,6 +849,7 @@ export async function componentBoardRows(): Promise<ComponentBoardRow[]> {
       programmedAt: (packet?.created_at as string | null) ?? undefined,
       ops,
       post,
+      inspection,
       ship,
       current,
       lastReport: lastByPart.get(pid),

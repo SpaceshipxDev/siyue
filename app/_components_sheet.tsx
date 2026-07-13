@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { ComponentBoardRow, BoardStageChip } from '@/lib/packets'
+import type { SetPartRouteResult } from '@/lib/db'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { mutate } from '@/lib/mutate'
 
 // The PMC's board — every live component as one row, read left to right the
-// way a part physically flows: 编程 → CNC OPs → 后处理 → 出货. The 进度
+// way a part physically flows: 编程 → CNC OPs → 铣床 → 检验 → 出货. The 进度
 // column answers her one question ("这个单子现在在哪、做了多少、谁在做")
 // without walking the floor.
 
@@ -71,15 +72,23 @@ type Seg = 'active' | 'shipped' | 'all'
 export function ComponentSheet({
   rows,
   canDeleteJobs = false,
+  canEditRoutes = false,
 }: {
   rows: ComponentBoardRow[]
   canDeleteJobs?: boolean
+  canEditRoutes?: boolean
 }) {
   const [q, setQ] = useState('')
   const [seg, setSeg] = useState<Seg>('active')
   const [customer, setCustomer] = useState('')
   const [deletedJobIds, setDeletedJobIds] = useState<Set<string>>(new Set())
   const [deletingJobIds, setDeletingJobIds] = useState<Set<string>>(new Set())
+  const [millingOverrides, setMillingOverrides] = useState<Map<string, boolean>>(
+    () => new Map(),
+  )
+  const [routePendingIds, setRoutePendingIds] = useState<Set<string>>(
+    () => new Set(),
+  )
   const [viewer, setViewer] = useState<{
     row: ComponentBoardRow
     index: number
@@ -129,6 +138,60 @@ export function ComponentSheet({
       setDeletingJobIds((current) => {
         const next = new Set(current)
         next.delete(row.jobId)
+        return next
+      })
+    }
+  }
+
+  async function setMilling(row: ComponentBoardRow, enabled: boolean) {
+    setRoutePendingIds((current) => new Set(current).add(row.partId))
+    try {
+      const stages = [
+        ...row.ops.map((stage) => stage.stage),
+        ...(enabled ? (['丝印'] as const) : []),
+        '检验' as const,
+      ]
+      let result = (
+        await mutate<SetPartRouteResult>({
+          kind: 'setPartRoute',
+          jobId: row.jobId,
+          componentId: row.componentId,
+          stages,
+          force: false,
+        })
+      ).data
+      if (!result.ok && result.reason === 'needs_confirm') {
+        const history = result.conflicts.map((item) => item.stage).join('、')
+        if (!confirm(`铣床已有进度（${history}），仍要从此零件工序中移除吗？`)) return
+        result = (
+          await mutate<SetPartRouteResult>({
+            kind: 'setPartRoute',
+            jobId: row.jobId,
+            componentId: row.componentId,
+            stages,
+            force: true,
+          })
+        ).data
+      }
+      if (!result.ok) {
+        alert(
+          result.reason === 'outsourced_locked'
+            ? '铣床已外协，不能从工序中移除。'
+            : '工序保存失败，请刷新后重试。',
+        )
+        return
+      }
+      setMillingOverrides((current) => {
+        const next = new Map(current)
+        next.set(row.partId, enabled)
+        return next
+      })
+    } catch {
+      alert('工序保存失败，请刷新后重试。')
+    } finally {
+      setRoutePendingIds((current) => {
+        const next = new Set(current)
+        next.delete(row.partId)
         return next
       })
     }
@@ -209,11 +272,25 @@ export function ComponentSheet({
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
-              <tr
-                key={r.partId}
-                className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-bg)]"
-              >
+            {filtered.map((r) => {
+              const millingEnabled = millingOverrides.get(r.partId) ?? Boolean(r.post)
+              const millingChip = r.post ?? {
+                stage: '丝印' as const,
+                label: '铣床',
+                status: 'pending' as const,
+                doneQty: 0,
+              }
+              const inspectionChip = r.inspection ?? {
+                stage: '检验' as const,
+                label: '检验',
+                status: 'pending' as const,
+                doneQty: 0,
+              }
+              return (
+                <tr
+                  key={r.partId}
+                  className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-bg)]"
+                >
                 <td className="px-3 py-2">
                   <SourceImagesButton row={r} onOpen={() => setViewer({ row: r, index: 0 })} />
                 </td>
@@ -241,7 +318,7 @@ export function ComponentSheet({
                   {mdCn(r.dueDate)}
                 </td>
                 <td className="px-3 py-2.5">
-                  {/* The whole route in one read: 编程 → OPs → 后处理 → 出货.
+                  {/* The whole route in one read: 编程 → OPs → 铣床 → 检验 → 出货.
                       Exactly the stages this part carries, nothing else. */}
                   <div className="flex items-center gap-1.5 flex-nowrap">
                     <span
@@ -257,7 +334,27 @@ export function ComponentSheet({
                     {r.ops.map((c) => (
                       <Chip key={c.stage} chip={c} qty={r.qty} />
                     ))}
-                    {r.post ? <Chip chip={{ ...r.post, label: '后处理' }} qty={r.qty} /> : null}
+                    {canEditRoutes ? (
+                      <button
+                        type="button"
+                        disabled={routePendingIds.has(r.partId)}
+                        onClick={() => void setMilling(r, !millingEnabled)}
+                        aria-pressed={millingEnabled}
+                        title={millingEnabled ? '点击取消铣床' : '点击加入铣床'}
+                        className="rounded-[3px] disabled:opacity-50"
+                      >
+                        {millingEnabled ? (
+                          <Chip chip={millingChip} qty={r.qty} />
+                        ) : (
+                          <span className="inline-flex h-6 items-center rounded-[3px] border border-dashed border-[var(--color-border-strong)] px-2 text-[11px] text-[var(--color-ink-3)]">
+                            ＋ 铣床
+                          </span>
+                        )}
+                      </button>
+                    ) : millingEnabled ? (
+                      <Chip chip={millingChip} qty={r.qty} />
+                    ) : null}
+                    <Chip chip={inspectionChip} qty={r.qty} />
                     {r.shipped ? (
                       <span className="inline-flex items-center h-6 px-2 rounded-[3px] text-[11px] font-medium bg-[var(--color-success-soft)] text-[var(--color-success)] border border-[var(--color-success)]">
                         出货 ✓
@@ -300,8 +397,9 @@ export function ComponentSheet({
                     </button>
                   </td>
                 ) : null}
-              </tr>
-            ))}
+                </tr>
+              )
+            })}
             {filtered.length === 0 ? (
               <tr>
                 <td

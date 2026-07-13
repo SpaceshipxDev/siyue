@@ -71,6 +71,8 @@ export type PacketExtract = {
   material?: string
   customer?: string
   opCount: number
+  /** Review-only routing choice. Gemini does not infer it; mobile 录入 owns it. */
+  includeMilling?: boolean
   pages: PacketPageInfo[]
   notes?: string
 }

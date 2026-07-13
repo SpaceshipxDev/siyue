@@ -18,7 +18,7 @@ type MatchJson =
   | { decision: 'ambiguous'; candidates: Candidate[]; latencyMs?: number }
   | { decision: 'no_match'; latencyMs?: number }
 
-const VALVE_STAGES = ['OP1', 'OP2', 'OP3', 'OP4', '后处理', '出货']
+const VALVE_STAGES = ['OP1', 'OP2', 'OP3', 'OP4', 'OP5', 'OP6', '铣床', '出货']
 
 function mdCn(value?: string) {
   if (!value) return ''

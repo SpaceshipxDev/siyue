@@ -5577,8 +5577,8 @@ export async function resetDb(): Promise<void> {
   })
 }
 
-// Default route for a fresh part — every visible OP is seeded as pending,
-// and 商务/工程 toggle off the ones a given part skips via the chip widget.
+// Default route for a fresh part — every visible OP plus optional 铣床 is
+// seeded as pending, and 商务/工程 toggle off the ones a given part skips.
 // 出货 rides along invisibly: it never shows as a tick column at Yingma, but
 // the shipping flow (prepareShipping / vendor-line close-out) finishes that
 // row, so every part must carry it — same invariant resolvePartStages forces.
@@ -5597,9 +5597,10 @@ function resolvePartStages(input: Stage[] | undefined): Stage[] {
   if (set.size === 0) {
     for (const s of DEFAULT_NEW_PART_STAGES) set.add(s)
   }
-  // 丝印 renders as 后处理 at Yingma — the mandatory final production step,
-  // mirrored by ALWAYS_ON in the route picker so client and server agree.
-  set.add('丝印')
+  // 检验 is the mandatory final production gate, mirrored by ALWAYS_ON in
+  // the route picker so a handcrafted mutation cannot remove it. 丝印 renders
+  // as optional 铣床 and is deliberately not injected here.
+  set.add('检验')
   set.add('出货')
   return STAGES.filter((s) => set.has(s))
 }
@@ -8970,6 +8971,9 @@ export async function reportPartScan(
       ? stage
       : view.currentStage
   if (!target) return { ok: false }
+  // 检验 is a verdict gate (重做/返修/外修/OK), not an ordinary quantity
+  // report. Keep the QR reporting path from bypassing the inspector UI.
+  if (target === '检验') return { ok: false }
   const st = view.stages.find((s) => s.stage === target)
   if (!st) return { ok: false }
   const inc = Math.max(0, Math.floor(doneNow))

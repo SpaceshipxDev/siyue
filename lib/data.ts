@@ -2,12 +2,12 @@ export const STAGES = [
   '工程',
   '编程',
   '操机',
-  '检验',
   '手工',
   '打磨',
   '喷漆',
-  '丝印',
   '质量',
+  '丝印',
+  '检验',
   '出货',
 ] as const
 
@@ -16,9 +16,19 @@ export const SCHEMA_VERSION = 8
 export type Stage = (typeof STAGES)[number]
 
 // Per-component CNC route: 编程 chooses how many OPs this particular part
-// needs. 后处理 is the terminal production step. Stable Yuenong database keys
-// remain underneath; only the factory-facing route vocabulary changes.
-export const TRACKING_STAGES: Stage[] = ['编程', '操机', '手工', '打磨', '喷漆', '质量', '丝印']
+// needs. 铣床 is optional after OP6; 检验 is the mandatory terminal production
+// gate. Stable Yuenong database keys remain underneath; only the factory-facing
+// route vocabulary and order change.
+export const TRACKING_STAGES: Stage[] = [
+  '编程',
+  '操机',
+  '手工',
+  '打磨',
+  '喷漆',
+  '质量',
+  '丝印',
+  '检验',
+]
 
 const YINGMA_STAGE_LABEL: Record<Stage, string> = {
   工程: '编程设置',
@@ -28,8 +38,8 @@ const YINGMA_STAGE_LABEL: Record<Stage, string> = {
   打磨: 'OP4',
   喷漆: 'OP5',
   质量: 'OP6',
-  丝印: '后处理',
-  检验: '—',
+  丝印: '铣床',
+  检验: '检验',
   出货: '出货',
 }
 

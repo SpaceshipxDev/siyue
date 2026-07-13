@@ -16,7 +16,13 @@ import {
   getOrderMoneyLightByJob,
   getStageFlowMinutes,
 } from '@/lib/db'
-import { requireUser, canSeeFactoryPulse, canSeeMoney, canSeeReport } from '@/lib/auth'
+import {
+  requireUser,
+  canEditProductionFields,
+  canSeeFactoryPulse,
+  canSeeMoney,
+  canSeeReport,
+} from '@/lib/auth'
 import { logBoardView } from '@/lib/access-log'
 import { scrubMasterRow } from '@/lib/dto'
 import { getStationWip, getWorkerSelfStats } from '@/lib/pulse'
@@ -218,7 +224,7 @@ export default async function MasterBoard(
 
   // The component board — the product's home view. One row per live 零件
   // (photo-ingested packets AND xlsx-imported orders), stages read
-  // 编程 → OPs → 后处理 → 出货. Station drill-downs (?stage=) keep the
+  // 编程 → OPs → optional 铣床 → required 检验 → 出货. Station drill-downs (?stage=) keep the
   // original workbench below.
   const isComponentBoard = !stageFilter
   const [boardRows, reportToday, pendingCount] = isComponentBoard
@@ -351,7 +357,11 @@ export default async function MasterBoard(
         )}
 
         {isComponentBoard ? (
-          <ComponentSheet rows={boardRows} canDeleteJobs={user.role === 'commerce'} />
+          <ComponentSheet
+            rows={boardRows}
+            canDeleteJobs={user.role === 'commerce'}
+            canEditRoutes={canEditProductionFields(user)}
+          />
         ) : useMasterSheet ? (
           // Rows are fetched client-side from /api/master/rows (see
           // _master_loaders) rather than serialized into this RSC payload —

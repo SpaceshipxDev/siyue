@@ -16,7 +16,9 @@ export const maxDuration = 120
 
 const MAX_PAGES = 12
 const MAX_BYTES = 8 * 1024 * 1024
-const OP_STAGES = TRACKING_STAGES.filter((stage) => stage !== '丝印')
+const OP_STAGES = TRACKING_STAGES.filter(
+  (stage) => stage !== '丝印' && stage !== '检验',
+)
 
 type PageBytes = { bytes: Uint8Array; contentType: string }
 type ReviewDraft = PacketExtract & { completedStage?: Stage }
@@ -27,8 +29,12 @@ function clean(value: unknown): string | undefined {
   return text.length > 0 ? text : undefined
 }
 
-function reviewStages(opCount: number): Stage[] {
-  return [...OP_STAGES.slice(0, opCount), '丝印']
+function reviewStages(opCount: number, includeMilling: boolean): Stage[] {
+  return [
+    ...OP_STAGES.slice(0, opCount),
+    ...(includeMilling ? (['丝印'] as Stage[]) : []),
+    '检验',
+  ]
 }
 
 function normalizeDraft(value: unknown, pageCount: number): ReviewDraft {
@@ -39,6 +45,7 @@ function normalizeDraft(value: unknown, pageCount: number): ReviewDraft {
 
   const qty = Math.max(1, Math.min(1_000_000, Math.floor(Number(raw.qty) || 1)))
   const opCount = Math.max(1, Math.min(6, Math.floor(Number(raw.opCount) || 1)))
+  const includeMilling = raw.includeMilling !== false
   const dueDate = clean(raw.dueDate) ?? fallbackDueDate()
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) throw new Error('交期格式不正确')
 
@@ -68,7 +75,7 @@ function normalizeDraft(value: unknown, pageCount: number): ReviewDraft {
 
   const requestedStage = clean(raw.completedStage) as Stage | undefined
   const completedStage =
-    requestedStage && reviewStages(opCount).includes(requestedStage)
+    requestedStage && reviewStages(opCount, includeMilling).includes(requestedStage)
       ? requestedStage
       : undefined
 
@@ -81,6 +88,7 @@ function normalizeDraft(value: unknown, pageCount: number): ReviewDraft {
     material: clean(raw.material),
     customer: clean(raw.customer),
     opCount,
+    includeMilling,
     pages,
     notes: clean(raw.notes),
     completedStage,
@@ -143,6 +151,7 @@ export async function POST(req: Request): Promise<Response> {
         draft: {
           ...extract,
           dueDate: extract.dueDate ?? fallbackDueDate(),
+          includeMilling: true,
         },
         dueDateEstimated,
       })
