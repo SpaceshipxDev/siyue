@@ -99,6 +99,24 @@ export async function proxy(request: NextRequest) {
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   )
 
+  // Phones ARE the shop floor: any mobile hit on the bare domain lands in
+  // the camera port — logged in or not (the PMC's phone session must never
+  // strand her in the desktop board's station view). Desktop keeps the
+  // board; a phone that truly needs the board uses the explicit /?board=1
+  // escape (linked from /p's header for logged-in users). GET only, so
+  // server actions posting to '/' are untouched.
+  if (
+    request.method === 'GET' &&
+    pathname === '/' &&
+    !request.nextUrl.searchParams.has('board') &&
+    /Mobile|Android|iPhone/i.test(request.headers.get('user-agent') ?? '')
+  ) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/p'
+    url.search = ''
+    return NextResponse.redirect(url)
+  }
+
   const token = request.cookies.get(SESSION_COOKIE)?.value
   const session = await decrypt(token)
 
@@ -131,15 +149,6 @@ export async function proxy(request: NextRequest) {
     }
     if (isPublic) return NextResponse.next()
     const url = request.nextUrl.clone()
-    // A session-less phone opening the bare domain is a WORKER (the QR on
-    // the machine, the link pinned in the factory 群) — land them straight
-    // in the camera port. PMC/boss phones carry a session and fall through
-    // to the board; a worker who somehow needs /login can still reach it.
-    if (pathname === '/' && /Mobile|Android|iPhone/i.test(request.headers.get('user-agent') ?? '')) {
-      url.pathname = '/p'
-      url.search = ''
-      return NextResponse.redirect(url)
-    }
     url.pathname = '/login'
     url.search = ''
     return NextResponse.redirect(url)
