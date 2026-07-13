@@ -4,16 +4,15 @@ import { BRAND } from '@/lib/brand'
 import { IngestClient } from './_client'
 import { MobileNav } from '../_mobile_nav'
 
-// 拍照录入 — the programmer's whole job here: photograph every page of the
-// printed packet (stamped 2D drawing + each CNC程序单), tap 完成, walk away.
-// AI builds the component, sizes the OP route, mints the QR token, and
-// registers the pages as matching references for the floor's /p loop.
+// 拍照录入 — photograph the packet, review Gemini's structured extraction,
+// choose how far production has already progressed, then publish. Nothing is
+// persisted until the explicit final confirmation.
 
 export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
   title: `拍照录入 · ${BRAND.shortName}`,
-  description: '拍下资料袋的每一页，自动建立生产零件',
+  description: '拍下资料袋，核对识别内容并建立生产零件',
 }
 
 export default async function IngestPage() {

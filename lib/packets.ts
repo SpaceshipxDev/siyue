@@ -1,6 +1,6 @@
 import 'server-only'
 import { supabase, STORAGE_BUCKET } from './supabase'
-import { createJob, setPartRoute, ensurePartQrToken } from './db'
+import { createJob, setPartRoute, ensurePartQrToken, setStageDoneQty } from './db'
 import { fallbackDueDate } from './gemini'
 import { TRACKING_STAGES, stageLabel, type Stage, type StageStatus } from './data'
 import type { PacketExtract } from './packet-extract'
@@ -82,8 +82,9 @@ export async function createComponentFromPacket(input: {
   pageKeys: string[]
   packetId: string
   createdBy: string
+  completedStage?: Stage
 }): Promise<PacketComponentResult> {
-  const { extract, pageKeys, packetId, createdBy } = input
+  const { extract, pageKeys, packetId, createdBy, completedStage } = input
 
   let jobId: string | undefined
   let partId: string | undefined
@@ -172,10 +173,28 @@ export async function createComponentFromPacket(input: {
   const ops = OP_KEYS.slice(0, Math.max(1, Math.min(OP_KEYS.length, extract.opCount)))
   await setPartRoute(jobId, componentId, ops, { force: true })
 
-  const partUpdate: Record<string, unknown> = {}
-  if (extract.drawingNo) partUpdate.drawing_no = extract.drawingNo
-  if (Object.keys(partUpdate).length > 0) {
-    const { error } = await supabase.from('parts').update(partUpdate).eq('id', partId)
+  // The review screen is the user's final word. Persist every editable part
+  // field even on the attach path, where an earlier Excel import may already
+  // have created the part before the physical packet reaches programming.
+  const { error: partErr } = await supabase
+    .from('parts')
+    .update({
+      name: extract.name,
+      qty: extract.qty,
+      material: extract.material ?? null,
+      part_no: extract.partNo ?? null,
+      drawing_no: extract.drawingNo ?? null,
+    })
+    .eq('id', partId)
+  if (partErr) throw partErr
+
+  if (attached) {
+    const jobUpdate: Record<string, unknown> = {
+      due_date: extract.dueDate ?? fallbackDueDate(),
+    }
+    if (extract.customer) jobUpdate.customer = extract.customer
+    if (extract.notes) jobUpdate.notes = extract.notes
+    const { error } = await supabase.from('jobs').update(jobUpdate).eq('id', jobId)
     if (error) throw error
   }
 
@@ -187,6 +206,19 @@ export async function createComponentFromPacket(input: {
       .update({ status: 'ready' })
       .eq('id', jobId)
     if (error) throw error
+  }
+
+  // Intake can happen after work has already moved through the shop. Marking
+  // the latest checked stage complete uses the normal cascade, so every routed
+  // stage before it is stamped done and the next stage is immediately live.
+  if (completedStage) {
+    await setStageDoneQty(
+      jobId,
+      componentId,
+      completedStage,
+      Number.MAX_SAFE_INTEGER,
+      createdBy,
+    )
   }
 
   const { error: pkErr } = await supabase.from('packets').insert({

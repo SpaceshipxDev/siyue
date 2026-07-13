@@ -314,58 +314,25 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             Every fact is editable in place — the card is AI-extracted from
             photos and a scribbled stamp can misread (数量 32 → 2). */}
         <div className="mb-8 border-b border-[var(--color-border)] pb-6">
-          <div className="flex items-start justify-between gap-4">
-            <p className="label mb-1">{job.customer}</p>
-            {job.components[0] ? (
-              <HeaderEdit
-                jobId={job.id}
-                componentId={job.components[0].id}
-                partId={headerPartRowId}
-                initial={{
-                  name: job.product,
-                  customer: job.customer,
-                  partNo: job.components[0].partNo ?? '',
-                  drawingNo: headerDrawingNo ?? '',
-                  qty: headerQtyTotal,
-                  dueDate: job.dueDate ?? '',
-                  material: job.components[0].material ?? '',
-                }}
-              />
-            ) : null}
-          </div>
-          <h1 className="text-[26px] font-semibold tracking-tight text-[var(--color-ink)]">
-            {job.product}
-          </h1>
-          {(job.components[0]?.partNo || headerDrawingNo) && (
-            <p className="mono text-[12px] text-[var(--color-ink-2)] mt-1 break-all">
-              {job.components[0]?.partNo}
-              {job.components[0]?.partNo && headerDrawingNo ? ' · ' : ''}
-              {headerDrawingNo}
-            </p>
-          )}
-          <div className="mt-4 flex flex-wrap items-baseline gap-x-8 gap-y-2">
-            <div>
-              <p className="label mb-0.5">数量</p>
-              <p className="mono text-[15px] font-semibold">{headerQtyTotal} 件</p>
-            </div>
-            <div>
-              <p className="label mb-0.5">交期</p>
-              <div className="flex items-baseline gap-2">
-                <span className="mono text-[15px]">{job.dueDate || '—'}</span>
-                <DueDelta state={ds} days={days} />
-              </div>
-            </div>
-            <div className="min-w-[180px]">
-              <p className="label mb-0.5">进度</p>
-              <div className="flex items-baseline gap-2">
-                <span className="mono text-[15px] font-semibold">{pct}%</span>
-                <span className="label">{doneCells}/{totalCells}</span>
-              </div>
-              <div className="mt-1.5 h-[2px] w-full bg-[var(--color-border)]">
-                <div className="h-full bg-[var(--color-ink)]" style={{ width: `${pct}%` }} />
-              </div>
-            </div>
-          </div>
+          {job.components[0] ? (
+            <HeaderEdit
+              jobId={job.id}
+              componentId={job.components[0].id}
+              partId={headerPartRowId}
+              initial={{
+                name: job.product,
+                customer: job.customer,
+                partNo: job.components[0].partNo ?? '',
+                drawingNo: headerDrawingNo ?? '',
+                qty: headerQtyTotal,
+                dueDate: job.dueDate ?? '',
+                material: job.components[0].material ?? '',
+              }}
+              dueState={ds}
+              dueDays={days}
+              progress={{ percent: pct, done: doneCells, total: totalCells }}
+            />
+          ) : null}
         </div>
 
         {/* 工单明细 tabs — 零件 / 外协 / 财务. Each big section below is wrapped
@@ -850,26 +817,6 @@ function ActivityCell({ component }: { component: import('@/lib/data').Component
       </div>
     </td>
   )
-}
-
-function DueDelta({
-  state,
-  days,
-}: {
-  state: import('@/lib/data').DueState
-  days: number
-}) {
-  if (state === 'overdue') {
-    return (
-      <span className="label text-[var(--color-overdue)]">
-        逾期 {Math.abs(days)} 天
-      </span>
-    )
-  }
-  if (state === 'today') {
-    return <span className="label text-[var(--color-warning)]">今日</span>
-  }
-  return <span className="label text-[var(--color-ink-3)]">{days} 天后</span>
 }
 
 // 财务 tab — one order's money, end to end: the position (金额 / 毛利 / 外发 /
