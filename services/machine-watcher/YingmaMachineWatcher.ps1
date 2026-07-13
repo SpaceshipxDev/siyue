@@ -337,8 +337,11 @@ function Get-ProgramAnalysis {
   if ($programMatch.Success) { $programNumber = $programMatch.Groups[1].Value }
 
   $sourcePath = $null
-  $sourceMatch = [regex]::Match($Content, '(?im)\(\s*(?:PartFileName\d*|PART)\s*[:=]\s*([^\r\n\)]+)\)')
-  if ($sourceMatch.Success) { $sourcePath = $sourceMatch.Groups[1].Value.Trim() }
+  $sourceMatch = [regex]::Match(
+    $Content,
+    '(?im)^\s*\(\s*(?:PartFileName\d*|PART)\s*[:=]\s*(?<part>.+?)\s*\)\s*$'
+  )
+  if ($sourceMatch.Success) { $sourcePath = $sourceMatch.Groups['part'].Value.Trim() }
   $sourcePart = $null
   if ($sourcePath) {
     try {
