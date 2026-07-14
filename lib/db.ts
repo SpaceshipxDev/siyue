@@ -131,6 +131,7 @@ type PartRow = {
   unitPriceCny?: number
   lineTotalCny?: number
   partNo?: string
+  drawingNo?: string
   process?: string
   shipmentLog?: string
 }
@@ -580,6 +581,7 @@ function fromPart(r: AnyRow): PartRow {
     unitPriceCny: r.unit_price_cny == null ? undefined : Number(r.unit_price_cny),
     lineTotalCny: r.line_total_cny == null ? undefined : Number(r.line_total_cny),
     partNo: (r.part_no as string | null) ?? undefined,
+    drawingNo: (r.drawing_no as string | null) ?? undefined,
     process: (r.process as string | null) ?? undefined,
     shipmentLog: (r.shipment_log as string | null) ?? undefined,
   }
@@ -604,6 +606,7 @@ function toPart(r: PartRow) {
     unit_price_cny: r.unitPriceCny ?? null,
     line_total_cny: r.lineTotalCny ?? null,
     part_no: r.partNo ?? null,
+    drawing_no: r.drawingNo ?? null,
     process: r.process ?? null,
   }
 }
@@ -1572,6 +1575,7 @@ function composeJob(job: JobRow, snap: DbSnapshot): Job {
         unitPriceCny: p.unitPriceCny,
         lineTotalCny: p.lineTotalCny,
         partNo: p.partNo,
+        drawingNo: p.drawingNo,
         shipmentLog: p.shipmentLog,
         stages: partStages,
         outsourceBlocks: blocks.length > 0 ? blocks : undefined,
@@ -4797,6 +4801,7 @@ export type ComponentPatch = {
   unitPriceCny?: number | null
   lineTotalCny?: number | null
   partNo?: string | null
+  drawingNo?: string | null
   process?: string | null
   shipmentLog?: string | null
 }
@@ -4820,6 +4825,7 @@ export async function updateComponent(
     if (patch.unitPriceCny !== undefined) update.unit_price_cny = patch.unitPriceCny
     if (patch.lineTotalCny !== undefined) update.line_total_cny = patch.lineTotalCny
     if (patch.partNo !== undefined) update.part_no = patch.partNo
+    if (patch.drawingNo !== undefined) update.drawing_no = patch.drawingNo
     if (patch.shipmentLog !== undefined) update.shipment_log = patch.shipmentLog
     if (Object.keys(update).length === 0) return
     const { error } = await supabase.from('parts').update(update).eq('id', partId)
@@ -5218,6 +5224,7 @@ export async function fillParsedJob(jobId: string, input: NewJobInput): Promise<
         lineTotalCny: c.lineTotalCny,
         imageUrl: c.imageUrl,
         partNo: c.partNo,
+        drawingNo: c.drawingNo,
         process: c.process,
       })
       // Hard guarantee on initial seed: every fresh part starts with all 9
@@ -5631,6 +5638,7 @@ export type NewJobInput = {
     lineTotalCny?: number
     imageUrl?: string
     partNo?: string
+    drawingNo?: string
     process?: string
   }[]
 }
@@ -5678,6 +5686,7 @@ export async function createJob(input: NewJobInput): Promise<Job> {
         lineTotalCny: c.lineTotalCny,
         imageUrl: c.imageUrl,
         partNo: c.partNo,
+        drawingNo: c.drawingNo,
         process: c.process,
       })
       // Same all-9 invariant as fillParsedJob — see comment there.

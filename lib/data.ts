@@ -431,6 +431,8 @@ export type Component = {
   // 料号 — vendor/customer part number. Manual entry only (never AI-extracted).
   // Surfaced on the printed 出货单 / 外协单 when present.
   partNo?: string
+  // 客户图纸号 — stored independently from 货号 and used by matching/search.
+  drawingNo?: string
   // 加工工艺 — how this part is made (机加 / 3D打印 / 打印 …). AI-extracted
   // from the production order's 加工方式/工艺要求 columns; editable inline.
   // Informational — never drives the stage route automatically.

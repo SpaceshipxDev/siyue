@@ -35,6 +35,8 @@ import {
   StationReportAsync,
   StationReportFallback,
 } from './_station_report'
+import { CreateJobButton } from './_create_job_button'
+import { InlineJobCreator } from './_inline_job_creator'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,6 +62,7 @@ export default async function MasterBoard(
   // bare `/`), making the toggle un-clickable.
   const sp = await props.searchParams
   const rawStage = typeof sp?.stage === 'string' ? sp.stage : undefined
+  const openNewJob = sp?.new === '1'
 
   const stageFilter: Stage | undefined =
     rawStage && (STAGES as readonly string[]).includes(rawStage)
@@ -287,10 +290,11 @@ export default async function MasterBoard(
                 全部零件
               </h2>
               <p className="mt-1 text-[13px] text-[var(--color-ink-2)]">
-                编程拍照录入 · 工人拍照报工 · 点零件名进入详情
+                拍照录入 · 工人拍照报工 · 点零件名进入详情
               </p>
             </div>
             <div className="flex items-center gap-2">
+              {canEditProductionFields(user) ? <CreateJobButton /> : null}
               {pendingCount > 0 ? (
                 // The no-match valve's outbox: worker photos that matched
                 // nothing, waiting for the PMC to attach from her desk.
@@ -342,9 +346,8 @@ export default async function MasterBoard(
           </section>
         ) : null}
 
-        {/* No xlsx/manual order entry at Yingma — the programmer's photo
-            ingestion (/ingest) IS the input. MasterUploader/InboxList stay
-            out of the tree deliberately. */}
+        {/* The full spreadsheet importer stays out of this streamlined board.
+            Editors can create a blank job above, or use photo ingestion. */}
 
         {summaryStage && (
           <StationSummary
@@ -357,11 +360,16 @@ export default async function MasterBoard(
         )}
 
         {isComponentBoard ? (
-          <ComponentSheet
-            rows={boardRows}
-            canDeleteJobs={user.role === 'commerce'}
-            canEditRoutes={canEditProductionFields(user)}
-          />
+          <>
+            {canEditProductionFields(user) ? (
+              <InlineJobCreator defaultOpen={openNewJob} />
+            ) : null}
+            <ComponentSheet
+              rows={boardRows}
+              canDeleteJobs={user.role === 'commerce'}
+              canEditRoutes={canEditProductionFields(user)}
+            />
+          </>
         ) : useMasterSheet ? (
           // Rows are fetched client-side from /api/master/rows (see
           // _master_loaders) rather than serialized into this RSC payload —

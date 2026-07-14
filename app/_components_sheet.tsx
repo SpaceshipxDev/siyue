@@ -8,7 +8,7 @@ import { proxiedStorageUrl } from '@/lib/storage-url'
 import { mutate } from '@/lib/mutate'
 
 // The PMC's board — every live component as one row, read left to right the
-// way a part physically flows: 编程 → CNC OPs → 铣床 → 检验 → 出货. The 进度
+// way a part physically flows: OPs → 铣床 → 检验 → 出货. The 进度
 // column answers her one question ("这个单子现在在哪、做了多少、谁在做")
 // without walking the floor.
 
@@ -318,19 +318,9 @@ export function ComponentSheet({
                   {mdCn(r.dueDate)}
                 </td>
                 <td className="px-3 py-2.5">
-                  {/* The whole route in one read: 编程 → OPs → 铣床 → 检验 → 出货.
+                  {/* The whole route in one read: OPs → 铣床 → 检验 → 出货.
                       Exactly the stages this part carries, nothing else. */}
                   <div className="flex items-center gap-1.5 flex-nowrap">
-                    <span
-                      title={r.programmedBy ? `编程 · ${r.programmedBy}` : '等编程拍照录入'}
-                      className={`inline-flex items-center h-6 px-2 rounded-[3px] text-[11px] font-medium border ${
-                        r.programmed
-                          ? 'bg-[var(--color-success-soft)] text-[var(--color-success)] border-[var(--color-success)]'
-                          : 'text-[var(--color-ink-3)] border-[var(--color-border)]'
-                      }`}
-                    >
-                      编程{r.programmed ? ' ✓' : ''}
-                    </span>
                     {r.ops.map((c) => (
                       <Chip key={c.stage} chip={c} qty={r.qty} />
                     ))}
@@ -406,7 +396,7 @@ export function ComponentSheet({
                   colSpan={canDeleteJobs ? 10 : 9}
                   className="px-3 py-10 text-center text-[13px] text-[var(--color-ink-3)]"
                 >
-                  没有匹配的零件 — 编程拍照录入后会自动出现在这里
+                  没有匹配的零件 — 拍照录入后会自动出现在这里
                 </td>
               </tr>
             ) : null}
