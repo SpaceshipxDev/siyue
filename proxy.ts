@@ -41,7 +41,7 @@ import { isMobileUserAgent } from '@/lib/mobile'
 // '/api/unmatched-report' is the no-match valve — same trust model as
 // /api/match-photo (rate-limited inside the route; writes only an unresolved
 // review row for the PMC, never the part state machine).
-const PUBLIC_PATHS = ['/login', '/join', '/w', '/s', '/p', '/api/match-photo', '/api/unmatched-report', '/x/demo', '/api/leads']
+const PUBLIC_PATHS = ['/login', '/join', '/w', '/s', '/p', '/api/match-photo', '/api/unmatched-report', '/api/machines/ingest', '/x/demo', '/api/leads']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only
@@ -96,7 +96,17 @@ export async function proxy(request: NextRequest) {
       pathname.startsWith('/machine-kit/') ||
       pathname === '/api/lynuc' ||
       pathname.startsWith('/api/lynuc/'))
-  const isPublic = isLocalMachineKit || PUBLIC_PATHS.some(
+  const machineProxyKey = process.env.MACHINE_DASHBOARD_PROXY_KEY
+  const isTrustedMachineDashboard = Boolean(
+    machineProxyKey &&
+      machineProxyKey.length >= 24 &&
+      request.headers.get('x-yingma-machine-dashboard') === machineProxyKey &&
+      (pathname === '/machines' ||
+        pathname.startsWith('/machines/') ||
+        pathname === '/api/machines' ||
+        pathname.startsWith('/api/machines/')),
+  )
+  const isPublic = isLocalMachineKit || isTrustedMachineDashboard || PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   )
 

@@ -56,15 +56,22 @@ class DocumentDetector:
 
     def rectify(
         self, rgb: np.ndarray, width: int = 768, padding: float = 0.0,
-        max_area_ratio: float = 0.72,
+        max_area_ratio: float = 0.72, min_area_ratio: float = 0.18,
     ) -> np.ndarray | None:
         points = self.corners(rgb)
         if points is None:
             return None
         image_area = float(rgb.shape[0] * rgb.shape[1])
-        if abs(float(cv2.contourArea(points))) / max(image_area, 1.0) >= max_area_ratio:
+        area_ratio = abs(float(cv2.contourArea(points))) / max(image_area, 1.0)
+        if area_ratio >= max_area_ratio:
             # Already document-centred. Re-warping a nearly full-frame page adds
             # interpolation error and amplifies corner-regression noise.
+            return None
+        if area_ratio < min_area_ratio:
+            # A quad this small is either a corner-regression hallucination or
+            # a sheet too distant to match anyway. Warping it produces a
+            # garbage crop that poisons whatever consumes it (a real bank
+            # reference was destroyed this way), so keep the raw frame.
             return None
         # Slight outward padding prevents small corner-regression errors from
         # cutting off page content. SSCD tolerates a narrow background rim much

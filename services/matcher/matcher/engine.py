@@ -33,27 +33,31 @@ class MatcherEngine:
         self.gemini = GeminiEmbedder()
         self.lock = RLock()
 
-    def _prepare(self, image: bytes) -> np.ndarray:
-        item = preprocess(image, self.settings.max_side, False)
+    def _crop(self, rgb: np.ndarray, learned: bool) -> np.ndarray:
         if self.settings.learned_crop and self.detector.available:
             # The classical contour path is reliable only when the sheet truly
             # fills the frame. On wider scenes it can lock onto tables, screens,
             # or machinery; reserve those cases for the learned detector.
-            classical = document_crop(item.rgb)
+            classical = document_crop(rgb)
             if classical is not None:
                 area_ratio = classical.shape[0] * classical.shape[1] / max(
-                    item.rgb.shape[0] * item.rgb.shape[1], 1,
+                    rgb.shape[0] * rgb.shape[1], 1,
                 )
                 if area_ratio >= 0.55:
                     return resize_long_side(classical, self.settings.max_side)
-            rectified = self.detector.rectify(item.rgb)
-            if rectified is not None:
-                return rectified
+            if learned:
+                rectified = self.detector.rectify(rgb)
+                if rectified is not None:
+                    return rectified
         elif self.settings.doc_crop:
-            classical = document_crop(item.rgb)
+            classical = document_crop(rgb)
             if classical is not None:
                 return resize_long_side(classical, self.settings.max_side)
-        return item.rgb
+        return rgb
+
+    def _prepare(self, image: bytes, learned: bool = True) -> np.ndarray:
+        item = preprocess(image, self.settings.max_side, False)
+        return self._crop(item.rgb, learned)
 
     def register(self, image: bytes, page_id: str, component_id: str, kind: str) -> None:
         if not page_id.strip() or len(page_id) > 256:
@@ -62,7 +66,11 @@ class MatcherEngine:
             raise ValueError("component_id must be 1..256 characters")
         if kind not in {"front", "program", "drawing", "other"}:
             raise ValueError("kind must be front, program, drawing, or other")
-        rgb = self._prepare(image)
+        # References come from 录入 photos that frame the sheet deliberately.
+        # The learned rectify has warped such a photo into a useless center
+        # crop before (a hallucinated corner quad passes silently); the raw
+        # frame is always a safe reference, so never gamble at enrollment.
+        rgb = self._prepare(image, learned=False)
         with self.lock:
             embedding = self.embedder.embed(rgb)
             features = self.features.extract(rgb)
@@ -103,17 +111,66 @@ class MatcherEngine:
 
     def match(self, image: bytes) -> dict:
         started = time.perf_counter()
-        rgb = self._prepare(image)
+        item = preprocess(image, self.settings.max_side, False)
+        prepared = self._crop(item.rgb, learned=True)
+        response = self._match_rgb(prepared, started)
+        if response["decision"] == "no_match" and prepared is not item.rgb:
+            # The crop can lose the sheet (hallucinated corner quad, over-tight
+            # contour). One raw-frame retry costs ~a second, and only on the
+            # path that would otherwise end at the far slower OCR fallback.
+            retry = self._match_rgb(item.rgb, started)
+            if retry["decision"] != "no_match":
+                response = retry
+        if response["decision"] == "no_match" and self.gemini.available:
+            pages = self.bank.all()
+            gemini_pages = [page for page in pages if page.gemini_embedding is not None]
+            if gemini_pages:
+                try:
+                    query_gemini = self.gemini.embed(prepared).astype(np.float64)
+                    bank_gemini = np.stack([
+                        page.gemini_embedding for page in gemini_pages
+                    ]).astype(np.float64)
+                    gemini_scores = np.einsum("d,nd->n", query_gemini, bank_gemini)
+                    ranked = np.argsort(-gemini_scores)
+                    top = float(gemini_scores[ranked[0]])
+                    runner_up = float(gemini_scores[ranked[1]]) if len(ranked) > 1 else -1.0
+                    # An embedding ranks, it does not prove. Accept only when
+                    # the neighbour is both absolutely close and clearly ahead
+                    # of every other enrolled page; otherwise stay no_match so
+                    # the OCR fallback / review queue can take over.
+                    if (
+                        top >= self.settings.gemini_min_score
+                        and top - runner_up >= self.settings.gemini_min_margin
+                    ):
+                        page = gemini_pages[int(ranked[0])]
+                        fallback = Candidate(
+                            page.page_id, page.component_id, top, top, 0, 0.0, 0, 0.0, page.kind,
+                        )
+                        rescue = dict(response)
+                        rescue.update(
+                            decision="match",
+                            best=fallback.public(),
+                            candidates=[fallback.public()],
+                            latency_ms=round((time.perf_counter() - started) * 1000, 2),
+                        )
+                        rescue["via"] = "gemini_embedding_2"
+                        return rescue
+                except (httpx.HTTPError, RuntimeError, ValueError):
+                    pass
+        response["via"] = "local"
+        return response
+
+    def _match_rgb(self, rgb: np.ndarray, started: float) -> dict:
         rotations = rotate_quadrants(rgb)
         t0 = time.perf_counter()
         query_vectors = self.embedder.embed_rotations(rotations)
         embed_ms = (time.perf_counter() - t0) * 1000
 
         t0 = time.perf_counter()
-        # The bank may still contain program sheets enrolled by older app
-        # versions. Ignore them at query time so the policy applies immediately
-        # without requiring a destructive migration of the matcher data dir.
-        pages = [page for page in self.bank.all() if page.kind == "drawing"]
+        # Every enrolled view is a reference: paperwork, product shots,
+        # fixtures, labels, and any later photo attached to a job all compete
+        # in the same bank. `kind` remains descriptive metadata only.
+        pages = self.bank.all()
         if not pages:
             return self._response("no_match", None, [], started, embed_ms, 0.0, 0.0)
         bank_vectors = np.stack([page.embedding for page in pages])
@@ -170,7 +227,7 @@ class MatcherEngine:
             candidate = Candidate(
                 page.page_id, page.component_id, float(metrics["score"]), float(best_cosine[index]),
                 int(metrics["inliers"]), float(metrics["inlier_ratio"]), int(metrics["coverage"]),
-                float(metrics["edge_agreement"]),
+                float(metrics["edge_agreement"]), page.kind,
             )
             results.append(candidate)
         if wide_embedding_margin:
@@ -186,45 +243,19 @@ class MatcherEngine:
         best = accepted[0] if accepted else (results[0] if results else None)
         if accepted:
             decision = "match"
-            if len(accepted) > 1 and accepted[0].inliers == accepted[1].inliers:
-                relative_margin = abs(accepted[0].score - accepted[1].score) / max(accepted[0].score, 1e-9)
+            runner_up = next(
+                (
+                    candidate
+                    for candidate in accepted[1:]
+                    if candidate.component_id != accepted[0].component_id
+                ),
+                None,
+            )
+            if runner_up and accepted[0].inliers == runner_up.inliers:
+                relative_margin = abs(accepted[0].score - runner_up.score) / max(accepted[0].score, 1e-9)
                 if relative_margin < self.settings.ambiguous_score_margin:
                     decision = "ambiguous"
-        if decision == "no_match" and self.gemini.available:
-            gemini_pages = [page for page in pages if page.gemini_embedding is not None]
-            if gemini_pages:
-                try:
-                    query_gemini = self.gemini.embed(rgb).astype(np.float64)
-                    bank_gemini = np.stack([
-                        page.gemini_embedding for page in gemini_pages
-                    ]).astype(np.float64)
-                    gemini_scores = np.einsum("d,nd->n", query_gemini, bank_gemini)
-                    ranked = np.argsort(-gemini_scores)
-                    top = float(gemini_scores[ranked[0]])
-                    runner_up = float(gemini_scores[ranked[1]]) if len(ranked) > 1 else -1.0
-                    # An embedding ranks, it does not prove. Accept only when
-                    # the neighbour is both absolutely close and clearly ahead
-                    # of every other enrolled page; otherwise stay no_match so
-                    # the OCR fallback / review queue can take over.
-                    if (
-                        top >= self.settings.gemini_min_score
-                        and top - runner_up >= self.settings.gemini_min_margin
-                    ):
-                        page = gemini_pages[int(ranked[0])]
-                        fallback = Candidate(
-                            page.page_id, page.component_id, top, top, 0, 0.0, 0, 0.0,
-                        )
-                        response = self._response(
-                            "match", fallback, [fallback], started,
-                            embed_ms, shortlist_ms, verify_ms,
-                        )
-                        response["via"] = "gemini_embedding_2"
-                        return response
-                except (httpx.HTTPError, RuntimeError, ValueError):
-                    pass
-        response = self._response(decision, best, results[:5], started, embed_ms, shortlist_ms, verify_ms)
-        response["via"] = "local"
-        return response
+        return self._response(decision, best, results[:5], started, embed_ms, shortlist_ms, verify_ms)
 
     @staticmethod
     def _response(decision, best, candidates, started, embed_ms, shortlist_ms, verify_ms) -> dict:

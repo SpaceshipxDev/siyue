@@ -553,7 +553,7 @@ export async function readPhotoIdentity(image: {
             role: 'user',
             parts: [
               {
-                text: '这是车间里一张纸张的照片。先判断 kind：工程2D图纸为 drawing，《CNC程序单》为 program，其他为 other。然后只从2D图纸提取 partNo(货号，如 ZRY0056484)、drawingNo(图纸号，如 BSZ4255.04.01.01.09.021，带版本后缀则保留)、qty(蓝色印章手写数量)。如果 kind 不是 drawing，其他字段全部留 null。不要猜。',
+                text: '这是车间里一张纸张的照片。先判断 kind：工程2D图纸为 drawing，《CNC程序单》为 program，其他为 other。drawing：提取 partNo(货号，如 ZRY0056484)、drawingNo(图纸号，如 BSZ4255.04.01.01.09.021，带版本后缀则保留)、qty(蓝色印章手写数量)。program：表头为印刷体，drawingNo = 零件编号(如 BSZ4549.02.015-VA.1)，partNo = 模具编号(如 10114009)，qty 留 null。other：全部留 null。不要猜。',
               },
               { inlineData: { mimeType: image.mimeType, data: image.data } },
             ],

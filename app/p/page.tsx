@@ -3,11 +3,10 @@ import { cookies } from 'next/headers'
 import { BRAND } from '@/lib/brand'
 import { SESSION_COOKIE } from '@/lib/session'
 import { ScanClient } from './_client'
-import { WORKER_COOKIE, decodeWorker } from '../s/[token]/_worker'
+import { resolveActor } from '../s/[token]/_worker'
 import { MobileNav } from '../_mobile_nav'
 import { workerToday } from '@/lib/packets'
 import { TallyStrip } from '../s/[token]/_tally'
-import { currentUser } from '@/lib/auth'
 
 // 拍照报工 — the floor's front door, and the phone's default landing (the
 // proxy sends session-less mobile hits on / here). A worker takes one still
@@ -24,15 +23,9 @@ export const metadata: Metadata = {
 
 export default async function PhotoScanPage() {
   const jar = await cookies()
-  const sessionUser = await currentUser()
-  const rememberedWorker = decodeWorker(jar.get(WORKER_COOKIE)?.value)
-  // Existing sessions created before worker-cookie binding still need their
-  // tally immediately. A logged-in floor account is authoritative; the
-  // remembered public-scan name remains the fallback for session-less phones.
-  const workerName =
-    sessionUser?.role === 'production'
-      ? sessionUser.name
-      : rememberedWorker || undefined
+  // Same resolution as /s and scanReport: logged-in floor account first,
+  // remembered public-scan name as the session-less fallback.
+  const workerName = (await resolveActor()) || undefined
   const hasSession = Boolean(jar.get(SESSION_COOKIE)?.value)
   const tally = workerName ? await workerToday(workerName) : undefined
   return (

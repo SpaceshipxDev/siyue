@@ -4,7 +4,7 @@ export type MobileNavKey = 'scan' | 'history' | 'ingest'
 
 const ITEMS: { key: MobileNavKey; label: string; href: string }[] = [
   { key: 'scan', label: '报工', href: '/p' },
-  { key: 'history', label: '历史', href: '/orders' },
+  { key: 'history', label: '工单', href: '/orders' },
   { key: 'ingest', label: '录入', href: '/ingest' },
 ]
 

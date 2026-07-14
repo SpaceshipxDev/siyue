@@ -15,6 +15,8 @@ type Draft = {
   drawingNo: string
   qty: string
   stages: Stage[]
+  /** 铣床 (stage key 丝印) — the one optional non-OP stage in the route. */
+  milling: boolean
 }
 
 const INITIAL_STAGES = CNC_OP_STAGES.slice(0, 3)
@@ -28,6 +30,7 @@ function emptyDraft(): Draft {
     drawingNo: '',
     qty: '',
     stages: [...INITIAL_STAGES],
+    milling: false,
   }
 }
 
@@ -99,7 +102,7 @@ export function InlineJobCreator({ defaultOpen = false }: { defaultOpen?: boolea
           drawingNo: draft.drawingNo,
           qty: quantity,
           dueDate: draft.dueDate,
-          stages: draft.stages,
+          stages: [...draft.stages, ...(draft.milling ? (['丝印'] as Stage[]) : [])],
         }),
       })
       const result = (await response.json()) as {
@@ -240,6 +243,41 @@ export function InlineJobCreator({ defaultOpen = false }: { defaultOpen?: boolea
                       ＋ 添加工序
                     </button>
                   ) : null}
+                  {/* 铣床 is the one optional non-OP stage — same toggle
+                      gesture as the board's ＋ 铣床 chip. */}
+                  {draft.milling ? (
+                    <span className="inline-flex h-7 items-center overflow-hidden rounded-[3px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[11px] font-medium text-[var(--color-ink-2)]">
+                      <span className="pl-2.5 pr-1.5">铣床</span>
+                      <button
+                        type="button"
+                        onClick={() => setField('milling', false)}
+                        aria-label="删除 铣床"
+                        title="删除 铣床"
+                        className="flex h-full w-6 items-center justify-center text-[14px] text-[var(--color-ink-3)] transition-colors hover:bg-[var(--color-overdue-soft)] hover:text-[var(--color-overdue)]"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setField('milling', true)}
+                      className="h-7 rounded-[3px] border border-dashed border-[var(--color-border-strong)] px-2.5 text-[11px] text-[var(--color-ink-3)] transition-colors hover:border-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
+                    >
+                      ＋ 铣床
+                    </button>
+                  )}
+                  {/* 检验 and 出货 always close the route — shown so the row
+                      reads the full flow, not removable. */}
+                  {(['检验', '出货'] as const).map((fixed) => (
+                    <span
+                      key={fixed}
+                      title={`${fixed}为固定工序`}
+                      className="inline-flex h-7 items-center rounded-[3px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 text-[11px] font-medium text-[var(--color-ink-3)]"
+                    >
+                      {fixed}
+                    </span>
+                  ))}
                 </div>
               </td>
               <td className="h-[58px] px-3">

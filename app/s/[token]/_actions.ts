@@ -3,10 +3,15 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
-import { getPartScanView, reportPartScan } from '@/lib/db'
+import {
+  getPartScanView,
+  reportPartScan,
+  setInspectionVerdict,
+  setInspectionVerdictDetail,
+} from '@/lib/db'
 import { logReportEvent, upsertWorker } from '@/lib/packets'
-import { TRACKING_STAGES, type Stage } from '@/lib/data'
-import { WORKER_COOKIE, decodeWorker } from './_worker'
+import { TRACKING_STAGES, VERDICTS, type Stage, type Verdict } from '@/lib/data'
+import { WORKER_COOKIE, decodeWorker, resolveActor } from './_worker'
 
 // Scan-page server actions. No session: identity IS the traveller token,
 // re-verified inside reportPartScan on every call. The form may name a stage
@@ -47,12 +52,28 @@ export async function scanSetWorker(formData: FormData): Promise<void> {
 
 // 报工 — the count arrives prefilled with everything still open at the
 // selected stage; reportPartScan clamps and owns the state machine.
+// Every rejection redirects with ?err= so the page SAYS the report didn't
+// land — a silent bounce back to the same form reads as success on the
+// floor, and the pieces quietly never reach the board.
 export async function scanReport(formData: FormData): Promise<void> {
   const token = str(formData, 'token')
   const mode = str(formData, 'mode')
-  const jar = await cookies()
-  const actor = decodeWorker(jar.get(WORKER_COOKIE)?.value)
-  if (!actor) redirect(`/s/${token}`)
+  // Logged-in/cookie identity wins. On a fresh phone the quantity form also
+  // carries the worker's name, so first-time users can report in one submit
+  // instead of seeing a mysteriously empty selected OP.
+  const knownActor = await resolveActor()
+  const submittedActor = decodeWorker(str(formData, 'actor')).slice(0, 20)
+  const actor = knownActor || submittedActor
+  if (!actor) redirect(`/s/${token}?err=name`)
+  if (!knownActor) {
+    const jar = await cookies()
+    jar.set(WORKER_COOKIE, encodeURIComponent(actor), {
+      path: '/',
+      maxAge: 60 * 60 * 24 * 365,
+      sameSite: 'lax',
+    })
+    await upsertWorker(actor).catch(() => {})
+  }
 
   const stage = stageOf(str(formData, 'stage'))
   const view = await getPartScanView(token)
@@ -68,10 +89,10 @@ export async function scanReport(formData: FormData): Promise<void> {
   let doneNow = remaining
   if (mode === 'some') {
     const n = Number.parseInt(str(formData, 'qty'), 10)
-    if (!Number.isFinite(n) || n <= 0) redirect(`/s/${token}`)
+    if (!Number.isFinite(n) || n <= 0) redirect(`/s/${token}?err=qty`)
     doneNow = Math.min(n, remaining)
   }
-  if (doneNow <= 0) redirect(`/s/${token}`)
+  if (doneNow <= 0) redirect(`/s/${token}?err=qty`)
 
   const prevDone = current?.doneQty ?? 0
   const result = await reportPartScan(token, doneNow, actor, target)
@@ -79,7 +100,7 @@ export async function scanReport(formData: FormData): Promise<void> {
   // PMC's screen reflects the scan without a manual reload.
   revalidatePath('/')
   revalidatePath(`/jobs/${view!.jobId}`)
-  if (!result.ok) redirect(`/s/${token}`)
+  if (!result.ok) redirect(`/s/${token}?err=fail`)
   // Append-only history — part_stages only keeps the latest state, but the
   // job page's worker timeline and the daily tallies need every report.
   const applied = Math.max(0, (result.totalDone ?? prevDone + doneNow) - prevDone)
@@ -95,4 +116,46 @@ export async function scanReport(formData: FormData): Promise<void> {
     })
   }
   redirect(`/s/${token}?reported=${applied}`)
+}
+
+// 检验报工 — the inspector's phone gesture. Not a quantity report: the form
+// posts a VERDICT (合格 = OK finishes the stage; 重做/返修/外修 hold the part
+// at 检验 with a red tag) plus an optional 备注. Wired to the same
+// setInspectionVerdict state machine the desktop inspection modal uses —
+// last verdict wins, so a held part can be re-judged 合格 from the floor.
+export async function scanInspect(formData: FormData): Promise<void> {
+  const token = str(formData, 'token')
+  const actor = await resolveActor()
+  if (!actor) redirect(`/s/${token}?err=name`)
+
+  const raw = str(formData, 'verdict')
+  const verdict = (VERDICTS as string[]).includes(raw)
+    ? (raw as Verdict)
+    : undefined
+  if (!verdict) redirect(`/s/${token}?err=fail`)
+  const note = str(formData, 'note').slice(0, 200)
+
+  const view = await getPartScanView(token)
+  if (!view) redirect(`/s/${token}`)
+  const insp = view!.stages.find((s) => s.stage === '检验')
+  if (!insp || insp.status === 'done') redirect(`/s/${token}`)
+
+  try {
+    await setInspectionVerdict(view!.jobId, view!.componentId, verdict!, actor)
+    // 备注 rides the column the verdict owns: free text on a hold is the
+    // 不良原因 (why it bounced), on a 合格 release it's the passing 备注 —
+    // exactly how the desktop modal splits the same field.
+    if (note) {
+      await setInspectionVerdictDetail(
+        view!.jobId,
+        view!.componentId,
+        verdict === 'OK' ? { note } : { reason: note },
+      )
+    }
+  } catch {
+    redirect(`/s/${token}?err=fail`)
+  }
+  revalidatePath('/')
+  revalidatePath(`/jobs/${view!.jobId}`)
+  redirect(`/s/${token}?judged=${encodeURIComponent(verdict!)}`)
 }

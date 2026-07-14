@@ -1,4 +1,5 @@
 import 'server-only'
+import sharp from 'sharp'
 import { supabase, STORAGE_BUCKET } from './supabase'
 import { createJob, setPartRoute, ensurePartQrToken, setStageDoneQty } from './db'
 import { fallbackDueDate } from './gemini'
@@ -24,6 +25,15 @@ function rid(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`
 }
 
+function missingJobPhotosTable(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false
+  return (
+    error.code === '42P01' ||
+    error.code === 'PGRST205' ||
+    Boolean(error.message?.includes('job_photos'))
+  )
+}
+
 function componentIdOf(jobId: string, partId: string): string {
   return partId.startsWith(`${jobId}:`) ? partId.slice(jobId.length + 1) : partId
 }
@@ -32,6 +42,14 @@ function componentIdOf(jobId: string, partId: string): string {
 
 export function packetPageKey(packetId: string, idx: number, ext = 'jpg'): string {
   return `packets/${packetId}/p${idx}.${ext}`
+}
+
+function safeStorageSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, '_')
+}
+
+export function jobPhotoKey(jobId: string, photoId: string): string {
+  return `${safeStorageSegment(jobId)}/match-photos/${safeStorageSegment(photoId)}.jpg`
 }
 
 export async function uploadPacketPageImage(
@@ -57,6 +75,136 @@ export async function downloadPacketPage(key: string): Promise<Blob | undefined>
   const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(key)
   if (error) return undefined
   return data ?? undefined
+}
+
+export type JobPhotoRow = {
+  id: string
+  jobId: string
+  partId: string
+  storageKey: string
+  uploadedBy?: string
+  registered: boolean
+  createdAt?: string
+}
+
+function toJobPhoto(r: Record<string, unknown>): JobPhotoRow {
+  return {
+    id: String(r.id),
+    jobId: String(r.job_id),
+    partId: String(r.part_id),
+    storageKey: String(r.storage_key),
+    uploadedBy: (r.uploaded_by as string | null) ?? undefined,
+    registered: Boolean(r.registered),
+    createdAt: (r.created_at as string | null) ?? undefined,
+  }
+}
+
+/**
+ * Add an editor-supplied photo to an existing job. The caller supplies the
+ * selected part so matcher hits keep resolving to the same /s token and job.
+ */
+export async function createJobPhoto(input: {
+  jobId: string
+  partId: string
+  bytes: Uint8Array
+  contentType: string
+  uploadedBy: string
+}): Promise<JobPhotoRow> {
+  const { data: part, error: partError } = await supabase
+    .from('parts')
+    .select('id, job_id')
+    .eq('id', input.partId)
+    .eq('job_id', input.jobId)
+    .maybeSingle()
+  if (partError) throw partError
+  if (!part) throw new Error('工单或零件不存在')
+
+  const id = rid('jph')
+  const storageKey = jobPhotoKey(input.jobId, id)
+  await uploadPacketPageImage(storageKey, input.bytes, input.contentType)
+
+  const row = {
+    id,
+    job_id: input.jobId,
+    part_id: input.partId,
+    storage_key: storageKey,
+    uploaded_by: input.uploadedBy,
+    registered: false,
+  }
+  const { data, error } = await supabase.from('job_photos').insert(row).select('*').single()
+  if (error) {
+    await supabase.storage.from(STORAGE_BUCKET).remove([storageKey])
+    throw error
+  }
+  return toJobPhoto(data as Record<string, unknown>)
+}
+
+// Remove a user-added 匹配照片. Storage object first (best-effort — an orphaned
+// object is harmless), then the row. Packet pages have no delete path: they are
+// the immutable intake record. Returns the owning job/part for revalidation.
+export async function deleteJobPhoto(
+  photoId: string,
+): Promise<{ jobId: string; partId: string } | null> {
+  const { data, error } = await supabase
+    .from('job_photos')
+    .select('id, job_id, part_id, storage_key')
+    .eq('id', photoId)
+    .maybeSingle()
+  if (error) throw error
+  if (!data) return null
+
+  await supabase.storage.from(STORAGE_BUCKET).remove([String(data.storage_key)])
+  const { error: deleteError } = await supabase
+    .from('job_photos')
+    .delete()
+    .eq('id', photoId)
+  if (deleteError) throw deleteError
+  return { jobId: String(data.job_id), partId: String(data.part_id) }
+}
+
+// Rotate a 匹配照片 by a quarter turn (positive = clockwise) and re-encode it in
+// place. Bumps updated_at so proxiedKeyUrl's ?v= moves off the immutable cache.
+// Returns the fresh bytes so the caller can re-enroll the matcher on the
+// corrected orientation.
+export async function rotateJobPhoto(
+  photoId: string,
+  quarterTurns: number,
+): Promise<{
+  jobId: string
+  partId: string
+  bytes: Uint8Array
+  contentType: string
+} | null> {
+  const { data, error } = await supabase
+    .from('job_photos')
+    .select('id, job_id, part_id, storage_key')
+    .eq('id', photoId)
+    .maybeSingle()
+  if (error) throw error
+  if (!data) return null
+
+  const storageKey = String(data.storage_key)
+  const blob = await downloadPacketPage(storageKey)
+  if (!blob) throw new Error('照片文件不存在')
+
+  const angle = ((((quarterTurns % 4) + 4) % 4) * 90)
+  const input = Buffer.from(await blob.arrayBuffer())
+  const rotated = await sharp(input).rotate(angle).jpeg({ quality: 88 }).toBuffer()
+  const bytes = new Uint8Array(rotated)
+
+  await uploadPacketPageImage(storageKey, bytes, 'image/jpeg')
+  const { error: updateError } = await supabase
+    .from('job_photos')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', photoId)
+  if (updateError) throw updateError
+
+  return {
+    jobId: String(data.job_id),
+    partId: String(data.part_id),
+    bytes,
+    contentType: 'image/jpeg',
+  }
 }
 
 // ---------- packet → component ----------
@@ -364,11 +512,14 @@ export async function findActivePartsByIdentity(read: {
     .select('id, job_id, part_no, drawing_no')
     .in('job_id', openJobs)
 
-  const qPart = read.partNo ? normalizeId(read.partNo) : ''
+  // Generic part labels ("A板" → "A" after normalization) carry no identity;
+  // a 1–2 char query would ride the prefix rule onto unrelated numbers.
+  const usable = (s: string) => (s.length >= 3 ? s : '')
+  const qPart = usable(read.partNo ? normalizeId(read.partNo) : '')
   // Version suffix (-VA.1) is often cropped/misread — compare without it.
-  const qDraw = read.drawingNo
-    ? normalizeId(read.drawingNo.replace(/-?VA\.?\d*$/i, ''))
-    : ''
+  const qDraw = usable(
+    read.drawingNo ? normalizeId(read.drawingNo.replace(/-?VA\.?\d*$/i, '')) : '',
+  )
 
   const scored: { id: string; score: number }[] = []
   for (const p of parts ?? []) {
@@ -392,15 +543,27 @@ export async function findActivePartsByIdentity(read: {
         else if (dn.startsWith(qDraw) || qDraw.startsWith(dn)) score = Math.max(score, 70)
       }
     }
+    // Cross-field, exact only: a 程序单's 模具编号 (read as partNo) is often
+    // what 录入 stored as drawing_no (e.g. 10092658), and vice versa.
+    if (score < 95 && qPart && dn && dn === qPart) score = Math.max(score, 95)
+    if (score < 95 && qDraw && pn && pn === qDraw) score = Math.max(score, 95)
     if (score > 0) scored.push({ id: p.id as string, score })
   }
   if (scored.length === 0) return []
   scored.sort((a, b) => b.score - a.score)
   // Keep everything within one tier of the best — repeat orders of the same
-  // drawing all tie at the top and surface as an ambiguous picker.
+  // drawing all tie at the top and surface as an ambiguous picker. But an
+  // exact identity hit outranks fuzzy near-misses entirely: sibling drawings
+  // legitimately differ by one digit (BSZ4550.07.003 vs .023), so a fuzzy
+  // candidate next to an exact one is a different part, not an OCR variant.
   const best = scored[0].score
-  const keep = scored.filter((s) => best - s.score <= 10).slice(0, 4)
-  return partFacts(keep.map((s) => s.id))
+  const band = best >= 95 ? 0 : 10
+  const keep = scored.filter((s) => best - s.score <= band).slice(0, 4)
+  const facts = await partFacts(keep.map((s) => s.id))
+  const rank = new Map(keep.map((s, i) => [s.id, i]))
+  return facts.sort(
+    (a, b) => (rank.get(a.partId) ?? keep.length) - (rank.get(b.partId) ?? keep.length),
+  )
 }
 
 // ---------- packet pages (registration sweep) ----------
@@ -414,6 +577,8 @@ export type PacketPageRow = {
   opNo?: number
   storageKey: string
   registered: boolean
+  source: 'packet' | 'job_photo'
+  createdAt?: string
 }
 
 function toPage(r: Record<string, unknown>): PacketPageRow {
@@ -426,24 +591,53 @@ function toPage(r: Record<string, unknown>): PacketPageRow {
     opNo: r.op_no != null ? Number(r.op_no) : undefined,
     storageKey: r.storage_key as string,
     registered: Boolean(r.registered),
+    source: 'packet',
+    createdAt: (r.created_at as string | null) ?? undefined,
   }
 }
 
 export async function listUnregisteredPages(limit = 50): Promise<PacketPageRow[]> {
-  const { data, error } = await supabase
-    .from('packet_pages')
-    .select('*')
-    .eq('registered', false)
-    .eq('kind', 'drawing')
-    .order('created_at', { ascending: true })
-    .limit(limit)
-  if (error) throw error
-  return (data ?? []).map(toPage)
+  const [packetResult, photoResult] = await Promise.all([
+    supabase
+      .from('packet_pages')
+      .select('*')
+      .eq('registered', false)
+      .order('created_at', { ascending: true })
+      .limit(limit),
+    supabase
+      .from('job_photos')
+      .select('*')
+      .eq('registered', false)
+      .order('created_at', { ascending: true })
+      .limit(limit),
+  ])
+  if (packetResult.error) throw packetResult.error
+  if (photoResult.error && !missingJobPhotosTable(photoResult.error)) {
+    throw photoResult.error
+  }
+  const packetPages = (packetResult.data ?? []).map(toPage)
+  const jobPhotos: PacketPageRow[] = (photoResult.data ?? []).map((row) => ({
+    id: String(row.id),
+    packetId: '',
+    partId: String(row.part_id),
+    idx: 0,
+    kind: 'other',
+    storageKey: String(row.storage_key),
+    registered: Boolean(row.registered),
+    source: 'job_photo',
+    createdAt: (row.created_at as string | null) ?? undefined,
+  }))
+  return [...packetPages, ...jobPhotos]
+    .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))
+    .slice(0, limit)
 }
 
-export async function markPageRegistered(pageId: string): Promise<void> {
+export async function markPageRegistered(
+  pageId: string,
+  source: PacketPageRow['source'] = 'packet',
+): Promise<void> {
   const { error } = await supabase
-    .from('packet_pages')
+    .from(source === 'job_photo' ? 'job_photos' : 'packet_pages')
     .update({ registered: true })
     .eq('id', pageId)
   if (error) throw error
@@ -588,6 +782,17 @@ export type BoardStageChip = {
 export type BoardSourceImage = {
   url: string
   label: string
+  /** Present only for user-added 匹配照片 (job_photos). Immutable packet pages
+   *  and the imported 零件图 leave it undefined — they can't be rotated/deleted. */
+  photoId?: string
+}
+
+// A rotated job photo overwrites the same storage_key, so the ?v= must move or
+// the immutable /api/img cache keeps serving the old orientation. updated_at is
+// the version source; falls back to a constant when the column predates 0090.
+function jobPhotoVersion(updatedAt: unknown): string {
+  const parsed = updatedAt ? Date.parse(String(updatedAt)) : NaN
+  return Number.isFinite(parsed) ? parsed.toString(36) : 'jobphoto'
 }
 
 export type JobSourceImageGroup = {
@@ -614,11 +819,22 @@ export async function jobSourceImageGroups(
   const partIds = (parts ?? []).map((part) => part.id as string)
   if (partIds.length === 0) return []
 
-  const { data: pages, error: pageError } = await supabase
-    .from('packet_pages')
-    .select('part_id, idx, kind, op_no, storage_key')
-    .in('part_id', partIds)
+  const [pageResult, photoResult] = await Promise.all([
+    supabase
+      .from('packet_pages')
+      .select('part_id, idx, kind, op_no, storage_key')
+      .in('part_id', partIds),
+    supabase
+      .from('job_photos')
+      .select('id, part_id, storage_key, created_at, updated_at')
+      .in('part_id', partIds)
+      .order('created_at', { ascending: true }),
+  ])
+  const { data: pages, error: pageError } = pageResult
   if (pageError) throw pageError
+  if (photoResult.error && !missingJobPhotosTable(photoResult.error)) {
+    throw photoResult.error
+  }
 
   const pagesByPart = new Map<string, Record<string, unknown>[]>()
   for (const page of pages ?? []) {
@@ -650,6 +866,17 @@ export async function jobSourceImageGroups(
     )
     const referenceUrl = (part.image_url as string | null) ?? undefined
     if (referenceUrl) images.push({ url: referenceUrl, label: '零件图' })
+    for (const photo of photoResult.data ?? []) {
+      if (photo.part_id !== partId) continue
+      images.push({
+        url: proxiedKeyUrl(
+          String(photo.storage_key),
+          jobPhotoVersion(photo.updated_at),
+        ),
+        label: '匹配照片',
+        photoId: String(photo.id),
+      })
+    }
     if (images.length === 0) return []
     return [
       {
@@ -715,11 +942,13 @@ export async function componentBoardRows(): Promise<ComponentBoardRow[]> {
   const stageRows: Record<string, unknown>[] = []
   const packetRows: Record<string, unknown>[] = []
   const pageRows: Record<string, unknown>[] = []
+  const jobPhotoRows: Record<string, unknown>[] = []
   for (const ids of chunk(partIds, 200)) {
     const [
       { data: st, error: serr },
       { data: pk, error: pkerr },
       { data: pg, error: pgerr },
+      { data: jp, error: jperr },
     ] = await Promise.all([
       supabase
         .from('part_stages')
@@ -730,13 +959,19 @@ export async function componentBoardRows(): Promise<ComponentBoardRow[]> {
         .from('packet_pages')
         .select('part_id, idx, kind, op_no, storage_key')
         .in('part_id', ids),
+      supabase
+        .from('job_photos')
+        .select('part_id, storage_key, created_at')
+        .in('part_id', ids),
     ])
     if (serr) throw serr
     if (pkerr) throw pkerr
     if (pgerr) throw pgerr
+    if (jperr && !missingJobPhotosTable(jperr)) throw jperr
     stageRows.push(...(st ?? []))
     packetRows.push(...(pk ?? []))
     pageRows.push(...(pg ?? []))
+    jobPhotoRows.push(...(jp ?? []))
   }
 
   // Latest 报工 per part in one sweep (bounded window — the board only needs
@@ -778,6 +1013,18 @@ export async function componentBoardRows(): Promise<ComponentBoardRow[]> {
   }
   for (const list of pagesByPart.values()) {
     list.sort((a, b) => Number(a.idx ?? 0) - Number(b.idx ?? 0))
+  }
+  const jobPhotosByPart = new Map<string, Record<string, unknown>[]>()
+  for (const r of jobPhotoRows) {
+    const pid = r.part_id as string
+    const list = jobPhotosByPart.get(pid) ?? []
+    list.push(r)
+    jobPhotosByPart.set(pid, list)
+  }
+  for (const list of jobPhotosByPart.values()) {
+    list.sort((a, b) =>
+      String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')),
+    )
   }
 
   const chipOf = (partQty: number, stage: Stage, r?: Record<string, unknown>): BoardStageChip | undefined => {
@@ -832,6 +1079,12 @@ export async function componentBoardRows(): Promise<ComponentBoardRow[]> {
     const referenceImageUrl = (p.image_url as string | null) ?? undefined
     if (referenceImageUrl) {
       sourceImages.push({ url: referenceImageUrl, label: '零件图' })
+    }
+    for (const photo of jobPhotosByPart.get(pid) ?? []) {
+      sourceImages.push({
+        url: proxiedKeyUrl(String(photo.storage_key), 'source'),
+        label: '匹配照片',
+      })
     }
     return {
       jobId,

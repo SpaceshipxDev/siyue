@@ -1,0 +1,77 @@
+{
+  "endpoint": "http://127.0.0.1:3010/api/machines/ingest",
+  "token": "test-token-at-least-24-characters",
+  "watcherId": "autodiscovery-test",
+  "pollSeconds": 5,
+  "workTimeZoneId": "Asia/Shanghai",
+  "machines": [
+    {
+      "id": "lynuc-auto-test",
+      "name": "LYNUC AUTO TEST",
+      "ip": "127.0.0.1",
+      "runtime": {
+        "port": 15020,
+        "unitId": 1,
+        "verified": true,
+        "autoDiscovered": true,
+        "deepDiscovered": true,
+        "profile": "deep/packed/unit=1/fn=3/base=116/words=high-low/bytes=little",
+        "fields": {
+          "currentCycleMs": {
+            "address": 116,
+            "functionCode": 3,
+            "dataType": "float64",
+            "wordOrder": "high-low",
+            "byteOrder": "little",
+            "macroNumber": 33564
+          },
+          "currentCuttingMs": {
+            "address": 120,
+            "functionCode": 3,
+            "dataType": "float64",
+            "wordOrder": "high-low",
+            "byteOrder": "little",
+            "macroNumber": 33565
+          },
+          "controllerBootCycleMs": {
+            "address": 124,
+            "functionCode": 3,
+            "dataType": "float64",
+            "wordOrder": "high-low",
+            "byteOrder": "little",
+            "macroNumber": 33868
+          },
+          "completedParts": {
+            "address": 128,
+            "functionCode": 3,
+            "dataType": "int32",
+            "wordOrder": "high-low",
+            "byteOrder": "little",
+            "macroNumber": 33869
+          },
+          "totalCompletedParts": {
+            "address": 130,
+            "functionCode": 3,
+            "dataType": "int32",
+            "wordOrder": "high-low",
+            "byteOrder": "little",
+            "macroNumber": 33870
+          },
+          "targetParts": {
+            "address": 132,
+            "functionCode": 3,
+            "dataType": "int32",
+            "wordOrder": "high-low",
+            "byteOrder": "little",
+            "macroNumber": 33871
+          }
+        }
+      }
+    }
+  ],
+  "ftpTimeZoneId": "UTC",
+  "camTimeZoneId": "China Standard Time",
+  "minMainProgramBytes": 50000,
+  "maxProgramReadBytes": 524288,
+  "activeWindowMinutes": 5
+}

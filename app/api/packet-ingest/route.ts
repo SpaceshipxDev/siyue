@@ -182,12 +182,12 @@ export async function POST(req: Request): Promise<Response> {
       completedStage: draft.completedStage,
     })
 
-    // Matcher registration stays best-effort. Only drawings can identify a
-    // part; program sheets remain attached source material.
+    // Matcher registration stays best-effort. Every uploaded photo becomes a
+    // valid reference for this part; later photos can match drawings, program
+    // sheets, labels, products, fixtures, or any other enrolled view.
     await Promise.all(
       result.pageIds.map(async (pageId, index) => {
-        const kind = draft.pages.find((page) => page.index === index)?.kind
-        if (kind !== 'drawing') return
+        const kind = draft.pages.find((page) => page.index === index)?.kind ?? 'other'
         const ok = await registerPage({
           pageId,
           partId: result.partId,

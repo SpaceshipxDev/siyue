@@ -89,7 +89,7 @@ export async function sweepRegistrations(max = 10): Promise<void> {
       bytes,
       contentType: blob.type || 'image/jpeg',
     })
-    if (ok) await markPageRegistered(page.id)
+    if (ok) await markPageRegistered(page.id, page.source)
   }
 }
 
@@ -99,6 +99,7 @@ type MatcherCandidate = {
   score: number
   cosine?: number
   inliers?: number
+  kind?: string
 }
 
 type MatcherResponse = {
@@ -106,6 +107,7 @@ type MatcherResponse = {
   best?: MatcherCandidate
   candidates?: MatcherCandidate[]
   latency_ms?: number
+  stages?: { embed_ms?: number; shortlist_ms?: number; verify_ms?: number }
 }
 
 export type PhotoMatchCandidate = PartFacts & { token?: string }
@@ -122,16 +124,15 @@ async function withTokens(facts: PartFacts[]): Promise<PhotoMatchCandidate[]> {
 }
 
 async function ocrFallback(
-  bytes: Uint8Array,
-  contentType: string,
+  pendingRead: Promise<Awaited<ReturnType<typeof readPhotoIdentity>> | null>,
   started: number,
 ): Promise<PhotoMatchResult> {
   try {
-    const read = await readPhotoIdentity({
-      mimeType: contentType,
-      data: Buffer.from(bytes).toString('base64'),
-    })
-    if (read.kind !== 'drawing') {
+    const read = await pendingRead
+    if (!read) {
+      return { decision: 'no_match', via: 'none', latencyMs: Date.now() - started }
+    }
+    if (read.kind !== 'drawing' && read.kind !== 'program') {
       return { decision: 'no_match', via: 'ocr', latencyMs: Date.now() - started }
     }
     if (!read.partNo && !read.drawingNo) {
@@ -164,6 +165,22 @@ async function ocrFallback(
   }
 }
 
+function logMatch(result: PhotoMatchResult, matcher: MatcherResponse | undefined): PhotoMatchResult {
+  console.log(
+    '[match-photo]',
+    JSON.stringify({
+      decision: result.decision,
+      via: result.via,
+      latencyMs: result.latencyMs,
+      matcherMs: matcher?.latency_ms,
+      stages: matcher?.stages,
+      bestCosine: matcher?.best?.cosine,
+      bestInliers: matcher?.best?.inliers,
+    }),
+  )
+  return result
+}
+
 // The floor's one question: "which part is this sheet of paper?"
 // Matcher first (fast, geometric proof); OCR identity read as the fallback.
 export async function matchPhoto(
@@ -171,6 +188,13 @@ export async function matchPhoto(
   contentType: string,
 ): Promise<PhotoMatchResult> {
   const started = Date.now()
+  // Fire the Gemini identity read alongside the matcher rather than after it:
+  // a geometric match discards the read (one cheap flash-lite call), but a
+  // miss now pays max(matcher, ocr) instead of matcher + ocr.
+  const pendingRead = readPhotoIdentity({
+    mimeType: contentType,
+    data: Buffer.from(bytes).toString('base64'),
+  }).catch(() => null)
   let matcher: MatcherResponse | undefined
   try {
     const fd = new FormData()
@@ -181,18 +205,34 @@ export async function matchPhoto(
     matcher = undefined
   }
 
+  // Program sheets (程序单) share one printed template — geometric consensus
+  // lands on the form grid, not the part. Observed live: 100 inliers against
+  // a component whose 程序单 was never enrolled. For program-kind evidence
+  // the printed header (零件编号/模具编号) IS the identity; the already-
+  // in-flight OCR read decides, and geometry is at most a tiebreaker.
+  if (matcher && matcher.decision !== 'no_match') {
+    const top = matcher.best ?? matcher.candidates?.[0]
+    if (top?.kind === 'program') {
+      const viaOcr = await ocrFallback(pendingRead, started)
+      return logMatch(viaOcr, matcher)
+    }
+  }
+
   if (matcher?.decision === 'match' && matcher.best) {
     const facts = await partFacts([matcher.best.component_id])
     if (facts.length === 1) {
       const [cand] = await withTokens(facts)
       if (cand.token) {
-        return {
-          decision: 'match',
-          token: cand.token,
-          part: cand,
-          via: 'matcher',
-          latencyMs: Date.now() - started,
-        }
+        return logMatch(
+          {
+            decision: 'match',
+            token: cand.token,
+            part: cand,
+            via: 'matcher',
+            latencyMs: Date.now() - started,
+          },
+          matcher,
+        )
       }
     }
   }
@@ -201,15 +241,18 @@ export async function matchPhoto(
     const ids = [...new Set(matcher.candidates.map((c) => c.component_id))].slice(0, 4)
     const facts = await partFacts(ids)
     if (facts.length > 0) {
-      return {
-        decision: 'ambiguous',
-        candidates: await withTokens(facts),
-        via: 'matcher',
-        latencyMs: Date.now() - started,
-      }
+      return logMatch(
+        {
+          decision: 'ambiguous',
+          candidates: await withTokens(facts),
+          via: 'matcher',
+          latencyMs: Date.now() - started,
+        },
+        matcher,
+      )
     }
   }
 
   // no_match / matcher down / dangling component ids → OCR identity read.
-  return ocrFallback(bytes, contentType, started)
+  return logMatch(await ocrFallback(pendingRead, started), matcher)
 }

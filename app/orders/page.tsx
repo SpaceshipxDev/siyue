@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { requireUser } from '@/lib/auth'
+import { canEditProductionFields, requireUser } from '@/lib/auth'
 import { BRAND } from '@/lib/brand'
 import { componentBoardRows } from '@/lib/packets'
 import { MobileNav } from '../_mobile_nav'
@@ -20,9 +20,8 @@ export default async function OrdersPage() {
         <span className="text-[13px] font-semibold">工单记录</span>
         <span className="text-[11px] text-[var(--color-ink-2)]">{user.name}</span>
       </header>
-      <MobileOrders rows={rows} />
+      <MobileOrders rows={rows} canManageJobs={canEditProductionFields(user)} />
       <MobileNav current="history" authenticated />
     </main>
   )
 }
-

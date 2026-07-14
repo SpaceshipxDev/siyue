@@ -13,6 +13,10 @@ class Candidate:
     inlier_ratio: float
     coverage: int
     edge_agreement: float
+    # Reference page kind ("drawing" / "program" / …). Program sheets share a
+    # printed template, so a geometric match against one is weak identity
+    # evidence — callers gate on this.
+    kind: str = "other"
 
     def public(self) -> dict:
         value = asdict(self)

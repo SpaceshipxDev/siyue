@@ -46,7 +46,12 @@ export async function POST(request: Request) {
   const dueDate = text(body.dueDate, 10)
   const qty = Number(body.qty)
   const requestedStages = Array.isArray(body.stages) ? body.stages : []
-  const stages = CNC_OP_STAGES.filter((stage) => requestedStages.includes(stage))
+  // OPs in canonical order, then the optional 铣床 (stage key 丝印); the
+  // route below always closes with 检验 → 出货.
+  const stages: Stage[] = [
+    ...CNC_OP_STAGES.filter((stage) => requestedStages.includes(stage)),
+    ...(requestedStages.includes('丝印') ? (['丝印'] as Stage[]) : []),
+  ]
 
   if (!customer) {
     return Response.json({ ok: false, error: '请填写客户名称' }, { status: 400 })
@@ -84,7 +89,7 @@ export async function POST(request: Request) {
     jobId = job.id
 
     const route = await setPartRoute(job.id, job.components[0].id, [
-      ...(stages as Stage[]),
+      ...stages,
       '检验',
       '出货',
     ])

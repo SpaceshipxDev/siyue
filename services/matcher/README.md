@@ -1,6 +1,10 @@
 # Yingma Page Matcher
 
-Production-oriented physical-sheet copy detection for photographed factory paperwork. The matcher deliberately combines global retrieval with local geometric proof: visually similar forms are shortlisted cheaply, but no page is accepted from semantic or layout similarity alone.
+Production-oriented visual matching for job photos. Drawings, program sheets,
+labels, product views, fixtures, and later phone photos can all be enrolled as
+references. The matcher combines global retrieval with local geometric proof:
+visually similar images are shortlisted cheaply, but no reference is accepted
+from semantic or layout similarity alone.
 
 ## Reproduce
 

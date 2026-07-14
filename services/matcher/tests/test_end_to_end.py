@@ -18,7 +18,9 @@ def test_register_and_match_real_photo(tmp_path: Path) -> None:
         pytest.skip("run ./run.sh setup to download models")
     engine = MatcherEngine(Settings(data_dir=tmp_path / "data", model_dir=ROOT / "models"))
     path = ROOT / "testdata" / "real" / "IMG_7293.jpeg"
-    engine.register(path.read_bytes(), "img_7293", "component-7293", "drawing")
+    # Matching is kind-agnostic: an arbitrary job photo enrolled as `other`
+    # must be searchable just like a drawing or program sheet.
+    engine.register(path.read_bytes(), "img_7293", "component-7293", "other")
     source = decode_image(path.read_bytes())
     query = jpeg_bytes(augment_image(source, np.random.default_rng(83)))
     result = engine.match(query)

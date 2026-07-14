@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react'
 import type { Stage } from '@/lib/data'
 import { withBase } from '@/lib/base-path'
 import { downscaleToJpeg } from '../_camera'
+import { DatePop } from '../_datepop'
 
 type Shot = { blob: Blob; url: string }
 type PacketPage = {
@@ -126,7 +127,7 @@ function Field({
   label: string
   value: string
   onChange: (value: string) => void
-  type?: 'text' | 'number' | 'date'
+  type?: 'text' | 'number'
   inputMode?: 'text' | 'numeric'
   placeholder?: string
   required?: boolean
@@ -151,6 +152,47 @@ function Field({
         className="h-12 w-full rounded-[7px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3.5 text-[15px] text-[var(--color-ink)] outline-none transition focus:border-[var(--color-ink)] focus:ring-2 focus:ring-[var(--color-ink)]/10"
       />
     </label>
+  )
+}
+
+function dueDateCn(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+  if (!y || !m || !d) return iso
+  return `${y}年${m}月${d}日`
+}
+
+// 交期 — DatePop instead of a native <input type="date">, whose display format
+// follows the OS locale (English on many floor phones). Same box chrome as
+// Field so it sits flush in the review grid.
+function DueDateField({
+  value,
+  onChange,
+  hint,
+}: {
+  value: string
+  onChange: (value: string) => void
+  hint?: string
+}) {
+  return (
+    <div className="min-w-0">
+      <span className="mb-1.5 flex items-center justify-between gap-2 text-[11px] font-medium tracking-wide text-[var(--color-ink-2)]">
+        <span>
+          交期
+          <span className="ml-0.5 text-[var(--color-overdue)]">*</span>
+        </span>
+        {hint ? <span className="font-normal text-[var(--color-ink-4)]">{hint}</span> : null}
+      </span>
+      <div className="flex h-12 w-full items-center rounded-[7px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 transition focus-within:border-[var(--color-ink)] focus-within:ring-2 focus-within:ring-[var(--color-ink)]/10">
+        <DatePop
+          value={value}
+          onChange={onChange}
+          formatLabel={dueDateCn}
+          hideIcon
+          className="h-full w-full"
+          triggerClass="h-full w-full whitespace-nowrap text-[15px]"
+        />
+      </div>
+    </div>
   )
 }
 
@@ -421,16 +463,13 @@ export function IngestClient() {
                 inputMode="numeric"
                 required
               />
-              <Field
-                label="交期"
+              <DueDateField
                 value={draft.dueDate}
                 onChange={(value) => {
                   updateDraft('dueDate', value)
                   setDueDateEstimated(false)
                 }}
-                type="date"
                 hint={dueDateEstimated ? '未识别 · 已估算' : undefined}
-                required
               />
               <Field
                 label="材料"

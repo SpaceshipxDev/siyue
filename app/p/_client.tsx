@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { withBase } from '@/lib/base-path'
 import { downscaleToJpeg } from '../_camera'
 
@@ -26,15 +26,14 @@ function mdCn(value?: string) {
   return `${Number(month)}月${Number(day)}日`
 }
 
-// The camera is the page: open directly into a live viewfinder, then one tap
-// captures a still and starts matching. The file input is only a compatibility
-// fallback for older embedded browsers without getUserMedia.
+// One button, the phone's own camera. The native camera app focuses,
+// stabilizes, and multi-frame-fuses the still — a getUserMedia video frame
+// grab does none of that, and blurry input sinks both the matcher and the
+// OCR fallback. The gallery input covers photos taken earlier.
 export function ScanClient({ workerName }: { workerName?: string }) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const cameraRequestRef = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
-  const [phase, setPhase] = useState<'boot' | 'live' | 'busy' | 'fallback' | 'pick' | 'miss' | 'valve' | 'sent'>('boot')
+  const galleryRef = useRef<HTMLInputElement>(null)
+  const [phase, setPhase] = useState<'idle' | 'busy' | 'pick' | 'miss' | 'valve' | 'sent'>('idle')
   const [photo, setPhoto] = useState<Blob | null>(null)
   const [preview, setPreview] = useState<string>()
   const [candidates, setCandidates] = useState<Candidate[]>([])
@@ -52,61 +51,20 @@ export function ScanClient({ workerName }: { workerName?: string }) {
     setError(undefined)
   }, [])
 
-  const stopCamera = useCallback(() => {
-    cameraRequestRef.current += 1
-    streamRef.current?.getTracks().forEach((track) => track.stop())
-    streamRef.current = null
-  }, [])
-
-  const startCamera = useCallback(async () => {
+  // Must stay synchronous inside the tap handler — browsers only honor
+  // programmatic input clicks within a user gesture.
+  function openCamera() {
     clearPhoto()
-    stopCamera()
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setPhase('fallback')
-      return
-    }
-    setPhase('boot')
-    const requestId = cameraRequestRef.current
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1920 },
-          height: { ideal: 1440 },
-        },
-        audio: false,
-      })
-      if (requestId !== cameraRequestRef.current) {
-        stream.getTracks().forEach((track) => track.stop())
-        return
-      }
-      streamRef.current = stream
-      setPhase('live')
-    } catch {
-      setPhase('fallback')
-    }
-  }, [clearPhoto, stopCamera])
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => void startCamera(), 0)
-    return () => {
-      window.clearTimeout(timer)
-      stopCamera()
-    }
-  }, [startCamera, stopCamera])
-
-  useEffect(() => {
-    if (phase !== 'live' || !videoRef.current || !streamRef.current) return
-    videoRef.current.srcObject = streamRef.current
-    void videoRef.current.play().catch(() => {})
-  }, [phase])
+    setPhase('idle')
+    inputRef.current?.click()
+  }
 
   async function match(blob: Blob) {
     setPhase('busy')
     setError(undefined)
     try {
       const body = new FormData()
-      body.append('image', blob, 'drawing.jpg')
+      body.append('image', blob, 'job-photo.jpg')
       const response = await fetch(withBase('/api/match-photo'), { method: 'POST', body })
       if (!response.ok) throw new Error()
       const result = (await response.json()) as MatchJson
@@ -128,30 +86,11 @@ export function ScanClient({ workerName }: { workerName?: string }) {
     }
   }
 
-  function snap() {
-    const video = videoRef.current
-    if (!video || video.readyState < 2 || video.videoWidth === 0) return
-    const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight))
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.round(video.videoWidth * scale)
-    canvas.height = Math.round(video.videoHeight * scale)
-    canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height)
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        setError('照片读取失败，请重拍')
-        return
-      }
-      stopCamera()
-      setPhoto(blob)
-      setPreview(URL.createObjectURL(blob))
-      void match(blob)
-    }, 'image/jpeg', 0.8)
-  }
-
-  async function onPick(files: FileList | null) {
-    const file = files?.[0]
-    if (inputRef.current) inputRef.current.value = ''
+  async function onPick(input: HTMLInputElement) {
+    const file = input.files?.[0]
+    input.value = ''
     if (!file) return
+    clearPhoto()
     try {
       const blob = await downscaleToJpeg(file, 1600, 0.8)
       setPhoto(blob)
@@ -159,9 +98,18 @@ export function ScanClient({ workerName }: { workerName?: string }) {
       await match(blob)
     } catch {
       setError('照片读取失败，请重拍')
-      setPhase('fallback')
+      setPhase('idle')
     }
   }
+
+  // Mounted in every branch so a tap on 重拍/扫下一单 can open the camera
+  // from any screen.
+  const pickers = (
+    <>
+      <input ref={inputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => void onPick(event.currentTarget)} />
+      <input ref={galleryRef} type="file" accept="image/*" className="hidden" onChange={(event) => void onPick(event.currentTarget)} />
+    </>
+  )
 
   if (phase === 'sent') {
     return (
@@ -170,9 +118,10 @@ export function ScanClient({ workerName }: { workerName?: string }) {
           <p className="text-[20px] font-semibold text-[var(--color-success)]">✓ 已记上</p>
           <p className="mt-2 text-[12px] text-[var(--color-ink-2)]">跟单员会把照片归档。</p>
         </section>
-        <button onClick={() => void startCamera()} className="mt-4 h-16 w-full rounded-[8px] bg-[var(--color-ink)] text-[17px] font-semibold text-white">
+        <button onClick={openCamera} className="mt-4 h-16 w-full rounded-[8px] bg-[var(--color-ink)] text-[17px] font-semibold text-white">
           扫下一单
         </button>
+        {pickers}
       </div>
     )
   }
@@ -201,42 +150,35 @@ export function ScanClient({ workerName }: { workerName?: string }) {
             <p className="mt-3 text-[13px]"><b>{candidate.qty} 件</b>{candidate.dueDate ? ` · 交期 ${mdCn(candidate.dueDate)}` : ''}</p>
           </a>
         ))}
-        <button onClick={() => void startCamera()} className="mt-3 h-12 w-full rounded-[8px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[14px] font-semibold">都不是 · 重拍</button>
+        <button onClick={openCamera} className="mt-3 h-12 w-full rounded-[8px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[14px] font-semibold">都不是 · 重拍</button>
+        {pickers}
       </div>
     )
   }
 
   return (
     <div className="mx-auto max-w-md px-4 py-5">
-      <input ref={inputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => void onPick(event.target.files)} />
+      {pickers}
 
-      {phase === 'boot' || phase === 'live' ? (
+      {phase === 'idle' ? (
         <>
-          <div className="relative h-[62dvh] overflow-hidden rounded-[10px] bg-black">
-            <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
-            <div className="pointer-events-none absolute inset-3 rounded-[8px] border-2 border-white/45" />
-            {phase === 'boot' ? (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-[16px] font-semibold text-white">正在打开相机…</div>
-            ) : (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-4 pb-4 pt-12 text-center text-[13px] text-white">让整张2D图纸进入框内</div>
-            )}
-          </div>
-          <button onClick={snap} disabled={phase !== 'live'} className="mt-3 h-20 w-full rounded-[10px] bg-[var(--color-ink)] text-[19px] font-semibold text-white disabled:opacity-50">拍照识别</button>
-        </>
-      ) : phase === 'fallback' ? (
-        <>
-          <section className="rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-8 text-center">
-            <h1 className="text-[18px] font-semibold">无法直接打开相机</h1>
-            <p className="mt-2 text-[12px] text-[var(--color-ink-2)]">请允许相机权限，或使用手机相机拍摄2D图纸。</p>
+          <section className="flex h-[58dvh] flex-col items-center justify-center rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-6 text-center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="h-14 w-14 text-[var(--color-ink-3)]" aria-hidden>
+              <path d="M4 7h3l2-2.5h6L17 7h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z" />
+              <circle cx="12" cy="13.5" r="3.5" />
+            </svg>
+            <p className="mt-5 text-[17px] font-semibold">拍工单纸，自动认单</p>
+            <p className="mt-2 text-[12px] text-[var(--color-ink-2)]">图纸、程序单都可以 · 对准整张纸</p>
           </section>
           {error ? <p className="mt-3 text-center text-[12px] text-[var(--color-overdue)]">{error}</p> : null}
-          <button onClick={() => inputRef.current?.click()} className="mt-4 h-20 w-full rounded-[10px] bg-[var(--color-ink)] text-[19px] font-semibold text-white">拍照识别</button>
+          <button onClick={openCamera} className="mt-4 h-20 w-full rounded-[10px] bg-[var(--color-ink)] text-[19px] font-semibold text-white">拍照识别</button>
+          <button onClick={() => galleryRef.current?.click()} className="mt-2 h-12 w-full text-[13px] font-medium text-[var(--color-ink-2)]">从相册选择</button>
         </>
       ) : phase === 'busy' ? (
         <>
           {preview ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={preview} alt="正在识别的2D图纸" className="max-h-[55dvh] w-full rounded-[10px] border border-[var(--color-border-strong)] bg-black object-contain" />
+            <img src={preview} alt="正在识别的工单照片" className="max-h-[55dvh] w-full rounded-[10px] border border-[var(--color-border-strong)] bg-black object-contain" />
           ) : null}
           <div className="py-8 text-center">
             <p className="text-[17px] font-semibold">正在识别…</p>
@@ -247,13 +189,13 @@ export function ScanClient({ workerName }: { workerName?: string }) {
         <div className="pt-4 text-center">
           {preview ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={preview} alt="未匹配的2D图纸" className="max-h-[45dvh] w-full rounded-[10px] border border-[var(--color-border-strong)] bg-black object-contain" />
+            <img src={preview} alt="未匹配的工单照片" className="max-h-[45dvh] w-full rounded-[10px] border border-[var(--color-border-strong)] bg-black object-contain" />
           ) : null}
-          <h1 className="mt-4 text-[18px] font-semibold text-[var(--color-overdue)]">没有认出这张图纸</h1>
-          <p className="mt-1 text-[12px] text-[var(--color-ink-2)]">请拍清楚整张2D图纸。</p>
+          <h1 className="mt-4 text-[18px] font-semibold text-[var(--color-overdue)]">没有找到对应工单</h1>
+          <p className="mt-1 text-[12px] text-[var(--color-ink-2)]">请重拍，或在工单记录中搜索并添加这类照片。</p>
           {error ? <p className="mt-2 text-[12px] text-[var(--color-overdue)]">{error}</p> : null}
           {latency != null ? <p className="mt-1 text-[10px] text-[var(--color-ink-4)]">识别用时 {(latency / 1000).toFixed(1)} 秒</p> : null}
-          <button onClick={() => void startCamera()} className="mt-4 h-14 w-full rounded-[8px] bg-[var(--color-ink)] text-[16px] font-semibold text-white">重拍</button>
+          <button onClick={openCamera} className="mt-4 h-14 w-full rounded-[8px] bg-[var(--color-ink)] text-[16px] font-semibold text-white">重拍</button>
           <button onClick={() => setPhase('valve')} className="mt-2 h-12 w-full rounded-[8px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[14px] font-semibold">先保存，稍后归档</button>
         </div>
       )}
@@ -306,8 +248,24 @@ function ValveForm({ photo, preview, workerName, onSent, onBack }: {
         ) : null}
         <div><h1 className="text-[16px] font-semibold">保存待归档</h1><p className="mt-1 text-[11px] text-[var(--color-ink-2)]">补三项，件数会记到你名下。</p></div>
       </div>
-      <div className="mt-4 grid grid-cols-3 gap-2">
-        {VALVE_STAGES.map((value) => <button key={value} type="button" onClick={() => setStage(value)} className={`h-11 rounded-[5px] border text-[13px] font-semibold ${stage === value ? 'border-[var(--color-warning)] bg-[var(--color-warning-soft)] text-[var(--color-warning)]' : 'border-[var(--color-border)]'}`}>{value}</button>)}
+      <p className="mt-4 text-[13px] font-semibold">哪道工序？</p>
+      {/* Same tick-row grammar as /s/[token]: empty square = pickable, ink
+          tick = your choice. Green stays reserved for 完成/save. */}
+      <div className="mt-2 space-y-1.5">
+        {VALVE_STAGES.map((value) => {
+          const active = stage === value
+          return (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setStage(value)}
+              className={`flex w-full items-center gap-3 h-12 px-3 rounded-[5px] text-left ${active ? 'border-2 border-[var(--color-ink)] bg-[color-mix(in_srgb,var(--color-ink)_4%,transparent)]' : 'border border-[var(--color-border-strong)] bg-[var(--color-surface)] active:bg-[var(--color-muted-bg)]'}`}
+            >
+              <span className={`w-5 h-5 shrink-0 rounded-[3px] flex items-center justify-center text-[12px] font-bold ${active ? 'bg-[var(--color-ink)] text-white' : 'border-2 border-[var(--color-border-strong)]'}`}>{active ? '✓' : ''}</span>
+              <span className={`text-[14px] ${active ? 'font-semibold' : 'font-medium'}`}>{value}</span>
+            </button>
+          )
+        })}
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <input value={qty} onChange={(event) => setQty(event.target.value)} type="number" inputMode="numeric" placeholder="完成件数" className="h-12 min-w-0 rounded-[5px] border border-[var(--color-border-strong)] px-3 text-[16px]" />
