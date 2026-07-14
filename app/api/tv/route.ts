@@ -1,6 +1,5 @@
 import { currentUser } from '@/lib/auth'
-import { stageLabel, type Stage } from '@/lib/data'
-import { componentBoardRows, partFacts, todaySummary } from '@/lib/packets'
+import { componentBoardRows, type ComponentBoardRow } from '@/lib/packets'
 import { supabase } from '@/lib/supabase'
 import { shanghaiWindow, today } from '@/lib/today'
 
@@ -9,17 +8,82 @@ export const dynamic = 'force-dynamic'
 
 // /tv 大屏 data feed — one GET returns everything the boss's wall TV paints:
 //
-//   today    今日报工 totals + per-worker leaderboard (todaySummary — the same
-//            Asia/Shanghai day boundary the board's 今日报工 strip uses)
-//   parts    在产 / 逾期 part counts (componentBoardRows — the board's own read,
-//            so the TV and the board can never disagree)
+//   jobs     今日到期 + 逾期最久的工单，按工单聚合未出货零件
 //   shipped  今日出货 — parts whose 出货 stage finished inside today's window
-//   feed     the latest 报工 events, joined to part names for the ticker
 //
 // Auth: any logged-in session (the TV logs in once with the boss PIN). Numbers
 // only — no ¥ anywhere in the payload, so no money gate is needed.
 
-const FEED_LIMIT = 12
+const JOB_LIST_LIMIT = 8
+
+type TvJob = {
+  jobId: string
+  jobNo: string
+  customer: string
+  dueDate: string
+  openParts: number
+  openQty: number
+  partNames: string[]
+  stageSummary: string
+  daysOverdue: number
+}
+
+function dateDistanceDays(earlier: string, later: string): number {
+  const a = Date.parse(`${earlier}T00:00:00Z`)
+  const b = Date.parse(`${later}T00:00:00Z`)
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0
+  return Math.max(0, Math.round((b - a) / 86_400_000))
+}
+
+function groupLiveJobs(rows: ComponentBoardRow[], todayStr: string): TvJob[] {
+  const grouped = new Map<string, {
+    jobId: string
+    jobNo: string
+    customer: string
+    dueDate: string
+    openParts: number
+    openQty: number
+    partNames: Set<string>
+    stages: Map<string, number>
+  }>()
+
+  for (const row of rows) {
+    if (row.shipped) continue
+    let job = grouped.get(row.jobId)
+    if (!job) {
+      job = {
+        jobId: row.jobId,
+        jobNo: row.jobNo,
+        customer: row.customer,
+        dueDate: row.dueDate ?? '',
+        openParts: 0,
+        openQty: 0,
+        partNames: new Set(),
+        stages: new Map(),
+      }
+      grouped.set(row.jobId, job)
+    }
+    job.openParts += 1
+    job.openQty += row.qty
+    if (row.name) job.partNames.add(row.name)
+    const stage = row.current?.label || '待出货'
+    job.stages.set(stage, (job.stages.get(stage) ?? 0) + 1)
+  }
+
+  return [...grouped.values()].map((job) => ({
+    jobId: job.jobId,
+    jobNo: job.jobNo,
+    customer: job.customer,
+    dueDate: job.dueDate,
+    openParts: job.openParts,
+    openQty: job.openQty,
+    partNames: [...job.partNames].slice(0, 3),
+    stageSummary: [...job.stages]
+      .map(([stage, count]) => `${stage} ${count}`)
+      .join(' · '),
+    daysOverdue: job.dueDate ? dateDistanceDays(job.dueDate, todayStr) : 0,
+  }))
+}
 
 export async function GET(): Promise<Response> {
   const user = await currentUser()
@@ -31,8 +95,7 @@ export async function GET(): Promise<Response> {
     const todayStr = today()
     const window = shanghaiWindow(todayStr, 'day')
 
-    const [summary, rows, shipRes, feedRes] = await Promise.all([
-      todaySummary(),
+    const [rows, shipRes] = await Promise.all([
       componentBoardRows(),
       // 今日出货 — 出货 stage rows finished inside today's Shanghai window.
       supabase
@@ -42,20 +105,18 @@ export async function GET(): Promise<Response> {
         .eq('status', 'done')
         .gte('finished_at', window.from)
         .lt('finished_at', window.to),
-      supabase
-        .from('report_events')
-        .select('part_id, actor, stage, qty, created_at')
-        .order('created_at', { ascending: false })
-        .limit(FEED_LIMIT),
     ])
     if (shipRes.error) throw shipRes.error
-    if (feedRes.error) throw feedRes.error
 
-    // 在产 = not fully shipped; 逾期 = past due AND not shipped. Both counted
-    // over the live component board (open jobs only).
-    const live = rows.filter((r) => !r.shipped)
-    const inProduction = live.length
-    const overdue = live.filter((r) => r.dueDate && r.dueDate < todayStr).length
+    // The source is part-grained; the TV speaks in JOBS. A partially shipped
+    // job stays live with only its still-open parts included in the totals.
+    const liveJobs = groupLiveJobs(rows, todayStr)
+    const dueTodayJobs = liveJobs
+      .filter((job) => job.dueDate === todayStr)
+      .sort((a, b) => a.jobNo.localeCompare(b.jobNo, 'zh-CN'))
+    const overdueJobs = liveJobs
+      .filter((job) => job.dueDate && job.dueDate < todayStr)
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.jobNo.localeCompare(b.jobNo, 'zh-CN'))
 
     // 今日出货 pieces — sum the shipped parts' qty (one small id-scoped read).
     const shippedIds = [...new Set((shipRes.data ?? []).map((r) => r.part_id as string))]
@@ -69,30 +130,19 @@ export async function GET(): Promise<Response> {
       shippedPieces = (data ?? []).reduce((s, r) => s + Number(r.qty ?? 0), 0)
     }
 
-    // Feed rows carry only part_id — join names via the existing partFacts read.
-    const feedRows = feedRes.data ?? []
-    const facts = await partFacts([...new Set(feedRows.map((r) => r.part_id as string))])
-    const factById = new Map(facts.map((f) => [f.partId, f]))
-    const feed = feedRows.map((r) => {
-      const f = factById.get(r.part_id as string)
-      return {
-        at: r.created_at as string,
-        actor: r.actor as string,
-        part: f?.name || f?.partNo || '—',
-        stage: stageLabel(r.stage as Stage),
-        qty: Number(r.qty ?? 0),
-      }
-    })
-
     return Response.json(
       {
         ok: true,
-        today: { pieces: summary.pieces, reports: summary.reports },
-        inProduction,
-        overdue,
+        inProduction: liveJobs.length,
+        dueToday: {
+          total: dueTodayJobs.length,
+          jobs: dueTodayJobs.slice(0, JOB_LIST_LIMIT),
+        },
+        overdue: {
+          total: overdueJobs.length,
+          jobs: overdueJobs.slice(0, JOB_LIST_LIMIT),
+        },
         shippedToday: { parts: shippedIds.length, pieces: shippedPieces },
-        workers: summary.workers.slice(0, 10),
-        feed,
       },
       { headers: { 'cache-control': 'no-store' } },
     )
