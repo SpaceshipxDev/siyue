@@ -18,6 +18,7 @@ if ($Endpoint -notmatch '^https://') { throw 'Endpoint must use HTTPS.' }
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $InstallDir 'logs') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'YingmaMachineWatcher.ps1') -Destination $InstallDir -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'YingmaCncDiscovery.ps1') -Destination $InstallDir -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'uninstall.ps1') -Destination $InstallDir -Force
 
 $config = [ordered]@{
@@ -30,11 +31,13 @@ $config = [ordered]@{
   workTimeZoneId = 'China Standard Time'
   minMainProgramBytes = 50000
   maxProgramReadBytes = 524288
+  maxProgramSourceBytes = 131072
   activeWindowMinutes = 5
+  discovery = [ordered]@{ enabled = $true; subnets = @(); ports = @(21, 80, 443, 502, 683, 5000, 8193); maxHosts = 1024 }
   machines = @(
-    [ordered]@{ id = 'lynuc-01'; name = 'LYNUC 01'; ip = '192.168.10.140'; runtime = [ordered]@{ port = 502; unitId = 1; verified = $false; fields = [ordered]@{} } },
-    [ordered]@{ id = 'lynuc-02'; name = 'LYNUC 02'; ip = '192.168.10.141'; runtime = [ordered]@{ port = 502; unitId = 1; verified = $false; fields = [ordered]@{} } },
-    [ordered]@{ id = 'lynuc-03'; name = 'LYNUC 03'; ip = '192.168.10.142'; runtime = [ordered]@{ port = 502; unitId = 1; verified = $false; fields = [ordered]@{} } }
+    [ordered]@{ id = 'lynuc-01'; name = 'LYNUC 01'; ip = '192.168.10.140'; driver = 'lynuc'; runtime = [ordered]@{ port = 502; unitId = 1; verified = $false; fields = [ordered]@{} } },
+    [ordered]@{ id = 'lynuc-02'; name = 'LYNUC 02'; ip = '192.168.10.141'; driver = 'lynuc'; runtime = [ordered]@{ port = 502; unitId = 1; verified = $false; fields = [ordered]@{} } },
+    [ordered]@{ id = 'lynuc-03'; name = 'LYNUC 03'; ip = '192.168.10.142'; driver = 'lynuc'; runtime = [ordered]@{ port = 502; unitId = 1; verified = $false; fields = [ordered]@{} } }
   )
 }
 $config | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $InstallDir 'config.json') -Encoding UTF8
@@ -54,7 +57,7 @@ $settings = New-ScheduledTaskSettingsSet `
 
 Register-ScheduledTask `
   -TaskName $TaskName `
-  -Description 'Read-only LYNUC CNC telemetry collector for yingma.siyue.ai/machines' `
+  -Description 'Read-only multi-controller CNC discovery and telemetry collector for yingma.siyue.ai/machines/dev' `
   -Action $action `
   -Trigger $trigger `
   -Principal $principal `
@@ -87,3 +90,4 @@ Write-Host "Task:    $TaskName ($($task.State))"
 Write-Host "Files:   $InstallDir"
 Write-Host "Logs:    $InstallDir\logs"
 Write-Host "Page:    https://yingma.siyue.ai/machines"
+Write-Host "Details: https://yingma.siyue.ai/machines/dev"

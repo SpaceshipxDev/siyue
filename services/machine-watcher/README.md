@@ -1,150 +1,234 @@
-# Yingma Machine Watcher
+# Yingma CNC Network Reader 3.0
 
-Read-only Windows edge collector for the three Lynuc controls on
-`192.168.10.140`–`192.168.10.142`.
+This is a read-only Windows edge service for `yingma.siyue.ai/machines/dev`.
+It discovers CNC network endpoints, identifies what can be read, collects the
+available values, and uploads them over HTTPS. It has no PLC write, CNC command,
+file upload, rename, or delete code.
 
-It polls anonymous FTP every 15 seconds, identifies the latest main NC
-program, reads only the first 512 KB of its header, and extracts:
+## The simple mental model
 
-- controller availability and FTP latency;
-- current/latest main program and its last modification time;
-- source part file and program number;
-- CAM program timestamp;
-- operation count, tool list, first programmed spindle/feed values;
-- estimated total machine time and per-operation estimates when the CAM
-  header provides them;
-- total NC file count and recent program updates;
-- online time since 00:00 Shanghai, reset every calendar day;
-- exact controller cycle/cutting timers and part counts when a verified runtime
-  mapping is configured;
-- cutting time since 00:00 Shanghai, calculated from the controller's own
-  `#33565` timer rather than wall-clock inference.
-- controller-confirmed "cutting now" state whenever `#33565` advances between
-  consecutive polls, kept distinct from FTP program activity.
+Think of each CNC as a locked room with several windows:
 
-The official LYNUC parameter manual defines these read-only macro variables:
+1. Ethernet is the road to the room. A road does not mean a window is open.
+2. Network discovery checks only six known windows: FTP, HTTP, HTTPS, Modbus
+   TCP, the documented Mitsubishi MELDAS endpoint, MTConnect HTTP, and the
+   common FANUC FOCAS endpoint.
+3. If an open-standard window answers, the reader looks through it using GET or
+   a read-only request.
+4. Every field on `/machines/dev` says either **readable** and names its source,
+   or **not exposed** and explains the missing interface.
 
-- `#33564`: current cycle time, milliseconds;
-- `#33565`: cutting time, milliseconds;
-- `#33868`: accumulated cycle time since controller boot, milliseconds;
-- `#33869`: current part count;
-- `#33870`: total part count;
-- `#33871`: target part count.
+The service can discover from the Windows PC without walking to a machine. It
+cannot remotely enable a controller server that is currently disabled. That is
+a controller configuration fact, not a software limitation that a network
+scanner can bypass safely.
 
-## Automatic discovery and load budget
+## Factory controller classes found in the 13 photos
 
-With `verified: false` (the installer default), watcher 2.2 performs bounded
-autodiscovery itself:
+| Controller class | Photos | What the open-only reader can do immediately |
+| --- | --- | --- |
+| LYNUC | IMG_7260, IMG_7261, IMG_7281 | Anonymous FTP program files and the existing read-only Modbus runtime mapping |
+| FANUC Series 0i-MF Plus | IMG_7257, IMG_7258, IMG_7284 | Detect a reachable FOCAS endpoint; read full runtime only if an MTConnect endpoint is already present |
+| Mitsubishi M80 | IMG_7254, IMG_7255, IMG_7256, IMG_7287, IMG_7288 | Read an existing MTConnect endpoint or read-only FTP file service; otherwise report the Mitsubishi interface gap |
+| Mitsubishi E80 | IMG_7259 | Same open-interface path as M80 |
 
-1. Once at startup, then at most once every six hours if unresolved, it checks
-   only the allowlisted services FTP, SSH, HTTP(S), Modbus TCP, and VNC.
-2. If Modbus TCP is open, it starts with unit 1/function 03 and tries eight
-   documented-macro profiles covering direct/zero-based addressing and the
-   four common word/byte orders. Only if that family yields no candidate does
-   it fall back to function 04 and common gateway unit IDs 255 and 0. It stops
-   at the first unambiguous family. The conservative hard ceiling is 288
-   read-only register requests per discovery run per machine; the normal case
-   is 48, and rejected profiles usually stop on their first request.
-3. A plausible profile is not trusted immediately. It must preserve timer and
-   count relationships across at least eight samples and show at least two
-   physically possible timer movements. An idle machine is accepted only after
-   20 stable valid samples.
-4. Failed or ambiguous profiles are rejected and retried later. Values are not
-   uploaded as controller telemetry until the profile is automatically locked.
+The photos also show SANZZN LV-800 machines and another builder panel marked
+T-7C/VR-8. The controller family, not the machine-tool badge, decides the data
+protocol.
 
-After a profile locks, normal load is six read-only requests in one TCP session
-every 15 seconds. There is no full port sweep, no full register sweep, no
-credential guessing, and no Modbus/FTP/PLC write.
+## Exactly what each interface supplies
 
-The watcher supports Modbus TCP functions 03 and 04 only. It never issues a
-write function. The public LYNUC manuals do not specify the Modbus addresses,
-so mappings must be verified against the controller or supplied by the machine
-builder before setting `verified` to `true`:
+| Data | FTP | MTConnect | LYNUC Modbus mapping | FOCAS detected only |
+| --- | ---: | ---: | ---: | ---: |
+| IP and reachable services | yes | yes | yes | yes |
+| Latest available program filename | yes | often | no | no |
+| True currently executing program | no | yes, when the adapter publishes `Program` | no | no |
+| NC source text | yes | no standard data item | no | no |
+| Running / paused / stopped | no | yes, from `Execution` | yes, after verified mapping | no |
+| Completed and target count | no | yes, when published | yes, after verified mapping | no |
+| Cycle and cutting duration | CAM estimate only | yes, when published | yes, after verified mapping | no |
+| Spindle and feed | parsed from program | yes, when published | not in the current mapping | no |
+
+FTP's newest file is not guaranteed to be the executing file. The dashboard
+labels the source so this distinction remains visible.
+
+## Why FANUC and Mitsubishi are different
+
+FANUC documents FOCAS2 as its Windows PC library for reading CNC program data,
+axes, spindle, diagnostics, alarms, and related controller data over Ethernet.
+FOCAS is not an open wire standard, so this collector fingerprints the endpoint
+but does not reverse-engineer it. FANUC's own MTConnect Server uses FOCAS below
+the surface and can expose program and part count through MTConnect.
+
+Mitsubishi documents NC Explorer for viewing M80/E80 machining files from
+Windows Explorer, and its MTConnect Data Collector supports M80/E80 adapters.
+The native Mitsubishi adapter layer is not an open wire protocol. When that
+adapter already exposes MTConnect, this collector reads it with ordinary HTTP
+and XML without installing a proprietary SDK into the collector.
+
+Official references:
+
+- [FANUC FOCAS2 Library](https://www.fanucamerica.com/products/software/focas2-library)
+- [FANUC 0i-MF Plus](https://www.fanuc.eu/eu-en/product/cnc/0i-mf-plus)
+- [FANUC MTConnect Server](https://www.fanucamerica.com/es-mx/productos/software/mt-connect-server)
+- [Mitsubishi NC Explorer for M80/E80](https://fa-faq.mitsubishielectric.com/fa/products/cnt/cnc/smerit/nc_explorer/index.html)
+- [Mitsubishi MTConnect Data Collector](https://www.mitsubishielectric.com/fa/products/cnt/cnc/pmerit/iot/mtconnect_data_collector/index.html)
+- [MTConnect standard](https://www.mtconnect.org/standard-download20181)
+
+## Install from Windows PowerShell
+
+Requirements are Windows 10/11 or Windows Server, LAN access to the CNC VLAN,
+and outbound HTTPS access to `yingma.siyue.ai`.
+
+1. Extract the release zip on the Windows PC.
+2. Open **Windows PowerShell as Administrator** inside the extracted folder.
+3. Enter the ingest token without putting it in PowerShell history:
+
+   ```powershell
+   Set-ExecutionPolicy -Scope Process Bypass
+   $secureToken = Read-Host 'Paste MACHINE_INGEST_TOKEN' -AsSecureString
+   $token = [Net.NetworkCredential]::new('', $secureToken).Password
+   .\install.ps1 -Token $token
+   Remove-Variable token, secureToken
+   ```
+
+The installer copies the reader to
+`C:\ProgramData\Yingma\MachineWatcher`, performs visible diagnostics and one
+upload, then starts a SYSTEM scheduled task. The task starts at boot and does
+not require a logged-in Windows user.
+
+## Discover every reachable CNC endpoint now
+
+This command scans the Windows PC's connected IPv4 networks. Networks broader
+than `/24` are intentionally reduced to the local `/24`, preventing an
+accidental factory-wide enterprise scan.
+
+```powershell
+$root = 'C:\ProgramData\Yingma\MachineWatcher'
+& "$root\YingmaMachineWatcher.ps1" -ConfigPath "$root\config.json" -DiscoverNetwork |
+  ConvertFrom-Json |
+  Where-Object isCnc |
+  Format-Table ip, manufacturer, model, controller, driver, discoveryConfidence -AutoSize
+```
+
+To save high-confidence discovered CNCs into `config.json`:
+
+```powershell
+$root = 'C:\ProgramData\Yingma\MachineWatcher'
+& "$root\YingmaMachineWatcher.ps1" -ConfigPath "$root\config.json" -AdoptDiscovery
+```
+
+The normal service also performs this safe discovery at startup when
+`discovery.enabled` is `true`.
+
+## Restrict discovery to CNC subnets
+
+Open `C:\ProgramData\Yingma\MachineWatcher\config.json` as Administrator and
+set explicit CIDRs after the first inventory. For example, if the Windows PC
+shows an address in `192.168.10.x`, use:
 
 ```json
-"runtime": {
-  "port": 502,
-  "unitId": 1,
-  "verified": true,
-  "fields": {
-    "cycleRunning": { "address": 0, "dataType": "uint16", "bitMask": 1, "activeValue": 1, "macro": "F_CYCLESTART" },
-    "cyclePaused": { "address": 0, "dataType": "uint16", "bitMask": 1, "activeValue": 1, "macro": "F_PROGHOLD" },
-    "currentCycleMs": { "address": 0, "dataType": "float64", "wordOrder": "high-low", "macroNumber": 33564 },
-    "currentCuttingMs": { "address": 0, "dataType": "float64", "wordOrder": "high-low", "macroNumber": 33565 },
-    "controllerBootCycleMs": { "address": 0, "dataType": "float64", "wordOrder": "high-low", "macroNumber": 33868 },
-    "completedParts": { "address": 0, "dataType": "int32", "wordOrder": "high-low", "macroNumber": 33869 },
-    "totalCompletedParts": { "address": 0, "dataType": "int32", "wordOrder": "high-low", "macroNumber": 33870 },
-    "targetParts": { "address": 0, "dataType": "int32", "wordOrder": "high-low", "macroNumber": 33871 }
+"discovery": {
+  "enabled": true,
+  "subnets": ["192.168.10.0/24"],
+  "ports": [21, 80, 443, 502, 683, 5000, 8193],
+  "maxHosts": 1024
+}
+```
+
+The CIDR parser accepts `/16` through `/30` but refuses more than `maxHosts`.
+The port list is an allowlist. Discovery sends TCP connection handshakes only;
+it does not send controller protocol commands.
+
+## Configure a discovered MTConnect CNC
+
+The automatic probe adds this record when `/probe` returns a valid
+`MTConnectDevices` document:
+
+```json
+{
+  "id": "cnc-192-168-10-50",
+  "name": "FANUC machining center",
+  "ip": "192.168.10.50",
+  "driver": "mtconnect",
+  "manufacturer": "FANUC",
+  "model": "0i-MF Plus",
+  "controller": "FANUC 0i-MF Plus",
+  "mtConnectPort": 5000
+}
+```
+
+The collector performs only `GET /probe` and `GET /current`. It reads standard
+`Execution`, `Program`, `PartCount`, target count, cycle/cutting timers,
+spindle speed, and path feed data items when the machine publishes them.
+
+## Configure read-only FTP credentials
+
+Anonymous FTP needs no `ftp` section. If a controller already has a dedicated
+read-only account, add its credentials to that machine record:
+
+```json
+{
+  "driver": "ftp",
+  "ftp": {
+    "username": "yingma_reader",
+    "password": "the password assigned to the read-only CNC account"
   }
 }
 ```
 
-Every `address` above is intentionally `0` as a placeholder; do not enable that
-example. A manual verified mapping bypasses autodiscovery. The collector never
-sends FTP writes, renames, deletes, SSH/VNC commands, or Modbus write functions.
+The account should have list and download permission only. The code uses only
+`ListDirectoryDetails` and `DownloadFile`. NC text is capped at 128 KiB for the
+dashboard and uploaded only when the program fingerprint changes. The full CNC
+file is never modified.
 
-## Install on Windows
+## LYNUC runtime values
 
-Requirements: Windows 10/11 or Windows Server, LAN access to the three CNCs,
-and outbound HTTPS access to `yingma.siyue.ai`.
+The existing LYNUC driver retains its bounded read-only Modbus autodiscovery.
+After a mapping is verified, it reads controller macro values for current cycle
+time, cutting time, boot-total cycle time, completed parts, total parts, and
+target parts. Normal load is six read requests in one TCP session every 15
+seconds. The driver implements Modbus functions 03 and 04 only.
 
-1. Copy the release folder to the Windows machine.
-2. Open **Windows PowerShell as Administrator**.
-3. Run the generated `Install-YingmaWatcher.ps1` release helper, or run:
-
-   ```powershell
-   Set-ExecutionPolicy -Scope Process Bypass
-   .\install.ps1 -Token '<production ingest token>'
-   ```
-
-The installer performs one visible diagnostic collection and upload, then
-registers `Yingma Machine Watcher` as a SYSTEM scheduled task. It starts at
-boot, runs with no logged-in user, restarts up to 999 times after failures,
-and prevents duplicate instances.
-
-To upgrade an existing installation without replacing its token or controller
-mapping, extract the new release and run from an Administrator PowerShell:
+Run the LYNUC-only diagnostics with:
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\update.ps1
+$root = 'C:\ProgramData\Yingma\MachineWatcher'
+& "$root\YingmaMachineWatcher.ps1" -ConfigPath "$root\config.json" -TestRuntime
+& "$root\YingmaMachineWatcher.ps1" -ConfigPath "$root\config.json" -DiscoverRuntime
 ```
 
-The updater preserves `config.json`, tests port 502/mapped values, uploads one
-visible snapshot, and then restarts the scheduled task.
-
-Runtime data lives under:
-
-```text
-C:\ProgramData\Yingma\MachineWatcher\
-```
-
-Daily logs are retained for 14 days. The latest unsent snapshot is retained
-as `pending.json` during an internet outage; machine polling continues.
-
-## Diagnostics
+The explicit deep LYNUC survey is read-only but makes many requests and should
+be run once, not in the normal loop:
 
 ```powershell
-& 'C:\ProgramData\Yingma\MachineWatcher\YingmaMachineWatcher.ps1' `
-  -ConfigPath 'C:\ProgramData\Yingma\MachineWatcher\config.json' -DiscoverRuntime
+$root = 'C:\ProgramData\Yingma\MachineWatcher'
+& "$root\YingmaMachineWatcher.ps1" -ConfigPath "$root\config.json" -DeepDiscoverRuntime
+```
 
-# Explicit deep survey: read-only full-register diagnostic. Run manually,
-# not in the scheduled 15-second loop. It writes a unique verified mapping
-# back to config.json when one is found.
-& 'C:\ProgramData\Yingma\MachineWatcher\YingmaMachineWatcher.ps1' `
-  -ConfigPath 'C:\ProgramData\Yingma\MachineWatcher\config.json' -DeepDiscoverRuntime
+## Verify collection and view results
 
-& 'C:\ProgramData\Yingma\MachineWatcher\YingmaMachineWatcher.ps1' `
-  -ConfigPath 'C:\ProgramData\Yingma\MachineWatcher\config.json' -TestRuntime
-
-& 'C:\ProgramData\Yingma\MachineWatcher\YingmaMachineWatcher.ps1' `
-  -ConfigPath 'C:\ProgramData\Yingma\MachineWatcher\config.json' -Once
-
+```powershell
+$root = 'C:\ProgramData\Yingma\MachineWatcher'
+& "$root\YingmaMachineWatcher.ps1" -ConfigPath "$root\config.json" -Once
 Get-ScheduledTask -TaskName 'Yingma Machine Watcher'
-Get-Content 'C:\ProgramData\Yingma\MachineWatcher\logs\watcher-*.log' -Tail 100
+Get-Content "$root\logs\watcher-*.log" -Tail 100
 ```
 
-## Remove
+Open:
 
-Run `uninstall.ps1` as Administrator. Add `-RemoveData` to delete configuration,
-state, and logs too.
+- `https://yingma.siyue.ai/machines/dev` for discovery evidence, every field,
+  the capability matrix, and NC source;
+- `https://yingma.siyue.ai/machines` for the production status view.
+
+Daily logs are retained for 14 days. During an internet outage, the latest
+payload remains in `pending.json` and polling continues.
+
+## Upgrade and remove
+
+From an extracted newer release, run `update.ps1` as Administrator. It preserves
+the token and machine configuration, updates both PowerShell files, runs the
+read-only diagnostics, uploads one snapshot, and restarts the task.
+
+Run `uninstall.ps1` as Administrator to remove the task and program. Add
+`-RemoveData` only when configuration, state, and logs should also be deleted.

@@ -6,7 +6,9 @@ param(
   [switch]$Once,
   [switch]$TestRuntime,
   [switch]$DiscoverRuntime,
-  [switch]$DeepDiscoverRuntime
+  [switch]$DeepDiscoverRuntime,
+  [switch]$DiscoverNetwork,
+  [switch]$AdoptDiscovery
 )
 
 Set-StrictMode -Version 2.0
@@ -14,12 +16,16 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$WatcherVersion = '2.2.0'
+$WatcherVersion = '3.0.0'
 $DataRoot = Split-Path -Parent $ConfigPath
 $LogDir = Join-Path $DataRoot 'logs'
 $StatePath = Join-Path $DataRoot 'state.json'
 $PendingPath = Join-Path $DataRoot 'pending.json'
 New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
+
+$discoveryModule = Join-Path $PSScriptRoot 'YingmaCncDiscovery.ps1'
+if (-not (Test-Path -LiteralPath $discoveryModule)) { throw "Missing discovery module: $discoveryModule" }
+. $discoveryModule
 
 function Write-WatcherLog {
   param([string]$Message, [ValidateSet('INFO', 'WARN', 'ERROR')][string]$Level = 'INFO')
@@ -695,6 +701,10 @@ function Get-WorkDay {
 
 function Update-DailyTelemetry {
   param($Machine, $Config, $Previous, $Snapshot, $State)
+  $driver = [string](Get-DynamicProperty $Machine 'driver')
+  if ($driver -and $driver -ne 'lynuc') {
+    return Update-CncStandardDailyTelemetry $Machine $Config $Previous $Snapshot $State
+  }
   $observed = Convert-IsoOffset $Snapshot.observedAt
   $day = Get-WorkDay $observed ([string]$Config.workTimeZoneId)
   if ($null -eq $State) { $State = [pscustomobject]@{} }
@@ -931,13 +941,17 @@ function Update-DailyTelemetry {
 }
 
 function New-FtpRequest {
-  param([string]$HostName, [string]$Method, [string]$RemotePath = '')
+  param([string]$HostName, [string]$Method, [string]$RemotePath = '', [string]$Username = '', [string]$Password = '')
   $escaped = ''
   if ($RemotePath) { $escaped = [Uri]::EscapeDataString($RemotePath).Replace('%2F', '/') }
   $uri = if ($escaped) { "ftp://$HostName/$escaped" } else { "ftp://$HostName/" }
   $request = [Net.FtpWebRequest]::Create($uri)
   $request.Method = $Method
-  $request.Credentials = New-Object Net.NetworkCredential('anonymous', 'yingma-machine-watcher@localhost')
+  $request.Credentials = if ($Username) {
+    New-Object Net.NetworkCredential($Username, $Password)
+  } else {
+    New-Object Net.NetworkCredential('anonymous', 'yingma-machine-watcher@localhost')
+  }
   $request.UseBinary = $true
   $request.UsePassive = $true
   $request.KeepAlive = $false
@@ -947,8 +961,8 @@ function New-FtpRequest {
 }
 
 function Get-FtpListing {
-  param([string]$HostName, [string]$TimeZoneId)
-  $request = New-FtpRequest $HostName ([Net.WebRequestMethods+Ftp]::ListDirectoryDetails)
+  param([string]$HostName, [string]$TimeZoneId, [string]$Username = '', [string]$Password = '')
+  $request = New-FtpRequest $HostName ([Net.WebRequestMethods+Ftp]::ListDirectoryDetails) '' $Username $Password
   $response = $request.GetResponse()
   try {
     $reader = New-Object IO.StreamReader($response.GetResponseStream(), [Text.Encoding]::UTF8, $true)
@@ -972,6 +986,20 @@ function Get-FtpListing {
         $match.Groups['stamp'].Value `
         $TimeZoneId
     }
+    continue
+  }
+  foreach ($line in ($text -split "`r?`n")) {
+    if (-not $line.Trim()) { continue }
+    $dos = [regex]::Match($line, '^(?<date>\d{2}-\d{2}-\d{2,4})\s+(?<time>\d{2}:\d{2}(?:AM|PM)?)\s+(?<size>\d+)\s+(?<name>.+)$', 'IgnoreCase')
+    if (-not $dos.Success) { continue }
+    $modified = $null
+    try {
+      $local = [DateTime]::Parse("$($dos.Groups['date'].Value) $($dos.Groups['time'].Value)", [Globalization.CultureInfo]::InvariantCulture)
+      $zone = [TimeZoneInfo]::FindSystemTimeZoneById($TimeZoneId)
+      $modified = [TimeZoneInfo]::ConvertTimeToUtc([DateTime]::SpecifyKind($local, 'Unspecified'), $zone).ToString('o')
+    } catch {
+    }
+    $files += [pscustomobject]@{ Name = $dos.Groups['name'].Value.Trim(); SizeBytes = [int64]$dos.Groups['size'].Value; ModifiedAt = $modified }
   }
   return @($files)
 }
@@ -995,8 +1023,8 @@ function Convert-FtpStampToUtc {
 }
 
 function Get-FtpFileHead {
-  param([string]$HostName, [string]$Name, [int]$MaxBytes)
-  $request = New-FtpRequest $HostName ([Net.WebRequestMethods+Ftp]::DownloadFile) $Name
+  param([string]$HostName, [string]$Name, [int]$MaxBytes, [string]$Username = '', [string]$Password = '')
+  $request = New-FtpRequest $HostName ([Net.WebRequestMethods+Ftp]::DownloadFile) $Name $Username $Password
   $response = $request.GetResponse()
   $memory = New-Object IO.MemoryStream
   try {
@@ -1145,12 +1173,15 @@ function Test-MainProgram {
   return $true
 }
 
-function Get-MachineSnapshot {
+function Get-FtpMachineSnapshot {
   param($Machine, $Config, $Previous)
   $observedAt = [DateTimeOffset]::UtcNow
   $started = [Diagnostics.Stopwatch]::StartNew()
   try {
-    $files = @(Get-FtpListing ([string]$Machine.ip) ([string]$Config.ftpTimeZoneId))
+    $ftp = Get-DynamicProperty $Machine 'ftp'
+    $ftpUsername = [string](Get-CncConfigValue $ftp 'username' '')
+    $ftpPassword = [string](Get-CncConfigValue $ftp 'password' '')
+    $files = @(Get-FtpListing ([string]$Machine.ip) ([string]$Config.ftpTimeZoneId) $ftpUsername $ftpPassword)
     $started.Stop()
     $programFiles = @($files | Where-Object { $_.Name -match '(?i)\.(?:nc|n|txt)$' })
     $mainPrograms = @($programFiles | Where-Object { Test-MainProgram $_ ([int64]$Config.minMainProgramBytes) })
@@ -1166,7 +1197,7 @@ function Get-MachineSnapshot {
       }
     }
 
-    $content = Get-FtpFileHead ([string]$Machine.ip) ([string]$latest.Name) ([int]$Config.maxProgramReadBytes)
+    $content = Get-FtpFileHead ([string]$Machine.ip) ([string]$latest.Name) ([int]$Config.maxProgramReadBytes) $ftpUsername $ftpPassword
     $analysis = Get-ProgramAnalysis $latest $content ([string]$Config.camTimeZoneId)
     $fingerprint = Get-Hash ("{0}|{1}|{2}" -f $latest.Name, $latest.SizeBytes, $latest.ModifiedAt)
     $previousProgram = if ($null -ne $Previous) { [string](Get-DynamicProperty $Previous 'currentProgram') } else { '' }
@@ -1228,6 +1259,18 @@ function Get-MachineSnapshot {
     $snapshot.feedMmMin = $analysis.feedMmMin
     $snapshot.jobStartedAt = $jobStartedAt
     $snapshot.recentPrograms = @($recent)
+    if ($previousFingerprint -ne $fingerprint) {
+      $snapshot.programSource = $content.Substring(0, [Math]::Min($content.Length, [int]$Config.maxProgramSourceBytes))
+      $snapshot.programSourceTruncated = $content.Length -ge [int]$Config.maxProgramReadBytes -or $content.Length -gt [int]$Config.maxProgramSourceBytes
+      $snapshot.programSourceSha256 = Get-Hash $content
+      $snapshot.programSourceCapturedAt = $observedAt.ToString('o')
+    }
+    $snapshot.driver = [string](Get-CncConfigValue $Machine 'driver' 'lynuc')
+    $snapshot.manufacturer = [string](Get-CncConfigValue $Machine 'manufacturer' '')
+    $snapshot.model = [string](Get-CncConfigValue $Machine 'model' '')
+    $snapshot.capabilities = Get-CncCapabilities $Machine $false $true
+    $configuredController = Get-DynamicProperty $Machine 'controller'
+    if (-not $snapshot.controller -and $configuredController) { $snapshot.controller = [string]$configuredController }
 
     return [pscustomobject]@{
       snapshot = $snapshot
@@ -1245,6 +1288,25 @@ function Get-MachineSnapshot {
       state = $Previous
     }
   }
+}
+
+function Get-MachineSnapshot {
+  param($Machine, $Config, $Previous)
+  $driver = [string](Get-CncConfigValue $Machine 'driver' 'lynuc')
+  if ($driver -eq 'mtconnect') { return Get-CncMtConnectSnapshot $Machine $Config $Previous }
+  if ($driver -in @('lynuc', 'ftp')) { return Get-FtpMachineSnapshot $Machine $Config $Previous }
+  $observed = [DateTimeOffset]::UtcNow.ToString('o')
+  $snapshot = New-SnapshotBase $Machine $observed $true 'unknown' $null $null
+  $snapshot.driver = $driver
+  $snapshot.manufacturer = [string](Get-CncConfigValue $Machine 'manufacturer' '')
+  $snapshot.model = [string](Get-CncConfigValue $Machine 'model' '')
+  $snapshot.controller = [string](Get-CncConfigValue $Machine 'controller' '')
+  $snapshot.discoveryStatus = 'identified_interface_not_open'
+  $snapshot.discoveryConfidence = [int](Get-CncConfigValue $Machine 'discoveryConfidence' 0)
+  $snapshot.discoveredServices = @((Get-CncConfigValue $Machine 'discoveredServices' @()))
+  $snapshot.capabilities = Get-CncCapabilities $Machine $false $false
+  $snapshot.discoveryNotes = @((Get-CncConfigValue $Machine 'discoveryNotes' @()))
+  return [pscustomobject]@{ snapshot = $snapshot; state = $Previous }
 }
 
 function New-SnapshotBase {
@@ -1297,6 +1359,15 @@ function New-SnapshotBase {
     currentCycleStartedAt = $null
     ftpLatencyMs = $LatencyMs
     recentPrograms = @()
+    manufacturer = [string](Get-CncConfigValue $Machine 'manufacturer' '')
+    model = [string](Get-CncConfigValue $Machine 'model' '')
+    driver = [string](Get-CncConfigValue $Machine 'driver' 'lynuc')
+    capabilities = [pscustomobject]@{}
+    discoveryNotes = @((Get-CncConfigValue $Machine 'discoveryNotes' @()))
+    programSource = $null
+    programSourceTruncated = $false
+    programSourceSha256 = $null
+    programSourceCapturedAt = $null
     error = $ErrorText
   }
 }
@@ -1327,11 +1398,46 @@ if (-not (Get-DynamicProperty $config 'workTimeZoneId')) { $config | Add-Member 
 if (-not (Get-DynamicProperty $config 'pollSeconds')) { $config | Add-Member -NotePropertyName pollSeconds -NotePropertyValue 15 }
 if (-not (Get-DynamicProperty $config 'minMainProgramBytes')) { $config | Add-Member -NotePropertyName minMainProgramBytes -NotePropertyValue 50000 }
 if (-not (Get-DynamicProperty $config 'maxProgramReadBytes')) { $config | Add-Member -NotePropertyName maxProgramReadBytes -NotePropertyValue 524288 }
+if (-not (Get-DynamicProperty $config 'maxProgramSourceBytes')) { $config | Add-Member -NotePropertyName maxProgramSourceBytes -NotePropertyValue 131072 }
 if (-not (Get-DynamicProperty $config 'activeWindowMinutes')) { $config | Add-Member -NotePropertyName activeWindowMinutes -NotePropertyValue 5 }
+
+$discovery = Get-DynamicProperty $config 'discovery'
+if ($null -eq $discovery) {
+  $discovery = [pscustomobject]@{ enabled = $false; subnets = @(); ports = @(21, 80, 443, 502, 683, 5000, 8193); maxHosts = 1024 }
+  Set-DynamicProperty $config 'discovery' $discovery
+}
+
+if ($DiscoverNetwork -or $AdoptDiscovery) {
+  $inventory = @(Invoke-CncNetworkDiscovery $discovery)
+  if ($AdoptDiscovery) {
+    $knownIps = @($config.machines | ForEach-Object { [string]$_.ip })
+    foreach ($found in @($inventory | Where-Object { $_.isCnc -and $knownIps -notcontains $_.ip })) {
+      $config.machines += $found
+      $knownIps += [string]$found.ip
+    }
+    Write-JsonAtomic $ConfigPath $config 16
+  }
+  $inventory | ConvertTo-Json -Depth 12
+  return
+}
+
+if ([bool](Get-CncConfigValue $discovery 'enabled' $false)) {
+  try {
+    Write-WatcherLog 'Read-only CNC network discovery started'
+    $knownIps = @($config.machines | ForEach-Object { [string]$_.ip })
+    foreach ($found in @(Invoke-CncNetworkDiscovery $discovery | Where-Object { $_.isCnc -and $knownIps -notcontains $_.ip })) {
+      $config.machines += $found
+      $knownIps += [string]$found.ip
+    }
+    Write-WatcherLog "Network discovery finished; $($config.machines.Count) CNC records will be collected"
+  } catch {
+    Write-WatcherLog "Network discovery failed, configured machines will still run: $($_.Exception.Message)" 'WARN'
+  }
+}
 
 if ($DiscoverRuntime) {
   $discoveries = @()
-  foreach ($machine in $config.machines) {
+  foreach ($machine in @($config.machines | Where-Object { [string](Get-CncConfigValue $_ 'driver' 'lynuc') -eq 'lynuc' })) {
     $runtime = Get-DynamicProperty $machine 'runtime'
     $port = if ($null -ne $runtime -and (Get-DynamicProperty $runtime 'port')) { [int]$runtime.port } else { 502 }
     $services = @(Get-LynucServiceInventory ([string]$machine.ip) $port)
@@ -1355,7 +1461,7 @@ if ($DiscoverRuntime) {
 
 if ($DeepDiscoverRuntime) {
   $deepDiscoveries = @()
-  foreach ($machine in $config.machines) {
+  foreach ($machine in @($config.machines | Where-Object { [string](Get-CncConfigValue $_ 'driver' 'lynuc') -eq 'lynuc' })) {
     $runtime = Get-DynamicProperty $machine 'runtime'
     $port = if ($null -ne $runtime -and (Get-DynamicProperty $runtime 'port')) { [int]$runtime.port } else { 502 }
     Write-WatcherLog "$($machine.name) starting explicit deep read-only Modbus survey" 'WARN'
@@ -1381,7 +1487,7 @@ if ($DeepDiscoverRuntime) {
 
 if ($TestRuntime) {
   $diagnostics = @()
-  foreach ($machine in $config.machines) {
+  foreach ($machine in @($config.machines | Where-Object { [string](Get-CncConfigValue $_ 'driver' 'lynuc') -eq 'lynuc' })) {
     $runtime = Get-DynamicProperty $machine 'runtime'
     if ($null -eq $runtime) { $runtime = [pscustomobject]@{ port = 502; unitId = 1; verified = $false; fields = [pscustomobject]@{} } }
     $result = Get-LynucRuntimeTelemetry ([string]$machine.ip) $runtime

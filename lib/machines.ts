@@ -19,10 +19,10 @@ export type MachineState = (typeof MACHINE_STATES)[number]
 export const EXECUTION_STATES = ['running', 'paused', 'stopped', 'unknown'] as const
 export type MachineExecutionState = (typeof EXECUTION_STATES)[number]
 
-export const WORK_SIGNALS = ['controller_cycle', 'controller_cutting_timer', 'program_activity', 'unavailable'] as const
+export const WORK_SIGNALS = ['controller_cycle', 'controller_cutting_timer', 'mtconnect_execution', 'program_activity', 'unavailable'] as const
 export type MachineWorkSignal = (typeof WORK_SIGNALS)[number]
 
-export const TELEMETRY_SOURCES = ['controller_macro', 'controller_macro_auto', 'unavailable'] as const
+export const TELEMETRY_SOURCES = ['controller_macro', 'controller_macro_auto', 'mtconnect', 'unavailable'] as const
 export type MachineTelemetrySource = (typeof TELEMETRY_SOURCES)[number]
 
 export type MachineOperation = {
@@ -43,6 +43,12 @@ export type MachineDiscoveredService = {
   port: number
   name: string
   latencyMs: number
+}
+
+export type MachineCapability = {
+  readable: boolean
+  source: string
+  note: string
 }
 
 export type MachineWireSnapshot = {
@@ -93,6 +99,15 @@ export type MachineWireSnapshot = {
   currentCycleStartedAt: string | null
   ftpLatencyMs: number | null
   recentPrograms: RecentMachineProgram[]
+  manufacturer: string | null
+  model: string | null
+  driver: string
+  capabilities: Record<string, MachineCapability>
+  discoveryNotes: string[]
+  programSource: string | null
+  programSourceTruncated: boolean
+  programSourceSha256: string | null
+  programSourceCapturedAt: string | null
   error: string | null
 }
 
@@ -169,6 +184,15 @@ type SnapshotRow = {
   current_cycle_started_at: string | null
   ftp_latency_ms: number | null
   recent_programs: RecentMachineProgram[] | null
+  manufacturer: string | null
+  model: string | null
+  driver: string
+  capabilities: Record<string, MachineCapability> | null
+  discovery_notes: string[] | null
+  program_source: string | null
+  program_source_truncated: boolean
+  program_source_sha256: string | null
+  program_source_captured_at: string | null
   collector_id: string
   collector_version: string
   error: string | null
@@ -181,8 +205,9 @@ type MachineFileStore = {
   events: MachineEventView[]
 }
 
-const MAX_MACHINES = 20
+const MAX_MACHINES = 128
 const MAX_TEXT = 1_000
+const MAX_PROGRAM_SOURCE = 262_144
 const ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/
 
 export function machineTokenMatches(request: Request): boolean {
@@ -290,6 +315,15 @@ function parseMachine(input: unknown, index: number): MachineWireSnapshot {
     currentCycleStartedAt: nullableDate(row.currentCycleStartedAt, `machines[${index}].currentCycleStartedAt`),
     ftpLatencyMs: nullableNumber(row.ftpLatencyMs, 0),
     recentPrograms: parseRecentPrograms(row.recentPrograms),
+    manufacturer: nullableText(row.manufacturer, 160),
+    model: nullableText(row.model, 160),
+    driver: optionalText(row.driver, 'inventory', 40),
+    capabilities: parseCapabilities(row.capabilities),
+    discoveryNotes: textArray(row.discoveryNotes, 20, 500),
+    programSource: nullableText(row.programSource, MAX_PROGRAM_SOURCE),
+    programSourceTruncated: optionalBoolean(row.programSourceTruncated, false),
+    programSourceSha256: nullableText(row.programSourceSha256, 64),
+    programSourceCapturedAt: nullableDate(row.programSourceCapturedAt, `machines[${index}].programSourceCapturedAt`),
     error: nullableText(row.error),
   }
 }
@@ -330,6 +364,19 @@ function parseDiscoveredServices(value: unknown): MachineDiscoveredService[] {
       latencyMs: requiredNumber(service.latencyMs, 0),
     }
   })
+}
+
+function parseCapabilities(value: unknown): Record<string, MachineCapability> {
+  if (value == null) return {}
+  const input = record(value, 'capabilities')
+  return Object.fromEntries(Object.entries(input).slice(0, 20).map(([key, raw]) => {
+    const capability = record(raw, `capabilities.${key}`)
+    return [requiredId(key, 'capability key'), {
+      readable: requiredBoolean(capability.readable, `capabilities.${key}.readable`),
+      source: requiredText(capability.source, `capabilities.${key}.source`, 80),
+      note: requiredText(capability.note, `capabilities.${key}.note`, 500),
+    }]
+  }))
 }
 
 export async function ingestMachineSnapshots(payload: MachineIngest): Promise<void> {
@@ -414,6 +461,17 @@ async function ingestMachineDatabase(payload: MachineIngest): Promise<void> {
       current_cycle_started_at: machine.currentCycleStartedAt,
       ftp_latency_ms: machine.ftpLatencyMs,
       recent_programs: machine.recentPrograms,
+      manufacturer: machine.manufacturer,
+      model: machine.model,
+      driver: machine.driver,
+      capabilities: machine.capabilities,
+      discovery_notes: machine.discoveryNotes,
+      program_source: machine.programSource ?? (sameJob ? before?.program_source ?? null : null),
+      program_source_truncated: machine.programSource == null && sameJob
+        ? before?.program_source_truncated ?? false
+        : machine.programSourceTruncated,
+      program_source_sha256: machine.programSourceSha256 ?? (sameJob ? before?.program_source_sha256 ?? null : null),
+      program_source_captured_at: machine.programSourceCapturedAt ?? (sameJob ? before?.program_source_captured_at ?? null : null),
       collector_id: payload.watcherId,
       collector_version: payload.watcherVersion,
       error: machine.error,
@@ -546,8 +604,15 @@ async function ingestMachineFile(payload: MachineIngest): Promise<void> {
       : null
     const eventType = changedFileEvent(before, machine)
 
+    const preservedProgramSource = machine.programSource ?? (sameJob ? before?.programSource ?? null : null)
     store.machines[machine.id] = {
       ...machine,
+      programSource: preservedProgramSource,
+      programSourceTruncated: machine.programSource == null && sameJob
+        ? before?.programSourceTruncated ?? false
+        : machine.programSourceTruncated,
+      programSourceSha256: machine.programSourceSha256 ?? (sameJob ? before?.programSourceSha256 ?? null : null),
+      programSourceCapturedAt: machine.programSourceCapturedAt ?? (sameJob ? before?.programSourceCapturedAt ?? null : null),
       jobStartedAt,
       lastSeenAt: machine.connected ? machine.observedAt : before?.lastSeenAt ?? null,
       collectorId: payload.watcherId,
@@ -655,6 +720,15 @@ function toMachineView(row: SnapshotRow): MachineView {
     currentCycleStartedAt: row.current_cycle_started_at,
     ftpLatencyMs: row.ftp_latency_ms,
     recentPrograms: row.recent_programs ?? [],
+    manufacturer: row.manufacturer,
+    model: row.model,
+    driver: row.driver ?? 'inventory',
+    capabilities: row.capabilities ?? {},
+    discoveryNotes: row.discovery_notes ?? [],
+    programSource: row.program_source,
+    programSourceTruncated: row.program_source_truncated ?? false,
+    programSourceSha256: row.program_source_sha256,
+    programSourceCapturedAt: row.program_source_captured_at,
     error: row.error,
     collectorId: row.collector_id,
     collectorVersion: row.collector_version,
@@ -696,6 +770,17 @@ function optionalText(value: unknown, fallback: string, max = MAX_TEXT): string 
 function requiredBoolean(value: unknown, label: string): boolean {
   if (typeof value !== 'boolean') throw new Error(`${label} must be boolean`)
   return value
+}
+
+function optionalBoolean(value: unknown, fallback: boolean): boolean {
+  if (value == null) return fallback
+  if (typeof value !== 'boolean') throw new Error('boolean field is invalid')
+  return value
+}
+
+function textArray(value: unknown, maximumItems: number, maximumLength: number): string[] {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, maximumItems).map((item) => requiredText(item, 'text array item', maximumLength))
 }
 
 function requiredNumber(value: unknown, min?: number): number {

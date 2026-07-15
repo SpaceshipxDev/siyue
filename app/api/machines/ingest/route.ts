@@ -7,7 +7,7 @@ import {
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const MAX_BODY_BYTES = 512_000
+const MAX_BODY_BYTES = 4_000_000
 
 export async function POST(request: Request): Promise<Response> {
   if (!machineTokenMatches(request)) {

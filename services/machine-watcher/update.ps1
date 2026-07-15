@@ -15,13 +15,17 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 
 $source = Join-Path $PSScriptRoot 'YingmaMachineWatcher.ps1'
 $destination = Join-Path $InstallDir 'YingmaMachineWatcher.ps1'
+$moduleSource = Join-Path $PSScriptRoot 'YingmaCncDiscovery.ps1'
+$moduleDestination = Join-Path $InstallDir 'YingmaCncDiscovery.ps1'
 $config = Join-Path $InstallDir 'config.json'
 if (-not (Test-Path -LiteralPath $source)) { throw "Missing release watcher: $source" }
+if (-not (Test-Path -LiteralPath $moduleSource)) { throw "Missing release discovery module: $moduleSource" }
 if (-not (Test-Path -LiteralPath $config)) { throw "Existing watcher configuration not found: $config" }
 
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 if ($null -ne $task) { Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue }
 Copy-Item -LiteralPath $source -Destination $destination -Force
+Copy-Item -LiteralPath $moduleSource -Destination $moduleDestination -Force
 
 Write-Host 'Testing LYNUC runtime connectivity...'
 & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `

@@ -381,6 +381,7 @@ function formatDayCounter(seconds: number) {
 }
 
 function workSignalLabel(machine: MachineView) {
+  if (machine.workSignal === 'mtconnect_execution') return 'MTConnect Execution · 控制器实时状态'
   if (machine.workSignal === 'controller_cutting_timer') {
     return machine.executionState === 'running'
       ? 'LYNUC #33565 正在增加 · 控制器确认切削中'

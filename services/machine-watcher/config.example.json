@@ -8,24 +8,34 @@
   "workTimeZoneId": "China Standard Time",
   "minMainProgramBytes": 50000,
   "maxProgramReadBytes": 524288,
+  "maxProgramSourceBytes": 131072,
   "activeWindowMinutes": 5,
+  "discovery": {
+    "enabled": true,
+    "subnets": [],
+    "ports": [21, 80, 443, 502, 683, 5000, 8193],
+    "maxHosts": 1024
+  },
   "machines": [
     {
       "id": "lynuc-01",
       "name": "LYNUC 01",
       "ip": "192.168.10.140",
+      "driver": "lynuc",
       "runtime": { "port": 502, "unitId": 1, "verified": false, "fields": {} }
     },
     {
       "id": "lynuc-02",
       "name": "LYNUC 02",
       "ip": "192.168.10.141",
+      "driver": "lynuc",
       "runtime": { "port": 502, "unitId": 1, "verified": false, "fields": {} }
     },
     {
       "id": "lynuc-03",
       "name": "LYNUC 03",
       "ip": "192.168.10.142",
+      "driver": "lynuc",
       "runtime": { "port": 502, "unitId": 1, "verified": false, "fields": {} }
     }
   ]

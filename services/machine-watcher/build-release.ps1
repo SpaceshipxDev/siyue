@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [string]$OutputDir = (Join-Path $PSScriptRoot 'dist'),
-  [string]$Version = '2.2.0'
+  [string]$Version = '3.0.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -15,6 +15,7 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 
 foreach ($file in @(
   'YingmaMachineWatcher.ps1',
+  'YingmaCncDiscovery.ps1',
   'install.ps1',
   'update.ps1',
   'uninstall.ps1',
