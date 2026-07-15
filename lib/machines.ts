@@ -646,9 +646,26 @@ async function getMachineFileDashboard(): Promise<{
 }> {
   const store = await readMachineFile()
   return {
-    machines: Object.values(store.machines).sort((a, b) => a.id.localeCompare(b.id)),
+    machines: Object.values(store.machines)
+      .map(normalizeFileMachine)
+      .sort((a, b) => a.id.localeCompare(b.id)),
     events: store.events.slice(0, 40),
     serverTime: new Date().toISOString(),
+  }
+}
+
+function normalizeFileMachine(machine: MachineView): MachineView {
+  return {
+    ...machine,
+    manufacturer: machine.manufacturer ?? null,
+    model: machine.model ?? null,
+    driver: machine.driver ?? (machine.id.startsWith('lynuc-') ? 'lynuc' : 'inventory'),
+    capabilities: machine.capabilities ?? {},
+    discoveryNotes: machine.discoveryNotes ?? [],
+    programSource: machine.programSource ?? null,
+    programSourceTruncated: machine.programSourceTruncated ?? false,
+    programSourceSha256: machine.programSourceSha256 ?? null,
+    programSourceCapturedAt: machine.programSourceCapturedAt ?? null,
   }
 }
 
