@@ -39,6 +39,12 @@ Write-Host 'Running one-time deep read-only register survey (this may take sever
   -File $destination -ConfigPath $config -DeepDiscoverRuntime
 if ($LASTEXITCODE -ne 0) { throw 'Deep register survey failed; scheduled task remains stopped.' }
 
+Write-Host 'Discovering and saving every high-confidence CNC endpoint on the connected subnets...'
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+  -NoLogo -NoProfile -ExecutionPolicy Bypass `
+  -File $destination -ConfigPath $config -AdoptDiscovery
+if ($LASTEXITCODE -ne 0) { throw 'CNC network discovery failed; scheduled task remains stopped.' }
+
 Write-Host 'Uploading one production snapshot...'
 & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
   -NoLogo -NoProfile -ExecutionPolicy Bypass `
