@@ -250,6 +250,7 @@ export function parseMachineIngest(input: unknown): MachineIngest {
 
 function parseMachine(input: unknown, index: number): MachineWireSnapshot {
   const row = record(input, `machines[${index}]`)
+  const machineId = requiredId(row.id, `machines[${index}].id`)
   const state = requiredText(row.state, `machines[${index}].state`, 30)
   if (!(MACHINE_STATES as readonly string[]).includes(state)) {
     throw new Error(`machines[${index}].state is invalid`)
@@ -268,7 +269,7 @@ function parseMachine(input: unknown, index: number): MachineWireSnapshot {
     throw new Error(`machines[${index}].telemetrySource is invalid`)
   }
   return {
-    id: requiredId(row.id, `machines[${index}].id`),
+    id: machineId,
     name: requiredText(row.name, `machines[${index}].name`, 120),
     ip: requiredText(row.ip, `machines[${index}].ip`, 80),
     connected: requiredBoolean(row.connected, `machines[${index}].connected`),
@@ -317,7 +318,7 @@ function parseMachine(input: unknown, index: number): MachineWireSnapshot {
     recentPrograms: parseRecentPrograms(row.recentPrograms),
     manufacturer: nullableText(row.manufacturer, 160),
     model: nullableText(row.model, 160),
-    driver: optionalText(row.driver, 'inventory', 40),
+    driver: optionalText(row.driver, machineId.startsWith('lynuc-') ? 'lynuc' : 'inventory', 40),
     capabilities: parseCapabilities(row.capabilities),
     discoveryNotes: textArray(row.discoveryNotes, 20, 500),
     programSource: nullableText(row.programSource, MAX_PROGRAM_SOURCE),

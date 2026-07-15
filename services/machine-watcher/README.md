@@ -92,6 +92,9 @@ and outbound HTTPS access to `yingma.siyue.ai`.
    Remove-Variable token, secureToken
    ```
 
+The current package is available at
+`https://yingma.siyue.ai/machines/reader`.
+
 The installer copies the reader to
 `C:\ProgramData\Yingma\MachineWatcher`, performs visible diagnostics and one
 upload, then starts a SYSTEM scheduled task. The task starts at boot and does
