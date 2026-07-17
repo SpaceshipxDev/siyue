@@ -55,15 +55,9 @@ $arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Window
 $action = New-ScheduledTaskAction -Execute $collectorPowerShell -Argument $arguments
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-# Run visible diagnostics before registering the hidden forever task.
-Write-Host 'Verifying FANUC/Mitsubishi controller runtimes, read access, program names, and NC source access...'
-& $collectorPowerShell `
-  -NoLogo -NoProfile -ExecutionPolicy Bypass `
-  -File $watcherPath -ConfigPath $configPath -TestVendor
-if ($LASTEXITCODE -ne 0) {
-  Write-Warning 'One or more optional controller fields are not readable yet. The collector will still install and relay every working machine and field. Missing vendor runtimes are detected again automatically every cycle.'
-}
-Write-Host 'Uploading the first production snapshot...'
+# Perform one complete visible collection. It reports every readable field and
+# queues the batch durably before the forever task is registered.
+Write-Host 'Reading all configured CNCs and uploading the first production snapshot...'
 & $collectorPowerShell `
   -NoLogo -NoProfile -ExecutionPolicy Bypass `
   -File $watcherPath -ConfigPath $configPath -Once
