@@ -377,12 +377,29 @@ function parseOperations(value: unknown): MachineOperation[] {
 
 function parseRecentPrograms(value: unknown): RecentMachineProgram[] {
   if (!Array.isArray(value)) return []
-  return value.slice(0, 12).map((item, index) => {
+  return value
+    .filter((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return false
+      const name = (item as Record<string, unknown>).name
+      return typeof name === 'string' && Boolean(name.trim())
+    })
+    .slice(0, 12)
+    .map((item, index) => {
     const program = record(item, `recentPrograms[${index}]`)
+    const name = String(program.name).trim().slice(0, 260)
+    const sizeBytes = typeof program.sizeBytes === 'number' && Number.isFinite(program.sizeBytes) && program.sizeBytes >= 0
+      ? program.sizeBytes
+      : 0
+    let modifiedAt: string | null = null
+    try {
+      modifiedAt = nullableDate(program.modifiedAt, `recentPrograms[${index}].modifiedAt`)
+    } catch {
+      modifiedAt = null
+    }
     return {
-      name: requiredText(program.name, `recentPrograms[${index}].name`, 260),
-      sizeBytes: requiredNumber(program.sizeBytes, 0),
-      modifiedAt: nullableDate(program.modifiedAt, `recentPrograms[${index}].modifiedAt`),
+      name,
+      sizeBytes,
+      modifiedAt,
     }
   })
 }
