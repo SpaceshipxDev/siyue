@@ -37,6 +37,7 @@ export async function POST(request: Request): Promise<Response> {
     )
   } catch (error) {
     const message = error instanceof Error ? error.message : 'invalid payload'
+    console.error('[machine-ingest] rejected authenticated payload:', message)
     return Response.json({ ok: false, error: message }, { status: 400 })
   }
 }
