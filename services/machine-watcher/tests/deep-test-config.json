@@ -1,0 +1,25 @@
+{
+  "endpoint": "http://127.0.0.1:3010/api/machines/ingest",
+  "token": "test-token-at-least-24-characters",
+  "watcherId": "deep-test",
+  "pollSeconds": 5,
+  "workTimeZoneId": "Asia/Shanghai",
+  "machines": [
+    {
+      "id": "lynuc-deep-test",
+      "name": "LYNUC DEEP TEST",
+      "ip": "127.0.0.1",
+      "runtime": {
+        "port": 15020,
+        "unitId": 1,
+        "verified": false,
+        "fields": {}
+      }
+    }
+  ],
+  "ftpTimeZoneId": "UTC",
+  "camTimeZoneId": "China Standard Time",
+  "minMainProgramBytes": 50000,
+  "maxProgramReadBytes": 524288,
+  "activeWindowMinutes": 5
+}

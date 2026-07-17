@@ -1,0 +1,15 @@
+{
+  "endpoint": "http://127.0.0.1:3010/api/machines/ingest",
+  "token": "test-token-at-least-24-characters",
+  "watcherId": "autodiscovery-fallback-test",
+  "pollSeconds": 5,
+  "workTimeZoneId": "Asia/Shanghai",
+  "machines": [
+    {
+      "id": "lynuc-auto-fallback-test",
+      "name": "LYNUC AUTO FALLBACK TEST",
+      "ip": "127.0.0.1",
+      "runtime": { "port": 15021, "unitId": 1, "verified": false, "fields": {} }
+    }
+  ]
+}

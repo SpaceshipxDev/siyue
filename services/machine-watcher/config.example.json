@@ -1,0 +1,42 @@
+{
+  "endpoint": "https://yingma.siyue.ai/api/machines/ingest",
+  "token": "SET_BY_INSTALLER",
+  "watcherId": "yingma-windows-edge-01",
+  "pollSeconds": 15,
+  "uploadTimeoutSeconds": 120,
+  "ftpTimeZoneId": "UTC",
+  "camTimeZoneId": "China Standard Time",
+  "workTimeZoneId": "China Standard Time",
+  "minMainProgramBytes": 50000,
+  "maxProgramReadBytes": 2097152,
+  "maxProgramSourceBytes": 2097152,
+  "activeWindowMinutes": 5,
+  "discovery": {
+    "enabled": true,
+    "addresses": [
+      "192.168.10.81", "192.168.10.82", "192.168.10.83", "192.168.10.84", "192.168.10.85",
+      "192.168.10.86", "192.168.10.87", "192.168.10.88", "192.168.10.89", "192.168.10.90",
+      "192.168.10.91", "192.168.10.92", "192.168.10.93", "192.168.10.94", "192.168.10.95"
+    ],
+    "subnets": [],
+    "ports": [21, 80, 443, 502, 683, 5000, 8193],
+    "maxHosts": 1024
+  },
+  "machines": [
+    { "id": "cnc-81", "name": "CNC 81", "ip": "192.168.10.81", "driver": "auto" },
+    { "id": "cnc-82", "name": "CNC 82", "ip": "192.168.10.82", "driver": "auto" },
+    { "id": "cnc-83", "name": "CNC 83", "ip": "192.168.10.83", "driver": "auto" },
+    { "id": "cnc-84", "name": "CNC 84", "ip": "192.168.10.84", "driver": "auto" },
+    { "id": "cnc-85", "name": "CNC 85", "ip": "192.168.10.85", "driver": "auto" },
+    { "id": "cnc-86", "name": "CNC 86", "ip": "192.168.10.86", "driver": "auto" },
+    { "id": "cnc-87", "name": "CNC 87", "ip": "192.168.10.87", "driver": "auto" },
+    { "id": "cnc-88", "name": "CNC 88", "ip": "192.168.10.88", "driver": "auto" },
+    { "id": "cnc-89", "name": "CNC 89", "ip": "192.168.10.89", "driver": "auto" },
+    { "id": "cnc-90", "name": "CNC 90", "ip": "192.168.10.90", "driver": "auto" },
+    { "id": "cnc-91", "name": "CNC 91", "ip": "192.168.10.91", "driver": "auto" },
+    { "id": "cnc-92", "name": "CNC 92", "ip": "192.168.10.92", "driver": "auto" },
+    { "id": "cnc-93", "name": "CNC 93", "ip": "192.168.10.93", "driver": "auto" },
+    { "id": "cnc-94", "name": "CNC 94", "ip": "192.168.10.94", "driver": "auto" },
+    { "id": "cnc-95", "name": "CNC 95", "ip": "192.168.10.95", "driver": "auto" }
+  ]
+}

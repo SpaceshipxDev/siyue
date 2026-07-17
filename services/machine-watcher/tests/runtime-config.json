@@ -1,0 +1,29 @@
+{
+  "endpoint": "http://127.0.0.1:3010/api/machines/ingest",
+  "token": "test-token-at-least-24-characters",
+  "watcherId": "runtime-test",
+  "pollSeconds": 15,
+  "workTimeZoneId": "Asia/Shanghai",
+  "machines": [
+    {
+      "id": "lynuc-test",
+      "name": "LYNUC TEST",
+      "ip": "127.0.0.1",
+      "runtime": {
+        "port": 15020,
+        "unitId": 1,
+        "verified": true,
+        "fields": {
+          "cycleRunning": { "address": 100, "dataType": "uint16", "bitMask": 1, "activeValue": 1 },
+          "cyclePaused": { "address": 101, "dataType": "uint16", "bitMask": 1, "activeValue": 1 },
+          "currentCycleMs": { "address": 110, "dataType": "float64" },
+          "currentCuttingMs": { "address": 114, "dataType": "float64" },
+          "controllerBootCycleMs": { "address": 118, "dataType": "float64" },
+          "completedParts": { "address": 130, "dataType": "int32" },
+          "totalCompletedParts": { "address": 132, "dataType": "int32" },
+          "targetParts": { "address": 134, "dataType": "int32" }
+        }
+      }
+    }
+  ]
+}

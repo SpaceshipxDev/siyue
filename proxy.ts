@@ -27,7 +27,7 @@ import { getUserById } from '@/lib/db'
 // '/api/leads' is the lead-capture POST from the public siyue.ai landing —
 // it does its own validation/honeypot/rate-limit; a session gate here would
 // 307 every prospect's form submit to /login.
-const PUBLIC_PATHS = ['/login', '/join', '/w', '/x/demo', '/api/leads']
+const PUBLIC_PATHS = ['/login', '/join', '/w', '/api/machines/ingest', '/x/demo', '/api/leads']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only

@@ -1,0 +1,6 @@
+dist/
+config.json
+factory.token
+state.json
+pending.json
+logs/
