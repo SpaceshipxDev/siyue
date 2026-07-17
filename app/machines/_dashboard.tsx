@@ -3,28 +3,29 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { withBase } from '@/lib/base-path'
-import type { MachineEventView, MachineState, MachineView } from '@/lib/machines'
+import type { MachineView } from '@/lib/machines'
 
 type DashboardData = {
   machines: MachineView[]
-  events: MachineEventView[]
+  events: unknown[]
   serverTime: string
 }
 
 type ApiPayload = DashboardData & { ok: boolean; error?: string }
 
+type BossStatus = {
+  label: string
+  detail: string
+  dot: string
+  badge: string
+  border: string
+  running: boolean
+  attention: boolean
+}
+
 const POLL_MS = 10_000
 const STALE_MS = 90_000
 const NUMBER = new Intl.NumberFormat('zh-CN')
-
-const STATE_META: Record<MachineState, { label: string; dot: string; tone: string }> = {
-  programming: { label: '程序更新中', dot: 'bg-[#d6ff5f]', tone: 'text-[#d6ff5f]' },
-  ready: { label: '程序就绪', dot: 'bg-[#68d7a8]', tone: 'text-[#68d7a8]' },
-  idle: { label: '待机', dot: 'bg-[#8e99a8]', tone: 'text-[#aeb7c4]' },
-  offline: { label: '离线', dot: 'bg-[#ff716c]', tone: 'text-[#ff8b86]' },
-  error: { label: '采集异常', dot: 'bg-[#ffb454]', tone: 'text-[#ffc272]' },
-  unknown: { label: '状态未知', dot: 'bg-[#8e99a8]', tone: 'text-[#aeb7c4]' },
-}
 
 export function MachineDashboard({
   initial,
@@ -68,291 +69,278 @@ export function MachineDashboard({
     }
   }, [])
 
+  const machines = useMemo(
+    () => [...data.machines].sort((a, b) => a.id.localeCompare(b.id, 'zh-CN', { numeric: true })),
+    [data.machines],
+  )
+
   const totals = useMemo(() => {
     const time = now?.getTime() ?? Date.parse(data.serverTime)
-    const online = data.machines.filter((m) => isFresh(m, time) && m.connected).length
-    const programming = data.machines.filter(
-      (m) => isFresh(m, time) && m.connected && m.state === 'programming',
-    ).length
-    const estimatedSeconds = data.machines.reduce(
-      (sum, machine) => sum + (machine.estimatedDurationSeconds ?? 0),
-      0,
-    )
-    const workedTodaySeconds = data.machines.reduce(
-      (sum, machine) => sum + (machine.telemetrySource !== 'unavailable'
-        ? machine.cuttingTodaySeconds
-        : machine.workedTodaySeconds),
-      0,
-    )
-    return { online, programming, estimatedSeconds, workedTodaySeconds }
-  }, [data.machines, data.serverTime, now])
+    const statuses = machines.map((machine) => bossStatus(machine, time))
+    return {
+      total: machines.length,
+      online: machines.filter((machine) => isFresh(machine, time) && machine.connected).length,
+      running: statuses.filter((status) => status.running).length,
+      paused: machines.filter((machine) => isFresh(machine, time) && machine.executionState === 'paused').length,
+      attention: statuses.filter((status) => status.attention).length,
+    }
+  }, [data.serverTime, machines, now])
 
   return (
-    <main className="min-h-screen bg-[#0a0d11] text-[#f2f0e9] selection:bg-[#d6ff5f] selection:text-black">
-      <header className="border-b border-white/[0.09] px-5 py-5 md:px-10 md:py-7">
-        <div className="mx-auto flex max-w-[1680px] flex-wrap items-end justify-between gap-6">
-          <div className="w-full md:w-auto">
-            <div className="flex items-center gap-3 text-[10px] font-semibold tracking-[0.24em] text-white/40">
-              <Link href="/" className="transition-colors hover:text-white">思跃</Link>
-              <span className="h-px w-6 bg-white/20" />
-              <span>YINGMA MACHINE ROOM</span>
-            </div>
-            <h1 className="mt-3 text-[clamp(34px,5vw,68px)] font-semibold leading-none tracking-[-0.055em]">
-              机床实时状态
-            </h1>
-          </div>
-          <div className="grid w-full grid-cols-[0.75fr_1.5fr_0.75fr] items-end gap-4 md:w-auto md:flex md:gap-12">
-            <HeaderMetric label="在线" value={`${totals.online}/${data.machines.length || 3}`} accent />
-            <HeaderMetric label="今日累计" value={formatDayCounter(totals.workedTodaySeconds)} />
-            <HeaderMetric label="程序更新" value={String(totals.programming)} />
-            <div className="col-span-3 flex items-end justify-between border-t border-white/[0.08] pt-4 text-left md:block md:border-0 md:pt-0 md:text-right">
-              <div className="font-mono text-[clamp(28px,3vw,46px)] font-medium leading-none tabular-nums">
-                {now ? shanghaiClock(now) : '--:--:--'}
+    <main className="min-h-screen bg-[#090d0c] text-[#f5f4ee] selection:bg-[#c9ff4a] selection:text-black">
+      <header className="border-b border-white/10 bg-[#0d1210] px-4 py-5 sm:px-6 lg:px-10 lg:py-7">
+        <div className="mx-auto max-w-[1760px]">
+          <div className="flex flex-col gap-6 2xl:flex-row 2xl:items-end 2xl:justify-between">
+            <div>
+              <div className="flex items-center gap-3 text-[11px] font-semibold tracking-[0.2em] text-white/40">
+                <Link href="/" className="transition-colors hover:text-white">思跃</Link>
+                <span className="h-px w-7 bg-white/20" />
+                <span>英玛工厂</span>
               </div>
-              <div className="text-right text-[10px] tracking-[0.18em] text-white/35 md:mt-2">
-                {userName} · {feedError ? '数据重连中' : '10 秒自动更新'}
+              <h1 className="mt-3 text-[clamp(34px,5vw,64px)] font-semibold leading-none tracking-[-0.055em]">
+                机床生产看板
+              </h1>
+              <p className="mt-3 text-sm text-white/45">每台机床正在做什么、运行多久、完成多少，一眼看清</p>
+            </div>
+
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <SummaryMetric label="正在加工" value={totals.running} tone="green" />
+                <SummaryMetric label="暂停" value={totals.paused} tone="amber" />
+                <SummaryMetric label="需处理" value={totals.attention} tone="red" />
+                <SummaryMetric label="在线机床" value={`${totals.online}/${totals.total}`} tone="neutral" />
+              </div>
+              <div className="min-w-52 border-l border-white/10 pl-5 text-left xl:text-right">
+                <div className="font-mono text-[34px] font-semibold leading-none tabular-nums">
+                  {now ? shanghaiClock(now) : '--:--:--'}
+                </div>
+                <div className="mt-2 text-[10px] tracking-[0.14em] text-white/35">
+                  {userName} · 上海时间 · 10 秒自动刷新
+                </div>
               </div>
             </div>
           </div>
         </div>
       </header>
 
-      <section className="mx-auto max-w-[1680px] px-5 py-6 md:px-10 md:py-10">
+      <section className="mx-auto max-w-[1760px] px-4 py-5 sm:px-6 lg:px-10 lg:py-8">
         {feedError && (
-          <div className="mb-5 border border-[#ffb454]/25 bg-[#ffb454]/[0.07] px-4 py-3 text-sm text-[#ffc272]">
-            云端数据暂时不可用，保留最后一次有效读数 · {feedError}
+          <div className="mb-4 rounded-md border border-[#ffb454]/30 bg-[#ffb454]/10 px-4 py-3 text-sm text-[#ffd08a]">
+            云端数据正在重连，画面暂时保留最后一次有效读数 · {feedError}
           </div>
         )}
 
-        {data.machines.length === 0 ? (
+        {machines.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className="grid gap-4 xl:grid-cols-3" data-testid="machine-grid">
-            {data.machines.map((machine) => (
+          <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3" data-testid="machine-grid">
+            {machines.map((machine) => (
               <MachineCard key={machine.id} machine={machine} now={now} />
             ))}
           </div>
         )}
-
-        <div className="mt-8 grid gap-4 lg:grid-cols-[1.45fr_0.75fr]">
-          <ProgramOverview machines={data.machines} />
-          <EventFeed events={data.events} machines={data.machines} now={now} />
-        </div>
       </section>
     </main>
   )
 }
 
 function MachineCard({ machine, now }: { machine: MachineView; now: Date | null }) {
-  const stale = now ? !isFresh(machine, now.getTime()) : false
-  const effectiveState: MachineState = stale ? 'offline' : machine.state
-  const state = STATE_META[effectiveState]
-  const controllerRunning = !stale && machine.executionState === 'running'
-  const controllerCutting = controllerRunning && machine.workSignal === 'controller_cutting_timer'
-  const completed = machine.completedParts
-  const totalCompleted = machine.totalCompletedParts
-  const target = machine.targetParts
-  const exactTelemetry = machine.telemetrySource !== 'unavailable'
+  const nowMs = now?.getTime() ?? Date.parse(machine.updatedAt)
+  const status = bossStatus(machine, nowMs)
+  const part = partBeingMade(machine)
+  const count = machine.completedParts ?? machine.totalCompletedParts
+  const duration = usefulDuration(machine)
+  const todaySeconds = machine.telemetrySource === 'unavailable'
+    ? machine.workedTodaySeconds
+    : machine.cuttingTodaySeconds
 
   return (
     <article
-      className="overflow-hidden rounded-[3px] border border-white/[0.1] bg-[#11161d]"
+      className={`overflow-hidden rounded-lg border bg-[#111714] shadow-[0_18px_50px_rgba(0,0,0,0.18)] ${status.border}`}
       data-testid={`machine-card-${machine.id}`}
     >
-      <div className="flex items-start justify-between border-b border-white/[0.08] px-5 py-5 md:px-6">
-        <div>
-          <div className="font-mono text-[10px] tracking-[0.14em] text-white/35">
-            {machine.ip} · {machine.controller || machine.manufacturer || 'CNC'}
+      <div className="flex items-start justify-between gap-5 border-b border-white/[0.08] px-5 py-4 sm:px-6">
+        <div className="min-w-0">
+          <h2 className="text-[28px] font-semibold leading-none tracking-[-0.04em]">{machine.name}</h2>
+          <div className="mt-2 truncate text-[11px] text-white/35">
+            {friendlyController(machine)} · {machine.ip}
           </div>
-          <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em]">{machine.name}</h2>
         </div>
-        <div className={`flex items-center gap-2 text-[11px] font-medium ${controllerRunning ? 'text-[#d6ff5f]' : state.tone}`}>
-          <span className={`h-2 w-2 rounded-full ${controllerRunning ? 'bg-[#d6ff5f]' : state.dot} ${controllerRunning || effectiveState === 'programming' ? 'animate-pulse' : ''}`} />
-          {stale ? '采集离线' : controllerCutting ? '实际切削中' : controllerRunning ? '循环加工中' : state.label}
+        <div className={`shrink-0 rounded-full border px-3 py-2 text-xs font-semibold ${status.badge}`}>
+          <span className={`mr-2 inline-block h-2 w-2 rounded-full align-middle ${status.dot} ${status.running ? 'animate-pulse' : ''}`} />
+          {status.label}
         </div>
       </div>
 
-      <div className="grid grid-cols-[1.35fr_0.85fr] border-b border-white/[0.08] bg-[#0d1218]">
-        <div className="border-r border-white/[0.08] px-5 py-5 md:px-6">
-          <div className="text-[9px] font-semibold tracking-[0.16em] text-white/30">
-            {exactTelemetry ? '今日实际切削 · 00:00 起' : '今日累计工作 · 00:00 起'}
-          </div>
-          <div className="mt-2 font-mono text-[clamp(28px,3vw,42px)] font-semibold leading-none tabular-nums text-[#d6ff5f]">
-            {formatDayCounter(exactTelemetry ? machine.cuttingTodaySeconds : machine.workedTodaySeconds)}
-          </div>
-          <div className="mt-2 text-[10px] text-white/35">{workSignalLabel(machine)}</div>
+      <div className="px-5 py-5 sm:px-6">
+        <div className="text-[10px] font-semibold tracking-[0.18em] text-white/30">
+          {part.inferred ? '正在生产 · 按程序名识别' : '正在生产'}
         </div>
-        <div className="px-4 py-5 md:px-5">
-          <div className="text-[9px] font-semibold tracking-[0.16em] text-white/30">今日在线</div>
-          <div className="mt-3 font-mono text-lg font-semibold tabular-nums text-white/75">
-            {formatDayCounter(machine.onlineTodaySeconds)}
+        <div className="mt-2 min-h-[46px] break-all text-[clamp(24px,3vw,34px)] font-semibold leading-tight tracking-[-0.035em] text-white">
+          {part.value}
+        </div>
+
+        <div className="mt-5 rounded-md border border-white/[0.08] bg-black/20 px-4 py-3">
+          <div className="text-[9px] font-semibold tracking-[0.16em] text-white/30">NC 程序</div>
+          <div className="mt-1.5 break-all font-mono text-[18px] font-semibold text-[#c9ff4a]">
+            {machine.currentProgram || '未读取到程序'}
           </div>
-          <div className="mt-2 text-[10px] text-white/30">上海日 · {machine.workDay}</div>
         </div>
       </div>
 
-      <div className="min-h-[176px] border-b border-white/[0.08] px-5 py-6 md:px-6">
-        <div className="text-[10px] font-semibold tracking-[0.18em] text-white/30">CURRENT PROGRAM</div>
-        <div className="mt-3 break-all font-mono text-[clamp(25px,2.2vw,36px)] font-semibold leading-tight tracking-[-0.04em] text-[#d6ff5f]">
-          {machine.currentProgram || '无主程序'}
-        </div>
-        <div className="mt-3 min-h-10 break-all text-[13px] leading-5 text-white/55">
-          {machine.sourcePart ? (
-            <><span className="text-white/30">源零件</span><span className="mx-2 text-white/15">/</span>{machine.sourcePart}</>
-          ) : '尚未从程序头读取到源零件'}
-        </div>
+      <div className="grid grid-cols-3 border-y border-white/[0.08] bg-[#0c110f]">
+        <BossMetric
+          label="完成计数"
+          value={count == null ? '—' : NUMBER.format(count)}
+          unit={count == null ? '未读取' : '机床计数'}
+          accent
+        />
+        <BossMetric label={duration.label} value={duration.value} unit={duration.unit} />
+        <BossMetric label="今日加工" value={formatClock(todaySeconds)} unit="从 00:00 起" />
       </div>
 
-      <div className="grid grid-cols-3 border-b border-white/[0.08]">
-        <CardMetric label="本循环" value={formatExactDuration(machine.currentCycleSeconds)} />
-        <CardMetric label="实际切削" value={formatExactDuration(machine.currentCuttingSeconds)} accent={exactTelemetry} />
-        <CardMetric label="开机循环累计" value={formatExactDuration(machine.controllerBootCycleSeconds)} />
-      </div>
-      <div className="grid grid-cols-3 border-b border-white/[0.08]">
-        <CardMetric label="预计加工" value={formatDuration(machine.estimatedDurationSeconds)} />
-        <CardMetric label="工序 / 刀具" value={`${machine.operationCount ?? '—'} / ${machine.toolNumbers.length || '—'}`} />
-        <CardMetric label="程序上线" value={elapsed(machine.jobStartedAt, now)} />
+      <div className="flex items-center justify-between gap-4 px-5 py-3.5 text-[11px] sm:px-6">
+        <div className="flex min-w-0 items-center gap-2 text-white/45">
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dot}`} />
+          <span className="truncate">{status.detail}</span>
+        </div>
+        <span className="shrink-0 font-mono text-white/30">更新 {relativeTime(machine.observedAt, now)}</span>
       </div>
 
-      <div className="px-5 py-5 md:px-6">
-        <div className="flex items-center justify-between text-[10px] tracking-[0.14em] text-white/30">
-          <span>机床工作计数</span>
-          <span className="font-mono tracking-normal text-white/55">
-            {completed == null ? '等待控制器映射' : `${NUMBER.format(completed)} 件`}
-          </span>
+      {(machine.error || (status.attention && machine.runtimeError)) && (
+        <div className="border-t border-[#ff8b86]/15 bg-[#ff8b86]/[0.06] px-5 py-3 text-xs text-[#ffaaa5] sm:px-6">
+          {shortError(machine.error || machine.runtimeError)}
         </div>
-        <div className="mt-3 flex items-center justify-between text-[10px] text-white/30">
-          <span>机床设定上限 · 非工单要求</span>
-          <span className="font-mono text-white/55">{target == null ? '—' : NUMBER.format(target)}</span>
-        </div>
-        <div className="mt-3 flex items-center justify-between text-[10px] text-white/30">
-          <span>控制器原始累计</span>
-          <span className="font-mono text-white/55">{totalCompleted == null ? '—' : NUMBER.format(totalCompleted)}</span>
-        </div>
-        <div className="mt-3 flex items-center justify-between gap-3 text-[10px] text-white/30">
-          <span>自动发现</span>
-          <span className="truncate font-mono text-white/45" title={machine.discoveredServices.map((service) => `${service.name}:${service.port}`).join(', ')}>
-            {machine.discoveredServices.length
-              ? machine.discoveredServices.map((service) => `${service.name}:${service.port}`).join(' · ')
-              : machine.discoveryStatus}
-          </span>
-        </div>
-        <div className="mt-5 flex items-center justify-between gap-4 text-[10px] text-white/30">
-          <span>程序更新 {relativeTime(machine.programModifiedAt, now)}</span>
-          <span>采集 {relativeTime(machine.observedAt, now)} · {machine.ftpLatencyMs == null ? '—' : `${machine.ftpLatencyMs}ms`}</span>
-        </div>
-        {machine.runtimeError && <p className="mt-3 text-xs text-[#ffc272]">运行数据：{machine.runtimeError}</p>}
-        {machine.error && <p className="mt-3 text-xs text-[#ff9a75]">采集：{machine.error}</p>}
-      </div>
+      )}
     </article>
   )
 }
 
-function ProgramOverview({ machines }: { machines: MachineView[] }) {
-  const maxOps = Math.max(1, ...machines.map((m) => m.operationCount ?? 0))
+function SummaryMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: string | number
+  tone: 'green' | 'amber' | 'red' | 'neutral'
+}) {
+  const color = tone === 'green'
+    ? 'text-[#c9ff4a] border-[#c9ff4a]/20 bg-[#c9ff4a]/[0.06]'
+    : tone === 'amber'
+      ? 'text-[#ffd277] border-[#ffbd59]/20 bg-[#ffbd59]/[0.06]'
+      : tone === 'red'
+        ? 'text-[#ff928d] border-[#ff716c]/20 bg-[#ff716c]/[0.06]'
+        : 'text-white border-white/10 bg-white/[0.03]'
   return (
-    <section className="rounded-[3px] border border-white/[0.1] bg-[#11161d] p-5 md:p-7">
-      <div className="flex items-baseline justify-between gap-4">
-        <div>
-          <div className="text-[10px] font-semibold tracking-[0.2em] text-white/30">PROGRAM LOAD</div>
-          <h2 className="mt-2 text-xl font-semibold tracking-[-0.025em]">当前可编程作业</h2>
-        </div>
-        <span className="text-[11px] text-white/30">来自 NC 程序头 · 非推测</span>
-      </div>
-      <div className="mt-6 divide-y divide-white/[0.07]">
-        {machines.map((machine) => (
-          <div key={machine.id} className="grid gap-4 py-4 md:grid-cols-[112px_1fr_100px_110px] md:items-center">
-            <div>
-              <div className="font-semibold">{machine.name}</div>
-              <div className="mt-1 font-mono text-[10px] text-white/30">{machine.currentProgram || '—'}</div>
-            </div>
-            <div>
-              <div className="flex items-center justify-between gap-3 text-xs">
-                <span className="truncate text-white/60">{machine.sourcePart || '未识别源零件'}</span>
-                <span className="font-mono text-white/35">{machine.operationCount ?? 0} OP</span>
-              </div>
-              <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/[0.07]">
-                <div
-                  className="h-full rounded-full bg-[#68d7a8]"
-                  style={{ width: `${Math.round(((machine.operationCount ?? 0) / maxOps) * 100)}%` }}
-                />
-              </div>
-            </div>
-            <div className="font-mono text-sm text-white/70">{formatDuration(machine.estimatedDurationSeconds)}</div>
-            <div className="text-right text-xs text-white/35">
-              {machine.programSizeBytes == null ? '—' : formatBytes(machine.programSizeBytes)}
-            </div>
-          </div>
-        ))}
-        {machines.length === 0 && <p className="py-10 text-center text-sm text-white/30">等待采集器首次上传</p>}
-      </div>
-    </section>
+    <div className={`min-w-28 rounded-md border px-4 py-3 ${color}`}>
+      <div className="text-[10px] tracking-[0.12em] opacity-55">{label}</div>
+      <div className="mt-1 font-mono text-[28px] font-semibold leading-none tabular-nums">{value}</div>
+    </div>
   )
 }
 
-function EventFeed({
-  events,
-  machines,
-  now,
+function BossMetric({
+  label,
+  value,
+  unit,
+  accent = false,
 }: {
-  events: MachineEventView[]
-  machines: MachineView[]
-  now: Date | null
+  label: string
+  value: string
+  unit: string
+  accent?: boolean
 }) {
-  const names = new Map(machines.map((machine) => [machine.id, machine.name]))
   return (
-    <section className="rounded-[3px] border border-white/[0.1] bg-[#11161d] p-5 md:p-7">
-      <div className="text-[10px] font-semibold tracking-[0.2em] text-white/30">LIVE EVENTS</div>
-      <h2 className="mt-2 text-xl font-semibold tracking-[-0.025em]">机床动态</h2>
-      <div className="mt-5 divide-y divide-white/[0.07]">
-        {events.slice(0, 8).map((event) => (
-          <div key={event.id} className="py-3.5">
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-sm font-medium">{names.get(event.machineId) || event.machineId}</span>
-              <span className="font-mono text-[10px] text-white/30">{relativeTime(event.observedAt, now)}</span>
-            </div>
-            <p className="mt-1 truncate text-xs text-white/45">
-              {eventLabel(event.eventType)}
-              {event.programName ? ` · ${event.programName}` : ''}
-              {event.sourcePart ? ` · ${event.sourcePart}` : ''}
-            </p>
-          </div>
-        ))}
-        {events.length === 0 && <p className="py-10 text-center text-sm text-white/30">暂无机床动态</p>}
+    <div className="min-w-0 border-r border-white/[0.08] px-3 py-4 last:border-r-0 sm:px-5">
+      <div className="text-[9px] font-semibold tracking-[0.12em] text-white/30">{label}</div>
+      <div className={`mt-2 truncate font-mono text-[clamp(18px,2.3vw,26px)] font-semibold leading-none tabular-nums ${accent ? 'text-[#c9ff4a]' : 'text-white'}`} title={value}>
+        {value}
       </div>
-    </section>
+      <div className="mt-2 truncate text-[9px] text-white/25">{unit}</div>
+    </div>
   )
 }
 
 function EmptyState() {
   return (
-    <div className="rounded-[3px] border border-dashed border-white/[0.15] bg-[#11161d] px-6 py-24 text-center" data-testid="machines-empty">
-      <div className="mx-auto h-3 w-3 rounded-full bg-[#d6ff5f] shadow-[0_0_32px_#d6ff5f]" />
-      <h2 className="mt-6 text-2xl font-semibold tracking-[-0.03em]">等待 Windows 采集器</h2>
-      <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-white/40">
-        采集器上线后，这里会自动出现 FANUC、三菱和 LYNUC 机床的程序、源零件、工序数、预计时长与连接状态。
-        每台机床的今日工作和在线时间从上海时间 00:00 重新累计。
-      </p>
+    <div className="rounded-lg border border-dashed border-white/15 bg-[#111714] px-6 py-24 text-center" data-testid="machines-empty">
+      <div className="mx-auto h-3 w-3 rounded-full bg-[#c9ff4a] shadow-[0_0_32px_#c9ff4a]" />
+      <h2 className="mt-6 text-2xl font-semibold">等待机床数据</h2>
+      <p className="mt-3 text-sm text-white/40">采集器上传后，这里会自动出现所有机床。</p>
     </div>
   )
 }
 
-function HeaderMetric({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className="text-left md:text-right">
-      <div className="text-[10px] tracking-[0.18em] text-white/30">{label}</div>
-      <div className={`mt-1 font-mono text-[clamp(22px,7vw,30px)] font-semibold leading-none tabular-nums ${accent ? 'text-[#d6ff5f]' : ''}`}>{value}</div>
-    </div>
-  )
+function bossStatus(machine: MachineView, nowMs: number): BossStatus {
+  if (!isFresh(machine, nowMs)) {
+    return {
+      label: '采集断开', detail: '超过 90 秒没有新数据', running: false, attention: true,
+      dot: 'bg-[#ff716c]', badge: 'border-[#ff716c]/30 bg-[#ff716c]/10 text-[#ff928d]', border: 'border-[#ff716c]/30',
+    }
+  }
+  if (!machine.connected) {
+    return {
+      label: '机床未连接', detail: '采集电脑在线，当前无法读取控制器', running: false, attention: true,
+      dot: 'bg-[#ff716c]', badge: 'border-[#ff716c]/30 bg-[#ff716c]/10 text-[#ff928d]', border: 'border-[#ff716c]/30',
+    }
+  }
+  if (machine.executionState === 'running') {
+    return {
+      label: '正在加工', detail: '控制器确认循环运行中', running: true, attention: false,
+      dot: 'bg-[#c9ff4a]', badge: 'border-[#c9ff4a]/30 bg-[#c9ff4a]/10 text-[#c9ff4a]', border: 'border-[#c9ff4a]/30',
+    }
+  }
+  if (machine.executionState === 'paused') {
+    return {
+      label: '暂停', detail: '加工循环已暂停', running: false, attention: false,
+      dot: 'bg-[#ffbd59]', badge: 'border-[#ffbd59]/30 bg-[#ffbd59]/10 text-[#ffd277]', border: 'border-[#ffbd59]/25',
+    }
+  }
+  if (machine.state === 'error') {
+    return {
+      label: '采集异常', detail: '控制器返回了读取错误', running: false, attention: true,
+      dot: 'bg-[#ff716c]', badge: 'border-[#ff716c]/30 bg-[#ff716c]/10 text-[#ff928d]', border: 'border-[#ff716c]/30',
+    }
+  }
+  return {
+    label: '待机', detail: machine.currentProgram ? '程序已装载，当前未运行' : '当前未运行', running: false, attention: false,
+    dot: 'bg-[#7c8b84]', badge: 'border-white/10 bg-white/[0.04] text-white/60', border: 'border-white/10',
+  }
 }
 
-function CardMetric({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className="min-h-20 border-r border-white/[0.08] px-4 py-4 last:border-r-0">
-      <div className="text-[9px] font-semibold tracking-[0.15em] text-white/25">{label}</div>
-      <div className={`mt-2 truncate font-mono text-[13px] font-medium ${accent ? 'text-[#d6ff5f]' : 'text-white/75'}`} title={value}>{value}</div>
-    </div>
-  )
+function partBeingMade(machine: MachineView): { value: string; inferred: boolean } {
+  if (machine.sourcePart?.trim()) return { value: machine.sourcePart.trim(), inferred: false }
+  if (machine.currentProgram?.trim()) {
+    const clean = machine.currentProgram.trim().split(/[\\/]/).pop()?.replace(/\.(?:nc|tap|cnc|txt)$/i, '')
+    return { value: clean || machine.currentProgram.trim(), inferred: true }
+  }
+  return { value: '尚未识别加工件', inferred: false }
+}
+
+function usefulDuration(machine: MachineView): { label: string; value: string; unit: string } {
+  if (machine.currentCycleSeconds != null && machine.currentCycleSeconds >= 0) {
+    return { label: '本循环', value: formatClock(machine.currentCycleSeconds), unit: '控制器计时' }
+  }
+  if (machine.currentCuttingSeconds != null && machine.currentCuttingSeconds >= 0) {
+    return { label: '加工时长', value: formatClock(machine.currentCuttingSeconds), unit: '控制器计时' }
+  }
+  return { label: '本循环', value: '—', unit: '未读取' }
+}
+
+function friendlyController(machine: MachineView) {
+  const text = `${machine.manufacturer || ''} ${machine.controller || ''}`.toLowerCase()
+  if (text.includes('mitsubishi') || text.includes('meldas')) return '三菱 CNC'
+  if (text.includes('fanuc')) return 'FANUC CNC'
+  if (machine.id.startsWith('lynuc-') || text.includes('lynuc')) return 'LYNUC CNC'
+  return machine.controller || machine.manufacturer || 'CNC'
+}
+
+function shortError(value: string | null) {
+  if (!value) return '控制器读取异常'
+  if (value.includes('Fwlib32.dll')) return 'FANUC 读取组件尚未安装，机床数据暂不可读'
+  if (value.length > 180) return `${value.slice(0, 180)}…`
+  return value
 }
 
 function isFresh(machine: MachineView, nowMs: number) {
@@ -360,49 +348,13 @@ function isFresh(machine: MachineView, nowMs: number) {
   return Number.isFinite(observed) && nowMs - observed < STALE_MS
 }
 
-function formatDuration(seconds: number | null) {
-  if (seconds == null || seconds <= 0) return '—'
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.round((seconds % 3600) / 60)
-  return hours > 0 ? `${hours}h ${minutes.toString().padStart(2, '0')}m` : `${minutes}m`
-}
-
-function formatDayCounter(seconds: number) {
-  const safe = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0
+function formatClock(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '—'
+  const safe = Math.floor(seconds)
   const hours = Math.floor(safe / 3_600)
   const minutes = Math.floor((safe % 3_600) / 60)
   const remainder = safe % 60
   return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}`
-}
-
-function workSignalLabel(machine: MachineView) {
-  if (machine.workSignal === 'mtconnect_execution') return 'MTConnect Execution · 控制器实时状态'
-  if (machine.workSignal === 'controller_cutting_timer') {
-    return machine.executionState === 'running'
-      ? 'LYNUC #33565 正在增加 · 控制器确认切削中'
-      : 'LYNUC #33565 当前未增加 · 未在切削'
-  }
-  if (machine.telemetrySource === 'controller_macro_auto') {
-    return `LYNUC 自动锁定 · ${machine.discoveryConfidence}% 置信度`
-  }
-  if (machine.telemetrySource === 'controller_macro') return 'LYNUC #33565 · 控制器实际切削时间'
-  if (machine.workSignal === 'controller_cycle') return 'CNC CycleStart · 控制器确认'
-  if (machine.workSignal === 'program_activity') return '程序活动 · 保守累计'
-  return '等待控制器运行信号映射'
-}
-
-function formatExactDuration(seconds: number | null) {
-  if (seconds == null || seconds < 0) return '—'
-  return formatDayCounter(seconds)
-}
-
-function elapsed(iso: string | null, now: Date | null) {
-  if (!iso || !now) return '—'
-  const seconds = Math.max(0, Math.floor((now.getTime() - Date.parse(iso)) / 1_000))
-  if (!Number.isFinite(seconds)) return '—'
-  if (seconds < 3_600) return `${Math.floor(seconds / 60)}m`
-  if (seconds < 86_400) return `${Math.floor(seconds / 3_600)}h ${Math.floor((seconds % 3_600) / 60)}m`
-  return `${Math.floor(seconds / 86_400)}d ${Math.floor((seconds % 86_400) / 3_600)}h`
 }
 
 function relativeTime(iso: string | null, now: Date | null) {
@@ -412,8 +364,7 @@ function relativeTime(iso: string | null, now: Date | null) {
   if (seconds < 10) return '刚刚'
   if (seconds < 60) return `${seconds} 秒前`
   if (seconds < 3_600) return `${Math.floor(seconds / 60)} 分钟前`
-  if (seconds < 86_400) return `${Math.floor(seconds / 3_600)} 小时前`
-  return `${Math.floor(seconds / 86_400)} 天前`
+  return `${Math.floor(seconds / 3_600)} 小时前`
 }
 
 function shanghaiClock(date: Date) {
@@ -424,19 +375,4 @@ function shanghaiClock(date: Date) {
     minute: '2-digit',
     second: '2-digit',
   })
-}
-
-function formatBytes(bytes: number) {
-  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`
-  return `${Math.round(bytes / 1_000)} KB`
-}
-
-function eventLabel(type: MachineEventView['eventType']) {
-  switch (type) {
-    case 'first_seen': return '采集器发现机床'
-    case 'program_changed': return '主程序更新'
-    case 'state_changed': return '状态变化'
-    case 'connected': return '恢复在线'
-    case 'disconnected': return '连接中断'
-  }
 }
