@@ -918,7 +918,10 @@ function requiredNumber(value: unknown, min?: number): number {
 
 function nullableNumber(value: unknown, min?: number): number | null {
   if (value == null || value === '') return null
-  return requiredNumber(value, min)
+  if (typeof value !== 'number' || !Number.isFinite(value) || (min != null && value < min)) {
+    return null
+  }
+  return value
 }
 
 function optionalNumber(value: unknown, fallback: number, min?: number): number {
