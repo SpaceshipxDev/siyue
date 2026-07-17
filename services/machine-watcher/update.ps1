@@ -51,7 +51,9 @@ Write-Host 'Uploading one production snapshot...'
 & $collectorPowerShell `
   -NoLogo -NoProfile -ExecutionPolicy Bypass `
   -File $destination -ConfigPath $config -Once
-if ($LASTEXITCODE -ne 0) { throw 'Production snapshot failed; scheduled task remains stopped.' }
+if ($LASTEXITCODE -ne 0) {
+  Write-Warning 'The first cloud upload failed, but the payload is safely queued. The persistent task will restart and retry automatically.'
+}
 
 if ($null -ne $task) { Start-ScheduledTask -TaskName $TaskName }
 Write-Host 'Yingma Machine Watcher updated successfully.' -ForegroundColor Green

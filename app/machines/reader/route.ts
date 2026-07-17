@@ -6,7 +6,7 @@ import { machineDashboardProxyMatches } from '@/lib/machines'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const FILE_NAME = 'YingmaMachineWatcher-4.1.0.zip'
+const FILE_NAME = 'YingmaMachineWatcher-4.1.1.zip'
 const ARCHIVE_PATH = path.join(
   /* turbopackIgnore: true */ process.cwd(),
   'services',

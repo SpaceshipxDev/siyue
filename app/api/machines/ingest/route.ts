@@ -1,5 +1,6 @@
 import {
   ingestMachineSnapshots,
+  machineTokenFingerprint,
   machineTokenMatches,
   parseMachineIngest,
 } from '@/lib/machines'
@@ -13,6 +14,8 @@ const MAX_BODY_BYTES = 45_000_000
 
 export async function POST(request: Request): Promise<Response> {
   if (!machineTokenMatches(request)) {
+    const tokenSha256 = machineTokenFingerprint(request)
+    if (tokenSha256) console.warn('[machine-ingest] rejected token sha256', tokenSha256)
     return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 })
   }
 

@@ -222,14 +222,35 @@ const ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/
 
 export function machineTokenMatches(request: Request): boolean {
   const expected = process.env.MACHINE_INGEST_TOKEN
-  if (!expected || expected.length < 24) return false
   const authorization = request.headers.get('authorization') ?? ''
   const supplied = authorization.startsWith('Bearer ')
     ? authorization.slice('Bearer '.length).trim()
     : ''
-  const a = Buffer.from(expected)
-  const b = Buffer.from(supplied)
-  return a.length === b.length && timingSafeEqual(a, b)
+  if (!supplied) return false
+  if (expected && expected.length >= 24) {
+    const a = Buffer.from(expected)
+    const b = Buffer.from(supplied)
+    if (a.length === b.length && timingSafeEqual(a, b)) return true
+  }
+
+  // Token rotation must not take an already-installed factory gateway down.
+  // Store only the SHA-256 of a previous token; the plaintext is unnecessary.
+  const suppliedHash = createHash('sha256').update(supplied).digest()
+  const previous = (process.env.MACHINE_INGEST_TOKEN_SHA256_PREVIOUS ?? '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => /^[a-f0-9]{64}$/.test(value))
+  return previous.some((value) => timingSafeEqual(suppliedHash, Buffer.from(value, 'hex')))
+}
+
+export function machineTokenFingerprint(request: Request): string | null {
+  const authorization = request.headers.get('authorization') ?? ''
+  const supplied = authorization.startsWith('Bearer ')
+    ? authorization.slice('Bearer '.length).trim()
+    : ''
+  return supplied.length >= 24
+    ? createHash('sha256').update(supplied).digest('hex')
+    : null
 }
 
 export function machineDashboardProxyMatches(headers: Pick<Headers, 'get'>): boolean {

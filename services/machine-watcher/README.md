@@ -1,4 +1,4 @@
-# Yingma CNC Network Reader 4.1.0
+# Yingma CNC Network Reader 4.1.1
 
 This is a read-only Windows edge service for `yingma.siyue.ai/machines`.
 It discovers CNC network endpoints, identifies what can be read, collects the

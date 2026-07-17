@@ -19,7 +19,7 @@ $ProgressPreference = 'SilentlyContinue'
 
 if (-not $ConfigPath) { $ConfigPath = Join-Path $PSScriptRoot 'config.json' }
 
-$WatcherVersion = '4.1.0'
+$WatcherVersion = '4.1.1'
 $DataRoot = Split-Path -Parent $ConfigPath
 $LogDir = Join-Path $DataRoot 'logs'
 $StatePath = Join-Path $DataRoot 'state.json'

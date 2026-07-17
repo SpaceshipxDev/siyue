@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [string]$OutputDir = (Join-Path $PSScriptRoot 'dist'),
-  [string]$Version = '4.1.0'
+  [string]$Version = '4.1.1'
 )
 
 $ErrorActionPreference = 'Stop'

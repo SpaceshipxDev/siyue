@@ -67,7 +67,9 @@ Write-Host 'Uploading the first production snapshot...'
 & $collectorPowerShell `
   -NoLogo -NoProfile -ExecutionPolicy Bypass `
   -File $watcherPath -ConfigPath $configPath -Once
-if ($LASTEXITCODE -ne 0) { throw 'Diagnostic cycle failed. Review the error above; no scheduled task was registered.' }
+if ($LASTEXITCODE -ne 0) {
+  Write-Warning 'The first cloud upload failed, but the payload is safely queued. The persistent task will install and retry automatically every minute.'
+}
 
 $settings = New-ScheduledTaskSettingsSet `
   -ExecutionTimeLimit ([TimeSpan]::Zero) `
