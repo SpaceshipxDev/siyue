@@ -88,7 +88,7 @@ function MachineDevCard({ machine }: { machine: MachineView }) {
       <div className="grid grid-cols-2 border-b border-white/10 md:grid-cols-4">
         <Value label="当前程序" value={machine.currentProgram} />
         <Value label="运行状态" value={executionLabel(machine)} />
-        <Value label="完成 / 目标" value={`${displayNumber(machine.completedParts)} / ${displayNumber(machine.targetParts)}`} />
+        <Value label="机床计数 / 机床上限（非工单）" value={`${displayNumber(machine.completedParts)} / ${displayNumber(machine.targetParts)}`} />
         <Value label="当前循环" value={formatSeconds(machine.currentCycleSeconds)} />
       </div>
 

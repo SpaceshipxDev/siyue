@@ -153,9 +153,6 @@ function MachineCard({ machine, now }: { machine: MachineView; now: Date | null 
   const totalCompleted = machine.totalCompletedParts
   const target = machine.targetParts
   const exactTelemetry = machine.telemetrySource !== 'unavailable'
-  const partProgress = completed != null && target != null && target > 0
-    ? Math.min(100, Math.round((completed / target) * 100))
-    : null
 
   return (
     <article
@@ -219,19 +216,17 @@ function MachineCard({ machine, now }: { machine: MachineView; now: Date | null 
 
       <div className="px-5 py-5 md:px-6">
         <div className="flex items-center justify-between text-[10px] tracking-[0.14em] text-white/30">
-          <span>完成件数</span>
+          <span>机床工作计数</span>
           <span className="font-mono tracking-normal text-white/55">
-            {completed == null || target == null ? '等待控制器映射' : `${completed} / ${target}`}
+            {completed == null ? '等待控制器映射' : `${NUMBER.format(completed)} 件`}
           </span>
         </div>
-        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
-          <div
-            className="h-full rounded-full bg-[#d6ff5f] transition-[width] duration-500"
-            style={{ width: `${partProgress ?? 0}%` }}
-          />
+        <div className="mt-3 flex items-center justify-between text-[10px] text-white/30">
+          <span>机床设定上限 · 非工单要求</span>
+          <span className="font-mono text-white/55">{target == null ? '—' : NUMBER.format(target)}</span>
         </div>
         <div className="mt-3 flex items-center justify-between text-[10px] text-white/30">
-          <span>控制器总件数</span>
+          <span>控制器原始累计</span>
           <span className="font-mono text-white/55">{totalCompleted == null ? '—' : NUMBER.format(totalCompleted)}</span>
         </div>
         <div className="mt-3 flex items-center justify-between gap-3 text-[10px] text-white/30">
