@@ -17,7 +17,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 export default async function ReportPage({
   searchParams,
 }: {
-  searchParams: Promise<{ stage?: string; g?: string; d?: string }>
+  searchParams: Promise<{ stage?: string; g?: string; d?: string; w?: string }>
 }) {
   const user = await requireReportViewer()
   const todayStr = today()
@@ -29,6 +29,9 @@ export default async function ReportPage({
       : null
   const gran: Gran = sp?.g === 'week' || sp?.g === 'month' ? sp.g : 'day'
   const anchor = typeof sp?.d === 'string' && ISO_DATE.test(sp.d) ? sp.d : todayStr
+  // 找人 — a pre-selected 经手人 (deep link / refresh), free text like the
+  // actor names themselves; the client validates it against the roster.
+  const worker = typeof sp?.w === 'string' && sp.w.trim() ? sp.w.trim().slice(0, 60) : null
 
   return (
     <div className="flex-1 flex flex-col">
@@ -50,6 +53,7 @@ export default async function ReportPage({
           initialStage={stage}
           initialGran={gran}
           initialAnchor={anchor}
+          initialWorker={worker}
           todayStr={todayStr}
           showMoney={canSeeMoney(user)}
         />

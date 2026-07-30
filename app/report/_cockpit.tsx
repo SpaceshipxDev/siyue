@@ -5,12 +5,17 @@ import Link from 'next/link'
 import { formatCny, STAGES, type Stage } from '@/lib/data'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { withBase } from '@/lib/base-path'
+import { PersonSearch, type RosterPerson } from './_person_search'
 
 // 报工 — the whole page, client-driven. Switching station / period and
 // expanding a person are all local + tiny fetches (no full-page navigation),
 // so it feels instant. People (who affected this stage) is the hero; 停留超期
 // sits quietly at the bottom; 导出报表 serializes the aggregate so a month
 // export is always complete.
+//
+// 找人 (PersonSearch) scopes everything to one 经手人: totals, the list (opened
+// straight to their work), and 导出 — so "王雪梅 · 本月" is two clicks and one
+// Excel file.
 
 const NUM = new Intl.NumberFormat('zh-CN')
 type Gran = 'day' | 'week' | 'month'
@@ -59,18 +64,21 @@ export function ReportClient({
   initialStage,
   initialGran,
   initialAnchor,
+  initialWorker,
   todayStr,
   showMoney,
 }: {
   initialStage: Stage | null
   initialGran: Gran
   initialAnchor: string
+  initialWorker: string | null
   todayStr: string
   showMoney: boolean
 }) {
   const [stage, setStage] = useState<Stage | null>(initialStage)
   const [gran, setGran] = useState<Gran>(initialGran)
   const [anchor, setAnchor] = useState<string>(initialAnchor)
+  const [worker, setWorker] = useState<string | null>(initialWorker)
 
   const { from, to } = rangeOf(anchor, gran)
 
@@ -81,9 +89,27 @@ export function ReportClient({
   const [error, setError] = useState<string | null>(null)
 
   // Per-worker drill cache, cleared whenever the window/station changes.
-  const [open, setOpen] = useState<string | null>(null)
+  const [open, setOpen] = useState<string | null>(initialWorker)
   const [drills, setDrills] = useState<Record<string, DrillJob[]>>({})
   const drillReq = useRef(0)
+
+  // 找人 roster — fetched once, range-independent, so the dropdown is full the
+  // first time it is clicked no matter which period is showing.
+  const [roster, setRoster] = useState<RosterPerson[]>([])
+  const [rosterLoading, setRosterLoading] = useState(true)
+  useEffect(() => {
+    let alive = true
+    fetch(withBase('/api/report?mode=roster'), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => {
+        if (alive && d.ok) setRoster(d.roster ?? [])
+      })
+      .catch(() => {})
+      .finally(() => alive && setRosterLoading(false))
+    return () => {
+      alive = false
+    }
+  }, [])
 
   // Keep the URL in sync (shareable / refresh-stable) without a navigation.
   useEffect(() => {
@@ -91,9 +117,15 @@ export function ReportClient({
     if (stage) q.set('stage', stage)
     if (gran !== 'day') q.set('g', gran)
     if (anchor !== todayStr) q.set('d', anchor)
+    if (worker) q.set('w', worker)
     const s = q.toString()
     window.history.replaceState(null, '', s ? `/report?${s}` : '/report')
-  }, [stage, gran, anchor, todayStr])
+  }, [stage, gran, anchor, worker, todayStr])
+
+  // A selected 经手人 stays expanded across period / station changes, so
+  // stepping ◂ ▸ walks through their weeks without re-clicking their row.
+  const workerRef = useRef(worker)
+  workerRef.current = worker
 
   // Fetch the summary whenever station / period changes. Stale responses are
   // dropped so fast clicking never flashes the wrong data.
@@ -101,7 +133,7 @@ export function ReportClient({
     let alive = true
     setLoading(true)
     setError(null)
-    setOpen(null)
+    setOpen(workerRef.current)
     setDrills({})
     const q = new URLSearchParams({ from, to })
     if (stage) q.set('stage', stage)
@@ -123,27 +155,33 @@ export function ReportClient({
 
   const toggleWorker = useCallback(
     (name: string) => {
-      if (open === name) {
-        setOpen(null)
-        return
-      }
-      setOpen(name)
-      if (drills[name]) return // cached
-      const req = ++drillReq.current
-      const q = new URLSearchParams({ from, to, w: name })
-      if (stage) q.set('stage', stage)
-      fetch(withBase(`/api/report?${q.toString()}`), { cache: 'no-store' })
-  .then((r) => r.json())
-        .then((d) => {
-          if (req !== drillReq.current) return
-          if (d.ok) setDrills((prev) => ({ ...prev, [name]: d.jobs ?? [] }))
-        })
-        .catch(() => {})
+      setOpen((cur) => (cur === name ? null : name))
     },
-    [open, drills, from, to, stage],
+    [],
   )
 
-  const totals = people.reduce(
+  // Load the open person's drill (from the summary list or the 找人 filter).
+  useEffect(() => {
+    if (!open || drills[open]) return
+    const name = open
+    const req = ++drillReq.current
+    const q = new URLSearchParams({ from, to, w: name })
+    if (stage) q.set('stage', stage)
+    fetch(withBase(`/api/report?${q.toString()}`), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => {
+        if (req !== drillReq.current) return
+        if (d.ok) setDrills((prev) => ({ ...prev, [name]: d.jobs ?? [] }))
+      })
+      .catch(() => {})
+  }, [open, drills, from, to, stage])
+
+  // One 经手人 selected → the page IS that person: totals, list and 导出 all
+  // narrow to them.
+  const shown = worker ? people.filter((p) => p.actorName === worker) : people
+  const counts = new Map(people.map((p) => [p.actorName, p.finishes]))
+
+  const totals = shown.reduce(
     (a, p) => {
       a.finishes += p.finishes
       a.pieces += p.pieces
@@ -175,31 +213,45 @@ export function ReportClient({
           />
           <ExportButton
             stage={stage}
+            worker={worker}
             from={from}
             to={to}
             showMoney={showMoney}
-            hasData={people.length > 0}
-            stuck={stuck}
+            hasData={shown.length > 0}
+            stuck={worker ? [] : stuck}
           />
         </div>
       </div>
 
-      {/* station chips */}
-      <StationChips current={stage} onSelect={setStage} />
+      {/* 找人 + station chips — the two filters, one row */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <PersonSearch
+          roster={roster}
+          loading={rosterLoading}
+          value={worker}
+          counts={counts}
+          onChange={(name) => {
+            setWorker(name)
+            setOpen(name)
+          }}
+        />
+        <StationChips current={stage} onSelect={setStage} />
+      </div>
 
       {/* ① people — the hero */}
       <PeopleList
         loading={loading}
         error={error}
-        people={people}
+        people={shown}
+        worker={worker}
         showMoney={showMoney}
         open={open}
         drills={drills}
         onToggle={toggleWorker}
       />
 
-      {/* ② 停留超期 — quiet, at the bottom, only when a station is selected */}
-      {stage && stuck.length > 0 && <StuckBlock stage={stage} stuck={stuck} stuckDays={stuckDays} />}
+      {/* ② 停留超期 — quiet, at the bottom, station-scoped (not a person's). */}
+      {stage && !worker && stuck.length > 0 && <StuckBlock stage={stage} stuck={stuck} stuckDays={stuckDays} />}
     </div>
   )
 }
@@ -210,6 +262,7 @@ function PeopleList({
   loading,
   error,
   people,
+  worker,
   showMoney,
   open,
   drills,
@@ -218,6 +271,7 @@ function PeopleList({
   loading: boolean
   error: string | null
   people: Person[]
+  worker: string | null
   showMoney: boolean
   open: string | null
   drills: Record<string, DrillJob[]>
@@ -232,7 +286,11 @@ function PeopleList({
     return <p className="py-16 text-center text-[13px] text-[var(--color-ink-3)]">加载中…</p>
   }
   if (!loading && people.length === 0) {
-    return <p className="py-16 text-center text-[13px] text-[var(--color-ink-3)]">此周期暂无产出</p>
+    return (
+      <p className="py-16 text-center text-[13px] text-[var(--color-ink-3)]">
+        {worker ? `${worker} 此周期暂无产出` : '此周期暂无产出'}
+      </p>
+    )
   }
 
   return (
@@ -494,6 +552,7 @@ type ExportOrder = {
 
 function ExportButton({
   stage,
+  worker,
   from,
   to,
   showMoney,
@@ -501,6 +560,8 @@ function ExportButton({
   stuck,
 }: {
   stage: Stage | null
+  /** Selected 经手人 — narrows every sheet to their activity. */
+  worker: string | null
   from: string
   to: string
   showMoney: boolean
@@ -518,6 +579,7 @@ function ExportButton({
       // export is complete, not the flat per-person count.
       const q = new URLSearchParams({ from, to, mode: 'export' })
       if (stage) q.set('stage', stage)
+      if (worker) q.set('w', worker)
       const res = await fetch(withBase(`/api/report?${q.toString()}`), { cache: 'no-store' }).then((r) => r.json())
       const orders: ExportOrder[] = res?.ok ? res.orders ?? [] : []
 
@@ -620,7 +682,7 @@ function ExportButton({
       }
 
       const span = from === to ? from : `${from}_${to}`
-      XLSX.writeFile(wb, `报工_${stage ?? '全部'}_${span}.xlsx`)
+      XLSX.writeFile(wb, `报工_${worker ?? stage ?? '全部'}_${span}.xlsx`)
     } finally {
       setBusy(false)
     }
@@ -631,7 +693,7 @@ function ExportButton({
       type="button"
       onClick={onExport}
       disabled={disabled}
-      title="导出本周期报表为 Excel（按工单）"
+      title={worker ? `导出 ${worker} 本周期报表为 Excel` : '导出本周期报表为 Excel（按工单）'}
       className={`inline-flex items-baseline gap-1.5 rounded-[2px] border px-2.5 py-[5px] text-[10px] tracking-[0.14em] uppercase transition-colors ${
         disabled
           ? 'border-[var(--color-border)] text-[var(--color-ink-4)] cursor-default'

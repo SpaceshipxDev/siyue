@@ -2,7 +2,7 @@ import 'server-only'
 import type { Stage } from './data'
 import { STAGES } from './data'
 import { supabase } from './supabase'
-import { today, shanghaiWindow } from './today'
+import { today, shanghaiWindow, shanghaiRangeWindow, shiftDate } from './today'
 
 // Read shapes for the /pulse (现场) surface. Hits the views from
 // migration 0019_pulse_views.sql — nothing here computes; the SQL does.
@@ -284,6 +284,20 @@ export async function getWorkerTimeline(opts: {
     })
   }
   return out
+}
+
+// Everyone who has ever reported work in the last `days` — the historic half
+// of 报工's 找人 roster. The users table holds current accounts; this catches
+// free-text actors and people whose account was since deactivated, so a search
+// for 张三 still finds his March output. One worker_output aggregate (a handful
+// of rows back), not an event scan.
+export async function getReportActorNames(days = 365): Promise<{ name: string; lastActiveTs?: string }[]> {
+  const to = today()
+  const from = shiftDate(to, 'day', -days)
+  const rows = await getWorkerOutput(shanghaiRangeWindow(from, to))
+  return rows
+    .filter((r) => r.actorName && r.actorName !== '—')
+    .map((r) => ({ name: r.actorName, lastActiveTs: r.lastActiveTs }))
 }
 
 // Today's 报工 scoreboard for one station — the station-axis cut of
@@ -673,6 +687,9 @@ export type OrderDetail = {
 export async function getStationDetailByOrder(
   stage: Stage | undefined,
   window: { from: string; to: string },
+  // Optional 经手人 filter — 报工's person search exports one worker's activity
+  // for the window (day/week/month) instead of the whole factory's.
+  actorName?: string,
 ): Promise<{ orders: OrderDetail[]; truncated: boolean }> {
   const PAGE = 1000
   const CAP = 20000 // safety ceiling on the export payload
@@ -690,6 +707,7 @@ export async function getStationDetailByOrder(
       .order('ts', { ascending: true })
       .range(offset, offset + PAGE - 1)
     if (stage) q = q.eq('stage', stage)
+    if (actorName) q = q.eq('actor_name', actorName)
     const r = await q
     if (r.error) {
       if (isSchemaLagError(r.error)) break
