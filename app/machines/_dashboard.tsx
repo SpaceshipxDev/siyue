@@ -303,6 +303,20 @@ function bossStatus(machine: MachineView, nowMs: number): BossStatus {
       dot: 'bg-[#ff716c]', badge: 'border-[#ff716c]/30 bg-[#ff716c]/10 text-[#ff928d]', border: 'border-[#ff716c]/30',
     }
   }
+  // Controllers that publish no cycle signal at all (the LYNUC 5-axis) used to
+  // land on 待机 / 当前未运行 — an assertion we cannot support, and one that
+  // reads on the floor as "the system lost the machine". Report the link we
+  // actually verified and the program actually loaded, and claim nothing about
+  // the spindle. 待机 below stays for controllers that genuinely told us they
+  // are idle.
+  if (machine.executionState === 'unknown') {
+    return {
+      label: '已联机',
+      detail: machine.currentProgram ? `已装载 ${machine.currentProgram}` : '控制器在线',
+      running: false, attention: false,
+      dot: 'bg-[#7fd4ff]', badge: 'border-[#7fd4ff]/30 bg-[#7fd4ff]/10 text-[#7fd4ff]', border: 'border-[#7fd4ff]/25',
+    }
+  }
   return {
     label: '待机', detail: machine.currentProgram ? '程序已装载，当前未运行' : '当前未运行', running: false, attention: false,
     dot: 'bg-[#7c8b84]', badge: 'border-white/10 bg-white/[0.04] text-white/60', border: 'border-white/10',
