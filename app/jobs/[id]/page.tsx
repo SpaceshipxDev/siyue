@@ -84,8 +84,8 @@ import { PartDrawingChange } from '@/app/_part_drawing_change'
 import { ShippingComposerButton } from '@/app/_shipping'
 import { ShipmentHistoryButton } from '@/app/_shipment_history'
 import { JobTypeEditor } from '@/app/_type_chip'
-import { AddComponentButton } from '@/app/_import_actions'
 import { DeletePartButton } from './_part_delete'
+import { NewPartsBody } from './_new_parts'
 
 // Intentionally not `force-dynamic`. The page still ends up dynamic because
 // `requireUser()` reads cookies and `getJob` is uncached, but leaving Next's
@@ -1017,13 +1017,18 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   </tr>
               ))}
             </tbody>
+            {/* Rows added this visit — client island, appears instantly off
+                the 30-byte mutate response instead of an RSC refresh the GFW
+                chokes on. Numbering continues after the full (unfiltered)
+                part list. */}
+            <NewPartsBody
+              jobId={job.id}
+              startIndex={job.components.length}
+              canEditFields={canEditFields}
+              showMoney={showMoney}
+            />
           </table>
         </ComponentsScrollArea>
-        {canEditFields && (
-          <div className="mt-3">
-            <AddComponentButton jobId={job.id} />
-          </div>
-        )}
         </JobPartFilterProvider>
           </div>
           {/* /零件 tab */}

@@ -1,24 +1,29 @@
 'use client'
 
-import { useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRef, useTransition } from 'react'
 import { mutate } from '@/lib/mutate'
 
 // Trash-bin delete for one part row on the job page. Sits on the row scan
 // path, so the icon alone never mutates — the confirm dialog is the gate.
+// After the 30-byte mutate response the row is removed LOCALLY (state
+// callback or DOM) — never router.refresh(), whose RSC payload the GFW
+// truncates for mainland users, leaving the deleted row visibly stuck.
 export function DeletePartButton({
   jobId,
   componentId,
   componentName,
+  onDeleted,
 }: {
   jobId: string
   componentId: string
   componentName: string
+  onDeleted?: () => void
 }) {
-  const router = useRouter()
+  const ref = useRef<HTMLButtonElement>(null)
   const [pending, start] = useTransition()
   return (
     <button
+      ref={ref}
       type="button"
       disabled={pending}
       aria-label="删除零件"
@@ -28,7 +33,10 @@ export function DeletePartButton({
         if (!confirm(`删除「${label}」？此操作不可撤销。`)) return
         start(async () => {
           await mutate({ kind: 'deleteComponent', jobId, componentId })
-          router.refresh()
+          if (onDeleted) onDeleted()
+          // Server-rendered rows: drop the <tr> directly. Server truth is
+          // already updated; the next natural page load agrees.
+          else ref.current?.closest('tr')?.remove()
         })
       }}
       className="inline-flex items-center justify-center p-1.5 rounded-[2px] text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] hover:bg-[var(--color-overdue-soft)] transition-colors disabled:opacity-50"
