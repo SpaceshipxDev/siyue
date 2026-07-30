@@ -84,6 +84,10 @@ import { PartDrawingChange } from '@/app/_part_drawing_change'
 import { ShippingComposerButton } from '@/app/_shipping'
 import { ShipmentHistoryButton } from '@/app/_shipment_history'
 import { JobTypeEditor } from '@/app/_type_chip'
+import {
+  AddComponentButton,
+  DeleteComponentButton,
+} from '@/app/_import_actions'
 
 // Intentionally not `force-dynamic`. The page still ends up dynamic because
 // `requireUser()` reads cookies and `getJob` is uncached, but leaving Next's
@@ -612,26 +616,19 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               {canEditFields && <col style={{ width: 170 }} />}
               {showMoney && <col style={{ width: 110 }} />}
               {showMoney && <col style={{ width: 100 }} />}
+              {canEditFields && <col style={{ width: 64 }} />}
             </colgroup>
             <thead>
               <tr className="text-[var(--color-ink-2)]">
-                <th
-                  className="sticky-col px-3 py-3 text-center label whitespace-nowrap"
-                  style={{ left: 0 }}
-                >
+                <th className="px-3 py-3 text-center label whitespace-nowrap">
                   #
                 </th>
-                <th
-                  className="sticky-col px-3 py-3 label whitespace-nowrap"
-                  style={{ left: 56 }}
-                >
-                  图
-                </th>
-                <th
-                  data-sticky-edge
-                  className="sticky-col sticky-col-edge px-4 py-3 label whitespace-nowrap"
-                  style={{ left: 134 }}
-                >
+                <th className="px-3 py-3 label whitespace-nowrap">图</th>
+                {/* data-sticky-edge stays as the scroll anchor for
+                    ComponentsScrollArea even though the column no longer
+                    freezes — identifier columns scroll away like any Excel
+                    sheet, nothing overlays the stage cells. */}
+                <th data-sticky-edge className="px-4 py-3 label whitespace-nowrap">
                   零件
                 </th>
                 <th className="px-4 py-3 label whitespace-nowrap">料号</th>
@@ -674,6 +671,9 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   <th className="px-4 py-3 text-right label whitespace-nowrap">
                     小计
                   </th>
+                )}
+                {canEditFields && (
+                  <th className="px-3 py-3 text-center label whitespace-nowrap" />
                 )}
               </tr>
             </thead>
@@ -744,7 +744,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   })}
                   <td
                     colSpan={
-                      2 + (canEditFields ? 1 : 0) + (showMoney ? 2 : 0)
+                      2 + (canEditFields ? 2 : 0) + (showMoney ? 2 : 0)
                     }
                     style={{
                       background: 'var(--color-lane)',
@@ -762,13 +762,10 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   data-st={partStageCodes[c.id]}
                   className="align-middle"
                 >
-                    <td
-                      className="sticky-col px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]"
-                      style={{ left: 0 }}
-                    >
+                    <td className="px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]">
                       {String(i + 1).padStart(2, '0')}
                     </td>
-                    <td className="sticky-col px-3 py-2" style={{ left: 56 }}>
+                    <td className="px-3 py-2">
                       <ComponentImageUploader
                         jobId={job.id}
                         componentId={c.id}
@@ -777,10 +774,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         readOnly={!canEditFields}
                       />
                     </td>
-                    <td
-                      className="sticky-col sticky-col-edge px-3 py-3"
-                      style={{ left: 134 }}
-                    >
+                    <td className="px-3 py-3">
                       {canEditFields ? (
                         <ComponentText
                           jobId={job.id}
@@ -1013,11 +1007,25 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         />
                       </td>
                     )}
+                    {canEditFields && (
+                      <td className="px-3 py-3 text-center align-top">
+                        <DeleteComponentButton
+                          jobId={job.id}
+                          componentId={c.id}
+                          componentName={c.name}
+                        />
+                      </td>
+                    )}
                   </tr>
               ))}
             </tbody>
           </table>
         </ComponentsScrollArea>
+        {canEditFields && (
+          <div className="mt-3">
+            <AddComponentButton jobId={job.id} />
+          </div>
+        )}
         </JobPartFilterProvider>
           </div>
           {/* /零件 tab */}
