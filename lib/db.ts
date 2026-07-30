@@ -4911,9 +4911,17 @@ export async function setPartImageUrlDirect(
 
 export async function appendComponent(jobId: string): Promise<string | undefined> {
   return withWriteLock(async () => {
-    const snap = await loadJobSnapshot(jobId)
-    if (!snap.idx.jobById.has(jobId)) return undefined
-    const existing = snap.idx.partsByJob.get(jobId) ?? []
+    // This write only needs the job to exist and the sibling ids/positions —
+    // the full snapshot (stages, shipments, returns) turns 添加零件 into a
+    // seconds-long wait on factory networks.
+    const [jobR, partsR] = await Promise.all([
+      supabase.from('jobs').select('id').eq('id', jobId).maybeSingle(),
+      supabase.from('parts').select('id, position').eq('job_id', jobId),
+    ])
+    if (jobR.error) throw jobR.error
+    if (partsR.error) throw partsR.error
+    if (!jobR.data) return undefined
+    const existing = (partsR.data ?? []) as { id: string; position: number }[]
     const nextPos = existing.reduce((m, p) => Math.max(m, p.position), -1) + 1
     const used = new Set(existing.map((p) => p.id))
     let n = existing.length + 1
@@ -4951,12 +4959,22 @@ export async function deleteComponent(
   componentId: string,
 ): Promise<void> {
   await withWriteLock(async () => {
-    const snap = await loadJobSnapshot(jobId)
-    const partId = findPartIdInSnap(snap, jobId, componentId)
+    // Same resolution as findPartIdInSnap (`${jobId}:${componentId}` first,
+    // bare legacy id second) without loading the whole job snapshot. The
+    // job_id filter keeps a hand-typed bare id scoped to this job.
+    const direct = `${jobId}:${componentId}`
+    const { data, error } = await supabase
+      .from('parts')
+      .select('id')
+      .eq('job_id', jobId)
+      .in('id', [direct, componentId])
+    if (error) throw error
+    const rows = (data ?? []) as { id: string }[]
+    const partId = rows.find((r) => r.id === direct)?.id ?? rows[0]?.id
     if (!partId) return
     // FK cascade on parts → part_stages, outsource_blocks does the rest.
-    const { error } = await supabase.from('parts').delete().eq('id', partId)
-    if (error) throw error
+    const del = await supabase.from('parts').delete().eq('id', partId)
+    if (del.error) throw del.error
   })
 }
 

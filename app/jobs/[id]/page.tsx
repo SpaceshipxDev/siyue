@@ -84,10 +84,8 @@ import { PartDrawingChange } from '@/app/_part_drawing_change'
 import { ShippingComposerButton } from '@/app/_shipping'
 import { ShipmentHistoryButton } from '@/app/_shipment_history'
 import { JobTypeEditor } from '@/app/_type_chip'
-import {
-  AddComponentButton,
-  DeleteComponentButton,
-} from '@/app/_import_actions'
+import { AddComponentButton } from '@/app/_import_actions'
+import { DeletePartButton } from './_part_delete'
 
 // Intentionally not `force-dynamic`. The page still ends up dynamic because
 // `requireUser()` reads cookies and `getJob` is uncached, but leaving Next's
@@ -1008,8 +1006,8 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       </td>
                     )}
                     {canEditFields && (
-                      <td className="px-3 py-3 text-center align-top">
-                        <DeleteComponentButton
+                      <td className="px-2 py-3 text-center align-middle">
+                        <DeletePartButton
                           jobId={job.id}
                           componentId={c.id}
                           componentName={c.name}
