@@ -10,7 +10,14 @@ import {
   type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { STAGES, partRoute, type Component, type Stage } from '@/lib/data'
+import {
+  DEFAULT_ROUTE_STAGES,
+  OPT_IN_STAGES,
+  STAGES,
+  partRoute,
+  type Component,
+  type Stage,
+} from '@/lib/data'
 import { mutate } from '@/lib/mutate'
 import type { SetPartRouteResult } from '@/lib/db'
 
@@ -209,14 +216,30 @@ function RouteSummary({
   lockedByOutsource: Set<Stage>
 }) {
   const inRoute = STAGES.filter((s) => route.has(s))
-  const skipped = STAGES.filter((s) => !route.has(s))
+  // The baseline is the DEFAULT route — 采购/表处 are opt-in, so a part that
+  // simply never turned them on is NOT "skipping" anything. They surface as
+  // a "+采购" suffix when switched on instead.
+  const skipped = DEFAULT_ROUTE_STAGES.filter((s) => !route.has(s))
+  const extras = OPT_IN_STAGES.filter((s) => route.has(s))
   const title = routeTitle(inRoute, lockedByOutsource)
+
+  const extraSuffix =
+    extras.length > 0 ? (
+      <span className="whitespace-nowrap text-[var(--color-ink-2)]">
+        {' '}+{extras.join('·')}
+      </span>
+    ) : null
 
   let main: ReactNode
   if (inRoute.length === 0) {
     main = <span className="text-[var(--color-ink-3)]">未设工序</span>
   } else if (skipped.length === 0) {
-    main = <span className="whitespace-nowrap">全部工段</span>
+    main = (
+      <span className="whitespace-nowrap">
+        全部工段
+        {extraSuffix}
+      </span>
+    )
   } else if (skipped.length <= 3 && inRoute.length > 4) {
     main = (
       <>
@@ -224,6 +247,7 @@ function RouteSummary({
         <span className="text-[var(--color-ink-2)] line-through decoration-[var(--color-ink-4)]">
           {skipped.join('·')}
         </span>
+        {extraSuffix}
       </>
     )
   } else if (inRoute.length <= 4) {
