@@ -609,9 +609,12 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               <col style={{ width: 200 }} />
               <col style={{ width: 120 }} />
               <col style={{ width: 130 }} />
-              <col style={{ width: 130 }} />
-              <col style={{ width: 180 }} />
-              <col style={{ width: 220 }} />
+              {/* 数量 / 材料 / 表面处理 are short values (a count, "6061-T6",
+                  "阳极氧化黑"). Kept narrow so the stage grid starts closer to
+                  the frozen 零件 column; the two text cells wrap. */}
+              <col style={{ width: 78 }} />
+              <col style={{ width: 110 }} />
+              <col style={{ width: 132 }} />
               {/* 工序 (StageChips) — sits between 表面处理 and the stage grid.
                   Without its own <col> every column to the right inherits the
                   wrong width and 备注/单价/小计 fall off the end of the
@@ -629,15 +632,27 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             </colgroup>
             <thead>
               <tr className="text-[var(--color-ink-2)]">
-                <th className="px-3 py-3 text-center label whitespace-nowrap">
+                {/* Frozen identifier block. 零件 is what the eye tracks while
+                    the stage grid scrolls, and it can only sit at the left edge
+                    if # and 图 freeze with it (left offsets = their col widths).
+                    data-sticky-edge doubles as ComponentsScrollArea's anchor. */}
+                <th
+                  className="sticky-col px-3 py-3 text-center label whitespace-nowrap"
+                  style={{ left: 0 }}
+                >
                   #
                 </th>
-                <th className="px-3 py-3 label whitespace-nowrap">图</th>
-                {/* data-sticky-edge stays as the scroll anchor for
-                    ComponentsScrollArea even though the column no longer
-                    freezes — identifier columns scroll away like any Excel
-                    sheet, nothing overlays the stage cells. */}
-                <th data-sticky-edge className="px-4 py-3 label whitespace-nowrap">
+                <th
+                  className="sticky-col px-3 py-3 label whitespace-nowrap"
+                  style={{ left: 56 }}
+                >
+                  图
+                </th>
+                <th
+                  data-sticky-edge
+                  className="sticky-col sticky-col-edge px-4 py-3 label whitespace-nowrap"
+                  style={{ left: 134 }}
+                >
                   零件
                 </th>
                 <th className="px-4 py-3 label whitespace-nowrap">料号</th>
@@ -771,10 +786,13 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   data-st={partStageCodes[c.id]}
                   className="align-middle"
                 >
-                    <td className="px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]">
+                    <td
+                      className="sticky-col px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]"
+                      style={{ left: 0 }}
+                    >
                       {String(i + 1).padStart(2, '0')}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="sticky-col px-3 py-2" style={{ left: 56 }}>
                       <ComponentImageUploader
                         jobId={job.id}
                         componentId={c.id}
@@ -783,7 +801,10 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         readOnly={!canEditFields}
                       />
                     </td>
-                    <td className="px-3 py-3">
+                    <td
+                      className="sticky-col sticky-col-edge px-3 py-3"
+                      style={{ left: 134 }}
+                    >
                       {canEditFields ? (
                         <ComponentText
                           jobId={job.id}
