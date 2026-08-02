@@ -210,6 +210,8 @@ export function landingPathFor(user: AuthUser): string {
   // no auto-applied station filter. They can still drill into ?stage=X
   // explicitly via the master grid headers.
   if (user.defaultStage === '工程') return '/'
+  // A 采购 account's station IS the procurement ledger, not a board filter.
+  if (user.defaultStage === '采购') return '/procurement'
   return user.defaultStage
     ? `/?stage=${encodeURIComponent(user.defaultStage)}`
     : '/'
