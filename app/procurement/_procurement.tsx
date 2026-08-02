@@ -78,6 +78,39 @@ export function ProcurementBoard({
 
   const [showArrived, setShowArrived] = useState(false)
 
+  // Months (YYYY-MM) that have arrived rows, newest first — the 已到货 ledger
+  // is browsed one month at a time.
+  const arrivedMonths = useMemo(() => {
+    const s = new Set<string>()
+    for (const p of procurements) {
+      if (p.status === 'arrived') s.add((p.arrivedDate ?? p.orderDate).slice(0, 7))
+    }
+    return [...s].sort().reverse()
+  }, [procurements])
+
+  const [pickedMonth, setPickedMonth] = useState<string | null>(null)
+  const arrivedMonth =
+    pickedMonth && arrivedMonths.includes(pickedMonth)
+      ? pickedMonth
+      : (arrivedMonths[0] ?? null)
+
+  const arrivedInMonth = useMemo(
+    () =>
+      arrived.filter(
+        (p) => (p.arrivedDate ?? p.orderDate).slice(0, 7) === arrivedMonth,
+      ),
+    [arrived, arrivedMonth],
+  )
+
+  const arrivedMonthValue = useMemo(() => {
+    let sum = 0
+    for (const p of arrivedInMonth) {
+      const t = procurementTotalCny(p)
+      if (typeof t === 'number') sum += t
+    }
+    return sum
+  }, [arrivedInMonth])
+
   const stats = useMemo(() => {
     const open = procurements.filter((p) => p.status === 'ordered')
     let overdue = 0
@@ -92,7 +125,15 @@ export function ProcurementBoard({
       const t = procurementTotalCny(p)
       if (typeof t === 'number') openValue += t
     }
-    return { openCount: open.length, overdue, soon, openValue }
+    // 本月采购 — everything ordered this month, regardless of arrival status.
+    const thisMonth = today.slice(0, 7)
+    let monthValue = 0
+    for (const p of procurements) {
+      if (p.orderDate.slice(0, 7) !== thisMonth) continue
+      const t = procurementTotalCny(p)
+      if (typeof t === 'number') monthValue += t
+    }
+    return { openCount: open.length, overdue, soon, openValue, monthValue }
   }, [procurements, today])
 
   function onDone() {
@@ -113,6 +154,11 @@ export function ProcurementBoard({
           <Stat
             label="在途金额"
             value={stats.openValue > 0 ? formatCny(stats.openValue) : '—'}
+            tone="neutral"
+          />
+          <Stat
+            label="本月采购"
+            value={stats.monthValue > 0 ? formatCny(stats.monthValue) : '—'}
             tone="neutral"
           />
         </div>
@@ -149,19 +195,36 @@ export function ProcurementBoard({
 
           {arrived.length > 0 && (
             <div className="mt-9">
-              <button
-                type="button"
-                onClick={() => setShowArrived((v) => !v)}
-                className="mb-3 flex items-center gap-2 text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
-              >
-                <Chevron open={showArrived} />
-                <span className="label">已到货 · {arrived.length}</span>
-              </button>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowArrived((v) => !v)}
+                  className="flex items-center gap-2 text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+                >
+                  <Chevron open={showArrived} />
+                  <span className="label">已到货 · {arrived.length}</span>
+                </button>
+                {showArrived && arrivedMonth && (
+                  <div className="flex items-center gap-3">
+                    <MonthNav
+                      months={arrivedMonths}
+                      month={arrivedMonth}
+                      onPick={setPickedMonth}
+                    />
+                    <span className="label text-[var(--color-ink-3)]">
+                      {arrivedInMonth.length} 笔 ·{' '}
+                      <span className="mono text-[12px] text-[var(--color-ink)]">
+                        {formatCny(arrivedMonthValue)}
+                      </span>
+                    </span>
+                  </div>
+                )}
+              </div>
               {showArrived && (
                 <Section
-                  rows={arrived}
+                  rows={arrivedInMonth}
                   today={today}
-                  empty=""
+                  empty={query ? '本月没有匹配的到货' : '本月没有到货记录'}
                   onEdit={(row) => setMode({ kind: 'edit', row })}
                 />
               )}
@@ -198,7 +261,7 @@ function Section({
   return (
     <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
       {/* Column header — desktop only; on mobile each row is self-labeling. */}
-      <div className="hidden grid-cols-[14px_minmax(0,1fr)_120px_150px_84px] items-center gap-4 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
+      <div className="hidden grid-cols-[14px_minmax(0,1fr)_120px_150px_140px] items-center gap-4 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
         <span />
         <span className="label">品名 · 供应商</span>
         <span className="label text-right">数量 · 单价</span>
@@ -236,12 +299,12 @@ function Row({
   const st: DueState | null =
     !arrived && p.expectedDate ? dueState(p.expectedDate, today) : null
 
-  function toggleArrived() {
+  function markArrived() {
     start(async () => {
       await mutate({
         kind: 'updateProcurement',
         procurementId: p.id,
-        patch: { status: arrived ? 'ordered' : 'arrived' },
+        patch: { status: 'arrived' },
       })
       router.refresh()
     })
@@ -256,7 +319,7 @@ function Row({
 
   return (
     <div
-      className={`group grid grid-cols-1 gap-3 border-b border-[var(--color-border)] px-5 py-4 last:border-b-0 md:grid-cols-[14px_minmax(0,1fr)_120px_150px_84px] md:items-center md:gap-4 ${
+      className={`group grid grid-cols-1 gap-3 border-b border-[var(--color-border)] px-5 py-4 last:border-b-0 md:grid-cols-[14px_minmax(0,1fr)_120px_150px_140px] md:items-center md:gap-4 ${
         arrived ? 'bg-[var(--color-bg)]/40' : 'hover:bg-[#faf8f2]'
       }`}
     >
@@ -315,43 +378,41 @@ function Row({
                 type="button"
                 onClick={del}
                 disabled={pending}
-                className="rounded-[2px] px-2 py-1 text-[11px] font-medium text-[var(--color-overdue)] hover:bg-[var(--color-overdue-soft)] disabled:opacity-50"
+                className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] font-medium text-[var(--color-overdue)] hover:bg-[var(--color-overdue-soft)] disabled:opacity-50"
               >
                 确认删除
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmingDelete(false)}
-                className="rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+                className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
               >
                 取消
               </button>
             </>
           ) : (
             <div className="flex items-center gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100">
-              <button
-                type="button"
-                onClick={toggleArrived}
-                disabled={pending}
-                className={`rounded-[2px] px-2 py-1 text-[11px] font-medium disabled:opacity-50 ${
-                  arrived
-                    ? 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
-                    : 'text-[var(--color-success)] hover:bg-[var(--color-success-soft)]'
-                }`}
-              >
-                {arrived ? '撤销到货' : '到货'}
-              </button>
+              {!arrived && (
+                <button
+                  type="button"
+                  onClick={markArrived}
+                  disabled={pending}
+                  className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] font-medium text-[var(--color-success)] hover:bg-[var(--color-success-soft)] disabled:opacity-50"
+                >
+                  到货
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onEdit}
-                className="rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+                className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
               >
                 编辑
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmingDelete(true)}
-                className="rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-overdue)]"
+                className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-overdue)]"
               >
                 删除
               </button>
@@ -479,6 +540,65 @@ function StatusDot({
       style={{ backgroundColor: color }}
       aria-hidden="true"
     />
+  )
+}
+
+// ‹ 2026-08 › — step through the months that actually have arrived rows.
+// `months` is newest-first, so ‹ walks back in time and › walks forward.
+function MonthNav({
+  months,
+  month,
+  onPick,
+}: {
+  months: string[]
+  month: string
+  onPick: (m: string) => void
+}) {
+  const i = months.indexOf(month)
+  const older = i < months.length - 1 ? months[i + 1] : null
+  const newer = i > 0 ? months[i - 1] : null
+  const btn =
+    'flex h-6 w-6 items-center justify-center rounded-[2px] border border-[var(--color-border)] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] disabled:cursor-default disabled:opacity-30 disabled:hover:border-[var(--color-border)] disabled:hover:text-[var(--color-ink-2)]'
+  return (
+    <div className="flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={() => older && onPick(older)}
+        disabled={!older}
+        aria-label="上一个月"
+        className={btn}
+      >
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path
+            d="M7.5 3 L4.5 6 L7.5 9"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+      <span className="mono w-[62px] text-center text-[12px] text-[var(--color-ink)]">
+        {month}
+      </span>
+      <button
+        type="button"
+        onClick={() => newer && onPick(newer)}
+        disabled={!newer}
+        aria-label="下一个月"
+        className={btn}
+      >
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path
+            d="M4.5 3 L7.5 6 L4.5 9"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+    </div>
   )
 }
 
