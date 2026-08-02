@@ -25,6 +25,27 @@ function stageCellText(row: MasterRow, stage: (typeof STAGES)[number]): string {
   return '未开始'
 }
 
+// 出货日期 — when 出货 was actually ticked, the one fact the status grid threw
+// away: `stageCellText` collapses the 出货 cell to the word 已完成 even though
+// the row is already carrying the finish timestamp. Sits next to 交期 so the
+// promise and the fact read as a pair.
+//
+// `latestFinishedAt` is a UTC ISO ts on live rows; the factory reads dates in
+// Beijing time, so shift +08 before slicing (a 16:30 UTC ship is the NEXT day
+// on the floor). Legacy rows stored a bare 'MM-DD' there instead — those we
+// pass through as-is rather than mangling them into a wrong year.
+const SH_OFFSET_MS = 8 * 60 * 60 * 1000
+
+function shipDateText(row: MasterRow): string {
+  const cell = row.cells['出货']
+  const raw = cell?.latestFinishedAt ?? cell?.latestCompletedAt
+  if (!raw) return ''
+  if (!/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw
+  const ms = Date.parse(raw)
+  if (Number.isNaN(ms)) return raw.slice(0, 10)
+  return new Date(ms + SH_OFFSET_MS).toISOString().slice(0, 10)
+}
+
 function isoLocalToday(): string {
   const d = new Date()
   const m = String(d.getMonth() + 1).padStart(2, '0')
@@ -60,6 +81,7 @@ export function ExportExcelButton({
         '产品',
         ...(showMoney ? ['金额', '外发', '毛利'] : []),
         '交期',
+        '出货日期',
         ...STAGES,
         '备注',
       ]
@@ -73,6 +95,7 @@ export function ExportExcelButton({
           ? [r.amountCny ?? '', r.externalSpendCny || '', r.marginCny ?? '']
           : []),
         r.effectiveDueDate,
+        shipDateText(r),
         ...STAGES.map((s) => stageCellText(r, s)),
         r.notes ?? '',
       ])
@@ -82,7 +105,7 @@ export function ExportExcelButton({
         if (h === '工号') return { wch: 16 }
         if (h === '客户' || h === '产品') return { wch: 22 }
         if (h === '备注') return { wch: 28 }
-        if (h === '交期') return { wch: 12 }
+        if (h === '交期' || h === '出货日期') return { wch: 12 }
         return { wch: 9 }
       })
       const wb = XLSX.utils.book_new()
