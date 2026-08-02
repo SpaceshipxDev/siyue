@@ -1,19 +1,38 @@
 export const STAGES = [
   '工程',
   '编程',
+  '采购',
   '操机',
   '检验',
   '手工',
   '打磨',
+  '表处',
   '喷漆',
   '丝印',
   '质量',
   '出货',
 ] as const
 
-export const SCHEMA_VERSION = 8
+export const SCHEMA_VERSION = 9
 
 export type Stage = (typeof STAGES)[number]
+
+// 采购 (material in) and 表处 (outsourced surface treatment) are OPT-IN
+// stages: a fresh part's route excludes them and the board renders the
+// columns as n/a slashes — exactly like 丝印 on a part that doesn't silk-
+// print. 工程 switches them on per part in the route picker. Their position
+// encodes the physical gate: 采购 sits right before 操机 (you can't cut
+// steel that hasn't arrived — the existing start-cascade marks it done for
+// free when machining starts), 表处 sits between 打磨 and 喷漆 (the part
+// leaves the building after polishing and must be back before paint).
+export const OPT_IN_STAGES: Stage[] = ['采购', '表处']
+
+// The route every new part is born with — everything except the opt-ins.
+// Single source of truth for server seeding (lib/db DEFAULT_NEW_PART_STAGES)
+// and the client's optimistic new-row mirror.
+export const DEFAULT_ROUTE_STAGES: Stage[] = STAGES.filter(
+  (s) => !OPT_IN_STAGES.includes(s),
+)
 
 // 出货 is always an in-house terminal stage: vendors never ship to the
 // customer directly — they ship parts back to us, then we ship to the
@@ -23,19 +42,23 @@ export const PRODUCTION_STAGES: Stage[] = STAGES.filter((s) => s !== '出货')
 // 工程 is the in-house routing-planning stage: engineering decides which
 // stages each part runs through before production starts. Vendors execute
 // routings, they don't author them — so 工程 is never part of an outsource
-// block. The picker hides it and the server rejects any block that includes
-// it. Legacy data may still contain 工程 in older blocks; we don't mutate
-// those, only block new ones.
+// block. 采购 is buying, not vendor work — a block can't "cover" it either.
+// The picker hides both and the server rejects any block that includes
+// them. Legacy data may still contain 工程 in older blocks; we don't mutate
+// those, only block new ones. (表处 IS outsourceable — outsourced surface
+// treatment is the whole reason the stage exists.)
 export const OUTSOURCEABLE_STAGES: Stage[] = PRODUCTION_STAGES.filter(
-  (s) => s !== '工程',
+  (s) => s !== '工程' && s !== '采购',
 )
 
 // 计划交期 / 排产 — the stages a job can carry a PLANNED finish date for. 检验
 // is a verdict gate with no in-house duration and 出货's plan would just be the
-// contract 交期, so neither is plannable. Order follows STAGES so a plan strip
-// reads left-to-right the way parts actually flow.
+// contract 交期, so neither is plannable. 采购's "plan" is 预计到货, which
+// already lives on the procurement row — a second date here would be a second
+// truth. Order follows STAGES so a plan strip reads left-to-right the way
+// parts actually flow.
 export const PLANNABLE_STAGES: Stage[] = PRODUCTION_STAGES.filter(
-  (s) => s !== '检验',
+  (s) => s !== '检验' && s !== '采购',
 )
 
 // 外协 carries one job-level planned return date alongside the in-house 工段
@@ -588,10 +611,16 @@ export type Handover = {
 
 // 采购 — a single purchase. The standalone purchasing ledger anyone can write
 // to: pick the part you need, the price, who you're buying from, the date you
-// ordered, and the date it should come back. Lifecycle is two states —
-// 'ordered' (在途) until it shows up, then 'arrived'. Flat by design (one row
-// per purchase); see supabase/migrations/0042_procurement.sql.
-export type ProcurementStatus = 'ordered' | 'arrived'
+// ordered, and the date it should come back. Lifecycle is three states —
+// 'pending' (待下单 — the want-list: needed, not yet ordered), 'ordered'
+// (在途) until it shows up, then 'arrived'. Flat by design (one row per
+// purchase); see supabase/migrations/0042_procurement.sql + 0082 (lifecycle).
+export type ProcurementStatus = 'pending' | 'ordered' | 'arrived'
+
+// 到料检验 — the receiving verdict. null/undefined = not inspected yet.
+// 'defect' rows carry the story in inspectNote; per-supplier 良率 derives
+// from these later.
+export type ProcurementInspectResult = 'ok' | 'defect'
 
 export type Procurement = {
   id: string
@@ -607,6 +636,13 @@ export type Procurement = {
   arrivedDate?: string // 实际到货 (YYYY-MM-DD)
   buyer: string // 采购人
   notes?: string // 备注
+  // 关联工单 — which job this buy feeds. jobNo is a display snapshot so the
+  // ledger renders without a join; both optional (shop supplies have no job).
+  jobId?: string
+  jobNo?: string
+  // 到料检验 — set after arrival; undefined = not inspected yet.
+  inspectResult?: ProcurementInspectResult
+  inspectNote?: string // 不良记录 — what was wrong
   createdBy?: string
   createdAt: string
 }
@@ -1774,15 +1810,18 @@ export function stageRangeLabel(stages: Stage[]): string {
 }
 
 export function isFullStageCoverage(stages: Stage[]): boolean {
-  // Match the current default (OUTSOURCEABLE_STAGES — excludes 工程 and 出货)
-  // plus the older PRODUCTION_STAGES and STAGES shapes still in legacy data.
-  // The literal 7 covers blocks authored before 检验 existed (when
-  // OUTSOURCEABLE was 7 stages) so legacy 全程 blocks keep their label.
+  // Match the current default (OUTSOURCEABLE_STAGES — excludes 工程/采购/出货)
+  // plus every older "all of it" shape still in legacy data: 7 (pre-检验
+  // OUTSOURCEABLE), 8 (pre-采购/表处 OUTSOURCEABLE), 9/10 (the old
+  // PRODUCTION/STAGES lengths). Blocks are per-part stage subsets, so any of
+  // these lengths only ever occurs on a genuinely whole-process dispatch.
   return (
     stages.length === OUTSOURCEABLE_STAGES.length ||
     stages.length === PRODUCTION_STAGES.length ||
     stages.length === STAGES.length ||
-    stages.length === 7
+    stages.length === 7 ||
+    stages.length === 8 ||
+    stages.length === 10
   )
 }
 
