@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
+import { ProcurementExportButton } from './_export_excel'
 import {
   dueState,
   daysFromToday,
@@ -172,6 +173,7 @@ export function ProcurementBoard({
               className="h-9 w-[220px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] pl-8 pr-3 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)] md:w-[260px]"
             />
           </div>
+          <ProcurementExportButton rows={[...inTransit, ...arrived]} />
           <button
             type="button"
             onClick={() => setMode({ kind: 'new' })}
@@ -217,6 +219,11 @@ export function ProcurementBoard({
                         {formatCny(arrivedMonthValue)}
                       </span>
                     </span>
+                    <ProcurementExportButton
+                      rows={arrivedInMonth}
+                      filename={`采购到货_${arrivedMonth}`}
+                      compact
+                    />
                   </div>
                 )}
               </div>
