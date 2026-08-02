@@ -33,7 +33,7 @@ import { ParsingPoller } from '@/app/_import_status'
 import { SourceFileRow } from '@/app/_source_file'
 import { StageChips } from '@/app/_stagechips'
 import { StagePlanBand } from '@/app/_stage_plan'
-import { PLANNABLE_STAGES } from '@/lib/data'
+import { OPT_IN_STAGES, PLANNABLE_STAGES } from '@/lib/data'
 import type { Component, JobStatus } from '@/lib/data'
 
 export const dynamic = 'force-dynamic'
@@ -178,7 +178,9 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
           <StagePlanBand
             jobId={job.id}
             stagePlan={job.stagePlan ?? {}}
-            stages={PLANNABLE_STAGES.map((s) => ({ stage: s, kind: 'pending' as const }))}
+            stages={PLANNABLE_STAGES.filter(
+              (s) => !OPT_IN_STAGES.includes(s),
+            ).map((s) => ({ stage: s, kind: 'pending' as const }))}
             canEdit
           />
         </div>
