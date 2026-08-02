@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { STAGES, type Component } from '@/lib/data'
+import { DEFAULT_ROUTE_STAGES, STAGES, type Component } from '@/lib/data'
 import { mutate } from '@/lib/mutate'
 import {
   ComponentLineTotal,
@@ -102,16 +102,18 @@ function NewPartRow({
   showMoney: boolean
   onDeleted: () => void
 }) {
-  // Server truth for a fresh part: every stage seeded pending
-  // (DEFAULT_NEW_PART_STAGES = all STAGES), nothing else set. Stage taps
-  // mutate the real part_stages rows that appendComponent created.
+  // Server truth for a fresh part: every default-route stage seeded pending
+  // (DEFAULT_NEW_PART_STAGES = DEFAULT_ROUTE_STAGES — the opt-in 采购/表处
+  // are absent), nothing else set. Stage taps mutate the real part_stages
+  // rows that appendComponent created; the absent stages render as n/a
+  // slashes, matching the server exactly.
   const component = useMemo<Component>(
     () => ({
       id: componentId,
       name: '',
       qty: 0,
       stages: Object.fromEntries(
-        STAGES.map((s) => [s, { status: 'pending' as const }]),
+        DEFAULT_ROUTE_STAGES.map((s) => [s, { status: 'pending' as const }]),
       ),
     }),
     [componentId],
@@ -191,10 +193,10 @@ function NewPartRow({
         />
       </td>
       {/* 工序 chips need the full server component — prune the route after
-          the next page load; a fresh part correctly routes through all
-          stages until then. */}
+          the next page load; a fresh part correctly routes through the
+          default stages until then. */}
       <td className="px-3 py-3 align-top text-[12px] text-[var(--color-ink-4)]">
-        全部工序
+        全部工段
       </td>
       {STAGES.map((stage) => (
         <td key={stage} className="p-0 h-[60px]">
