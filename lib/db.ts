@@ -2046,6 +2046,10 @@ type MasterRowsScope =
   | { kind: 'all' }
   | { kind: 'ids'; ids: string[] }
   | { kind: 'inbox' }
+  // 'ship' splits the 'all' board scope by is_shipped so the board can paint
+  // the ~200 active orders first and stream the ~1,200 shipped ones after —
+  // 84% of the book is shipped history nobody looks at on landing.
+  | { kind: 'ship'; shipped: boolean }
 
 type MasterBoardTableRow = {
   job_id: string
@@ -2259,6 +2263,12 @@ export async function getInboxRows(): Promise<MasterRow[]> {
 
 export async function getMasterRows(): Promise<MasterRow[]> {
   return getMasterRowsScoped({ kind: 'all' })
+}
+
+export async function getMasterRowsByShipped(
+  shipped: boolean,
+): Promise<MasterRow[]> {
+  return getMasterRowsScoped({ kind: 'ship', shipped })
 }
 
 export async function getMasterRowsPage(
@@ -2603,7 +2613,10 @@ async function getMasterRowsFromBoardTable(
     // belong to 收件箱 (getInboxRows) exclusively — letting them through here
     // double-counts them as 在产 and renders empty "解析中…" rows on the floor.
     // Mirrors master_board_summary's `status not in (...)` guard.
-    else q = q.not('status', 'in', '(parsing,draft,failed)')
+    else {
+      q = q.not('status', 'in', '(parsing,draft,failed)')
+      if (scope.kind === 'ship') q = q.eq('is_shipped', scope.shipped)
+    }
     return q.order('position', { ascending: true })
   }
 
@@ -3065,7 +3078,13 @@ async function getMasterRowsScoped(scope: MasterRowsScope): Promise<MasterRow[]>
 
   // Map insertion order = SQL ORDER BY position above — same row order as the
   // old getJobs() path.
-  return Array.from(rowsById.values())
+  const composed = Array.from(rowsById.values())
+  // Pre-0060 fallback can't push the ship split into SQL (is_shipped lives on
+  // master_board_rows); filter post-compose instead.
+  if (scope.kind === 'ship') {
+    return composed.filter((r) => Boolean(r.isShipped) === scope.shipped)
+  }
+  return composed
 }
 
 // === 财务 / 应收账款 ledger ===

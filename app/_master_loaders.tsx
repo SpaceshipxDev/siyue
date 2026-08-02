@@ -26,8 +26,18 @@ type Role = 'commerce' | 'production'
 type RowsState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; rows: MasterRow[] }
+  // pendingShipped: the active orders are on screen but 已出货 history is
+  // still streaming in — the shipped tab shows a loading state, not "empty".
+  | { status: 'ready'; rows: MasterRow[]; pendingShipped: boolean }
 
+// Two-phase load. 84% of the order book is shipped history (1,197 of 1,420
+// rows at time of writing) that nobody looks at on landing — but the old
+// single fetch made every board visit pay for all of it: ~2.2s of server
+// compute + a 1.8MB (330KB gzipped) payload over a lossy cross-border path.
+// Phase 1 fetches only active (non-shipped) orders so the default 在产 view
+// paints in a fraction of the time; phase 2 streams the shipped rows behind
+// it and merges. MasterSheet/StationWorkbench both re-sort client-side, so
+// append order is irrelevant.
 function useMasterRows(): { state: RowsState; reload: () => void } {
   const [state, setState] = useState<RowsState>({ status: 'loading' })
   const [nonce, setNonce] = useState(0)
@@ -38,24 +48,45 @@ function useMasterRows(): { state: RowsState; reload: () => void } {
 
   useEffect(() => {
     let alive = true
-    fetch(withBase('/api/master/rows'), { cache: 'no-store' })
-      .then(async (r) => {
-        const data = (await r.json()) as
-          | { ok: true; rows: CompactMasterRow[] }
-          | { ok: false; error: string }
-        if (!alive) return
-        if (data.ok) {
-          setState({ status: 'ready', rows: expandMasterWireRows(data.rows) })
-        }
-        else setState({ status: 'error', message: data.error })
+    const fetchRows = async (scope: 'active' | 'shipped') => {
+      const r = await fetch(withBase(`/api/master/rows?scope=${scope}`), {
+        cache: 'no-store',
       })
-      .catch((e: unknown) => {
+      const data = (await r.json()) as
+        | { ok: true; rows: CompactMasterRow[] }
+        | { ok: false; error: string }
+      if (!data.ok) throw new Error(data.error)
+      return expandMasterWireRows(data.rows)
+    }
+    ;(async () => {
+      const active = await fetchRows('active')
+      if (!alive) return
+      setState({ status: 'ready', rows: active, pendingShipped: true })
+      try {
+        const shipped = await fetchRows('shipped')
         if (!alive) return
+        // A job that shipped between the two calls appears in both — the
+        // phase-2 (shipped) version is fresher, so it wins the dedupe.
+        const shippedIds = new Set(shipped.map((r) => r.id))
         setState({
-          status: 'error',
-          message: e instanceof Error ? e.message : '网络中断',
+          status: 'ready',
+          rows: [...active.filter((r) => !shippedIds.has(r.id)), ...shipped],
+          pendingShipped: false,
         })
+      } catch {
+        if (!alive) return
+        // Shipped history failed to land: the active board is still fully
+        // usable. Clear the pending flag so the 已出货 tab stops implying
+        // more is coming; a reload (or next visit) retries.
+        setState({ status: 'ready', rows: active, pendingShipped: false })
+      }
+    })().catch((e: unknown) => {
+      if (!alive) return
+      setState({
+        status: 'error',
+        message: e instanceof Error ? e.message : '网络中断',
       })
+    })
     return () => {
       alive = false
     }
@@ -104,7 +135,13 @@ export function MasterSheetLoader(props: {
   if (state.status === 'loading') return <BoardSkeleton />
   if (state.status === 'error')
     return <BoardError message={state.message} onRetry={reload} />
-  return <MasterSheet rows={state.rows} {...props} />
+  return (
+    <MasterSheet
+      rows={state.rows}
+      pendingShipped={state.pendingShipped}
+      {...props}
+    />
+  )
 }
 
 export function StationWorkbenchLoader(props: {

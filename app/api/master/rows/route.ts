@@ -1,6 +1,7 @@
 import { currentUser } from '@/lib/auth'
 import {
   getMasterRows,
+  getMasterRowsByShipped,
   getMasterRowsPage,
   getOrderMoneyLightByJob,
   type OrderMoneyLite,
@@ -97,7 +98,17 @@ export async function GET(request: Request): Promise<Response> {
         { headers: { 'cache-control': 'no-store' } },
       )
     }
-    const [rows, money] = await Promise.all([getMasterRows(), moneyPromise])
+    // ?scope=active|shipped — the board's two-phase load. Active orders are
+    // ~1/6 of the book, so the first paint ships a fraction of the bytes and
+    // server time of the full feed; shipped history streams in behind it.
+    const scopeParam = url.searchParams.get('scope')
+    const rowsPromise =
+      scopeParam === 'active'
+        ? getMasterRowsByShipped(false)
+        : scopeParam === 'shipped'
+          ? getMasterRowsByShipped(true)
+          : getMasterRows()
+    const [rows, money] = await Promise.all([rowsPromise, moneyPromise])
     return Response.json(
       { ok: true, rows: toMasterWireRows(applyMoney(rows, money), user) },
       { headers: { 'cache-control': 'no-store' } },

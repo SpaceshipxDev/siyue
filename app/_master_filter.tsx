@@ -217,6 +217,7 @@ export function MasterSheet({
   role,
   defaultStage,
   stageFilter,
+  pendingShipped,
 }: {
   rows: MasterRow[]
   role: Role
@@ -224,6 +225,12 @@ export function MasterSheet({
   defaultStage?: Stage
   /** URL ?stage filter — narrows the view to one station. */
   stageFilter?: Stage
+  /**
+   * 已出货 history is still streaming in (two-phase board load — see
+   * _master_loaders.tsx). While true the shipped tab reads as loading, not
+   * empty, and its count shows … instead of a misleading low number.
+   */
+  pendingShipped?: boolean
 }) {
   // Scope persisted filter state per view context so the commerce overview,
   // /?stage=工程, and any station-filtered overview each remember their own
@@ -683,6 +690,7 @@ export function MasterSheet({
           liveCount={liveCount}
           pausedCount={pausedCount}
           shippedCount={shippedCount}
+          shippedPending={pendingShipped}
         />
       )}
 
@@ -961,7 +969,15 @@ export function MasterSheet({
             )}
           </tbody>
         </table>
-        {filteredCount === 0 && (
+        {filteredCount === 0 && shipFilter === 'shipped' && pendingShipped ? (
+          // 已出货 rows are still streaming in (phase 2 of the board load) —
+          // an empty grid here would read as "no shipped orders", a lie.
+          <div className="px-6 py-12 text-center">
+            <p className="animate-pulse text-[13px] text-[var(--color-ink-2)]">
+              已出货工单加载中…
+            </p>
+          </div>
+        ) : filteredCount === 0 && (
           <div className="px-6 py-12 text-center">
             <p className="text-[13px] text-[var(--color-ink-2)]">
               {isStationView
@@ -1029,16 +1045,19 @@ function ShipFilterToggle({
   liveCount,
   pausedCount,
   shippedCount,
+  shippedPending,
 }: {
   active: ShipFilter
   onChange: (s: ShipFilter) => void
   liveCount: number
   pausedCount: number
   shippedCount: number
+  /** Shipped rows still streaming in — show … instead of a partial count. */
+  shippedPending?: boolean
 }) {
-  const segments: { key: ShipFilter; label: string; count: number }[] = [
+  const segments: { key: ShipFilter; label: string; count: number | string }[] = [
     { key: 'live', label: '在产', count: liveCount },
-    { key: 'shipped', label: '已出货', count: shippedCount },
+    { key: 'shipped', label: '已出货', count: shippedPending ? '…' : shippedCount },
     { key: 'paused', label: '暂停/取消', count: pausedCount },
   ]
   return (
