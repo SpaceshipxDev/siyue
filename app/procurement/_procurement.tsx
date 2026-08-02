@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
+import { SearchSelect } from '@/app/_search_select'
 import { ProcurementExportButton } from './_export_excel'
 import {
   dueState,
@@ -16,6 +18,7 @@ import type {
   Procurement,
   ProcurementProduct,
 } from '@/lib/data'
+import type { ProcurementJobOption } from '@/lib/db'
 
 // 采购 board. One calm ordered queue: what's on the way (sorted so the soonest
 // and the overdue float to the top — the question the floor actually asks),
@@ -32,11 +35,13 @@ type Mode = { kind: 'new' } | { kind: 'edit'; row: Procurement } | null
 export function ProcurementBoard({
   procurements,
   products,
+  jobOptions,
   currentUser,
   today,
 }: {
   procurements: Procurement[]
   products: ProcurementProduct[]
+  jobOptions: ProcurementJobOption[]
   currentUser: string
   today: string
 }) {
@@ -50,14 +55,19 @@ export function ProcurementBoard({
     p.item.toLowerCase().includes(query) ||
     (p.supplier ?? '').toLowerCase().includes(query) ||
     p.buyer.toLowerCase().includes(query) ||
+    (p.jobNo ?? '').toLowerCase().includes(query) ||
     (p.notes ?? '').toLowerCase().includes(query)
 
-  // In-transit, soonest-expected first. A null 预计到货 has no deadline, so it
-  // sinks below every dated row rather than masquerading as urgent.
+  // The open queue: 待下单 rows first (they need a human to act before any
+  // clock starts), then in-transit soonest-expected first. A null 预计到货 has
+  // no deadline, so it sinks below every dated row rather than masquerading
+  // as urgent.
   const inTransit = useMemo(() => {
     return procurements
-      .filter((p) => p.status === 'ordered' && matches(p))
+      .filter((p) => p.status !== 'arrived' && matches(p))
       .sort((a, b) => {
+        if (a.status !== b.status)
+          return a.status === 'pending' ? -1 : 1
         const ae = a.expectedDate ?? '9999-99-99'
         const be = b.expectedDate ?? '9999-99-99'
         if (ae !== be) return ae < be ? -1 : 1
@@ -114,6 +124,9 @@ export function ProcurementBoard({
 
   const stats = useMemo(() => {
     const open = procurements.filter((p) => p.status === 'ordered')
+    const pendingCount = procurements.filter(
+      (p) => p.status === 'pending',
+    ).length
     let overdue = 0
     let soon = 0
     let openValue = 0
@@ -127,14 +140,16 @@ export function ProcurementBoard({
       if (typeof t === 'number') openValue += t
     }
     // 本月采购 — everything ordered this month, regardless of arrival status.
+    // 待下单 rows haven't been ordered, so they're not spend yet.
     const thisMonth = today.slice(0, 7)
     let monthValue = 0
     for (const p of procurements) {
+      if (p.status === 'pending') continue
       if (p.orderDate.slice(0, 7) !== thisMonth) continue
       const t = procurementTotalCny(p)
       if (typeof t === 'number') monthValue += t
     }
-    return { openCount: open.length, overdue, soon, openValue, monthValue }
+    return { openCount: open.length, pendingCount, overdue, soon, openValue, monthValue }
   }, [procurements, today])
 
   function onDone() {
@@ -149,6 +164,9 @@ export function ProcurementBoard({
       {/* Stats — the one-glance read on the queue's health. */}
       <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-wrap items-stretch gap-2.5">
+          {stats.pendingCount > 0 && (
+            <Stat label="待下单" value={stats.pendingCount} tone="info" />
+          )}
           <Stat label="采购中" value={stats.openCount} tone="neutral" />
           <Stat label="一周内到货" value={stats.soon} tone="info" />
           <Stat label="逾期" value={stats.overdue} tone="overdue" />
@@ -169,7 +187,7 @@ export function ProcurementBoard({
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="搜索 · 品名 / 供应商 / 采购人"
+              placeholder="搜索 · 品名 / 供应商 / 工号"
               className="h-9 w-[220px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] pl-8 pr-3 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)] md:w-[260px]"
             />
           </div>
@@ -243,6 +261,7 @@ export function ProcurementBoard({
         <ProcurementModal
           initial={mode.kind === 'edit' ? mode.row : null}
           products={products}
+          jobOptions={jobOptions}
           buyer={currentUser}
           today={today}
           onDone={onDone}
@@ -299,11 +318,18 @@ function Row({
   const router = useRouter()
   const [pending, start] = useTransition()
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  // 不良 needs a story — arming the button swaps the action cluster for an
+  // inline note field, same gesture as 确认删除.
+  const [defectArming, setDefectArming] = useState(false)
+  const [defectNote, setDefectNote] = useState('')
 
   const total = procurementTotalCny(p)
   const arrived = p.status === 'arrived'
+  const isPending = p.status === 'pending'
   const st: DueState | null =
-    !arrived && p.expectedDate ? dueState(p.expectedDate, today) : null
+    p.status === 'ordered' && p.expectedDate
+      ? dueState(p.expectedDate, today)
+      : null
 
   function markArrived() {
     start(async () => {
@@ -312,6 +338,34 @@ function Row({
         procurementId: p.id,
         patch: { status: 'arrived' },
       })
+      router.refresh()
+    })
+  }
+
+  // 待下单 → 已下单. The order clock starts NOW, not at row creation.
+  function markOrdered() {
+    start(async () => {
+      await mutate({
+        kind: 'updateProcurement',
+        procurementId: p.id,
+        patch: { status: 'ordered', orderDate: today },
+      })
+      router.refresh()
+    })
+  }
+
+  function setInspect(result: 'ok' | 'defect' | null, note?: string) {
+    start(async () => {
+      await mutate({
+        kind: 'updateProcurement',
+        procurementId: p.id,
+        patch: {
+          inspectResult: result,
+          inspectNote: result === 'defect' ? note?.trim() || null : null,
+        },
+      })
+      setDefectArming(false)
+      setDefectNote('')
       router.refresh()
     })
   }
@@ -331,16 +385,33 @@ function Row({
     >
       {/* Status dot — the single calm urgency signal at the start of the row. */}
       <div className="hidden md:flex md:justify-center">
-        <StatusDot arrived={arrived} state={st} />
+        <StatusDot arrived={arrived} isPending={isPending} state={st} />
       </div>
 
-      {/* 品名 (clickable to its 链接) + supplier */}
+      {/* 品名 (clickable to its 链接) + supplier + 工号 */}
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
-          <StatusDot arrived={arrived} state={st} className="md:hidden" />
+          <StatusDot
+            arrived={arrived}
+            isPending={isPending}
+            state={st}
+            className="md:hidden"
+          />
           <ItemName item={p.item} link={p.link} dim={arrived} />
         </div>
         <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[var(--color-ink-3)]">
+          {p.jobNo &&
+            (p.jobId ? (
+              <Link
+                href={`/jobs/${p.jobId}`}
+                className="mono text-[var(--color-ink-2)] hover:underline underline-offset-2"
+                title="打开工单"
+              >
+                {p.jobNo}
+              </Link>
+            ) : (
+              <span className="mono text-[var(--color-ink-2)]">{p.jobNo}</span>
+            ))}
           <span>{p.supplier || '供应商未填'}</span>
           {p.notes && (
             <span className="truncate text-[var(--color-ink-4)]" title={p.notes}>
@@ -369,7 +440,7 @@ function Row({
       {/* 预计到货 — plain date + urgency, no arrows */}
       <div className="flex items-baseline justify-between md:block">
         <span className="label md:hidden">预计到货</span>
-        <Due p={p} arrived={arrived} state={st} today={today} />
+        <Due p={p} arrived={arrived} isPending={isPending} state={st} today={today} />
       </div>
 
       {/* 采购人 + actions */}
@@ -396,9 +467,55 @@ function Row({
                 取消
               </button>
             </>
+          ) : defectArming ? (
+            <>
+              <input
+                type="text"
+                value={defectNote}
+                onChange={(e) => setDefectNote(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') setInspect('defect', defectNote)
+                  if (e.key === 'Escape') {
+                    setDefectArming(false)
+                    setDefectNote('')
+                  }
+                }}
+                placeholder="不良记录 · 哪里不对"
+                autoFocus
+                className="w-[150px] rounded-[2px] border border-[var(--color-overdue)] bg-transparent px-2 py-1 text-[11px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)]"
+              />
+              <button
+                type="button"
+                onClick={() => setInspect('defect', defectNote)}
+                disabled={pending}
+                className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] font-medium text-[var(--color-overdue)] hover:bg-[var(--color-overdue-soft)] disabled:opacity-50"
+              >
+                确认不良
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDefectArming(false)
+                  setDefectNote('')
+                }}
+                className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+              >
+                取消
+              </button>
+            </>
           ) : (
             <div className="flex items-center gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100">
-              {!arrived && (
+              {isPending && (
+                <button
+                  type="button"
+                  onClick={markOrdered}
+                  disabled={pending}
+                  className="whitespace-nowrap rounded-[2px] bg-[var(--color-ink)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
+                >
+                  下单
+                </button>
+              )}
+              {p.status === 'ordered' && (
                 <button
                   type="button"
                   onClick={markArrived}
@@ -406,6 +523,37 @@ function Row({
                   className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] font-medium text-[var(--color-success)] hover:bg-[var(--color-success-soft)] disabled:opacity-50"
                 >
                   到货
+                </button>
+              )}
+              {arrived && !p.inspectResult && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setInspect('ok')}
+                    disabled={pending}
+                    className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] font-medium text-[var(--color-success)] hover:bg-[var(--color-success-soft)] disabled:opacity-50"
+                  >
+                    合格
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDefectArming(true)}
+                    disabled={pending}
+                    className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] font-medium text-[var(--color-overdue)] hover:bg-[var(--color-overdue-soft)] disabled:opacity-50"
+                  >
+                    不良
+                  </button>
+                </>
+              )}
+              {arrived && p.inspectResult && (
+                <button
+                  type="button"
+                  onClick={() => setInspect(null)}
+                  disabled={pending}
+                  title="撤销检验结果"
+                  className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+                >
+                  撤销检验
                 </button>
               )}
               <button
@@ -468,24 +616,56 @@ function ItemName({
 function Due({
   p,
   arrived,
+  isPending,
   state,
   today,
 }: {
   p: Procurement
   arrived: boolean
+  isPending: boolean
   state: DueState | null
   today: string
 }) {
   if (arrived) {
     return (
-      <div className="flex items-center gap-1.5 leading-tight">
-        <span className="text-[12px] leading-none text-[var(--color-success)]">
-          ✓
+      <div className="flex flex-col gap-0.5 leading-tight">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[12px] leading-none text-[var(--color-success)]">
+            ✓
+          </span>
+          <span className="mono text-[12px] text-[var(--color-ink-2)]">
+            {p.arrivedDate ?? '已到货'}
+          </span>
+          <span className="label text-[var(--color-ink-4)]">到货</span>
+        </div>
+        {p.inspectResult === 'ok' && (
+          <span className="label text-[var(--color-success)]">检验合格</span>
+        )}
+        {p.inspectResult === 'defect' && (
+          <span
+            className="label text-[var(--color-overdue)]"
+            title={p.inspectNote || undefined}
+          >
+            不良{p.inspectNote ? ` · ${p.inspectNote}` : ''}
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  // 待下单 — no clock is running yet; the only truth is "someone still has
+  // to place this order". Expected date (if guessed) shows dimly.
+  if (isPending) {
+    return (
+      <div className="flex flex-col leading-tight">
+        <span className="text-[13px] font-medium text-[var(--color-warning)]">
+          待下单
         </span>
-        <span className="mono text-[12px] text-[var(--color-ink-2)]">
-          {p.arrivedDate ?? '已到货'}
-        </span>
-        <span className="label text-[var(--color-ink-4)]">到货</span>
+        {p.expectedDate && (
+          <span className="label mt-0.5 text-[var(--color-ink-4)]">
+            期望 {p.expectedDate}
+          </span>
+        )}
       </div>
     )
   }
@@ -526,13 +706,25 @@ function Due({
 
 function StatusDot({
   arrived,
+  isPending = false,
   state,
   className = '',
 }: {
   arrived: boolean
+  isPending?: boolean
   state: DueState | null
   className?: string
 }) {
+  // 待下单 — hollow amber ring: the buy exists but nothing is moving yet.
+  if (isPending) {
+    return (
+      <span
+        className={`inline-block h-[7px] w-[7px] shrink-0 rounded-full border-[1.5px] ${className}`}
+        style={{ borderColor: 'var(--color-warning)' }}
+        aria-hidden="true"
+      />
+    )
+  }
   const color = arrived
     ? 'var(--color-success)'
     : state === 'overdue'
@@ -679,6 +871,7 @@ type Face = 'pick' | 'create' | 'form'
 function ProcurementModal({
   initial,
   products,
+  jobOptions,
   buyer,
   today,
   onDone,
@@ -686,6 +879,7 @@ function ProcurementModal({
 }: {
   initial: Procurement | null
   products: ProcurementProduct[]
+  jobOptions: ProcurementJobOption[]
   buyer: string
   today: string
   onDone: () => void
@@ -720,6 +914,17 @@ function ProcurementModal({
   const [orderDate, setOrderDate] = useState(initial?.orderDate ?? today)
   const [expectedDate, setExpectedDate] = useState(initial?.expectedDate ?? '')
   const [notes, setNotes] = useState(initial?.notes ?? '')
+  // 关联工号 — which job this buy feeds. Optional; snapshot both id + 号.
+  const [jobPick, setJobPick] = useState<{ id: string; jobNo: string } | null>(
+    initial && (initial.jobId || initial.jobNo)
+      ? { id: initial.jobId ?? '', jobNo: initial.jobNo ?? '' }
+      : null,
+  )
+  // 已下单 / 待下单. Arrived rows never show the toggle (they're past it).
+  const [orderState, setOrderState] = useState<'ordered' | 'pending'>(
+    initial?.status === 'pending' ? 'pending' : 'ordered',
+  )
+  const showOrderToggle = !initial || initial.status !== 'arrived'
 
   const [pending, start] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -778,6 +983,10 @@ function ProcurementModal({
     start(async () => {
       try {
         if (initial) {
+          // Flipping a 待下单 row to 已下单 restarts the order clock at today —
+          // the row's original orderDate was just its creation day.
+          const becameOrdered =
+            initial.status === 'pending' && orderState === 'ordered'
           await mutate({
             kind: 'updateProcurement',
             procurementId: initial.id,
@@ -787,9 +996,12 @@ function ProcurementModal({
               link: selected.link.trim() || null,
               qty: qtyNum ?? null,
               unitPriceCny: priceNum ?? null,
-              orderDate: orderDate.trim(),
+              orderDate: becameOrdered ? today : orderDate.trim(),
               expectedDate: expectedDate.trim() || null,
               notes: notes.trim() || null,
+              jobId: jobPick?.id || null,
+              jobNo: jobPick?.jobNo || null,
+              ...(initial.status !== 'arrived' ? { status: orderState } : {}),
             },
           })
         } else {
@@ -805,6 +1017,9 @@ function ProcurementModal({
               orderDate: orderDate.trim(),
               expectedDate: expectedDate.trim() || undefined,
               notes: notes.trim() || undefined,
+              status: orderState,
+              jobId: jobPick?.id || undefined,
+              jobNo: jobPick?.jobNo || undefined,
             },
           })
         }
@@ -887,6 +1102,74 @@ function ProcurementModal({
                 onChange={() => setFace('pick')}
               />
 
+              {/* 关联工号 + 下单状态 — is this buy for a job, and has anyone
+                  actually placed the order yet. */}
+              <div className="mt-4 grid grid-cols-2 gap-4">
+                <Field label="关联工号">
+                  <div className="flex items-center gap-1">
+                    <SearchSelect
+                      options={jobOptions.map((j) => ({
+                        id: j.id,
+                        label: j.product ? `${j.jobNo} · ${j.product}` : j.jobNo,
+                      }))}
+                      value={jobPick?.id ?? ''}
+                      onChange={(id) => {
+                        const j = jobOptions.find((x) => x.id === id)
+                        if (j) setJobPick({ id: j.id, jobNo: j.jobNo })
+                      }}
+                      placeholder="可留空"
+                      searchPlaceholder="搜索工号 / 产品…"
+                      triggerClass="flex-1 min-w-0"
+                      triggerLabel={
+                        jobPick && !jobOptions.some((j) => j.id === jobPick.id)
+                          ? jobPick.jobNo
+                          : undefined
+                      }
+                    />
+                    {jobPick && (
+                      <button
+                        type="button"
+                        onClick={() => setJobPick(null)}
+                        title="清除关联"
+                        aria-label="清除关联工号"
+                        className="shrink-0 rounded-[2px] px-1.5 py-1 text-[13px] leading-none text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </Field>
+                {showOrderToggle && (
+                  <Field label="下单状态">
+                    <div className="flex h-[34px] items-stretch gap-1">
+                      {(
+                        [
+                          { key: 'ordered', label: '已下单' },
+                          { key: 'pending', label: '待下单' },
+                        ] as const
+                      ).map((opt) => {
+                        const on = orderState === opt.key
+                        return (
+                          <button
+                            key={opt.key}
+                            type="button"
+                            onClick={() => setOrderState(opt.key)}
+                            aria-pressed={on}
+                            className={`flex-1 rounded-[2px] border text-[13px] transition-colors ${
+                              on
+                                ? 'border-[var(--color-ink)] bg-[var(--color-ink)] font-medium text-[var(--color-surface)]'
+                                : 'border-[var(--color-border)] text-[var(--color-ink-3)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </Field>
+                )}
+              </div>
+
               <div className="mt-4 grid grid-cols-2 gap-4">
                 <Field label="数量">
                   <Input
@@ -919,15 +1202,19 @@ function ProcurementModal({
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-4">
-                <Field label="采购日期" required>
-                  <Input
-                    value={orderDate}
-                    onChange={setOrderDate}
-                    placeholder="YYYY-MM-DD"
-                    mono
-                  />
-                </Field>
-                <Field label="预计到货">
+                {/* 待下单 rows have no order date yet — it stamps itself the
+                    moment someone taps 下单. */}
+                {orderState === 'ordered' && (
+                  <Field label="采购日期" required>
+                    <Input
+                      value={orderDate}
+                      onChange={setOrderDate}
+                      placeholder="YYYY-MM-DD"
+                      mono
+                    />
+                  </Field>
+                )}
+                <Field label={orderState === 'ordered' ? '预计到货' : '期望到货'}>
                   <Input
                     value={expectedDate}
                     onChange={setExpectedDate}
