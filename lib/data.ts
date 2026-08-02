@@ -1,7 +1,7 @@
 export const STAGES = [
   '工程',
-  '编程',
   '采购',
+  '编程',
   '操机',
   '检验',
   '手工',
@@ -13,7 +13,7 @@ export const STAGES = [
   '出货',
 ] as const
 
-export const SCHEMA_VERSION = 9
+export const SCHEMA_VERSION = 10
 
 export type Stage = (typeof STAGES)[number]
 
@@ -21,11 +21,26 @@ export type Stage = (typeof STAGES)[number]
 // stages: a fresh part's route excludes them and the board renders the
 // columns as n/a slashes — exactly like 丝印 on a part that doesn't silk-
 // print. 工程 switches them on per part in the route picker. Their position
-// encodes the physical gate: 采购 sits right before 操机 (you can't cut
-// steel that hasn't arrived — the existing start-cascade marks it done for
-// free when machining starts), 表处 sits between 打磨 and 喷漆 (the part
+// follows when the work actually STARTS: buying begins the moment 工程 has
+// analyzed the part (material lead time is the long pole, so it runs first
+// and in parallel with 编程), and 表处 sits between 打磨 and 喷漆 (the part
 // leaves the building after polishing and must be back before paint).
 export const OPT_IN_STAGES: Stage[] = ['采购', '表处']
+
+// Starting a stage cascades every upstream stage closed (lib/db
+// cascadeBackStart) — "if I'm working on it, everything before me is done"
+// holds for in-house work, where each stage is a person here touching the
+// part. 采购 is the exception: it means material physically ARRIVED, a fact
+// from outside the building. 编程 is desk work on a computer that needs no
+// material at all, so a programmer pressing ▶ must never claim the steel
+// landed. Everything from 操机 on does touch the metal, so those still
+// cascade 采购 closed for free.
+export function stageStartImpliesUpstreamDone(
+  atStage: Stage,
+  upstream: Stage,
+): boolean {
+  return !(upstream === '采购' && atStage === '编程')
+}
 
 // The route every new part is born with — everything except the opt-ins.
 // Single source of truth for server seeding (lib/db DEFAULT_NEW_PART_STAGES)
