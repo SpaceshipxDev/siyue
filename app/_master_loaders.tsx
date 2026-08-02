@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { withBase } from '@/lib/base-path'
-import type { Stage } from '@/lib/data'
+import { SCHEMA_VERSION, type Stage } from '@/lib/data'
 import type { MasterRow } from '@/lib/master'
 import { expandMasterWireRows, type CompactMasterRow } from '@/lib/master_wire'
 import { MasterSheet } from './_master_filter'
@@ -53,9 +53,20 @@ function useMasterRows(): { state: RowsState; reload: () => void } {
         cache: 'no-store',
       })
       const data = (await r.json()) as
-        | { ok: true; rows: CompactMasterRow[] }
+        | { ok: true; v?: number; rows: CompactMasterRow[] }
         | { ok: false; error: string }
       if (!data.ok) throw new Error(data.error)
+      // Wire cells are positional over STAGES — a tab whose JS bundle predates
+      // a stage-list change would silently write every cell into the wrong
+      // column. On version skew, hard-reload once to pick up the new bundle.
+      if (data.v !== undefined && data.v !== SCHEMA_VERSION) {
+        const KEY = 'wire-v-reloaded'
+        if (!sessionStorage.getItem(KEY)) {
+          sessionStorage.setItem(KEY, '1')
+          window.location.reload()
+        }
+        throw new Error('系统已更新 · 请刷新页面')
+      }
       return expandMasterWireRows(data.rows)
     }
     ;(async () => {
