@@ -1,5 +1,6 @@
 import {
   BLOCKING_VERDICTS,
+  DEFAULT_ROUTE_STAGES,
   JOBS as SEED,
   STAGES,
   VENDORS as VENDOR_SEED,
@@ -4537,7 +4538,12 @@ export async function assignJobToStage(
       const fromCur = stateAt(fromStage)
       if (fromCur === 'done') continue
       if (fromCur === 'pending') {
-        const prevDone = STAGES.slice(0, fromIdx).every((s) => stateAt(s) === 'done')
+        // A stage with no part_stages row is NOT in this part's route (n/a) —
+        // it can't block the handoff. Only real, unfinished rows do.
+        const prevDone = STAGES.slice(0, fromIdx).every((s) => {
+          const row = snap.idx.stageByPartStage.get(stageKey(part.id, s))
+          return !row || row.status === 'done'
+        })
         if (!prevDone) continue
         const elsewhereInProgress = STAGES.some(
           (s) => s !== fromStage && stateAt(s) === 'in_progress',
@@ -5254,8 +5260,9 @@ export async function fillParsedJob(jobId: string, input: NewJobInput): Promise<
         partNo: c.partNo,
         process: c.process,
       })
-      // Hard guarantee on initial seed: every fresh part starts with all 9
-      // stages so the chip widget renders all-black-filled and 商务 prunes
+      // Hard guarantee on initial seed: every fresh part starts with the
+      // full default route (all stages except the opt-in 采购/表处) so the
+      // chip widget renders filled and 商务 prunes
       // by clicking off the ones that don't apply. We deliberately ignore
       // c.stages here — the LLM is instructed not to emit it, but this
       // protects against drift (partial list → some chips hollow → "click
@@ -5584,11 +5591,12 @@ export async function resetDb(): Promise<void> {
   })
 }
 
-// Default route for a fresh part — every stage is seeded as pending, and
-// 商务/工程 toggle off the ones a given part skips via the chip widget.
-// Keeps every dot clickable from row one rather than relying on AI to
-// guess which stages apply.
-export const DEFAULT_NEW_PART_STAGES: Stage[] = [...STAGES]
+// Default route for a fresh part — every NON-opt-in stage is seeded as
+// pending, and 商务/工程 toggle from there via the chip widget. 采购/表处
+// are opt-in (lib/data OPT_IN_STAGES): most parts never buy material or
+// leave for surface treatment, so their columns rest as n/a slashes until
+// 工程 switches them on per part.
+export const DEFAULT_NEW_PART_STAGES: Stage[] = [...DEFAULT_ROUTE_STAGES]
 
 // Sanitize an incoming stage list: dedupe, force 出货 in (every part ships),
 // and return them in canonical STAGES order so writes are deterministic. An
@@ -5676,7 +5684,7 @@ export async function createJob(input: NewJobInput): Promise<Job> {
         partNo: c.partNo,
         process: c.process,
       })
-      // Same all-9 invariant as fillParsedJob — see comment there.
+      // Same default-route invariant as fillParsedJob — see comment there.
       for (const stage of DEFAULT_NEW_PART_STAGES) {
         stageRows.push({
           id: `${partId}:${stage}`,
@@ -6378,10 +6386,11 @@ export async function createOutsourceBlockAt(
     const invalid = { ok: false, reason: 'invalid' } as const
     if (componentIds.length === 0) return invalid
     if (!input.stages.length) return invalid
-    // 工程 is the in-house routing-planning stage and never belongs to a
-    // vendor. Reject up front so a stale or hand-crafted client can't sneak
-    // it through.
-    if (input.stages.includes('工程')) return invalid
+    // 工程 is the in-house routing-planning stage and 采购 is buying, not
+    // vendor work — neither ever belongs to a block. Reject up front so a
+    // stale or hand-crafted client can't sneak them through.
+    if (input.stages.includes('工程') || input.stages.includes('采购'))
+      return invalid
     // Stage sets are free-form now (the 从/到 range was a form affordance the
     // floor found too rigid) — just dedupe and order canonically.
     const indexSet = new Set(input.stages.map((s) => STAGES.indexOf(s)).filter((i) => i >= 0))
@@ -6500,7 +6509,8 @@ export async function setOutsourceBlockStages(
 ): Promise<CreateBlockResult> {
   return withWriteLock(async () => {
     const invalid = { ok: false, reason: 'invalid' } as const
-    if (!stages.length || stages.includes('工程')) return invalid
+    if (!stages.length || stages.includes('工程') || stages.includes('采购'))
+      return invalid
     const indexSet = new Set(stages.map((s) => STAGES.indexOf(s)).filter((i) => i >= 0))
     const indices = [...indexSet].sort((a, b) => a - b)
     if (indices.length === 0) return invalid
@@ -7837,7 +7847,8 @@ function asNumber(x: unknown): number | undefined {
 }
 
 function fromProcurement(r: AnyRow): Procurement {
-  const status: ProcurementStatus = r.status === 'arrived' ? 'arrived' : 'ordered'
+  const status: ProcurementStatus =
+    r.status === 'arrived' ? 'arrived' : r.status === 'pending' ? 'pending' : 'ordered'
   return {
     id: r.id as string,
     item: (r.item as string | null) ?? '',
@@ -7852,6 +7863,13 @@ function fromProcurement(r: AnyRow): Procurement {
     arrivedDate: (r.arrived_date as string | null) ?? undefined,
     buyer: (r.buyer as string | null) ?? '',
     notes: (r.notes as string | null) ?? undefined,
+    jobId: (r.job_id as string | null) ?? undefined,
+    jobNo: (r.job_no as string | null) ?? undefined,
+    inspectResult:
+      r.inspect_result === 'ok' || r.inspect_result === 'defect'
+        ? r.inspect_result
+        : undefined,
+    inspectNote: (r.inspect_note as string | null) ?? undefined,
     createdBy: (r.created_by as string | null) ?? undefined,
     createdAt: r.created_at as string,
   }
@@ -7867,6 +7885,11 @@ export type NewProcurementInput = {
   orderDate: string
   expectedDate?: string
   notes?: string
+  // 待下单 want-list rows are born 'pending'; omitted = 'ordered' (the
+  // pre-0082 behavior, so old clients keep working unchanged).
+  status?: 'pending' | 'ordered'
+  jobId?: string
+  jobNo?: string
 }
 
 export type ProcurementPatch = {
@@ -7880,12 +7903,18 @@ export type ProcurementPatch = {
   status?: ProcurementStatus
   arrivedDate?: string | null
   notes?: string | null
+  jobId?: string | null
+  jobNo?: string | null
+  inspectResult?: 'ok' | 'defect' | null
+  inspectNote?: string | null
 }
 
-// product_id + link land in migration 0043. Selecting them on a DB that's only
-// at 0042 throws 42703; fall back to the base column set so the tab renders
-// through the deploy window instead of 500'ing.
+// product_id + link land in migration 0043; job/inspect lifecycle in 0082.
+// Selecting columns a not-yet-migrated DB lacks throws 42703; fall back tier
+// by tier so the tab renders through the deploy window instead of 500'ing.
 const PROCUREMENT_COLS_FULL =
+  'id, item, qty, unit_price_cny, supplier, order_date, expected_date, status, arrived_date, buyer, notes, product_id, link, job_id, job_no, inspect_result, inspect_note, created_by, created_at'
+const PROCUREMENT_COLS_V43 =
   'id, item, qty, unit_price_cny, supplier, order_date, expected_date, status, arrived_date, buyer, notes, product_id, link, created_by, created_at'
 const PROCUREMENT_COLS_BASE =
   'id, item, qty, unit_price_cny, supplier, order_date, expected_date, status, arrived_date, buyer, notes, created_by, created_at'
@@ -7902,6 +7931,9 @@ export async function getProcurements(): Promise<Procurement[]> {
       .select(cols)
       .order('created_at', { ascending: false }) as unknown as Promise<Res>
   let { data, error } = await run(PROCUREMENT_COLS_FULL)
+  if (error && isMissingColumnError(error)) {
+    ;({ data, error } = await run(PROCUREMENT_COLS_V43))
+  }
   if (error && isMissingColumnError(error)) {
     ;({ data, error } = await run(PROCUREMENT_COLS_BASE))
   }
@@ -7928,9 +7960,11 @@ export async function createProcurement(
     supplier: input.supplier?.trim() || null,
     order_date: input.orderDate,
     expected_date: input.expectedDate || null,
-    status: 'ordered',
+    status: input.status === 'pending' ? 'pending' : 'ordered',
     buyer: createdBy,
     notes: input.notes?.trim() || null,
+    job_id: input.jobId || null,
+    job_no: input.jobNo?.trim() || null,
     created_by: createdBy,
   })
   if (error) throw error
@@ -7960,15 +7994,24 @@ export async function updateProcurement(
   if (patch.expectedDate !== undefined)
     update.expected_date = patch.expectedDate || null
   if (patch.notes !== undefined) update.notes = patch.notes?.trim() || null
+  if (patch.jobId !== undefined) update.job_id = patch.jobId || null
+  if (patch.jobNo !== undefined) update.job_no = patch.jobNo?.trim() || null
+  if (patch.inspectResult !== undefined)
+    update.inspect_result = patch.inspectResult
+  if (patch.inspectNote !== undefined)
+    update.inspect_note = patch.inspectNote?.trim() || null
   if (patch.status !== undefined) {
     update.status = patch.status
     // Marking arrived without an explicit date stamps today; reverting to
-    // ordered clears the arrival so the row re-enters the in-transit queue.
+    // ordered / pending clears the arrival (and its inspection) so the row
+    // re-enters the queue clean.
     if (patch.status === 'arrived') {
       update.arrived_date =
         patch.arrivedDate !== undefined ? patch.arrivedDate || null : today()
     } else {
       update.arrived_date = null
+      update.inspect_result = null
+      update.inspect_note = null
     }
   } else if (patch.arrivedDate !== undefined) {
     update.arrived_date = patch.arrivedDate || null
@@ -7987,6 +8030,27 @@ export async function deleteProcurement(procurementId: string): Promise<void> {
     .delete()
     .eq('id', procurementId)
   if (error) throw error
+}
+
+// 关联工号 picker feed — the last ~400 confirmed jobs, newest first. Job no +
+// product only (no customer: the 采购 tab is open to every signed-in role and
+// customer names stay off floor-visible surfaces). 400 covers months of
+// intake; older jobs don't get new material bought for them.
+export type ProcurementJobOption = { id: string; jobNo: string; product: string }
+
+export async function getProcurementJobOptions(): Promise<ProcurementJobOption[]> {
+  const { data, error } = await supabase
+    .from('jobs')
+    .select('id, job_no, product, created_at')
+    .eq('status', 'ready')
+    .order('created_at', { ascending: false })
+    .limit(400)
+  if (error) throw error
+  return (data ?? []).map((r) => ({
+    id: r.id as string,
+    jobNo: (r.job_no as string | null) ?? '',
+    product: (r.product as string | null) ?? '',
+  }))
 }
 
 // === 物料库 (procurement product catalog) ===
