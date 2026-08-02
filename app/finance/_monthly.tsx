@@ -92,10 +92,12 @@ export async function MonthlyCashflow({
     outsourceCount += 1
   }
 
-  // 采购 — purchases ordered in the picked month.
+  // 采购 — purchases ordered in the picked month. 待下单 rows haven't been
+  // ordered yet, so they're not spend.
   let procurementCny = 0
   let procurementCount = 0
   for (const p of procurements) {
+    if (p.status === 'pending') continue
     if (!p.orderDate.startsWith(ym)) continue
     const t = procurementTotalCny(p)
     if (typeof t === 'number') procurementCny += t
