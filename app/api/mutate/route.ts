@@ -298,6 +298,13 @@ function isValidProcurementInput(x: unknown): x is NewProcurementInput {
   if (!isOptString(o.supplier) || !isOptString(o.notes)) return false
   if (!isOptString(o.expectedDate)) return false
   if (!isOptString(o.productId) || !isOptString(o.link)) return false
+  if (!isOptString(o.jobId) || !isOptString(o.jobNo)) return false
+  if (
+    o.status !== undefined &&
+    o.status !== 'pending' &&
+    o.status !== 'ordered'
+  )
+    return false
   return true
 }
 
@@ -312,13 +319,30 @@ function isValidProcurementPatch(x: unknown): x is ProcurementPatch {
   )
     return false
   if (!isOptNumber(o.qty) || !isOptNumber(o.unitPriceCny)) return false
-  for (const f of ['supplier', 'expectedDate', 'arrivedDate', 'notes', 'link']) {
+  for (const f of [
+    'supplier',
+    'expectedDate',
+    'arrivedDate',
+    'notes',
+    'link',
+    'jobId',
+    'jobNo',
+    'inspectNote',
+  ]) {
     if (!isOptString(o[f])) return false
   }
   if (
     o.status !== undefined &&
+    o.status !== 'pending' &&
     o.status !== 'ordered' &&
     o.status !== 'arrived'
+  )
+    return false
+  if (
+    o.inspectResult !== undefined &&
+    o.inspectResult !== null &&
+    o.inspectResult !== 'ok' &&
+    o.inspectResult !== 'defect'
   )
     return false
   return true
