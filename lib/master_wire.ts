@@ -68,7 +68,7 @@ export type CompactMasterRow = [
   outstandingCny: WireValue<number>,
   overdueDays: WireValue<number>,
   // 越侬商务 — appended last so adding it never reshuffles the positional
-  // indices above. Customer-facing → null when scrubbed for production.
+  // indices above. Internal (our own salesperson), never scrubbed.
   yuenongBusiness: WireValue<string>,
   // 计划交期 (排产) — appended after yuenongBusiness (index 34). Internal
   // scheduling, not customer PII, so never scrubbed. Always an object ({} when
@@ -92,7 +92,9 @@ function scrubForWire(row: MasterRow, scope: Scope): MasterRow {
     ...row,
     customer: customerOk ? row.customer : '',
     engineer: customerOk ? row.engineer : undefined,
-    yuenongBusiness: customerOk ? row.yuenongBusiness : undefined,
+    // 越侬商务 is internal (our salesperson), not customer PII — every scope
+    // keeps it so the floor knows who owns the order.
+    yuenongBusiness: row.yuenongBusiness,
     amountCny: moneyOk ? row.amountCny : undefined,
     externalSpendCny: moneyOk ? row.externalSpendCny : 0,
     marginCny: moneyOk ? row.marginCny : undefined,

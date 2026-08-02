@@ -65,8 +65,8 @@ export type MasterRow = {
    *  scopes). Drives the commerce/boss dashboard subtext. */
   engineer?: string
   /** 越侬商务 — OUR salesperson on this order (the in-house counterpart to
-   *  engineer). Customer-facing context, scrubbed for production scopes.
-   *  Carried so the board can surface a name-search match inline. */
+   *  engineer). Internal, never scrubbed: the floor needs to know who to ask
+   *  about a drawing or a date. Shown on every production row. */
   yuenongBusiness?: string
   amountCny?: number
   /** Original contract dueDate from the jobs row. Use `effectiveDueDate` for sort/color. */
@@ -312,6 +312,19 @@ export function rowEffectiveDueDate(row: MasterRow): string {
 /** True when shipping is fully closed out. */
 export function rowIsShipped(row: MasterRow): boolean {
   return row.isShipped
+}
+
+/** Text match for production scopes, whose searchHaystack arrives empty (it
+ *  carries customer PII). Matches exactly the fields they can read on the row:
+ *  工号 / 产品 / 越侬商务 — the last because "show me everything 王雪梅 is
+ *  running" is a question the floor actually asks. `query` must already be
+ *  trimmed and lowercased. */
+export function rowMatchesProductionQuery(row: MasterRow, query: string): boolean {
+  return (
+    row.jobNo.toLowerCase().includes(query) ||
+    row.product.toLowerCase().includes(query) ||
+    (row.yuenongBusiness ?? '').toLowerCase().includes(query)
+  )
 }
 
 /** True for 收件箱 jobs (parsing/draft/failed) — not yet confirmed orders, so

@@ -20,6 +20,7 @@ import {
   rowIsMineAtStage,
   rowIsShipped,
   rowIsUpstreamOfStage,
+  rowMatchesProductionQuery,
   rowMostRecentFinishedAt,
   rowRollupStage,
   rowStageCounts,
@@ -368,15 +369,15 @@ export function MasterSheet({
 
   // Pipeline: text → sort by mode → date filter → partition. The parent
   // pre-sorts by due date but we re-sort here so the toggle is purely local.
-  // For non-出货 production users we restrict the searchable text to jobNo
-  // only — customer + product are PII for them. The view-built haystack already
-  // includes everything; for the jobNoOnly path we substring-match against
-  // jobNo alone instead.
+  // For non-出货 production users the view-built haystack arrives empty (it
+  // carries customer PII), so we substring-match the three fields they do
+  // see: 工号, 产品, and 越侬商务 — the last so anyone can pull up every order
+  // one 商务 owns.
   const matchedByText = useMemo(() => {
     const query = q.trim().toLowerCase()
     if (!query) return scopedRows
     if (jobNoOnly) {
-      return scopedRows.filter((r) => r.jobNo.toLowerCase().includes(query))
+      return scopedRows.filter((r) => rowMatchesProductionQuery(r, query))
     }
     return scopedRows.filter((r) => r.searchHaystack.includes(query))
   }, [scopedRows, q, jobNoOnly])
@@ -814,7 +815,7 @@ export function MasterSheet({
               <th className="px-4 py-3 label whitespace-nowrap">工号</th>
               <th className="px-4 py-3 label whitespace-nowrap">交期</th>
               <th className="px-4 py-3 label whitespace-nowrap">
-                {isProduction ? '产品' : '客户 / 工程师'}
+                {isProduction ? `产品 / ${BRAND.commerceLabel}` : '客户 / 工程师'}
               </th>
               {showMoney && (
                 <th className="px-4 py-3 text-right label whitespace-nowrap">
@@ -1021,7 +1022,7 @@ function searchPlaceholder(jobNoOnly: boolean): string {
   // Short teaser — names the few things people reach for most, plus 人名 as the
   // umbrella for both 客户工程师 and 越侬商务. The full set lives in searchHint,
   // revealed on focus, so the field never grows into a laundry list.
-  return jobNoOnly ? '搜索 · 工号 / 零件 / 料号' : '搜索 · 工号 / 客户 / 零件 / 人名'
+  return jobNoOnly ? '搜索 · 工号 / 产品 / 商务' : '搜索 · 工号 / 客户 / 零件 / 人名'
 }
 
 // The complete searchable-field set, revealed under the field while it's
@@ -1029,7 +1030,7 @@ function searchPlaceholder(jobNoOnly: boolean): string {
 // placeholder — including the two people the omnibox now matches.
 function searchHint(jobNoOnly: boolean): string {
   return jobNoOnly
-    ? '可搜 · 工号 · 零件 · 料号'
+    ? `可搜 · 工号 · 产品 · ${BRAND.commerceLabel}`
     : '可搜 · 工号 · 客户 · 产品 · 零件 · 合同号 · 料号 · 客户工程师 · 越侬商务'
 }
 
@@ -1485,16 +1486,19 @@ function JobRow({
           >
             <Highlight text={isProduction ? row.product : row.engineer || '—'} q={q} />
           </span>
-          {/* 越侬商务 — OUR salesperson. Shown only when the active query is why
-              this row matched (the name contains the query), so it explains the
-              hit without adding a line to every row on the default board. */}
-          {!isProduction &&
-          q.trim() &&
-          row.yuenongBusiness &&
-          row.yuenongBusiness.toLowerCase().includes(q.trim().toLowerCase()) ? (
+          {/* 越侬商务 — OUR salesperson, the person the floor calls about this
+              order. Production sees it on every row (it's the only contact they
+              get, and "who do I ask" is the whole point). Commerce already has
+              客户 + 工程师 above, so for them it stays a search-hit explainer. */}
+          {isProduction ||
+          (q.trim() &&
+            row.yuenongBusiness &&
+            row.yuenongBusiness.toLowerCase().includes(q.trim().toLowerCase())) ? (
             <span className="label mt-0.5 normal-case tracking-normal text-[11px] text-[var(--color-ink-3)]">
-              <span className="text-[var(--color-ink-4)]">{BRAND.commerceLabel} · </span>
-              <Highlight text={row.yuenongBusiness} q={q} />
+              {!isProduction && (
+                <span className="text-[var(--color-ink-4)]">{BRAND.commerceLabel} · </span>
+              )}
+              <Highlight text={row.yuenongBusiness || '—'} q={q} />
             </span>
           ) : null}
           {/* 订单备注 — third faint line, commerce only ("公司名称 / 联系人 /

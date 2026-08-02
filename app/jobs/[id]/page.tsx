@@ -328,22 +328,33 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           <div className="col-span-1 md:col-span-2">
             <p className="label mb-1">{showCustomer ? '客户' : '产品'}</p>
             {!showCustomer ? (
-              canEditFields ? (
-                // 工程 head edits the product name (the only customer-side
-                // identifier they get) inline like commerce.
-                <JobText
-                  jobId={job.id}
-                  field="product"
-                  value={job.product}
-                  multiline
-                  className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]"
-                  placeholder="产品"
-                />
-              ) : (
-                <p className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]">
-                  {job.product}
+              // Production without customer visibility still gets 越侬商务 —
+              // our own salesperson on this order, and the only person they can
+              // call when the drawing or the date is wrong. Internal, not PII.
+              <>
+                {canEditFields ? (
+                  // 工程 head edits the product name (the only customer-side
+                  // identifier they get) inline like commerce.
+                  <JobText
+                    jobId={job.id}
+                    field="product"
+                    value={job.product}
+                    multiline
+                    className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]"
+                    placeholder="产品"
+                  />
+                ) : (
+                  <p className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]">
+                    {job.product}
+                  </p>
+                )}
+                <p className="mt-2 text-[14px] text-[var(--color-ink-2)]">
+                  <span className="text-[var(--color-ink-3)]">
+                    {BRAND.commerceLabel} ·{' '}
+                  </span>
+                  {job.yuenongBusiness || '—'}
                 </p>
-              )
+              </>
             ) : isProduction ? (
               // 出货 station: read-only customer + product. They see the same
               // header as commerce, but can't edit (commerce owns the master

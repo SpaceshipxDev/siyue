@@ -51,7 +51,10 @@ export function scrubJob(job: Job, scope: Scope): Job {
     contractNo: customerOk ? job.contractNo : undefined,
     batchNo: customerOk ? job.batchNo : undefined,
     engineer: customerOk ? job.engineer : undefined,
-    yuenongBusiness: customerOk ? job.yuenongBusiness : undefined,
+    // 越侬商务 is NOT customer data — it's our own colleague who owns the
+    // order. The floor needs the name to know who to call about a drawing or
+    // a date, so it survives every scrub.
+    yuenongBusiness: job.yuenongBusiness,
     createdBy: moneyOk ? job.createdBy : undefined,
     sourceFileUrl: moneyOk ? job.sourceFileUrl : undefined,
     components: job.components.map((c) => ({

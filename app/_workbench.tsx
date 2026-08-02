@@ -14,6 +14,7 @@ import {
   rowIsDownstreamOf,
   rowIsMineAtStage,
   rowIsUpstreamOfStage,
+  rowMatchesProductionQuery,
   rowMostRecentFinishedAt,
   rowStageCounts,
   rowTimerAtStage,
@@ -26,6 +27,7 @@ import { JobNotesInline } from './_editable'
 import { ReturnChip } from './_returns'
 import { TypeChip, useOptimisticJobType } from './_type_chip'
 import { SearchInput } from './_search'
+import { BRAND } from '@/lib/brand'
 import { usePersistentState } from './_persist'
 
 // Production user's home view at /?stage=<theirs>. The 16-column master grid
@@ -209,13 +211,14 @@ export function StationWorkbench({
   // Pipeline: text → date → sort. Partition into the three tabs at the end
   // so each tab badge reflects the live filter. row.searchHaystack carries
   // the precomputed lowercased text (jobNo + customer + product + component
-  // names + materials); for jobNoOnly mode we substring-match the jobNo alone.
+  // names + materials); jobNoOnly scopes get an empty haystack, so they match
+  // against the fields they can read — 工号 / 产品 / 越侬商务.
   const matched = useMemo(() => {
     const query = q.trim().toLowerCase()
     let out = rows
     if (query) {
       out = jobNoOnly
-        ? out.filter((r) => r.jobNo.toLowerCase().includes(query))
+        ? out.filter((r) => rowMatchesProductionQuery(r, query))
         : out.filter((r) => r.searchHaystack.includes(query))
     }
     out = out.filter((r) => rowMatchesDate(r, dateFilter, sortMode))
@@ -577,6 +580,12 @@ function WorkbenchRow({
             >
               <Highlight text={row.product} q={q} />
             </p>
+            {/* 越侬商务 — our salesperson on this order. The floor's one contact
+                line: who to call when the drawing or the date is wrong. */}
+            <p className="text-[11px] text-[var(--color-ink-3)] truncate mt-0.5">
+              <span className="text-[var(--color-ink-4)]">{BRAND.commerceLabel} · </span>
+              <Highlight text={row.yuenongBusiness || '—'} q={q} />
+            </p>
             {tab === 'upstream' && (
               <UpstreamHint row={row} stage={stage} />
             )}
@@ -800,12 +809,12 @@ function EmptyState({
 function searchPlaceholder(jobNoOnly: boolean): string {
   // Short teaser; full set revealed on focus via searchHint. Mirrors
   // _master_filter.tsx (kept duplicated to match the existing pattern).
-  return jobNoOnly ? '搜索 · 工号 / 零件 / 料号' : '搜索 · 工号 / 客户 / 零件 / 人名'
+  return jobNoOnly ? '搜索 · 工号 / 产品 / 商务' : '搜索 · 工号 / 客户 / 零件 / 人名'
 }
 
 function searchHint(jobNoOnly: boolean): string {
   return jobNoOnly
-    ? '可搜 · 工号 · 零件 · 料号'
+    ? `可搜 · 工号 · 产品 · ${BRAND.commerceLabel}`
     : '可搜 · 工号 · 客户 · 产品 · 零件 · 合同号 · 料号 · 客户工程师 · 越侬商务'
 }
 
