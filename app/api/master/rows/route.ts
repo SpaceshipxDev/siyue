@@ -6,6 +6,7 @@ import {
   getOrderMoneyLightByJob,
   type OrderMoneyLite,
 } from '@/lib/db'
+import { SCHEMA_VERSION } from '@/lib/data'
 import type { MasterRow } from '@/lib/master'
 import { toMasterWireRows } from '@/lib/master_wire'
 
@@ -91,6 +92,7 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json(
         {
           ok: true,
+          v: SCHEMA_VERSION,
           rows: toMasterWireRows(applyMoney(page.rows, money), user),
           nextCursor: page.nextCursor,
           total: page.total,
@@ -110,7 +112,11 @@ export async function GET(request: Request): Promise<Response> {
           : getMasterRows()
     const [rows, money] = await Promise.all([rowsPromise, moneyPromise])
     return Response.json(
-      { ok: true, rows: toMasterWireRows(applyMoney(rows, money), user) },
+      {
+        ok: true,
+        v: SCHEMA_VERSION,
+        rows: toMasterWireRows(applyMoney(rows, money), user),
+      },
       { headers: { 'cache-control': 'no-store' } },
     )
   } catch (e) {
