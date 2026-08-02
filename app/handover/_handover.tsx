@@ -15,9 +15,10 @@ type JobIndexEntry = { id: string; jobNo: string; product: string }
 // No shift / 移交 / 接班 jargon — the 部门 is a chip you tap and the 谁 is a
 // name you pick.
 //
-// These are the departments a job can land on. Production stations (STAGES)
-// plus the cross-floor functions a job gets pushed to (商务 / 采购 / 财务 / 外协).
-const DEPARTMENTS = ['商务', ...STAGES, '采购', '财务', '外协'] as const
+// These are the departments a job can land on. Production stations (STAGES —
+// which now includes 采购/表处) plus the cross-floor functions a job gets
+// pushed to (商务 / 财务 / 外协).
+const DEPARTMENTS = ['商务', ...STAGES, '财务', '外协'] as const
 
 // Storage (no DB migration): the whole destination — 部门 and/or 谁 — lives in
 // the single `receiver` column, encoded as `部门 ␁ 谁` (␁ = U+0001, never typed
