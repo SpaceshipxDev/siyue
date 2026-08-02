@@ -36,8 +36,11 @@ type Tab = { key: TabKey; label: string; href: string }
 // one universal nav, your own station highlighted, the rest of the factory
 // one click away.
 function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): Tab[] {
+  // 采购 is a Stage (board column, route picker) but NOT a station tab — the
+  // nav already carries one 采购 tab pointing at /procurement, and that ledger
+  // IS the 采购 station. Two tabs with one name would be a coin-flip.
   const stageTabs = (except?: string): Tab[] =>
-    STAGES.filter((s) => s !== except).map((s) => ({
+    STAGES.filter((s) => s !== except && s !== '采购').map((s) => ({
       key: s as TabKey,
       label: s,
       href: `/?stage=${encodeURIComponent(s)}`,
