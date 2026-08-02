@@ -9,6 +9,7 @@ import {
   isMemberFullyReturned,
   jobIntakeDate,
   jobNoSortKey,
+  stageStartImpliesUpstreamDone,
 } from './data'
 import { today, todayMMDD } from './today'
 import type {
@@ -1701,6 +1702,7 @@ function cascadeBackStart(
   for (let i = 0; i < idx; i++) {
     const s = STAGES[i]
     if (blocks.some((b) => b.stages.includes(s))) continue
+    if (!stageStartImpliesUpstreamDone(atStage, s)) continue
     const row = snap.idx.stageByPartStage.get(stageKey(partId, s))
     if (!row) continue
     if (row.status === 'done') continue
