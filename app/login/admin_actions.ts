@@ -76,6 +76,25 @@ export async function setFinanceAction(
   }
 }
 
+// Rename an employee. The bootstrap 老板 row is excluded in the UI because
+// ensureBootstrapUser heals its name back to 老板 on next load.
+export async function renameUserAction(
+  userId: string,
+  name: string,
+): Promise<SetActiveResult> {
+  await requireCommerce()
+  const trimmed = name.trim()
+  if (!trimmed) return { ok: false, error: '姓名不能为空' }
+  if (trimmed.length > 32) return { ok: false, error: '姓名过长' }
+  try {
+    await updateUser(userId, { name: trimmed })
+    revalidatePath('/login')
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '更新失败' }
+  }
+}
+
 export async function resetPinAction(
   userId: string,
   pin: string,

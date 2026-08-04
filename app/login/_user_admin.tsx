@@ -6,6 +6,7 @@ import type { AppUser } from '@/lib/db'
 import {
   createUserFormAction,
   deleteUserAction,
+  renameUserAction,
   resetPinAction,
   setActiveAction,
   setFinanceAction,
@@ -222,6 +223,9 @@ function UserRow({
   const [resetting, setResetting] = useState(false)
   const [pin, setPin] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [renaming, setRenaming] = useState(false)
+  const [name, setName] = useState(user.name)
+  const [nameError, setNameError] = useState<string | null>(null)
   const router = useRouter()
 
   const isBoss = user.id === bossId
@@ -265,6 +269,34 @@ function UserRow({
     })
   }
 
+  const onRename = () => {
+    setNameError(null)
+    const trimmed = name.trim()
+    if (!trimmed) {
+      setNameError('姓名不能为空')
+      return
+    }
+    if (trimmed === user.name) {
+      setRenaming(false)
+      return
+    }
+    start(async () => {
+      const res = await renameUserAction(user.id, trimmed)
+      if (res.ok) {
+        setRenaming(false)
+        router.refresh()
+      } else {
+        setNameError(res.error)
+      }
+    })
+  }
+
+  const cancelRename = () => {
+    setRenaming(false)
+    setName(user.name)
+    setNameError(null)
+  }
+
   const onResetPin = () => {
     setError(null)
     if (!/^\d{4}$/.test(pin)) {
@@ -285,9 +317,67 @@ function UserRow({
   const dim = user.active ? '' : 'opacity-50'
 
   return (
-    <tr className={`align-middle ${dim}`}>
+    <tr className={`group align-middle ${dim}`}>
       <td className="px-4 py-3 text-[14px] font-medium text-[var(--color-ink)]">
-        {user.name}
+        {renaming ? (
+          <span className="inline-flex items-center gap-2">
+            <input
+              type="text"
+              value={name}
+              maxLength={32}
+              autoFocus
+              onChange={(e) => setName(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onRename()
+                if (e.key === 'Escape') cancelRename()
+              }}
+              className="w-[120px] bg-transparent border-b border-[var(--color-border-strong)] px-1 py-0.5 text-[14px] font-medium text-[var(--color-ink)] focus:outline-none focus:border-[var(--color-ink)]"
+            />
+            <button
+              type="button"
+              onClick={onRename}
+              disabled={pending}
+              className="label hover:text-[var(--color-ink)] cursor-pointer disabled:opacity-50"
+            >
+              保存
+            </button>
+            <button
+              type="button"
+              onClick={cancelRename}
+              className="label hover:text-[var(--color-ink)] cursor-pointer"
+            >
+              取消
+            </button>
+            {nameError && (
+              <span className="text-[11px] font-normal text-[var(--color-overdue)]">
+                {nameError}
+              </span>
+            )}
+          </span>
+        ) : isBoss ? (
+          user.name
+        ) : (
+          <button
+            type="button"
+            onClick={() => setRenaming(true)}
+            title="修改姓名"
+            className="inline-flex items-center gap-1.5 cursor-pointer text-left hover:text-[var(--color-ink)]"
+          >
+            {user.name}
+            <svg
+              viewBox="0 0 16 16"
+              className="w-3 h-3 opacity-0 group-hover:opacity-40 transition-opacity"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M11.1 2.2a1.6 1.6 0 0 1 2.3 2.3L5 13l-3 .8.8-3z" />
+            </svg>
+          </button>
+        )}
       </td>
       <td className="px-4 py-3 label">
         {isBoss ? '老板' : user.role === 'commerce' ? '商务' : '生产'}
