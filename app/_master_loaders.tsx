@@ -28,7 +28,57 @@ type RowsState =
   | { status: 'error'; message: string }
   // pendingShipped: the active orders are on screen but 已出货 history is
   // still streaming in — the shipped tab shows a loading state, not "empty".
-  | { status: 'ready'; rows: MasterRow[]; pendingShipped: boolean }
+  // shippedFailed: the history gave up after retries. The board MUST say so:
+  // silently reporting 已出货 0 next to a header claiming 1,459 工单 is how a
+  // 商务 concludes an order that exists "isn't in the system" (2026-08-04).
+  | {
+      status: 'ready'
+      rows: MasterRow[]
+      pendingShipped: boolean
+      shippedFailed: boolean
+    }
+
+// Non-retryable: the tab's JS bundle predates a stage-list change, so a
+// reload (already queued by fetchRows) is the only cure — hammering the
+// endpoint would just re-throw three times.
+class VersionSkewError extends Error {}
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+// The factory sits behind a lossy cross-border link, where a single dropped
+// request used to cost the user 85% of the order book. Three tries with
+// backoff turns the common transient blip into a hiccup nobody notices.
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastErr: unknown
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn()
+    } catch (e) {
+      if (e instanceof VersionSkewError) throw e
+      lastErr = e
+      if (i < attempts - 1) await sleep(400 * 2 ** i)
+    }
+  }
+  throw lastErr
+}
+
+// 已出货 history in cursor pages rather than one 1.6MB response. Three wins
+// over the old single fetch: each request is small enough to survive a bad
+// link, a failure costs one page instead of all 1,243 rows, and the tab count
+// climbs as pages land instead of sitting at … for the whole trip.
+const SHIPPED_PAGE = 400
+// Backstop against a server that returns a non-advancing cursor. 1,243 shipped
+// rows today = 4 pages; 40 is unreachable without a bug.
+const MAX_SHIPPED_PAGES = 40
+
+// Later rows win — a job that shipped between two pages should land as its
+// fresher shipped self, not its stale active one.
+function mergeById(...groups: MasterRow[][]): MasterRow[] {
+  const byId = new Map<string, MasterRow>()
+  for (const g of groups) for (const r of g) byId.set(r.id, r)
+  return [...byId.values()]
+}
 
 // Two-phase load. 84% of the order book is shipped history (1,197 of 1,420
 // rows at time of writing) that nobody looks at on landing — but the old
@@ -48,12 +98,15 @@ function useMasterRows(): { state: RowsState; reload: () => void } {
 
   useEffect(() => {
     let alive = true
-    const fetchRows = async (scope: 'active' | 'shipped') => {
-      const r = await fetch(withBase(`/api/master/rows?scope=${scope}`), {
-        cache: 'no-store',
-      })
+    const readRows = async (url: string) => {
+      const r = await fetch(withBase(url), { cache: 'no-store' })
       const data = (await r.json()) as
-        | { ok: true; v?: number; rows: CompactMasterRow[] }
+        | {
+            ok: true
+            v?: number
+            rows: CompactMasterRow[]
+            nextCursor?: string
+          }
         | { ok: false; error: string }
       if (!data.ok) throw new Error(data.error)
       // Wire cells are positional over STAGES — a tab whose JS bundle predates
@@ -65,31 +118,90 @@ function useMasterRows(): { state: RowsState; reload: () => void } {
           sessionStorage.setItem(KEY, '1')
           window.location.reload()
         }
-        throw new Error('系统已更新 · 请刷新页面')
+        throw new VersionSkewError('系统已更新 · 请刷新页面')
       }
-      return expandMasterWireRows(data.rows)
+      return {
+        rows: expandMasterWireRows(data.rows),
+        nextCursor: data.nextCursor,
+      }
     }
     ;(async () => {
-      const active = await fetchRows('active')
+      const active = (await withRetry(() => readRows('/api/master/rows?scope=active')))
+        .rows
       if (!alive) return
-      setState({ status: 'ready', rows: active, pendingShipped: true })
+      setState({
+        status: 'ready',
+        rows: active,
+        pendingShipped: true,
+        shippedFailed: false,
+      })
+
+      // Fast path: all history in one request. Cheapest for the server (the
+      // 收款 map is rebuilt per request, so N pages = N times that work) and
+      // it's what a healthy link gets. One attempt only — if it drops, the
+      // link can't carry 1.6MB and retrying the same giant request is futile.
       try {
-        const shipped = await fetchRows('shipped')
+        const all = await readRows('/api/master/rows?scope=shipped')
         if (!alive) return
-        // A job that shipped between the two calls appears in both — the
-        // phase-2 (shipped) version is fresher, so it wins the dedupe.
-        const shippedIds = new Set(shipped.map((r) => r.id))
         setState({
           status: 'ready',
-          rows: [...active.filter((r) => !shippedIds.has(r.id)), ...shipped],
+          rows: mergeById(active, all.rows),
           pendingShipped: false,
+          shippedFailed: false,
         })
-      } catch {
+        return
+      } catch (e) {
+        if (e instanceof VersionSkewError) throw e
         if (!alive) return
-        // Shipped history failed to land: the active board is still fully
-        // usable. Clear the pending flag so the 已出货 tab stops implying
-        // more is coming; a reload (or next visit) retries.
-        setState({ status: 'ready', rows: active, pendingShipped: false })
+      }
+
+      // The 1.6MB response didn't make it — this is the cross-border link the
+      // factory is on. Re-fetch the same history as ~545KB pages: small enough
+      // to survive, retried individually, and every page that lands stays on
+      // the board instead of the old all-or-nothing wipe.
+      const shipped: MasterRow[] = []
+      let cursor: string | undefined
+      let failed = false
+      let finished = false
+      for (let page = 0; page < MAX_SHIPPED_PAGES; page++) {
+        let got: { rows: MasterRow[]; nextCursor?: string }
+        const qs = new URLSearchParams({
+          ship: 'shipped',
+          limit: String(SHIPPED_PAGE),
+        })
+        if (cursor) qs.set('cursor', cursor)
+        try {
+          got = await withRetry(() => readRows(`/api/master/rows?${qs}`))
+        } catch {
+          failed = true
+          break
+        }
+        if (!alive) return
+        shipped.push(...got.rows)
+        cursor = got.nextCursor
+        finished = !got.nextCursor || got.rows.length === 0
+        // Paint every page as it lands, so the 已出货 count climbs instead of
+        // sitting at … until the last byte of history arrives.
+        setState({
+          status: 'ready',
+          rows: mergeById(active, shipped),
+          pendingShipped: !finished,
+          shippedFailed: false,
+        })
+        if (finished) break
+      }
+      if (!alive) return
+      // Ran out of page budget without reaching the end = still incomplete.
+      // Never leave the tab spinning on … forever.
+      if (failed || !finished) {
+        // Whatever history did land stays on the board; the tab now reports
+        // the gap (and offers 重试) instead of pretending 已出货 is empty.
+        setState({
+          status: 'ready',
+          rows: mergeById(active, shipped),
+          pendingShipped: false,
+          shippedFailed: true,
+        })
       }
     })().catch((e: unknown) => {
       if (!alive) return
@@ -150,6 +262,8 @@ export function MasterSheetLoader(props: {
     <MasterSheet
       rows={state.rows}
       pendingShipped={state.pendingShipped}
+      shippedFailed={state.shippedFailed}
+      onRetryShipped={reload}
       {...props}
     />
   )
