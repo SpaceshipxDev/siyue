@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import Link from 'next/link'
 import {
+  SCHEMA_VERSION,
   STAGES,
   daysFromToday,
   dueState,
@@ -14,6 +15,11 @@ import {
   stagePlanState,
   type Stage,
 } from '@/lib/data'
+import { withBase } from '@/lib/base-path'
+import {
+  expandMasterWireRows,
+  type CompactMasterRow,
+} from '@/lib/master_wire'
 import {
   rowIsDoneAtStage,
   rowIsInbox,
@@ -58,6 +64,79 @@ function isJobNoOnlySearch(role: Role, defaultStage?: Stage): boolean {
   return role === 'production' && defaultStage !== '出货'
 }
 
+// ── Search never lies ────────────────────────────────────────────────────
+// The grid can only match rows that have landed in the browser, and that set
+// is legitimately incomplete: 已出货 history (85% of the book) streams in
+// behind the first paint and can fail outright on a bad link. A client-only
+// search over a partial set answers 未找到 for orders that plainly exist —
+// which is exactly how a 商务 concludes the order "isn't in the system"
+// (商务004, 2026-08-04). So every typed query ALSO goes to the server, which
+// matches against all rows in Postgres regardless of what the tab holds.
+type RemoteSearch = { rows: MasterRow[]; pending: boolean }
+
+const REMOTE_SEARCH_LIMIT = 200
+const REMOTE_SEARCH_DEBOUNCE_MS = 300
+// One char matches most of the book — not a lookup, just typing. Wait for two.
+const REMOTE_SEARCH_MIN_CHARS = 2
+
+function useRemoteSearch(q: string, enabled: boolean): RemoteSearch {
+  const [state, setState] = useState<RemoteSearch>({ rows: [], pending: false })
+  useEffect(() => {
+    const query = q.trim()
+    if (!enabled || query.length < REMOTE_SEARCH_MIN_CHARS) {
+      setState({ rows: [], pending: false })
+      return
+    }
+    let alive = true
+    const ctl = new AbortController()
+    // Pending from the keystroke, not from the request — otherwise the gap
+    // before the debounce fires reads as a settled 未找到.
+    setState({ rows: [], pending: true })
+    const timer = setTimeout(() => {
+      const qs = new URLSearchParams({
+        q: query,
+        limit: String(REMOTE_SEARCH_LIMIT),
+      })
+      // The server derives jobNo-only scoping from the session role, so the
+      // floor gets the same scrubbing here as on the board feed.
+      fetch(withBase(`/api/master/rows?${qs}`), {
+        cache: 'no-store',
+        signal: ctl.signal,
+      })
+        .then((r) => r.json())
+        .then((data: { ok: boolean; v?: number; rows?: CompactMasterRow[]; error?: string }) => {
+          if (!alive) return
+          if (!data.ok || !data.rows) throw new Error(data.error ?? 'search failed')
+          // Positional wire cells — a stale bundle would decode into the wrong
+          // columns. Drop the result rather than render a lie.
+          if (data.v !== undefined && data.v !== SCHEMA_VERSION) {
+            setState({ rows: [], pending: false })
+            return
+          }
+          setState({ rows: expandMasterWireRows(data.rows), pending: false })
+        })
+        .catch(() => {
+          // Aborts land here too (superseded keystroke) — the newer effect run
+          // owns the state by then, so just stand down.
+          if (alive) setState({ rows: [], pending: false })
+        })
+    }, REMOTE_SEARCH_DEBOUNCE_MS)
+    return () => {
+      alive = false
+      ctl.abort()
+      clearTimeout(timer)
+    }
+  }, [q, enabled])
+  return state
+}
+
+// Later groups win on id collision — a server-fresh row beats a stale local one.
+function mergeRowsById(...groups: MasterRow[][]): MasterRow[] {
+  const byId = new Map<string, MasterRow>()
+  for (const g of groups) for (const r of g) byId.set(r.id, r)
+  return [...byId.values()]
+}
+
 // Two ordering axes the floor reasons in:
 //   'due'   — by 交期 ascending. Production's "what's burning" — the historic
 //             default. Calendar in this mode picks 交期 = X.
@@ -76,6 +155,14 @@ type DateFilter =
 // Top-level scope filter on the master sheet. 在产 hides shipped jobs (the
 // daily-attention set); 已出货 surfaces them for finance / archive lookups.
 type ShipFilter = 'live' | 'paused' | 'shipped'
+
+// Tab names, reused when telling the user a search hit lives outside the
+// tab they're standing in.
+const SHIP_SCOPE_LABEL: Record<ShipFilter, string> = {
+  live: '在产',
+  shipped: '已出货',
+  paused: '暂停/取消',
+}
 
 // Per-column status filter (商务 / 工程 overview only). The viewer focuses ONE
 // 工段 column and narrows the rows to that station's rollup state:
@@ -219,6 +306,8 @@ export function MasterSheet({
   defaultStage,
   stageFilter,
   pendingShipped,
+  shippedFailed,
+  onRetryShipped,
 }: {
   rows: MasterRow[]
   role: Role
@@ -232,6 +321,13 @@ export function MasterSheet({
    * empty, and its count shows … instead of a misleading low number.
    */
   pendingShipped?: boolean
+  /**
+   * 已出货 history gave up after retries. The count is KNOWN-incomplete, so
+   * the tab says so and offers 重试 — never a confident 0.
+   */
+  shippedFailed?: boolean
+  /** Re-runs the whole board load (both phases). */
+  onRetryShipped?: () => void
 }) {
   // Scope persisted filter state per view context so the commerce overview,
   // /?stage=工程, and any station-filtered overview each remember their own
@@ -373,14 +469,30 @@ export function MasterSheet({
   // carries customer PII), so we substring-match the three fields they do
   // see: 工号, 产品, and 越侬商务 — the last so anyone can pull up every order
   // one 商务 owns.
-  const matchedByText = useMemo(() => {
+  // Server-side companion to the local search. Overview only — station views
+  // run their own partitioned list.
+  const remoteSearch = useRemoteSearch(q, showShipTabs)
+
+  // Typing a 工号 is an explicit ask for ONE order, not for one tab. So when
+  // the active tab yields nothing we widen: every loaded row across all three
+  // scopes, plus whatever the server found that never landed locally. This is
+  // what makes 未找到 trustworthy — it now means "not in the database", not
+  // "not in the slice of the database your browser happened to receive".
+  const { matchedByText, searchWidened } = useMemo(() => {
     const query = q.trim().toLowerCase()
-    if (!query) return scopedRows
-    if (jobNoOnly) {
-      return scopedRows.filter((r) => rowMatchesProductionQuery(r, query))
-    }
-    return scopedRows.filter((r) => r.searchHaystack.includes(query))
-  }, [scopedRows, q, jobNoOnly])
+    if (!query) return { matchedByText: scopedRows, searchWidened: false }
+    const match = (r: MasterRow) =>
+      jobNoOnly
+        ? rowMatchesProductionQuery(r, query)
+        : r.searchHaystack.includes(query)
+    const inScope = scopedRows.filter(match)
+    if (inScope.length > 0) return { matchedByText: inScope, searchWidened: false }
+    const wide = mergeRowsById(
+      rows.filter((r) => !rowIsInbox(r)),
+      remoteSearch.rows.filter((r) => !rowIsInbox(r)),
+    ).filter(match)
+    return { matchedByText: wide, searchWidened: wide.length > 0 }
+  }, [scopedRows, rows, remoteSearch.rows, q, jobNoOnly])
 
   const sortedByMode = useMemo(
     () => sortRows(matchedByText, sortMode),
@@ -692,6 +804,8 @@ export function MasterSheet({
           pausedCount={pausedCount}
           shippedCount={shippedCount}
           shippedPending={pendingShipped}
+          shippedFailed={shippedFailed}
+          onRetryShipped={onRetryShipped}
         />
       )}
 
@@ -748,6 +862,13 @@ export function MasterSheet({
           </button>
         )}
         <span className="ml-auto inline-flex items-baseline gap-4">
+          {/* The hit lives outside the open tab (usually 已出货 history while
+              on 在产). Say so rather than letting the tab hide the answer. */}
+          {searchWidened && (
+            <span className="label text-[var(--color-ink-3)]">
+              不在「{SHIP_SCOPE_LABEL[shipFilter]}」· 已扩到全部范围
+            </span>
+          )}
           <span className="label text-[var(--color-ink-3)]">
             <span
               className={`mono mr-1 text-[12px] ${
@@ -970,7 +1091,15 @@ export function MasterSheet({
             )}
           </tbody>
         </table>
-        {filteredCount === 0 && shipFilter === 'shipped' && pendingShipped ? (
+        {filteredCount === 0 && q.trim() && remoteSearch.pending ? (
+          // A query is still out with the server. 未找到 here would be a guess
+          // dressed up as an answer — wait for the real one.
+          <div className="px-6 py-12 text-center">
+            <p className="animate-pulse text-[13px] text-[var(--color-ink-2)]">
+              搜索全部工单中…
+            </p>
+          </div>
+        ) : filteredCount === 0 && shipFilter === 'shipped' && pendingShipped ? (
           // 已出货 rows are still streaming in (phase 2 of the board load) —
           // an empty grid here would read as "no shipped orders", a lie.
           <div className="px-6 py-12 text-center">
@@ -1047,6 +1176,8 @@ function ShipFilterToggle({
   pausedCount,
   shippedCount,
   shippedPending,
+  shippedFailed,
+  onRetryShipped,
 }: {
   active: ShipFilter
   onChange: (s: ShipFilter) => void
@@ -1055,10 +1186,19 @@ function ShipFilterToggle({
   shippedCount: number
   /** Shipped rows still streaming in — show … instead of a partial count. */
   shippedPending?: boolean
+  /** Shipped history gave up — the count is incomplete and must not read as fact. */
+  shippedFailed?: boolean
+  onRetryShipped?: () => void
 }) {
   const segments: { key: ShipFilter; label: string; count: number | string }[] = [
     { key: 'live', label: '在产', count: liveCount },
-    { key: 'shipped', label: '已出货', count: shippedPending ? '…' : shippedCount },
+    {
+      key: 'shipped',
+      label: '已出货',
+      // A failed history load knows nothing about the true count. '?' is the
+      // honest answer; a 0 here reads as "no shipped orders exist".
+      count: shippedPending ? '…' : shippedFailed ? '?' : shippedCount,
+    },
     { key: 'paused', label: '暂停/取消', count: pausedCount },
   ]
   return (
@@ -1093,6 +1233,24 @@ function ShipFilterToggle({
           </button>
         )
       })}
+      {shippedFailed && (
+        // The board is knowingly short of history. Say it in words next to the
+        // tab that's missing rows, with the one-click cure.
+        <span className="inline-flex items-baseline gap-2">
+          <span className="label text-[var(--color-overdue)]">
+            已出货未加载完 · 搜索仍可查全部
+          </span>
+          {onRetryShipped && (
+            <button
+              type="button"
+              onClick={onRetryShipped}
+              className="rounded-[2px] border border-[var(--color-border)] px-2 py-0.5 text-[11px] tracking-wider text-[var(--color-ink-2)] transition-colors hover:bg-[var(--color-active-bg)] hover:text-[var(--color-ink)]"
+            >
+              重试
+            </button>
+          )}
+        </span>
+      )}
     </div>
   )
 }
