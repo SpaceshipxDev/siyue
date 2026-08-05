@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import Link from 'next/link'
 import {
@@ -72,7 +72,9 @@ function isJobNoOnlySearch(role: Role, defaultStage?: Stage): boolean {
 // which is exactly how a 商务 concludes the order "isn't in the system"
 // (商务004, 2026-08-04). So every typed query ALSO goes to the server, which
 // matches against all rows in Postgres regardless of what the tab holds.
-type RemoteSearch = { rows: MasterRow[]; pending: boolean }
+// truncated: the server hit REMOTE_SEARCH_LIMIT, so any count derived from
+// these rows is a floor, not a total — the UI must say n+ rather than n.
+type RemoteSearch = { rows: MasterRow[]; pending: boolean; truncated: boolean }
 
 const REMOTE_SEARCH_LIMIT = 200
 const REMOTE_SEARCH_DEBOUNCE_MS = 300
@@ -80,18 +82,22 @@ const REMOTE_SEARCH_DEBOUNCE_MS = 300
 const REMOTE_SEARCH_MIN_CHARS = 2
 
 function useRemoteSearch(q: string, enabled: boolean): RemoteSearch {
-  const [state, setState] = useState<RemoteSearch>({ rows: [], pending: false })
+  const [state, setState] = useState<RemoteSearch>({
+    rows: [],
+    pending: false,
+    truncated: false,
+  })
   useEffect(() => {
     const query = q.trim()
     if (!enabled || query.length < REMOTE_SEARCH_MIN_CHARS) {
-      setState({ rows: [], pending: false })
+      setState({ rows: [], pending: false, truncated: false })
       return
     }
     let alive = true
     const ctl = new AbortController()
     // Pending from the keystroke, not from the request — otherwise the gap
     // before the debounce fires reads as a settled 未找到.
-    setState({ rows: [], pending: true })
+    setState({ rows: [], pending: true, truncated: false })
     const timer = setTimeout(() => {
       const qs = new URLSearchParams({
         q: query,
@@ -110,15 +116,19 @@ function useRemoteSearch(q: string, enabled: boolean): RemoteSearch {
           // Positional wire cells — a stale bundle would decode into the wrong
           // columns. Drop the result rather than render a lie.
           if (data.v !== undefined && data.v !== SCHEMA_VERSION) {
-            setState({ rows: [], pending: false })
+            setState({ rows: [], pending: false, truncated: false })
             return
           }
-          setState({ rows: expandMasterWireRows(data.rows), pending: false })
+          setState({
+            rows: expandMasterWireRows(data.rows),
+            pending: false,
+            truncated: data.rows.length >= REMOTE_SEARCH_LIMIT,
+          })
         })
         .catch(() => {
           // Aborts land here too (superseded keystroke) — the newer effect run
           // owns the state by then, so just stand down.
-          if (alive) setState({ rows: [], pending: false })
+          if (alive) setState({ rows: [], pending: false, truncated: false })
         })
     }, REMOTE_SEARCH_DEBOUNCE_MS)
     return () => {
@@ -473,26 +483,59 @@ export function MasterSheet({
   // run their own partitioned list.
   const remoteSearch = useRemoteSearch(q, showShipTabs)
 
-  // Typing a 工号 is an explicit ask for ONE order, not for one tab. So when
-  // the active tab yields nothing we widen: every loaded row across all three
-  // scopes, plus whatever the server found that never landed locally. This is
-  // what makes 未找到 trustworthy — it now means "not in the database", not
-  // "not in the slice of the database your browser happened to receive".
-  const { matchedByText, searchWidened } = useMemo(() => {
+  // Which tab a row belongs to. Same three-way split as the tab counts, so a
+  // row can never be listed under a tab it isn't counted in.
+  const scopeOf = useCallback(
+    (r: MasterRow): ShipFilter =>
+      rowIsShipped(r) ? 'shipped' : effectiveIsPaused(r) ? 'paused' : 'live',
+    [effectiveIsPaused],
+  )
+
+  // Search stays inside the open tab. 在产 / 已出货 / 暂停 are three different
+  // questions ("what's on the floor", "what shipped", "what's on hold"), and a
+  // hit from another tab bleeding into this list is how a 未出货 order came to
+  // sit under 已出货 (2026-08-05). The old behavior widened to all scopes when
+  // the tab came up empty — trustworthy about existence, wrong about state.
+  //
+  // Nothing is hidden by the narrowing: hits in the other two tabs are counted
+  // and offered as a one-click jump, so 未找到 still can't mean "your browser
+  // didn't happen to receive it".
+  const { matchedByText, otherScopeHits } = useMemo(() => {
     const query = q.trim().toLowerCase()
-    if (!query) return { matchedByText: scopedRows, searchWidened: false }
+    if (!query) return { matchedByText: scopedRows, otherScopeHits: null }
     const match = (r: MasterRow) =>
       jobNoOnly
         ? rowMatchesProductionQuery(r, query)
         : r.searchHaystack.includes(query)
-    const inScope = scopedRows.filter(match)
-    if (inScope.length > 0) return { matchedByText: inScope, searchWidened: false }
-    const wide = mergeRowsById(
+    // Station views have no tabs — scopedRows is already the whole partition.
+    if (!showShipTabs)
+      return { matchedByText: scopedRows.filter(match), otherScopeHits: null }
+    // Server hits merge with the loaded rows BEFORE scoping: the browser's copy
+    // of the book is legitimately partial (已出货 streams in behind the first
+    // paint, and can fail outright), so a row the tab never received still has
+    // to be findable in the tab it belongs to.
+    const hits = mergeRowsById(
       rows.filter((r) => !rowIsInbox(r)),
       remoteSearch.rows.filter((r) => !rowIsInbox(r)),
     ).filter(match)
-    return { matchedByText: wide, searchWidened: wide.length > 0 }
-  }, [scopedRows, rows, remoteSearch.rows, q, jobNoOnly])
+    const mine: MasterRow[] = []
+    const others: Record<ShipFilter, number> = { live: 0, paused: 0, shipped: 0 }
+    for (const r of hits) {
+      const s = scopeOf(r)
+      if (s === shipFilter) mine.push(r)
+      else others[s]++
+    }
+    return { matchedByText: mine, otherScopeHits: others }
+  }, [
+    scopedRows,
+    rows,
+    remoteSearch.rows,
+    q,
+    jobNoOnly,
+    showShipTabs,
+    shipFilter,
+    scopeOf,
+  ])
 
   const sortedByMode = useMemo(
     () => sortRows(matchedByText, sortMode),
@@ -862,12 +905,15 @@ export function MasterSheet({
           </button>
         )}
         <span className="ml-auto inline-flex items-baseline gap-4">
-          {/* The hit lives outside the open tab (usually 已出货 history while
-              on 在产). Say so rather than letting the tab hide the answer. */}
-          {searchWidened && (
-            <span className="label text-[var(--color-ink-3)]">
-              不在「{SHIP_SCOPE_LABEL[shipFilter]}」· 已扩到全部范围
-            </span>
+          {/* Same query also matched in another tab (usually 已出货 history
+              while standing on 在产). Point at it; don't mix it in. */}
+          {filteredCount > 0 && (
+            <ScopeJumpHints
+              hits={otherScopeHits}
+              active={shipFilter}
+              onJump={setShipFilter}
+              approx={remoteSearch.truncated}
+            />
           )}
           <span className="label text-[var(--color-ink-3)]">
             <span
@@ -1118,13 +1164,25 @@ export function MasterSheet({
             </p>
             <p className="label mt-2 text-[var(--color-ink-3)]">
               {q
-                ? `未找到 “${q}”`
+                ? `未找到 “${q}” · 「${SHIP_SCOPE_LABEL[shipFilter]}」内`
                 : statusActive
                   ? `${activeFilterStages
                       .map((s) => `${s} · ${STATUS_LABEL[statusByStage[s]!]}`)
                       .join(' / ')} 暂无工单`
                   : '该范围暂无工单'}
             </p>
+            {/* Missed in THIS tab — but the order may well exist one tab over.
+                The jump IS the answer, so it sits right under the miss. */}
+            {q && (
+              <div className="mt-3">
+                <ScopeJumpHints
+                  hits={otherScopeHits}
+                  active={shipFilter}
+                  onJump={setShipFilter}
+                  approx={remoteSearch.truncated}
+                />
+              </div>
+            )}
             {isFiltered && (
               <button
                 type="button"
@@ -1252,6 +1310,48 @@ function ShipFilterToggle({
         </span>
       )}
     </div>
+  )
+}
+
+// The same query matched rows in another tab. The list itself never mixes
+// scopes — 在产 shows 在产 — so the pointer carries the rest of the truth:
+// 「已出货」2 个 →, one click away. Renders nothing when the hit set is
+// entirely inside the open tab, which is the ordinary case.
+function ScopeJumpHints({
+  hits,
+  active,
+  onJump,
+  approx,
+}: {
+  hits: Record<ShipFilter, number> | null
+  active: ShipFilter
+  onJump: (s: ShipFilter) => void
+  /** Server truncated the hit set — the counts are floors, so render n+. */
+  approx?: boolean
+}) {
+  if (!hits) return null
+  const others = (['live', 'shipped', 'paused'] as ShipFilter[]).filter(
+    (s) => s !== active && hits[s] > 0,
+  )
+  if (others.length === 0) return null
+  return (
+    <span className="inline-flex items-baseline gap-x-4">
+      {others.map((s) => (
+        <button
+          key={s}
+          type="button"
+          onClick={() => onJump(s)}
+          className="label text-[var(--color-ink-3)] transition-colors hover:text-[var(--color-ink)] hover:underline underline-offset-4 decoration-[var(--color-ink-3)]"
+        >
+          「{SHIP_SCOPE_LABEL[s]}」
+          <span className="mono mx-1 text-[12px] tabular-nums">
+            {hits[s]}
+            {approx ? '+' : ''}
+          </span>
+          个 →
+        </button>
+      ))}
+    </span>
   )
 }
 
