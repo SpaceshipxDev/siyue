@@ -199,7 +199,7 @@ export function ReportClient({
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div className="flex items-baseline gap-8">
           <Totaled label="完成零件" value={NUM.format(totals.finishes)} sub={`${NUM.format(totals.pieces)} 件`} />
-          {showMoney && <Totaled label="经手金额" value={formatCny(totals.valueCny)} />}
+          {showMoney && <Totaled label="经手金额（按5%）" value={formatCny(totals.valueCny)} />}
         </div>
         <div className="flex items-center gap-3">
           <PeriodBar
@@ -277,7 +277,8 @@ function PeopleList({
   drills: Record<string, DrillJob[]>
   onToggle: (name: string) => void
 }) {
-  const cols = showMoney ? 'grid-cols-[1fr_120px_72px_120px_110px]' : 'grid-cols-[1fr_120px_72px_110px]'
+  // 经手金额（按5%）needs more than the old 120px — the （按5%）suffix wraps otherwise.
+  const cols = showMoney ? 'grid-cols-[1fr_120px_72px_150px_110px]' : 'grid-cols-[1fr_120px_72px_110px]'
 
   if (error) {
     return <p className="py-16 text-center text-[13px] text-[var(--color-overdue)]">加载失败：{error}</p>
@@ -299,7 +300,7 @@ function PeopleList({
         <span className="label">姓名</span>
         <span className="label text-right">完成零件</span>
         <span className="label text-right">开始</span>
-        {showMoney && <span className="label text-right">经手金额</span>}
+        {showMoney && <span className="label text-right whitespace-nowrap">经手金额（按5%）</span>}
         <span className="label text-right">最后活动</span>
       </div>
       <ul>
@@ -603,7 +604,7 @@ function ExportButton({
 
       // 工段汇总 — per-station monthly output (the cross-tab for 全部; one row for
       // a single station). 完成零件 / 件数 / 工单数 / 人数 / ¥.
-      const stageHead = ['工段', '完成零件', '件数', '工单数', '人数', ...(showMoney ? ['经手金额'] : [])]
+      const stageHead = ['工段', '完成零件', '件数', '工单数', '人数', ...(showMoney ? ['经手金额（按5%）'] : [])]
       const stageRows: (string | number)[][] = STAGES.filter((s) => byStage.has(s)).map((s) => {
         const v = byStage.get(s)!
         return [s, v.finishes, v.pieces, v.jobs.size, v.workers.size, ...(showMoney ? [Math.round(v.valueCny)] : [])]
@@ -619,7 +620,7 @@ function ExportButton({
 
       // 人员汇总 — per-person output (产量 / 计件基数), most productive first.
       const workerRows = [...byWorker.entries()].sort((a, b) => b[1].finishes - a[1].finishes)
-      const wHead = ['姓名', '完成零件', '件数', ...(showMoney ? ['经手金额'] : [])]
+      const wHead = ['姓名', '完成零件', '件数', ...(showMoney ? ['经手金额（按5%）'] : [])]
       const wBody: (string | number)[][] = workerRows.map(([name, v]) => [name, v.finishes, v.pieces, ...(showMoney ? [Math.round(v.valueCny)] : [])])
       const wTot = workerRows.reduce((a, [, v]) => ({ f: a.f + v.finishes, p: a.p + v.pieces, v: a.v + v.valueCny }), { f: 0, p: 0, v: 0 })
       wBody.push(['合计', wTot.f, wTot.p, ...(showMoney ? [Math.round(wTot.v)] : [])])
@@ -628,7 +629,7 @@ function ExportButton({
       XLSX.utils.book_append_sheet(wb, wsWorker, '人员汇总')
 
       // 工单汇总 — per-order money + output: 订单金额 alongside 完成零件 / 件数.
-      const ojHead = ['工号', '客户', ...(showMoney ? ['订单金额'] : []), '完成零件', '件数', ...(showMoney ? ['经手金额'] : [])]
+      const ojHead = ['工号', '客户', ...(showMoney ? ['订单金额'] : []), '完成零件', '件数', ...(showMoney ? ['经手金额（按5%）'] : [])]
       const ojBody: (string | number)[][] = orders.map((o) => [
         o.jobNo,
         o.customer,
@@ -649,7 +650,7 @@ function ExportButton({
       // ── 报工明细 — 工单 foremost, its components spanning underneath. 工号/客户
       // sit on the order's first row; blank on the rest so each order reads as a
       // header with its 零件 listed below it. A blank row separates orders.
-      const head = ['工号', '客户', '零件', '料号', '数量', '工段', '经手人', '完成时间', ...(showMoney ? ['经手金额'] : [])]
+      const head = ['工号', '客户', '零件', '料号', '数量', '工段', '经手人', '完成时间', ...(showMoney ? ['经手金额（按5%）'] : [])]
       const body: (string | number)[][] = []
       orders.forEach((o, oi) => {
         if (oi > 0) body.push([]) // spacer between orders

@@ -29,8 +29,9 @@ export async function StationReportAsync({
   const reportHref = `/report?stage=${encodeURIComponent(stage)}`
 
   // 姓名 (flex) | 完成 | 开始 | 金额(money only)
+  // 150px, not 120 — 经手金额（按5%）wraps at the narrower width.
   const cols = showMoney
-    ? 'grid-cols-[1fr_132px_72px_120px]'
+    ? 'grid-cols-[1fr_132px_72px_150px]'
     : 'grid-cols-[1fr_132px_72px]'
 
   if (rows.length === 0) {
@@ -54,7 +55,9 @@ export async function StationReportAsync({
           <span className="label">姓名</span>
           <span className="label text-right">完成零件</span>
           <span className="label text-right">开始</span>
-          {showMoney && <span className="label text-right">经手金额</span>}
+          {showMoney && (
+            <span className="label text-right whitespace-nowrap">经手金额（按5%）</span>
+          )}
         </div>
         <ul>
           {rows.map((r) => (

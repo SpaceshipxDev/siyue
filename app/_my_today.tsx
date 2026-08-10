@@ -41,7 +41,7 @@ export function MyToday({
           aside={`${nf.format(stats.todayPieces)} 件`}
         />
         <Stat
-          label="今日经手"
+          label="今日经手（按5%）"
           value={formatCny(stats.todayValueCny)}
           aside={stats.todayUnpriced > 0 ? `${stats.todayUnpriced} 未定价` : undefined}
           warnAside
