@@ -207,6 +207,40 @@ export function ImportJobNoField({
   )
 }
 
+// Same gesture as the job sheet: a + straddling the separator line under each
+// row, dropping a 零件 right there. The draft review screen is where a missed
+// row is noticed, and it's always noticed NEXT TO the row it belongs under.
+// This page still takes the router.refresh (one job's parts, not the master
+// board) — it's a once-per-click action on a page nobody scans from the floor.
+export function InsertComponentButton({
+  jobId,
+  afterComponentId,
+}: {
+  jobId: string
+  afterComponentId: string
+}) {
+  const router = useRouter()
+  const [pending, start] = useTransition()
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      title="在此行下方插入零件"
+      aria-label="在此行下方插入零件"
+      onClick={() =>
+        start(async () => {
+          await mutate({ kind: 'insertComponentAfter', jobId, afterComponentId })
+          router.refresh()
+        })
+      }
+      className="row-insert absolute left-[18px] -bottom-[10px] z-10 inline-flex h-[20px] w-[20px] items-center justify-center rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-ink-3)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:opacity-40"
+    >
+      <PlusGlyph />
+    </button>
+  )
+}
+
+// The only add affordance on a draft with no parts yet — nothing to hover.
 export function AddComponentButton({ jobId }: { jobId: string }) {
   const router = useRouter()
   const [pending, start] = useTransition()
@@ -217,16 +251,29 @@ export function AddComponentButton({ jobId }: { jobId: string }) {
       onClick={() =>
         start(async () => {
           await mutate({ kind: 'appendComponent', jobId })
-          // Single router.refresh on /import/[id] (one job's parts list,
-          // not the master board). Once-per-click action; risk is small
-          // and proportional. Inline edits already bypass refresh.
           router.refresh()
         })
       }
-      className="px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border-strong)] text-[var(--color-ink-2)] rounded-[2px] hover:text-[var(--color-ink)] hover:border-[var(--color-ink)] disabled:opacity-50"
+      className="inline-flex items-center gap-1.5 text-[12px] tracking-wider text-[var(--color-ink-3)] hover:text-[var(--color-ink)] disabled:opacity-50"
     >
-      + 添加零件
+      <span className="inline-flex h-[16px] w-[16px] items-center justify-center rounded-[2px] border border-[var(--color-border-strong)]">
+        <PlusGlyph />
+      </span>
+      添加零件
     </button>
+  )
+}
+
+function PlusGlyph() {
+  return (
+    <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true">
+      <path
+        d="M4.5 0.5 V8.5 M0.5 4.5 H8.5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="square"
+      />
+    </svg>
   )
 }
 

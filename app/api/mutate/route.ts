@@ -34,6 +34,7 @@ import {
   getCachedMutationResponse,
   getJob,
   getMasterRowsByIds,
+  insertComponentAfter,
   recordMutationResponse,
   markJobAsDraft,
   prepareShipping,
@@ -779,6 +780,19 @@ async function dispatch(
       if (!isString(jobId)) return err('bad appendComponent args')
       await requirePartRouteEditor()
       const id = await appendComponent(jobId)
+      revalidateJob(jobId)
+      return Response.json(ok({ id }))
+    }
+
+    // 零件 row inserted from the + on a row's separator line. Same write as
+    // appendComponent, placed after `afterComponentId` instead of at the end.
+    case 'insertComponentAfter': {
+      const jobId = body.jobId
+      const afterComponentId = body.afterComponentId
+      if (!isString(jobId) || !isString(afterComponentId))
+        return err('bad insertComponentAfter args')
+      await requirePartRouteEditor()
+      const id = await insertComponentAfter(jobId, afterComponentId)
       revalidateJob(jobId)
       return Response.json(ok({ id }))
     }

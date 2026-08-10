@@ -28,6 +28,7 @@ import {
   ConfirmImportButton,
   DeleteComponentButton,
   ImportJobNoField,
+  InsertComponentButton,
 } from '@/app/_import_actions'
 import { ParsingPoller } from '@/app/_import_status'
 import { SourceFileRow } from '@/app/_source_file'
@@ -267,18 +268,32 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
               {job.components.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={11}
+                    colSpan={12}
                     className="px-4 py-6 text-center text-[12px] text-[var(--color-ink-3)]"
                   >
-                    无零件 · 添加一行开始
+                    <span className="inline-flex items-center gap-3">
+                      无零件
+                      <AddComponentButton jobId={job.id} />
+                    </span>
                   </td>
                 </tr>
-              ) : null}
+              ) : (
+                // Room under the last row for its + (it straddles the final
+                // separator line and would otherwise be clipped).
+                <tr>
+                  <td
+                    colSpan={12}
+                    className="p-0"
+                    style={{
+                      height: 12,
+                      borderRight: 'none',
+                      borderBottom: 'none',
+                    }}
+                  />
+                </tr>
+              )}
             </tbody>
           </table>
-          <div className="px-4 py-3 border-t border-[var(--color-border)] bg-[var(--color-bg)]">
-            <AddComponentButton jobId={job.id} />
-          </div>
         </div>
 
         <div className="mt-10 flex items-center justify-end gap-4">
@@ -302,9 +317,15 @@ function ImportComponentRows({
   component: Component
 }) {
   return (
-    <tr className="align-middle">
-      <td className="px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]">
+    <tr className="group align-middle">
+      {/* # doubles as the insert gutter — the + on this row's bottom border
+          drops a 零件 directly beneath it. */}
+      <td
+        className="px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]"
+        style={{ position: 'relative', overflow: 'visible' }}
+      >
         {String(index + 1).padStart(2, '0')}
+        <InsertComponentButton jobId={jobId} afterComponentId={component.id} />
       </td>
       <td className="px-3 py-2">
         <ComponentImageUploader

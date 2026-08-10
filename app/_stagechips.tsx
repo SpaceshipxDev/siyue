@@ -40,10 +40,16 @@ export function StageChips({
   jobId,
   component,
   readOnly = false,
+  onRouteChange,
 }: {
   jobId: string
   component: Component
   readOnly?: boolean
+  // Rows whose `component` is held in client state (a part added this visit,
+  // before any reload) pass this so the stage grid on the same row re-renders
+  // its n/a slashes the instant the route changes. Server-rendered rows leave
+  // it undefined — their grid is truth from the last load either way.
+  onRouteChange?: (stages: Stage[]) => void
 }) {
   const [pending, start] = useTransition()
   const [optimistic, setOptimistic] = useState<Set<Stage> | null>(null)
@@ -63,8 +69,11 @@ export function StageChips({
 
   const apply = async (next: Set<Stage>, force: boolean) => {
     setError(null)
+    const before = STAGES.filter((s) => currentRoute.has(s))
     setOptimistic(next)
     const stages = STAGES.filter((s) => next.has(s))
+    onRouteChange?.(stages)
+    const revert = () => onRouteChange?.(before)
     return new Promise<void>((resolve) => {
       start(async () => {
         try {
@@ -82,6 +91,7 @@ export function StageChips({
             return
           }
           setOptimistic(null)
+          revert()
           if (result.reason === 'needs_confirm') {
             setConfirmState({ desired: stages, removing: result.conflicts })
           } else if (result.reason === 'outsourced_locked') {
@@ -97,6 +107,7 @@ export function StageChips({
           resolve()
         } catch (err) {
           setOptimistic(null)
+          revert()
           // Surface the real reason when the action threw — likely an auth
           // redirect (lost session) or a supabase write error. The 10px
           // mono "保存失败" the user used to see was easy to miss; this

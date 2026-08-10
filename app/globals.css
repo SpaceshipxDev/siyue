@@ -317,6 +317,29 @@ html, body {
 }
 .sheet tbody tr:hover td.sticky-col {
   background: #faf8f2;
+  /* Lift the hovered row's frozen cells above every other row's (all z-1, and
+   * later ones paint last) so the + straddling this row's bottom border isn't
+   * sliced in half by the row underneath. */
+  z-index: 4;
+}
+/* 插入零件 — the + that straddles the separator line under each sheet row.
+ * The line is the target, so the control only exists while the eye is on that
+ * row: hidden at rest on pointer devices, revealed by hovering the row (or by
+ * keyboard focus). Touch devices have no hover to reveal it, so it rests
+ * visible-but-quiet there instead of being unreachable. */
+.row-insert {
+  opacity: 0;
+  transition: opacity 110ms ease, border-color 110ms ease, color 110ms ease;
+}
+.sheet tbody tr:hover .row-insert,
+.row-insert:focus-visible,
+.row-insert:hover {
+  opacity: 1;
+}
+@media (hover: none) {
+  .row-insert {
+    opacity: 0.55;
+  }
 }
 .sheet .sticky-col-edge {
   box-shadow: 6px 0 6px -6px rgba(0, 0, 0, 0.08);

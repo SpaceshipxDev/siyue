@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { notFound, redirect } from 'next/navigation'
 import { withBase } from '@/lib/base-path'
 import {
@@ -85,7 +86,13 @@ import { ShippingComposerButton } from '@/app/_shipping'
 import { ShipmentHistoryButton } from '@/app/_shipment_history'
 import { JobTypeEditor } from '@/app/_type_chip'
 import { DeletePartButton } from './_part_delete'
-import { NewPartsBody } from './_new_parts'
+import {
+  InsertedRows,
+  PartInsertProvider,
+  PartOrdinal,
+  PartsTailRoom,
+  RowInsert,
+} from './_part_insert'
 
 // Intentionally not `force-dynamic`. The page still ends up dynamic because
 // `requireUser()` reads cookies and `getJob` is uncached, but leaving Next's
@@ -598,6 +605,18 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           </p>
         </div>
 
+        {/* Client island around the sheet: owns the rows added this visit (the
+            + on each separator line) and therefore every row's #, which shifts
+            down as rows are inserted above it. */}
+        <PartInsertProvider
+          jobId={job.id}
+          serverRows={componentRows.map(({ c, i }) => ({
+            id: c.id,
+            base: i + 1,
+          }))}
+          canEdit={canEditFields}
+          showMoney={showMoney}
+        >
         <ComponentsScrollArea
           myStage={myStage}
           className="overflow-x-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]"
@@ -779,18 +798,24 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 </tr>
               )}
               {componentRows.map(({ c, i }) => (
+                <Fragment key={c.id}>
                 <tr
-                  key={c.id}
                   id={`c-${c.id}`}
                   data-part-id={c.id}
                   data-st={partStageCodes[c.id]}
-                  className="align-middle"
+                  className="group align-middle"
                 >
+                    {/* # doubles as the insert gutter: the + straddling this
+                        row's bottom border drops a new 零件 directly beneath
+                        it. overflow must be visible — the .sheet rule clips —
+                        and globals.css lifts the hovered row's frozen cells so
+                        the row below can't paint over the button. */}
                     <td
                       className="sticky-col px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]"
-                      style={{ left: 0 }}
+                      style={{ left: 0, overflow: 'visible' }}
                     >
-                      {String(i + 1).padStart(2, '0')}
+                      <PartOrdinal id={c.id} base={i + 1} />
+                      <RowInsert afterId={c.id} />
                     </td>
                     <td className="sticky-col px-3 py-2" style={{ left: 56 }}>
                       <ComponentImageUploader
@@ -1047,20 +1072,20 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       </td>
                     )}
                   </tr>
+                  {/* Rows inserted under this one this visit — client island,
+                      on screen the instant the 30-byte mutate response lands
+                      instead of an RSC refresh the GFW chokes on. */}
+                  <InsertedRows afterId={c.id} />
+                </Fragment>
               ))}
+              {/* Room under the last row for its + (which straddles the final
+                  separator line), and the only visible add affordance on a
+                  sheet with no rows to hover. */}
+              <PartsTailRoom />
             </tbody>
-            {/* Rows added this visit — client island, appears instantly off
-                the 30-byte mutate response instead of an RSC refresh the GFW
-                chokes on. Numbering continues after the full (unfiltered)
-                part list. */}
-            <NewPartsBody
-              jobId={job.id}
-              startIndex={job.components.length}
-              canEditFields={canEditFields}
-              showMoney={showMoney}
-            />
           </table>
         </ComponentsScrollArea>
+        </PartInsertProvider>
         </JobPartFilterProvider>
           </div>
           {/* /零件 tab */}

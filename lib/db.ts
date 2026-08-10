@@ -4981,6 +4981,104 @@ export async function appendComponent(jobId: string): Promise<string | undefined
   })
 }
 
+// Import order baked into the part id (`${jobId}:p<n>`). Used only as a
+// tie-break when two parts somehow carry the same position, so the canonical
+// order this function renumbers into is deterministic.
+function partIdSeq(id: string): number {
+  const m = /:p(\d+)$/.exec(id)
+  return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER
+}
+
+// Insert a fresh part directly AFTER an existing one — the + that lives on a
+// row's separator line. Identical seeding to appendComponent; the only
+// difference is placement: every part from the anchor's successor onward
+// slides down one slot so the new row lands exactly where the user pointed.
+//
+// The write order is what keeps the sheet safe. The renumber goes FIRST, as
+// ONE upsert carrying id + job_id + position and nothing else (PostgREST's
+// ON CONFLICT DO UPDATE only sets the columns present in the payload, so no
+// name / qty / price can be clobbered), and it is a single statement — so the
+// master-board statement trigger fires once, not once per row. If the process
+// dies between the renumber and the insert, the sheet is left with a one-slot
+// gap in its position sequence: invisible to every reader (they all sort by
+// position, never index into it), and never a duplicate or a scrambled order.
+export async function insertComponentAfter(
+  jobId: string,
+  afterComponentId: string,
+): Promise<string | undefined> {
+  return withWriteLock(async () => {
+    // Same lean read as appendComponent — ids + positions are all this write
+    // needs, and the full snapshot would turn a row insert into a multi-second
+    // wait on factory networks.
+    const [jobR, partsR] = await Promise.all([
+      supabase.from('jobs').select('id').eq('id', jobId).maybeSingle(),
+      supabase.from('parts').select('id, position').eq('job_id', jobId),
+    ])
+    if (jobR.error) throw jobR.error
+    if (partsR.error) throw partsR.error
+    if (!jobR.data) return undefined
+    const existing = (partsR.data ?? []) as { id: string; position: number }[]
+    const ordered = [...existing].sort(
+      (a, b) => a.position - b.position || partIdSeq(a.id) - partIdSeq(b.id),
+    )
+
+    // Anchor resolution mirrors findPartIdInSnap: prefixed id first, bare
+    // legacy id second. An unresolvable anchor (row deleted in another tab)
+    // degrades to an append at the end rather than failing the click.
+    const direct = `${jobId}:${afterComponentId}`
+    let anchorIdx = ordered.findIndex((p) => p.id === direct)
+    if (anchorIdx < 0) {
+      anchorIdx = ordered.findIndex((p) => p.id === afterComponentId)
+    }
+    const insertAt = anchorIdx < 0 ? ordered.length : anchorIdx + 1
+
+    const used = new Set(existing.map((p) => p.id))
+    let n = existing.length + 1
+    let partId = `${jobId}:p${n}`
+    while (used.has(partId)) {
+      n += 1
+      partId = `${jobId}:p${n}`
+    }
+
+    // Normalize the whole column to 0..N with the new row's slot left empty.
+    // Only rows whose position actually moves are written.
+    const shifted: { id: string; job_id: string; position: number }[] = []
+    ordered.forEach((p, k) => {
+      const next = k < insertAt ? k : k + 1
+      if (next !== p.position) {
+        shifted.push({ id: p.id, job_id: jobId, position: next })
+      }
+    })
+    if (shifted.length > 0) {
+      const shiftR = await supabase
+        .from('parts')
+        .upsert(shifted, { onConflict: 'id' })
+      if (shiftR.error) throw shiftR.error
+    }
+
+    const partRow: PartRow = {
+      id: partId,
+      jobId,
+      position: insertAt,
+      name: '',
+      qty: 0,
+    }
+    const stageRows: PartStageRow[] = DEFAULT_NEW_PART_STAGES.map((stage) => ({
+      id: `${partId}:${stage}`,
+      partId,
+      stage,
+      status: 'pending' as StageStatus,
+    }))
+    const partR = await supabase.from('parts').insert(toPart(partRow))
+    if (partR.error) throw partR.error
+    const stagesR = await supabase
+      .from('part_stages')
+      .insert(stageRows.map(toPartStage))
+    if (stagesR.error) throw stagesR.error
+    return partId.split(':').slice(1).join(':') || partId
+  })
+}
+
 export async function deleteComponent(
   jobId: string,
   componentId: string,
