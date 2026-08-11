@@ -548,7 +548,19 @@ type ExportOrder = {
     qty: number
     valueCny: number
     unpriced: boolean
+    allocated: boolean
   }[]
+}
+
+// 金额来源 — where a row's ¥ came from, in one word. 报价 is a real 单价 on the
+// part; 摊分 is 订单金额 split across the job's parts (an estimate, 0087);
+// 无单价 means there is no money anywhere on the order, so it scores 0.
+type ValueSource = '报价' | '摊分' | '无单价' | '混合'
+const rowSource = (c: { unpriced: boolean; allocated: boolean }): ValueSource =>
+  c.unpriced ? '无单价' : c.allocated ? '摊分' : '报价'
+const groupSource = (cs: { unpriced: boolean; allocated: boolean }[]): ValueSource => {
+  const kinds = new Set(cs.map(rowSource))
+  return kinds.size === 1 ? [...kinds][0] : '混合'
 }
 
 function ExportButton({
@@ -589,60 +601,103 @@ function ExportButton({
 
       // ── 汇总 — the month-end stats PMC reads first. Derived from the same
       // detail so the numbers always reconcile with 报工明细. ────────────────
-      const byStage = new Map<Stage, { finishes: number; pieces: number; jobs: Set<string>; workers: Set<string>; valueCny: number }>()
-      const byWorker = new Map<string, { finishes: number; pieces: number; valueCny: number }>()
+      // 摊分 is tracked alongside every ¥ total: a monthly number that is 90%
+      // estimate must never be readable as if it were 90% quoted.
+      const byStage = new Map<Stage, { finishes: number; pieces: number; jobs: Set<string>; workers: Set<string>; valueCny: number; allocCny: number }>()
+      const byWorker = new Map<string, { finishes: number; pieces: number; valueCny: number; allocCny: number }>()
       for (const o of orders) {
         for (const c of o.components) {
+          const alloc = c.allocated ? c.valueCny : 0
           let s = byStage.get(c.stage)
-          if (!s) { s = { finishes: 0, pieces: 0, jobs: new Set(), workers: new Set(), valueCny: 0 }; byStage.set(c.stage, s) }
-          s.finishes += 1; s.pieces += c.qty; s.jobs.add(o.jobId); s.workers.add(c.actorName); s.valueCny += c.valueCny
+          if (!s) { s = { finishes: 0, pieces: 0, jobs: new Set(), workers: new Set(), valueCny: 0, allocCny: 0 }; byStage.set(c.stage, s) }
+          s.finishes += 1; s.pieces += c.qty; s.jobs.add(o.jobId); s.workers.add(c.actorName); s.valueCny += c.valueCny; s.allocCny += alloc
           let w = byWorker.get(c.actorName)
-          if (!w) { w = { finishes: 0, pieces: 0, valueCny: 0 }; byWorker.set(c.actorName, w) }
-          w.finishes += 1; w.pieces += c.qty; w.valueCny += c.valueCny
+          if (!w) { w = { finishes: 0, pieces: 0, valueCny: 0, allocCny: 0 }; byWorker.set(c.actorName, w) }
+          w.finishes += 1; w.pieces += c.qty; w.valueCny += c.valueCny; w.allocCny += alloc
         }
       }
 
       // 工段汇总 — per-station monthly output (the cross-tab for 全部; one row for
       // a single station). 完成零件 / 件数 / 工单数 / 人数 / ¥.
-      const stageHead = ['工段', '完成零件', '件数', '工单数', '人数', ...(showMoney ? ['经手金额（按5%）'] : [])]
+      const stageHead = ['工段', '完成零件', '件数', '工单数', '人数', ...(showMoney ? ['经手金额（按5%）', '其中摊分'] : [])]
       const stageRows: (string | number)[][] = STAGES.filter((s) => byStage.has(s)).map((s) => {
         const v = byStage.get(s)!
-        return [s, v.finishes, v.pieces, v.jobs.size, v.workers.size, ...(showMoney ? [Math.round(v.valueCny)] : [])]
+        return [s, v.finishes, v.pieces, v.jobs.size, v.workers.size, ...(showMoney ? [Math.round(v.valueCny), Math.round(v.allocCny)] : [])]
       })
       const stageTot = stageRows.reduce(
-        (a, r) => ({ f: a.f + Number(r[1]), p: a.p + Number(r[2]), v: a.v + (showMoney ? Number(r[5]) : 0) }),
-        { f: 0, p: 0, v: 0 },
+        (a, r) => ({
+          f: a.f + Number(r[1]),
+          p: a.p + Number(r[2]),
+          v: a.v + (showMoney ? Number(r[5]) : 0),
+          al: a.al + (showMoney ? Number(r[6]) : 0),
+        }),
+        { f: 0, p: 0, v: 0, al: 0 },
       )
-      stageRows.push(['合计', stageTot.f, stageTot.p, '', '', ...(showMoney ? [stageTot.v] : [])])
+      stageRows.push(['合计', stageTot.f, stageTot.p, '', '', ...(showMoney ? [stageTot.v, stageTot.al] : [])])
       const wsStage = XLSX.utils.aoa_to_sheet([stageHead, ...stageRows])
       wsStage['!cols'] = stageHead.map(() => ({ wch: 10 }))
       XLSX.utils.book_append_sheet(wb, wsStage, '工段汇总')
 
       // 人员汇总 — per-person output (产量 / 计件基数), most productive first.
       const workerRows = [...byWorker.entries()].sort((a, b) => b[1].finishes - a[1].finishes)
-      const wHead = ['姓名', '完成零件', '件数', ...(showMoney ? ['经手金额（按5%）'] : [])]
-      const wBody: (string | number)[][] = workerRows.map(([name, v]) => [name, v.finishes, v.pieces, ...(showMoney ? [Math.round(v.valueCny)] : [])])
-      const wTot = workerRows.reduce((a, [, v]) => ({ f: a.f + v.finishes, p: a.p + v.pieces, v: a.v + v.valueCny }), { f: 0, p: 0, v: 0 })
-      wBody.push(['合计', wTot.f, wTot.p, ...(showMoney ? [Math.round(wTot.v)] : [])])
+      const wHead = ['姓名', '完成零件', '件数', ...(showMoney ? ['经手金额（按5%）', '其中摊分'] : [])]
+      const wBody: (string | number)[][] = workerRows.map(([name, v]) => [
+        name,
+        v.finishes,
+        v.pieces,
+        ...(showMoney ? [Math.round(v.valueCny), Math.round(v.allocCny)] : []),
+      ])
+      const wTot = workerRows.reduce(
+        (a, [, v]) => ({ f: a.f + v.finishes, p: a.p + v.pieces, v: a.v + v.valueCny, al: a.al + v.allocCny }),
+        { f: 0, p: 0, v: 0, al: 0 },
+      )
+      wBody.push(['合计', wTot.f, wTot.p, ...(showMoney ? [Math.round(wTot.v), Math.round(wTot.al)] : [])])
       const wsWorker = XLSX.utils.aoa_to_sheet([wHead, ...wBody])
       wsWorker['!cols'] = wHead.map((h) => ({ wch: h === '姓名' ? 16 : 10 }))
       XLSX.utils.book_append_sheet(wb, wsWorker, '人员汇总')
 
       // 工单汇总 — per-order money + output: 订单金额 alongside 完成零件 / 件数.
-      const ojHead = ['工号', '客户', ...(showMoney ? ['订单金额'] : []), '完成零件', '件数', ...(showMoney ? ['经手金额（按5%）'] : [])]
+      const ojHead = [
+        '工号',
+        '客户',
+        ...(showMoney ? ['订单金额'] : []),
+        '完成零件',
+        '件数',
+        ...(showMoney ? ['经手金额（按5%）', '金额来源'] : []),
+      ]
       const ojBody: (string | number)[][] = orders.map((o) => [
         o.jobNo,
         o.customer,
         ...(showMoney ? [Math.round(o.amountCny)] : []),
         o.finishes,
         o.pieces,
-        ...(showMoney ? [Math.round(o.valueCny)] : []),
+        ...(showMoney ? [Math.round(o.valueCny), groupSource(o.components)] : []),
       ])
       const ojTot = orders.reduce(
         (a, o) => ({ amt: a.amt + o.amountCny, f: a.f + o.finishes, p: a.p + o.pieces, v: a.v + o.valueCny }),
         { amt: 0, f: 0, p: 0, v: 0 },
       )
-      ojBody.push(['合计', '', ...(showMoney ? [Math.round(ojTot.amt)] : []), ojTot.f, ojTot.p, ...(showMoney ? [Math.round(ojTot.v)] : [])])
+      ojBody.push([
+        '合计',
+        '',
+        ...(showMoney ? [Math.round(ojTot.amt)] : []),
+        ojTot.f,
+        ojTot.p,
+        ...(showMoney ? [Math.round(ojTot.v), ''] : []),
+      ])
+      // 说明 — this is the sheet people open and ask "the order has money, why is
+      // 经手金额 zero". Answer it right here, in the same two columns as the
+      // table, not in prose. Money-only: without ¥ there is nothing to explain.
+      if (showMoney) {
+        ojBody.push(
+          [],
+          ['说明', '经手金额 = 零件销售价 × 5%，每完成一道工序计一次'],
+          ['订单金额', '该工单的全部合同额，不是本人产出'],
+          ['报价', '零件本身有单价 — 准确'],
+          ['摊分', '零件没有单价，按 订单金额 ÷ 零件数 估算'],
+          ['无单价', '订单也没有金额，记 0'],
+        )
+      }
       const wsOrder = XLSX.utils.aoa_to_sheet([ojHead, ...ojBody])
       wsOrder['!cols'] = ojHead.map((h) => ({ wch: h === '客户' ? 22 : h === '工号' ? 16 : 10 }))
       XLSX.utils.book_append_sheet(wb, wsOrder, '工单汇总')
@@ -650,7 +705,7 @@ function ExportButton({
       // ── 报工明细 — 工单 foremost, its components spanning underneath. 工号/客户
       // sit on the order's first row; blank on the rest so each order reads as a
       // header with its 零件 listed below it. A blank row separates orders.
-      const head = ['工号', '客户', '零件', '料号', '数量', '工段', '经手人', '完成时间', ...(showMoney ? ['经手金额（按5%）'] : [])]
+      const head = ['工号', '客户', '零件', '料号', '数量', '工段', '经手人', '完成时间', ...(showMoney ? ['经手金额（按5%）', '金额来源'] : [])]
       const body: (string | number)[][] = []
       orders.forEach((o, oi) => {
         if (oi > 0) body.push([]) // spacer between orders
@@ -664,7 +719,9 @@ function ExportButton({
             c.stage,
             c.actorName,
             fmtTs(c.ts),
-            ...(showMoney ? [c.unpriced ? '未定价' : Math.round(c.valueCny)] : []),
+            // Always a number — the old '未定价' string sat in the money column
+            // and broke SUM over the sheet. 金额来源 carries the caveat instead.
+            ...(showMoney ? [Math.round(c.valueCny), rowSource(c)] : []),
           ])
         })
       })

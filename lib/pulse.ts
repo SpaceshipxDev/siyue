@@ -671,6 +671,9 @@ export type OrderComponent = {
   qty: number
   valueCny: number
   unpriced: boolean
+  /** 摊分 (0087) — no 单价 on this part, so its value is the order total split
+   *  across the job's parts. An estimate, and the 导出 says so per row. */
+  allocated: boolean
 }
 export type OrderDetail = {
   jobId: string
@@ -698,7 +701,7 @@ export async function getStationDetailByOrder(
     let q = supabase
       .from('worker_stage_events')
       .select(
-        'ts, actor_name, stage, part_name, part_no, part_qty, value_cny, is_unpriced, job_id, job_no, customer',
+        'ts, actor_name, stage, part_name, part_no, part_qty, value_cny, is_unpriced, is_allocated, job_id, job_no, customer',
       )
       .eq('kind', 'finished')
       .gte('ts', window.from)
@@ -750,6 +753,7 @@ export async function getStationDetailByOrder(
       qty,
       valueCny: val,
       unpriced: Boolean(e.is_unpriced),
+      allocated: Boolean(e.is_allocated),
     })
   }
   // Attach each order's 订单金额 (jobs.amount_cny) — one chunked lookup.
