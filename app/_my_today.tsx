@@ -38,7 +38,7 @@ export function MyToday({
           hero
           label="今日完成"
           value={nf.format(stats.todayFinishes)}
-          aside={`${nf.format(stats.todayPieces)} 件`}
+          aside={`${nf.format(stats.todayPieces)} 件次`}
         />
         <Stat
           label="今日经手（按5%）"
@@ -49,7 +49,7 @@ export function MyToday({
         <Stat
           label="本周完成"
           value={nf.format(stats.weekFinishes)}
-          aside={`${nf.format(stats.weekPieces)} 件`}
+          aside={`${nf.format(stats.weekPieces)} 件次`}
         />
       </div>
     </section>

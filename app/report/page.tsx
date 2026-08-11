@@ -37,7 +37,7 @@ export default async function ReportPage({
     <div className="flex-1 flex flex-col">
       <TopBar
         title="报工"
-        subtitle="完成零件 · 经手"
+        subtitle="完成工序 · 经手"
         currentTab="报工"
         role={user.role}
         defaultStage={user.defaultStage}
@@ -47,7 +47,7 @@ export default async function ReportPage({
       <main className="mx-auto w-full max-w-[1100px] px-4 md:px-10 py-8 md:py-12 flex-1">
         <header className="mb-8">
           <h1 className="text-[28px] md:text-[34px] font-semibold tracking-tight text-[var(--color-ink)]">报工</h1>
-          <p className="text-[12px] md:text-[13px] text-[var(--color-ink-3)] mt-1">按工段 · 完成零件经手</p>
+          <p className="text-[12px] md:text-[13px] text-[var(--color-ink-3)] mt-1">按工段 · 完成工序经手</p>
         </header>
         <ReportClient
           initialStage={stage}

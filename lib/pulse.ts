@@ -156,11 +156,12 @@ export async function getStationEvents(opts?: {
 // One worker's roll-up within a reporting window.
 export type WorkerOutputRow = {
   actorName: string
-  /** 完成零件 — count of part-stage completions ("components flowed through"). */
+  /** 完成工序 — count of part-stage completions (报工 taps, NOT distinct parts). */
   finishes: number
   /** 开始 — count of part-stages this worker started (clicked ▶) in the window. */
   starts: number
-  /** 件 — total physical pieces across those completions. */
+  /** 经手件数 (件次) — the part's qty counted once PER completion, so a part
+   *  crossing 编程 then 操机 contributes its qty twice. Not distinct pieces. */
   pieces: number
   /** ¥ 经手 — throughput value (counted once per finished stage; not revenue). */
   valueCny: number
@@ -317,7 +318,7 @@ export async function getStationOutput(stage: Stage): Promise<WorkerOutputRow[]>
 // pushed through today," not just your home station, so a worker who pitched in
 // elsewhere still sees their full contribution.
 export type WorkerSelfStats = {
-  /** 完成零件 today — count of part-stage completions. */
+  /** 完成工序 today — count of part-stage completions (报工 taps). */
   todayFinishes: number
   /** Physical pieces across today's completions. */
   todayPieces: number
@@ -325,7 +326,7 @@ export type WorkerSelfStats = {
   todayValueCny: number
   /** Today's completions whose part had no price set (the ¥0 contributors). */
   todayUnpriced: number
-  /** 完成零件 this week (Mon–Sun). */
+  /** 完成工序 this week (Mon–Sun). */
   weekFinishes: number
   weekPieces: number
 }

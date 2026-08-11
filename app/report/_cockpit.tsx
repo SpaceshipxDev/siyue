@@ -198,7 +198,10 @@ export function ReportClient({
       {/* period + totals + export */}
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div className="flex items-baseline gap-8">
-          <Totaled label="完成零件" value={NUM.format(totals.finishes)} sub={`${NUM.format(totals.pieces)} 件`} />
+          {/* 完成工序, not 完成零件 — this counts 报工 taps. One part crossing
+              编程 then 操机 is 2 here, and its pieces are counted once per pass
+              (hence 件次). Calling either one "零件" overstated output ~2×. */}
+          <Totaled label="完成工序" value={NUM.format(totals.finishes)} sub={`${NUM.format(totals.pieces)} 件次`} />
           {showMoney && <Totaled label="经手金额（按5%）" value={formatCny(totals.valueCny)} />}
         </div>
         <div className="flex items-center gap-3">
@@ -298,7 +301,7 @@ function PeopleList({
     <div className={`rounded-[2px] border border-[var(--color-border)] overflow-hidden ${loading ? 'opacity-60' : ''}`}>
       <div className={`grid ${cols} gap-x-6 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2`}>
         <span className="label">姓名</span>
-        <span className="label text-right">完成零件</span>
+        <span className="label text-right">完成工序</span>
         <span className="label text-right">开始</span>
         {showMoney && <span className="label text-right whitespace-nowrap">经手金额（按5%）</span>}
         <span className="label text-right">最后活动</span>
@@ -618,8 +621,8 @@ function ExportButton({
       }
 
       // 工段汇总 — per-station monthly output (the cross-tab for 全部; one row for
-      // a single station). 完成零件 / 件数 / 工单数 / 人数 / ¥.
-      const stageHead = ['工段', '完成零件', '件数', '工单数', '人数', ...(showMoney ? ['经手金额（按5%）', '其中摊分'] : [])]
+      // a single station). 完成工序 / 经手件数 / 工单数 / 人数 / ¥.
+      const stageHead = ['工段', '完成工序', '经手件数', '工单数', '人数', ...(showMoney ? ['经手金额（按5%）', '其中摊分'] : [])]
       const stageRows: (string | number)[][] = STAGES.filter((s) => byStage.has(s)).map((s) => {
         const v = byStage.get(s)!
         return [s, v.finishes, v.pieces, v.jobs.size, v.workers.size, ...(showMoney ? [Math.round(v.valueCny), Math.round(v.allocCny)] : [])]
@@ -640,7 +643,7 @@ function ExportButton({
 
       // 人员汇总 — per-person output (产量 / 计件基数), most productive first.
       const workerRows = [...byWorker.entries()].sort((a, b) => b[1].finishes - a[1].finishes)
-      const wHead = ['姓名', '完成零件', '件数', ...(showMoney ? ['经手金额（按5%）', '其中摊分'] : [])]
+      const wHead = ['姓名', '完成工序', '经手件数', ...(showMoney ? ['经手金额（按5%）', '其中摊分'] : [])]
       const wBody: (string | number)[][] = workerRows.map(([name, v]) => [
         name,
         v.finishes,
@@ -656,13 +659,13 @@ function ExportButton({
       wsWorker['!cols'] = wHead.map((h) => ({ wch: h === '姓名' ? 16 : 10 }))
       XLSX.utils.book_append_sheet(wb, wsWorker, '人员汇总')
 
-      // 工单汇总 — per-order money + output: 订单金额 alongside 完成零件 / 件数.
+      // 工单汇总 — per-order money + output: 订单金额 alongside 完成工序 / 经手件数.
       const ojHead = [
         '工号',
         '客户',
         ...(showMoney ? ['订单金额'] : []),
-        '完成零件',
-        '件数',
+        '完成工序',
+        '经手件数',
         ...(showMoney ? ['经手金额（按5%）', '金额来源'] : []),
       ]
       const ojBody: (string | number)[][] = orders.map((o) => [
@@ -692,6 +695,8 @@ function ExportButton({
         ojBody.push(
           [],
           ['说明', '经手金额 = 零件销售价 × 5%，每完成一道工序计一次'],
+          ['完成工序', '报工次数 — 同一个零件过 编程 和 操机 算 2'],
+          ['经手件数', '每过一道工序，该零件的数量算一次'],
           ['订单金额', '该工单的全部合同额，不是本人产出'],
           ['报价', '零件本身有单价 — 准确'],
           ['摊分', '零件没有单价，按 订单金额 ÷ 零件数 估算'],

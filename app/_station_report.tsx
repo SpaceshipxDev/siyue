@@ -53,7 +53,7 @@ export async function StationReportAsync({
           className={`grid ${cols} gap-x-6 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2`}
         >
           <span className="label">姓名</span>
-          <span className="label text-right">完成零件</span>
+          <span className="label text-right">完成工序</span>
           <span className="label text-right">开始</span>
           {showMoney && (
             <span className="label text-right whitespace-nowrap">经手金额（按5%）</span>
