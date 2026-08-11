@@ -1,12 +1,13 @@
 import { notFound } from 'next/navigation'
-import { requireCommerce } from '@/lib/auth'
+import { requireProductionOrderExporter } from '@/lib/auth'
 import { getJob } from '@/lib/db'
 import { fetchImages } from '@/lib/pdf/images'
 import { buildProductionOrderWorkbook } from '@/lib/production-order/workbook'
 
 // 一键导出生产单 — rebuilds the 越侬生产单 .xlsx from the stored order so
-// commerce stops hand-maintaining it in WPS. Commerce-only, same gate as the
-// 源文件 widget it sits next to. Generation prefetches every part photo from
+// nobody hand-maintains it in WPS. 商务 + 工程 (canExportProductionOrder): the
+// sheet is a floor traveler with no customer name and no prices, and 工程 owns
+// the fields it's built from. Generation prefetches every part photo from
 // Storage in parallel (like the 出货单 PDF), so keep maxDuration generous.
 
 export const runtime = 'nodejs'
@@ -17,7 +18,7 @@ export async function GET(
   _req: Request,
   ctx: RouteContext<'/jobs/[id]/production-order'>,
 ) {
-  await requireCommerce()
+  await requireProductionOrderExporter()
   const { id } = await ctx.params
   const job = await getJob(id)
   if (!job) notFound()

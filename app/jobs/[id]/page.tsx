@@ -33,6 +33,7 @@ import { BRAND } from '@/lib/brand'
 import {
   canEditPartRoute,
   canEditProductionFields,
+  canExportProductionOrder,
   canManageOutsource,
   canSeeCustomerData,
   canSeeMoney,
@@ -138,6 +139,12 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // jobNo, dueDate, component name/qty/material/notes, image). Pure-floor
   // production users (焊接, 喷塑, etc.) keep the read-only view they had.
   const canEditFields = canEditProductionFields(user)
+  // 工程's 生产单 export. Commerce gets it in the documents zone up next to
+  // 产品; that whole row is customer-gated (showCustomer), which 工程 fails, so
+  // theirs rides beside 工单备注 instead. Same sheet, minus 源文件 — that
+  // widget's upload API stays commerce-only.
+  const showProductionOrderExport =
+    isProduction && canExportProductionOrder(user)
   const job = isProduction ? scrubJob(rawJob, user) : rawJob
   const vendors = isProduction ? scrubVendors(rawVendors, user) : rawVendors
   const myStage = user.defaultStage
@@ -562,8 +569,10 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
         )}
 
         {/* 工单备注 is the one field everyone owns — production heads add 催单 /
-            shop-floor context, commerce reads + writes too. The 源文件 / 生产单
-            documents zone moved up next to 产品 so it aligns on that row. */}
+            shop-floor context, commerce reads + writes too. Commerce's 源文件 /
+            生产单 documents zone moved up next to 产品 so it aligns on that row;
+            工程 can't render that row, so their 生产单 export fills the empty
+            right cell here. */}
         <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <p className="label mb-2">工单备注</p>
@@ -574,6 +583,11 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               className="text-[13px] text-[var(--color-ink)]"
             />
           </div>
+          {showProductionOrderExport && (
+            <div>
+              <ProductionOrderRow jobId={job.id} jobNo={job.jobNo} />
+            </div>
+          )}
         </div>
 
         {/* 工单明细 tabs — 零件 / 外协 / 财务. Each big section below is wrapped

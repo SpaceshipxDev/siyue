@@ -126,6 +126,15 @@ export function canEditProductionFields(s: Scope): boolean {
   return canEditPartRoute(s)
 }
 
+// 一键导出生产单 (.xlsx) — 商务 + 工程. The 生产单 is a shop-floor traveler,
+// not a commercial document: it carries 单号/交期/备注/项目分组/跟单商务 and a
+// 图号·材质·加工方式·工艺要求 part table with photos. No customer, no prices.
+// 工程 already owns the fields it's built from (canEditProductionFields) and
+// hands the printed sheet to the floor, so they get the export too.
+export function canExportProductionOrder(s: Scope): boolean {
+  return s.role === 'commerce' || s.defaultStage === '工程'
+}
+
 // Server-action guard for setPartRouteAction. Mirrors requireCommerce —
 // throws via redirect when a non-editor tries to save.
 export async function requirePartRouteEditor(): Promise<AuthUser> {
@@ -164,6 +173,14 @@ export function canSeeFactoryPulse(s: Scope): boolean {
 export async function requirePulseViewer(): Promise<AuthUser> {
   const u = await requireUser()
   if (canSeeFactoryPulse(u)) return u
+  redirect(landingPathFor(u))
+}
+
+// Route guard for the 生产单 .xlsx download. Mirrors requireCommerce but
+// lets the 工程 head through — see canExportProductionOrder.
+export async function requireProductionOrderExporter(): Promise<AuthUser> {
+  const u = await requireUser()
+  if (canExportProductionOrder(u)) return u
   redirect(landingPathFor(u))
 }
 
