@@ -4997,38 +4997,96 @@ function partIdSeq(id: string): number {
   return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER
 }
 
+// The # every row is showing right now, in sheet order: the hand-typed override
+// where there is one (0088), otherwise the position-derived 01 / 02 / 03.
+function displayedSeqLabels(
+  ordered: { seq_label?: string | null }[],
+): string[] {
+  return ordered.map(
+    (p, i) => (p.seq_label as string | null) ?? String(i + 1).padStart(2, '0'),
+  )
+}
+
+// The # a row inserted under `anchor` should carry — a SUB-number of the row
+// above it (01 → 1.1 → 1.2), which is the convention the floor already used by
+// hand the day the field became editable.
+//
+// This is what makes the insert non-disruptive. A sub-numbered row is not a new
+// entry in the 01/02/03 sequence, so the rows below it keep the numbers they
+// already had (frozen by insertComponentAfter) instead of each sliding down one
+// — the whole complaint: "原来的号能否可以不变".
+function subSeqLabel(anchor: string, taken: Set<string>): string {
+  const sub = /^(\d+(?:\.\d+)*)\.(\d+)$/.exec(anchor)
+  if (sub) {
+    // The anchor is itself a sub-number (1.1) → the next sibling (1.2, 1.3 …).
+    const stem = sub[1]
+    let n = Number(sub[2])
+    for (let i = 0; i < 999; i += 1) {
+      n += 1
+      const candidate = `${stem}.${n}`
+      if (!taken.has(candidate)) return candidate
+    }
+  }
+  // A plain 01 → 1.1, leading zero dropped because that is how it gets written
+  // on paper. Anything else (料号-ish text like A2) keeps its text and gains .1.
+  const stem = /^\d+$/.test(anchor) ? String(Number(anchor)) : anchor
+  for (let n = 1; n < 999; n += 1) {
+    const candidate = `${stem}.${n}`
+    if (!taken.has(candidate)) return candidate
+  }
+  return `${stem}.${999}`
+}
+
 // Insert a fresh part directly AFTER an existing one — the + that lives on a
 // row's separator line. Identical seeding to appendComponent; the only
 // difference is placement: every part from the anchor's successor onward
 // slides down one slot so the new row lands exactly where the user pointed.
 //
+// The row's # does NOT slide down with its position. Every row the renumber
+// touches gets the # it is showing right now written into seq_label in that
+// same upsert (a no-op write for rows that already carry one), and the new row
+// takes a sub-number of its anchor instead of the anchor's successor's number.
+// So 后壳 stays 02 forever, even though a row now sits above it — inserting a
+// part no longer rewrites numbers the floor has already read off the sheet.
+//
 // The write order is what keeps the sheet safe. The renumber goes FIRST, as
-// ONE upsert carrying id + job_id + position and nothing else (PostgREST's
-// ON CONFLICT DO UPDATE only sets the columns present in the payload, so no
-// name / qty / price can be clobbered), and it is a single statement — so the
-// master-board statement trigger fires once, not once per row. If the process
-// dies between the renumber and the insert, the sheet is left with a one-slot
+// ONE upsert carrying id + job_id + position + seq_label and nothing else
+// (PostgREST's ON CONFLICT DO UPDATE only sets the columns present in the
+// payload, so no name / qty / price can be clobbered — the payload's keys are
+// kept UNIFORM across rows for exactly that reason), and it is a single
+// statement — so the master-board statement trigger fires once, not once per
+// row. If the process dies between the renumber and the insert, the sheet is
+// left with a one-slot
 // gap in its position sequence: invisible to every reader (they all sort by
 // position, never index into it), and never a duplicate or a scrambled order.
 export async function insertComponentAfter(
   jobId: string,
   afterComponentId: string,
-): Promise<string | undefined> {
+): Promise<{ id: string; seqLabel?: string } | undefined> {
   return withWriteLock(async () => {
-    // Same lean read as appendComponent — ids + positions are all this write
-    // needs, and the full snapshot would turn a row insert into a multi-second
-    // wait on factory networks.
+    // Same lean read as appendComponent — ids + positions + the # override are
+    // all this write needs, and the full snapshot would turn a row insert into
+    // a multi-second wait on factory networks.
     const [jobR, partsR] = await Promise.all([
       supabase.from('jobs').select('id').eq('id', jobId).maybeSingle(),
-      supabase.from('parts').select('id, position').eq('job_id', jobId),
+      supabase
+        .from('parts')
+        .select('id, position, seq_label')
+        .eq('job_id', jobId),
     ])
     if (jobR.error) throw jobR.error
     if (partsR.error) throw partsR.error
     if (!jobR.data) return undefined
-    const existing = (partsR.data ?? []) as { id: string; position: number }[]
+    const existing = (partsR.data ?? []) as {
+      id: string
+      position: number
+      seq_label?: string | null
+    }[]
     const ordered = [...existing].sort(
       (a, b) => a.position - b.position || partIdSeq(a.id) - partIdSeq(b.id),
     )
+    // What each row reads TODAY. Everything below is about keeping these true.
+    const shown = displayedSeqLabels(ordered)
 
     // Anchor resolution mirrors findPartIdInSnap: prefixed id first, bare
     // legacy id second. An unresolvable anchor (row deleted in another tab)
@@ -5048,13 +5106,35 @@ export async function insertComponentAfter(
       partId = `${jobId}:p${n}`
     }
 
+    // The new row's #: a sub-number of the row it was dropped under. Pinned to
+    // the anchor, so it is stable no matter what the rows below are numbered.
+    // An unresolvable anchor degraded to an append (nothing below to disturb),
+    // which needs no label at all — it just takes the next number.
+    const seqLabel =
+      anchorIdx < 0 ? undefined : subSeqLabel(shown[anchorIdx], new Set(shown))
+
     // Normalize the whole column to 0..N with the new row's slot left empty.
-    // Only rows whose position actually moves are written.
-    const shifted: { id: string; job_id: string; position: number }[] = []
+    // Only rows whose position actually moves are written — and each carries
+    // the # it is showing right now, so sliding down a slot no longer changes
+    // the number anyone reads. Rows that already have an override re-write the
+    // same value (a no-op); the point of including it on every row is to keep
+    // the upsert payload's keys uniform, since a key missing from one object
+    // would be sent as NULL and wipe that row's override.
+    const shifted: {
+      id: string
+      job_id: string
+      position: number
+      seq_label: string
+    }[] = []
     ordered.forEach((p, k) => {
       const next = k < insertAt ? k : k + 1
       if (next !== p.position) {
-        shifted.push({ id: p.id, job_id: jobId, position: next })
+        shifted.push({
+          id: p.id,
+          job_id: jobId,
+          position: next,
+          seq_label: shown[k],
+        })
       }
     })
     if (shifted.length > 0) {
@@ -5077,13 +5157,19 @@ export async function insertComponentAfter(
       stage,
       status: 'pending' as StageStatus,
     }))
-    const partR = await supabase.from('parts').insert(toPart(partRow))
+    // seq_label rides alongside toPart rather than inside it: toPart is the
+    // shared INSERT shape (导入订单 included) and deliberately does not carry
+    // the column, so only this one path — a row slipped between two others —
+    // is born with a #.
+    const partR = await supabase
+      .from('parts')
+      .insert({ ...toPart(partRow), ...(seqLabel ? { seq_label: seqLabel } : {}) })
     if (partR.error) throw partR.error
     const stagesR = await supabase
       .from('part_stages')
       .insert(stageRows.map(toPartStage))
     if (stagesR.error) throw stagesR.error
-    return partId.split(':').slice(1).join(':') || partId
+    return { id: partId.split(':').slice(1).join(':') || partId, seqLabel }
   })
 }
 

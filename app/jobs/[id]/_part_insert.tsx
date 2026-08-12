@@ -38,7 +38,12 @@ import { DeletePartButton } from './_part_delete'
 // Rows inserted this visit can themselves be inserted under, so the local
 // model is a tree: anchorId → the ids inserted directly beneath it, in order.
 
-type Kids = Record<string, string[]>
+// A row added this visit: its id, plus the # the server gave it (a sub-number
+// of the row above — 1.1). Absent for a row appended at the tail, which simply
+// takes the next number in the sequence.
+type Kid = { id: string; label?: string }
+
+type Kids = Record<string, Kid[]>
 
 type Ctx = {
   jobId: string
@@ -47,7 +52,7 @@ type Ctx = {
   totalCols: number
   kids: Kids
   ordinals: Map<string, number>
-  insertAfter: (anchorId: string | null, id: string) => void
+  insertAfter: (anchorId: string | null, id: string, label?: string) => void
   dropRow: (id: string) => void
 }
 
@@ -77,12 +82,18 @@ export function PartInsertProvider({
 }) {
   const [kids, setKids] = useState<Kids>({})
 
-  const insertAfter = useCallback((anchorId: string | null, id: string) => {
-    // anchorId null = the end of the sheet (empty job — nothing to insert
-    // under yet). Keyed under '' so the tail strip owns that list.
-    const key = anchorId ?? ''
-    setKids((prev) => ({ ...prev, [key]: [...(prev[key] ?? []), id] }))
-  }, [])
+  const insertAfter = useCallback(
+    (anchorId: string | null, id: string, label?: string) => {
+      // anchorId null = the end of the sheet (empty job — nothing to insert
+      // under yet). Keyed under '' so the tail strip owns that list.
+      const key = anchorId ?? ''
+      setKids((prev) => ({
+        ...prev,
+        [key]: [...(prev[key] ?? []), { id, label }],
+      }))
+    },
+    [],
+  )
 
   // A deleted row's own inserted children are real parts of their own — they
   // survive, re-parented to wherever the deleted row sat.
@@ -92,7 +103,7 @@ export function PartInsertProvider({
       const orphans = prev[id] ?? []
       for (const [k, list] of Object.entries(prev)) {
         if (k === id) continue
-        const i = list.indexOf(id)
+        const i = list.findIndex((kid) => kid.id === id)
         next[k] =
           i < 0 ? list : [...list.slice(0, i), ...orphans, ...list.slice(i + 1)]
       }
@@ -100,28 +111,31 @@ export function PartInsertProvider({
     })
   }, [])
 
-  // # for every row on screen. Server bases are fixed truth; each inserted row
-  // takes the next number and pushes everything below it down by one.
+  // # for every row on screen. A server row NEVER moves: inserting above it
+  // used to push its number down one, which is precisely what the floor
+  // objected to (后壳 read 02 on paper and 03 on screen). The server now freezes
+  // those numbers and hands the new row a sub-number of its anchor instead, so
+  // here the server bases are simply left alone.
+  //
+  // The numbers below are the FALLBACK for a row added this visit that has no
+  // label of its own (the tail append): it takes the next free number. A
+  // sub-numbered row renders its label instead, so its entry is never read —
+  // it exists only so a cleared field has something to fall back to.
   const ordinals = useMemo(() => {
     const m = new Map<string, number>()
-    // Walked in visual order: a server row keeps its own number pushed down by
-    // the rows inserted above it; an inserted row simply takes the number after
-    // the row it sits under.
-    let bump = 0
-    let prev = 0
+    let next = 0
+    for (const row of serverRows) {
+      m.set(row.id, row.base)
+      if (row.base > next) next = row.base
+    }
     const walk = (id: string) => {
       for (const child of kids[id] ?? []) {
-        bump += 1
-        prev += 1
-        m.set(child, prev)
-        walk(child)
+        next += 1
+        m.set(child.id, next)
+        walk(child.id)
       }
     }
-    for (const row of serverRows) {
-      prev = row.base + bump
-      m.set(row.id, prev)
-      walk(row.id)
-    }
+    for (const row of serverRows) walk(row.id)
     walk('') // rows added to an empty sheet, below everything
     return m
   }, [serverRows, kids])
@@ -192,7 +206,7 @@ export function RowInsert({ afterId }: { afterId: string | null }) {
     setPending(true)
     setError(null)
     try {
-      const r = await mutate<{ id?: string }>(
+      const r = await mutate<{ id?: string; seqLabel?: string }>(
         afterId
           ? {
               kind: 'insertComponentAfter',
@@ -203,7 +217,10 @@ export function RowInsert({ afterId }: { afterId: string | null }) {
       )
       const id = 'data' in r ? r.data?.id : undefined
       if (!id) throw new Error('服务器未返回零件 ID')
-      ctx.insertAfter(afterId, id)
+      // The # the server pinned to this row (1.1 under 01) — painted straight
+      // from the response, since this path never refreshes.
+      const seqLabel = 'data' in r ? r.data?.seqLabel : undefined
+      ctx.insertAfter(afterId, id, seqLabel)
     } catch (e) {
       setError(e instanceof Error ? e.message : '添加失败')
     } finally {
@@ -252,10 +269,10 @@ export function InsertedRows({ afterId }: { afterId: string | null }) {
   if (list.length === 0) return null
   return (
     <>
-      {list.map((id) => (
-        <Fragment key={id}>
-          <NewPartRow componentId={id} />
-          <InsertedRows afterId={id} />
+      {list.map((kid) => (
+        <Fragment key={kid.id}>
+          <NewPartRow componentId={kid.id} seqLabel={kid.label} />
+          <InsertedRows afterId={kid.id} />
         </Fragment>
       ))}
     </>
@@ -334,7 +351,13 @@ function TailAdd() {
 // A part created this visit. Same cell-for-cell shape as the server row
 // (including the three frozen identifier columns) so nothing shifts when the
 // page is next loaded and the row comes back from the DB.
-function NewPartRow({ componentId }: { componentId: string }) {
+function NewPartRow({
+  componentId,
+  seqLabel,
+}: {
+  componentId: string
+  seqLabel?: string
+}) {
   const ctx = useContext(PartInsertCtx)!
   const { jobId, showMoney, canEdit } = ctx
   // Server truth for a fresh part: DEFAULT_NEW_PART_STAGES (== the default
@@ -359,7 +382,7 @@ function NewPartRow({ componentId }: { componentId: string }) {
         className="sticky-col px-1 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]"
         style={{ left: 0, overflow: 'visible' }}
       >
-        <PartOrdinal id={componentId} base={0} />
+        <PartOrdinal id={componentId} base={0} label={seqLabel} />
         <RowInsert afterId={componentId} />
       </td>
       <td className="sticky-col px-3 py-2" style={{ left: 56 }}>

@@ -324,7 +324,11 @@ function ImportComponentRows({
         className="px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]"
         style={{ position: 'relative', overflow: 'visible' }}
       >
-        {String(index + 1).padStart(2, '0')}
+        {/* A row inserted with the + is born with a sub-number of the row above
+            (1.1, see insertComponentAfter), so the draft has to show that
+            rather than its own index — otherwise this sheet and the job sheet
+            call the same part two different numbers. */}
+        {component.seqLabel ?? String(index + 1).padStart(2, '0')}
         <InsertComponentButton jobId={jobId} afterComponentId={component.id} />
       </td>
       <td className="px-3 py-2">

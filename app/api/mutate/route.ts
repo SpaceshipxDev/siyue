@@ -792,9 +792,11 @@ async function dispatch(
       if (!isString(jobId) || !isString(afterComponentId))
         return err('bad insertComponentAfter args')
       await requirePartRouteEditor()
-      const id = await insertComponentAfter(jobId, afterComponentId)
+      // seqLabel comes back so the client can paint the new row's # (a
+      // sub-number of the row above, 1.1) without an RSC refresh.
+      const created = await insertComponentAfter(jobId, afterComponentId)
       revalidateJob(jobId)
-      return Response.json(ok({ id }))
+      return Response.json(ok({ id: created?.id, seqLabel: created?.seqLabel }))
     }
 
     case 'deleteComponent': {

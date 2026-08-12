@@ -620,8 +620,9 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
         </div>
 
         {/* Client island around the sheet: owns the rows added this visit (the
-            + on each separator line) and therefore every row's #, which shifts
-            down as rows are inserted above it. */}
+            + on each separator line) and their #. A row already on the sheet
+            keeps its number when one is inserted above it — the new row takes a
+            sub-number of its anchor (1.1) instead of the next slot. */}
         <PartInsertProvider
           jobId={job.id}
           serverRows={componentRows.map(({ c, i }) => ({
