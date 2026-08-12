@@ -27,8 +27,14 @@ import { DatePop } from '@/app/_datepop'
 // outsource fields against the HK VM. The JSON path here matches the
 // survivability profile of the existing /api/job-status poller.
 
-const baseInputClass =
-  'block w-full bg-transparent border-0 outline-none rounded-[2px] px-1 -mx-1 py-0.5 transition-[background-color,box-shadow] duration-150 hover:bg-[var(--color-active-bg)] hover:shadow-[inset_0_-1px_0_var(--color-border-strong)] focus:bg-[var(--color-active-bg)] focus:shadow-[inset_0_-1px_0_var(--color-ink)]'
+// The look every inline field shares: invisible at rest, darkens on hover,
+// underlines on focus. Split from its horizontal padding so a field in a narrow
+// frozen cell (the # column) can own its own — restating `px-*` in a caller's
+// className would race baseInputClass's in the stylesheet, not override it.
+const fieldSkinClass =
+  'block w-full bg-transparent border-0 outline-none rounded-[2px] py-0.5 transition-[background-color,box-shadow] duration-150 hover:bg-[var(--color-active-bg)] hover:shadow-[inset_0_-1px_0_var(--color-border-strong)] focus:bg-[var(--color-active-bg)] focus:shadow-[inset_0_-1px_0_var(--color-ink)]'
+
+const baseInputClass = `${fieldSkinClass} px-1 -mx-1`
 
 function useDraft<T>(value: T) {
   const [draft, setDraft] = useState<T>(value)
@@ -696,6 +702,110 @@ function ComponentMoney({
         }
       }}
       className={`${baseInputClass} mono text-right ${pending ? 'opacity-60' : ''} ${className ?? ''}`}
+    />
+  )
+}
+
+// 零件进度 的 # — the row number, editable in place (migration 0088).
+//
+// The number is normally DERIVED from the part's position in the job, so this
+// field shows the derived value until someone types over it, and clearing it
+// hands the row straight back to the sequence. `derived` therefore doubles as
+// the empty state: it is what the cell reads, and what a cleared field returns
+// to, without waiting for an RSC refresh (mutate deliberately never refreshes —
+// see the note at the top of this file).
+//
+// Sized for the 56px # column: two mono digits, centered, and — since this is a
+// value you replace whole rather than edit into — focus selects it all, so the
+// gesture is click, type the new number, Enter.
+export function ComponentSeqLabel({
+  jobId,
+  componentId,
+  value,
+  derived,
+  className = '',
+}: {
+  jobId: string
+  componentId: string
+  // The stored override. undefined ⇒ this row still follows the sequence.
+  value: string | undefined
+  // The position-derived number, already zero-padded ("01").
+  derived: string
+  className?: string
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  // The committed override, held locally so the cell keeps telling the truth
+  // between mutate and the next page load. Re-adopts the server value whenever
+  // that actually changes (someone else renumbered the row) via the same
+  // stored-prev-prop sentinel useDraft uses.
+  const [committed, setCommitted] = useState<string | null>(value ?? null)
+  const [syncedFrom, setSyncedFrom] = useState(value)
+  if (syncedFrom !== value) {
+    setSyncedFrom(value)
+    setCommitted(value ?? null)
+  }
+  const atRest = committed ?? derived
+  const { draft, setDraft, setFocused, pending, safeStart } = useDraft(atRest)
+
+  const commit = (raw: string) => {
+    const t = raw.trim()
+    // Bare digits take the column's zero-padded shape — typing 5 gives 05, so a
+    // renumbered row still reads like its neighbours. Anything else is kept
+    // verbatim: drawing sets number parts 1-1 / 2A as often as they do 03.
+    const next = /^\d+$/.test(t) ? t.padStart(2, '0') : t
+    // Blank, or the number the row would have derived anyway, means "no
+    // override" — nothing is stored for a # that agrees with the sequence.
+    const override = next === '' || next === derived ? null : next
+    if (override === committed) {
+      setDraft(atRest)
+      return
+    }
+    const before = committed
+    setCommitted(override)
+    setDraft(override ?? derived)
+    safeStart(async () => {
+      try {
+        await mutate({
+          kind: 'updateComponent',
+          jobId,
+          componentId,
+          patch: { seqLabel: override },
+        })
+      } catch (e) {
+        setCommitted(before)
+        throw e
+      }
+    }, before ?? derived)
+  }
+
+  return (
+    <input
+      ref={ref}
+      type="text"
+      inputMode="numeric"
+      maxLength={6}
+      value={draft}
+      aria-label="序号"
+      title="改序号"
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={(e) => {
+        setFocused(true)
+        e.currentTarget.select()
+      }}
+      onBlur={() => {
+        setFocused(false)
+        commit(draft)
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          ref.current?.blur()
+        } else if (e.key === 'Escape') {
+          setDraft(atRest)
+          requestAnimationFrame(() => ref.current?.blur())
+        }
+      }}
+      className={`${fieldSkinClass} px-0 mono text-center ${pending ? 'opacity-60' : ''} ${className}`}
     />
   )
 }

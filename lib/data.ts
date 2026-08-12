@@ -400,6 +400,12 @@ export type Component = {
   // formatShipmentLog / componentShipmentEntries) so existing records show up;
   // once the boss types here, this manual text wins. Never AI-extracted.
   shipmentLog?: string
+  // 零件进度 的 # — hand-typed override for the row number (migration 0088).
+  // Undefined for every part until someone types over one: the # shown is
+  // otherwise DERIVED from the part's position in the job (01 / 02 / 03),
+  // which is what the customer's drawing set sometimes disagrees with.
+  // Clearing the field stores null, handing the row back to the derived number.
+  seqLabel?: string
   // Per-line quote fields. Both stored independently — qty * unitPriceCny is
   // not enforced to equal lineTotalCny, since real 报价单s often line-discount,
   // round, or tax differently per item. Either may be undefined when the AI

@@ -14,6 +14,7 @@ import {
   ComponentLineTotal,
   ComponentNotes,
   ComponentQty,
+  ComponentSeqLabel,
   ComponentText,
   ComponentUnitPrice,
 } from '@/app/_editable'
@@ -146,10 +147,33 @@ export function PartInsertProvider({
 
 // The row's # — server truth, shifted down by however many rows have been
 // inserted above it this visit.
-export function PartOrdinal({ id, base }: { id: string; base: number }) {
+//
+// Derived is only the DEFAULT. The customer's own drawing set sometimes numbers
+// the parts differently than the order they arrived in, so an editor can type
+// over the number and that value sticks (parts.seq_label, migration 0088);
+// clearing it hands the row back to the sequence. Read-only scopes see plain
+// text, exactly as before.
+export function PartOrdinal({
+  id,
+  base,
+  label,
+}: {
+  id: string
+  base: number
+  label?: string
+}) {
   const ctx = useContext(PartInsertCtx)
   const n = ctx?.ordinals.get(id) ?? base
-  return <>{String(n).padStart(2, '0')}</>
+  const derived = String(n).padStart(2, '0')
+  if (!ctx?.canEdit) return <>{label ?? derived}</>
+  return (
+    <ComponentSeqLabel
+      jobId={ctx.jobId}
+      componentId={id}
+      value={label}
+      derived={derived}
+    />
+  )
 }
 
 // The + itself. Absolutely positioned so it straddles the row's bottom border
@@ -332,7 +356,7 @@ function NewPartRow({ componentId }: { componentId: string }) {
   return (
     <tr className="group align-middle">
       <td
-        className="sticky-col px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]"
+        className="sticky-col px-1 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]"
         style={{ left: 0, overflow: 'visible' }}
       >
         <PartOrdinal id={componentId} base={0} />

@@ -823,12 +823,16 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         row's bottom border drops a new 零件 directly beneath
                         it. overflow must be visible — the .sheet rule clips —
                         and globals.css lifts the hovered row's frozen cells so
-                        the row below can't paint over the button. */}
+                        the row below can't paint over the button.
+                        px-1 rather than px-3 because # is editable: the field
+                        fills the cell, so the hover target reads as a cell and
+                        not as two digits. The + is positioned off the cell's
+                        border box, so its 18px offset is unaffected. */}
                     <td
-                      className="sticky-col px-3 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]"
+                      className="sticky-col px-1 py-3 text-center mono text-[var(--color-ink-3)] text-[12px]"
                       style={{ left: 0, overflow: 'visible' }}
                     >
-                      <PartOrdinal id={c.id} base={i + 1} />
+                      <PartOrdinal id={c.id} base={i + 1} label={c.seqLabel} />
                       <RowInsert afterId={c.id} />
                     </td>
                     <td className="sticky-col px-3 py-2" style={{ left: 56 }}>

@@ -132,6 +132,7 @@ type PartRow = {
   partNo?: string
   process?: string
   shipmentLog?: string
+  seqLabel?: string
 }
 
 type PartStageRow = {
@@ -581,14 +582,17 @@ function fromPart(r: AnyRow): PartRow {
     partNo: (r.part_no as string | null) ?? undefined,
     process: (r.process as string | null) ?? undefined,
     shipmentLog: (r.shipment_log as string | null) ?? undefined,
+    seqLabel: (r.seq_label as string | null) ?? undefined,
   }
 }
 
-// NOTE: shipment_log is intentionally NOT written here. New parts never carry a
-// shipment record at creation (it's typed later on the job detail), and every
-// toPart call is an INSERT. Keeping it out keeps part-creation / 导入订单
-// decoupled from migration 0069 — if the column isn't applied yet, inserts still
-// succeed. The only writer is updateComponent, gated on patch.shipmentLog.
+// NOTE: shipment_log and seq_label are intentionally NOT written here. Neither
+// exists at part creation — a shipment record is typed later on the job detail,
+// and a fresh part's # is derived from its position until someone overrides it —
+// and every toPart call is an INSERT. Keeping them out keeps part-creation /
+// 导入订单 decoupled from migrations 0069 / 0088: if a column isn't applied yet,
+// inserts still succeed. The only writer of either is updateComponent, gated on
+// patch.shipmentLog / patch.seqLabel.
 function toPart(r: PartRow) {
   return {
     id: r.id,
@@ -1572,6 +1576,7 @@ function composeJob(job: JobRow, snap: DbSnapshot): Job {
         lineTotalCny: p.lineTotalCny,
         partNo: p.partNo,
         shipmentLog: p.shipmentLog,
+        seqLabel: p.seqLabel,
         stages: partStages,
         outsourceBlocks: blocks.length > 0 ? blocks : undefined,
       }
@@ -4823,6 +4828,8 @@ export type ComponentPatch = {
   partNo?: string | null
   process?: string | null
   shipmentLog?: string | null
+  // 零件进度 的 # (migration 0088). null = back to the derived position number.
+  seqLabel?: string | null
 }
 
 export async function updateComponent(
@@ -4845,6 +4852,7 @@ export async function updateComponent(
     if (patch.lineTotalCny !== undefined) update.line_total_cny = patch.lineTotalCny
     if (patch.partNo !== undefined) update.part_no = patch.partNo
     if (patch.shipmentLog !== undefined) update.shipment_log = patch.shipmentLog
+    if (patch.seqLabel !== undefined) update.seq_label = patch.seqLabel
     if (Object.keys(update).length === 0) return
     const { error } = await supabase.from('parts').update(update).eq('id', partId)
     if (error) throw error
