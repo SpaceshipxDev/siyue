@@ -108,7 +108,14 @@ export function ProcurementBoard({
         p.expectedDate &&
         dueState(p.expectedDate, today) === 'overdue',
     ).length
-    return { requested: n('requested'), buying: n('buying'), arrived: n('arrived'), overdue }
+    const done = procurements.filter((p) => p.status === 'done').length
+    return {
+      requested: n('requested'),
+      buying: n('buying'),
+      arrived: n('arrived'),
+      done,
+      overdue,
+    }
   }, [procurements, today])
 
   // The active tab's rows, queue-sorted. 待到货 floats 待下单 rows first (a
@@ -162,18 +169,15 @@ export function ProcurementBoard({
   const shown = tab === 'ledger' ? ledgerRows : rows
 
   // The money strip over each table — the 笔数 counts what's listed, the ¥
-  // sums the rows that carry a price, the 件数 sums what physically landed.
-  // 驳回 rows are dead: not spend, not material.
+  // sums the rows that carry a price. 驳回 rows are dead, not spend.
   const strip = useMemo(() => {
     const counted = shown.filter((p) => p.status !== 'rejected')
     let sum = 0
-    let qty = 0
     for (const p of counted) {
       const t = procurementTotalCny(p)
       if (typeof t === 'number') sum += t
-      if (typeof p.qty === 'number' && Number.isFinite(p.qty)) qty += p.qty
     }
-    return { count: counted.length, sum, qty: Number(qty.toFixed(1)) }
+    return { count: counted.length, sum }
   }, [shown])
 
   function onDone() {
@@ -185,7 +189,7 @@ export function ProcurementBoard({
     { key: 'requested', count: counts.requested },
     { key: 'buying', count: counts.buying, hot: counts.overdue },
     { key: 'arrived', count: counts.arrived },
-    { key: 'ledger', count: null },
+    { key: 'ledger', count: counts.done },
   ]
 
   return (
@@ -261,7 +265,7 @@ export function ProcurementBoard({
               onPick={setPickedMonth}
             />
             <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
-              {strip.count} 笔 · {strip.qty} 件 · {formatCny(strip.sum)}
+              {strip.count} 笔 · {formatCny(strip.sum)}
             </span>
             <div className="ml-auto">
               <ProcurementExportButton
