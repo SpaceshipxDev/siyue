@@ -132,27 +132,11 @@ export function MasterUploader() {
   return (
     <section className="mb-8 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
       <div className="grid grid-cols-12 gap-0">
-        <div
-          onDragOver={(e) => {
-            e.preventDefault()
-            setDrag(true)
-          }}
-          onDragLeave={() => setDrag(false)}
-          onDrop={onDrop}
-          onClick={() => inputRef.current?.click()}
-          className={`col-span-5 cursor-pointer border-r border-[var(--color-border)] px-6 py-5 transition-colors ${
-            drag ? 'bg-[var(--color-active-bg)]' : 'hover:bg-[var(--color-bg)]'
-          }`}
-        >
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            accept=".xlsx,.xls,.csv"
-            className="hidden"
-            onChange={(e) => e.target.files && handle(e.target.files)}
-          />
-          <div className="flex items-baseline justify-between">
+        {/* Two ways in, side by side: AI 导入 (upload → Gemini parses) and
+            清单导入 (paste/upload → hand-map columns, no AI). Both land on the
+            same /import/[id] review, so 确认导入 stays the single gate. */}
+        <div className="col-span-5 border-r border-[var(--color-border)] flex flex-col">
+          <div className="flex items-baseline justify-between px-6 pt-5">
             <p className="label">导入工单</p>
             {parsing > 0 && (
               <span className="label text-[var(--color-warning)]">
@@ -161,12 +145,46 @@ export function MasterUploader() {
               </span>
             )}
           </div>
-          <p className="mt-2 text-[14px] font-medium tracking-tight text-[var(--color-ink)]">
-            {drag ? '松开以上传' : '拖入或点击上传 Excel'}
-          </p>
-          <p className="mt-1 text-[12px] text-[var(--color-ink-3)]">
-            支持 .xlsx / .xls / .csv · {BRAND.code}-* 报价单 / 生产单
-          </p>
+          <div className="grid flex-1 grid-cols-2">
+            <div
+              onDragOver={(e) => {
+                e.preventDefault()
+                setDrag(true)
+              }}
+              onDragLeave={() => setDrag(false)}
+              onDrop={onDrop}
+              onClick={() => inputRef.current?.click()}
+              className={`cursor-pointer border-r border-[var(--color-border)] px-6 pb-5 pt-3 transition-colors ${
+                drag ? 'bg-[var(--color-active-bg)]' : 'hover:bg-[var(--color-bg)]'
+              }`}
+            >
+              <input
+                ref={inputRef}
+                type="file"
+                multiple
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={(e) => e.target.files && handle(e.target.files)}
+              />
+              <p className="text-[14px] font-medium tracking-tight text-[var(--color-ink)]">
+                {drag ? '松开以上传' : 'AI 导入'}
+              </p>
+              <p className="mt-1 text-[12px] text-[var(--color-ink-3)]">
+                拖入或点击上传 Excel · 自动解析 · {BRAND.code}-* 报价单 / 生产单
+              </p>
+            </div>
+            <Link
+              href="/import/manual"
+              className="block px-6 pb-5 pt-3 transition-colors hover:bg-[var(--color-bg)]"
+            >
+              <p className="text-[14px] font-medium tracking-tight text-[var(--color-ink)]">
+                清单导入
+              </p>
+              <p className="mt-1 text-[12px] text-[var(--color-ink-3)]">
+                不用 AI · 粘贴或上传表格，自己对列 · 图纸可带入
+              </p>
+            </Link>
+          </div>
         </div>
 
         <div className="col-span-7 px-6 py-5">
