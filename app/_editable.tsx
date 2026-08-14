@@ -1488,6 +1488,11 @@ export function OutsourceBlockAmount({
 // EditableDate still uses elsewhere — the outsource dates are the fields users
 // kept mis-committing via the native widget. Optimistic local value with
 // rollback on failure; print renders the plain mono string.
+//
+// The calendar is portalled by DEFAULT here: every 外协 date lives inside a
+// horizontally-scrolling card or table (工单页 外协 block header, 外协台 ledger),
+// and an absolute panel inside `overflow-x-auto` gets clipped to a sliver —
+// the picker opened upward and only its last week row survived on screen.
 export function OutsourceBlockDate({
   blockId,
   jobId,
@@ -1496,6 +1501,7 @@ export function OutsourceBlockDate({
   className,
   formatLabel,
   hideIcon,
+  portal = true,
 }: {
   blockId: string
   jobId?: string
@@ -1504,6 +1510,7 @@ export function OutsourceBlockDate({
   className?: string
   formatLabel?: (iso: string) => string
   hideIcon?: boolean
+  portal?: boolean
 }) {
   const [local, setLocal] = useState(value)
   const [pending, start] = useTransition()
@@ -1533,6 +1540,7 @@ export function OutsourceBlockDate({
           className={className}
           formatLabel={formatLabel}
           hideIcon={hideIcon}
+          portal={portal}
         />
       </span>
       <span className={`mono print-only ${className ?? ''}`}>{local}</span>
