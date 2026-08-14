@@ -162,15 +162,18 @@ export function ProcurementBoard({
   const shown = tab === 'ledger' ? ledgerRows : rows
 
   // The money strip over each table — the 笔数 counts what's listed, the ¥
-  // sums the rows that carry a price. 驳回 rows are dead, not spend.
+  // sums the rows that carry a price, the 件数 sums what physically landed.
+  // 驳回 rows are dead: not spend, not material.
   const strip = useMemo(() => {
     const counted = shown.filter((p) => p.status !== 'rejected')
     let sum = 0
+    let qty = 0
     for (const p of counted) {
       const t = procurementTotalCny(p)
       if (typeof t === 'number') sum += t
+      if (typeof p.qty === 'number' && Number.isFinite(p.qty)) qty += p.qty
     }
-    return { count: counted.length, sum }
+    return { count: counted.length, sum, qty: Number(qty.toFixed(1)) }
   }, [shown])
 
   function onDone() {
@@ -258,7 +261,7 @@ export function ProcurementBoard({
               onPick={setPickedMonth}
             />
             <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
-              {strip.count} 笔 · {formatCny(strip.sum)}
+              {strip.count} 笔 · {strip.qty} 件 · {formatCny(strip.sum)}
             </span>
             <div className="ml-auto">
               <ProcurementExportButton
