@@ -14,358 +14,549 @@ import {
   PROCUREMENT_CATEGORIES,
 } from '@/lib/data'
 import type {
-  DueState,
   Procurement,
   ProcurementProduct,
+  ProcurementStatus,
 } from '@/lib/data'
 import type { ProcurementJobOption } from '@/lib/db'
 
-// 采购 board. One calm ordered queue: what's on the way (sorted so the soonest
-// and the overdue float to the top — the question the floor actually asks),
-// then what's already landed, dimmed and out of the way.
-//
-// New here vs. the first cut: every purchase is a 物料 you PICK, not a name you
-// retype. The 物料库 (catalog) remembers the 淘宝/1688 链接, the shop and the
-// going price; 新建采购 opens straight onto a search-or-create picker. The
-// ledger row stays bare — dot, 品名 (clickable to its 链接), 数量×单价, 预计到货,
-// 采购人. No arrows, no timeline soup.
+// 采购 board — a four-step conveyor read through four rectangular filter
+// boxes: 待审批 → 待到货 → 待领料 → 已领料. One table per box; each table
+// carries its own money strip (笔数 · ¥) at the top, the 已领料 ledger browses
+// month by month with 导出. A row click opens an inline panel holding that
+// row's whole story (请购 → 批 → 下单 → 到货 → 领) and exactly the actions its
+// stage allows. ＋请购 is the only entry point: pick the 物料, say how many,
+// who picks it up (领料人), which 工号 it feeds — approvers' own requests skip
+// the queue (免审批), everyone else's wait in 待审批.
 
-type Mode = { kind: 'new' } | { kind: 'edit'; row: Procurement } | null
+type Tab = 'requested' | 'buying' | 'arrived' | 'ledger'
+
+const TAB_DEF: Record<
+  Tab,
+  { label: string; col: string; match: (p: Procurement) => boolean }
+> = {
+  requested: {
+    label: '待审批',
+    col: '请购',
+    match: (p) => p.status === 'requested',
+  },
+  buying: {
+    label: '待到货',
+    col: '预计到货',
+    match: (p) => p.status === 'approved' || p.status === 'ordered',
+  },
+  arrived: {
+    label: '待领料',
+    col: '领料人',
+    match: (p) => p.status === 'arrived',
+  },
+  ledger: {
+    label: '已领料',
+    col: '领料',
+    match: (p) => p.status === 'done' || p.status === 'rejected',
+  },
+}
+
+const TAB_EMPTY: Record<Tab, string> = {
+  requested: '没有等审批的请购',
+  buying: '料都到齐了',
+  arrived: '到了的料都领走了',
+  ledger: '本月没有记录',
+}
+
+type ModalMode = { kind: 'request' } | { kind: 'edit'; row: Procurement } | null
 
 export function ProcurementBoard({
   procurements,
   products,
   jobOptions,
+  roster,
   currentUser,
+  canApprove,
   today,
 }: {
   procurements: Procurement[]
   products: ProcurementProduct[]
   jobOptions: ProcurementJobOption[]
+  roster: string[]
   currentUser: string
+  canApprove: boolean
   today: string
 }) {
   const router = useRouter()
   const [q, setQ] = useState('')
-  const [mode, setMode] = useState<Mode>(null)
+  const [tab, setTab] = useState<Tab>('buying')
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [modal, setModal] = useState<ModalMode>(null)
 
   const query = q.trim().toLowerCase()
   const matches = (p: Procurement) =>
     !query ||
     p.item.toLowerCase().includes(query) ||
     (p.supplier ?? '').toLowerCase().includes(query) ||
-    p.buyer.toLowerCase().includes(query) ||
     (p.jobNo ?? '').toLowerCase().includes(query) ||
-    (p.notes ?? '').toLowerCase().includes(query)
+    (p.notes ?? '').toLowerCase().includes(query) ||
+    (p.requester ?? '').toLowerCase().includes(query) ||
+    (p.picker ?? '').toLowerCase().includes(query) ||
+    p.buyer.toLowerCase().includes(query)
 
-  // The open queue: 待下单 rows first (they need a human to act before any
-  // clock starts), then in-transit soonest-expected first. A null 预计到货 has
-  // no deadline, so it sinks below every dated row rather than masquerading
-  // as urgent.
-  const inTransit = useMemo(() => {
-    return procurements
-      .filter((p) => p.status !== 'arrived' && matches(p))
-      .sort((a, b) => {
-        if (a.status !== b.status)
-          return a.status === 'pending' ? -1 : 1
+  const counts = useMemo(() => {
+    const n = (t: Tab) => procurements.filter(TAB_DEF[t].match).length
+    const overdue = procurements.filter(
+      (p) =>
+        p.status === 'ordered' &&
+        p.expectedDate &&
+        dueState(p.expectedDate, today) === 'overdue',
+    ).length
+    return { requested: n('requested'), buying: n('buying'), arrived: n('arrived'), overdue }
+  }, [procurements, today])
+
+  // The active tab's rows, queue-sorted. 待到货 floats 待下单 rows first (a
+  // human still has to act before any clock starts), then soonest-expected;
+  // the two waiting queues read oldest-first; the ledger reads newest-first.
+  const rows = useMemo(() => {
+    const list = procurements.filter(TAB_DEF[tab].match).filter(matches)
+    if (tab === 'buying') {
+      list.sort((a, b) => {
+        if (a.status !== b.status) return a.status === 'approved' ? -1 : 1
         const ae = a.expectedDate ?? '9999-99-99'
         const be = b.expectedDate ?? '9999-99-99'
         if (ae !== be) return ae < be ? -1 : 1
-        return a.orderDate < b.orderDate ? -1 : a.orderDate > b.orderDate ? 1 : 0
+        return a.orderDate < b.orderDate ? -1 : 1
       })
+    } else if (tab === 'requested') {
+      list.sort((a, b) =>
+        (a.reqDate ?? a.orderDate) < (b.reqDate ?? b.orderDate) ? -1 : 1,
+      )
+    } else if (tab === 'arrived') {
+      list.sort((a, b) =>
+        (a.arrivedDate ?? a.orderDate) < (b.arrivedDate ?? b.orderDate) ? -1 : 1,
+      )
+    } else {
+      list.sort((a, b) => (ledgerDate(a) < ledgerDate(b) ? 1 : -1))
+    }
+    return list
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [procurements, query])
+  }, [procurements, tab, query])
 
-  const arrived = useMemo(() => {
-    return procurements
-      .filter((p) => p.status === 'arrived' && matches(p))
-      .sort((a, b) => {
-        const ad = a.arrivedDate ?? a.orderDate
-        const bd = b.arrivedDate ?? b.orderDate
-        return ad < bd ? 1 : ad > bd ? -1 : 0
-      })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [procurements, query])
-
-  const [showArrived, setShowArrived] = useState(false)
-
-  // Months (YYYY-MM) that have arrived rows, newest first — the 已到货 ledger
-  // is browsed one month at a time.
-  const arrivedMonths = useMemo(() => {
+  // 已领料 months (by 领料 date), newest first — browsed one month at a time.
+  const ledgerMonths = useMemo(() => {
     const s = new Set<string>()
     for (const p of procurements) {
-      if (p.status === 'arrived') s.add((p.arrivedDate ?? p.orderDate).slice(0, 7))
+      if (TAB_DEF.ledger.match(p)) s.add(ledgerDate(p).slice(0, 7))
     }
     return [...s].sort().reverse()
   }, [procurements])
 
   const [pickedMonth, setPickedMonth] = useState<string | null>(null)
-  const arrivedMonth =
-    pickedMonth && arrivedMonths.includes(pickedMonth)
+  const ledgerMonth =
+    pickedMonth && ledgerMonths.includes(pickedMonth)
       ? pickedMonth
-      : (arrivedMonths[0] ?? null)
+      : (ledgerMonths[0] ?? null)
 
-  const arrivedInMonth = useMemo(
-    () =>
-      arrived.filter(
-        (p) => (p.arrivedDate ?? p.orderDate).slice(0, 7) === arrivedMonth,
-      ),
-    [arrived, arrivedMonth],
+  const ledgerRows = useMemo(
+    () => rows.filter((p) => ledgerDate(p).slice(0, 7) === ledgerMonth),
+    [rows, ledgerMonth],
   )
 
-  const arrivedMonthValue = useMemo(() => {
+  const shown = tab === 'ledger' ? ledgerRows : rows
+
+  // The money strip over each table — the 笔数 counts what's listed, the ¥
+  // sums the rows that carry a price. 驳回 rows are dead, not spend.
+  const strip = useMemo(() => {
+    const counted = shown.filter((p) => p.status !== 'rejected')
     let sum = 0
-    for (const p of arrivedInMonth) {
+    for (const p of counted) {
       const t = procurementTotalCny(p)
       if (typeof t === 'number') sum += t
     }
-    return sum
-  }, [arrivedInMonth])
-
-  const stats = useMemo(() => {
-    const open = procurements.filter((p) => p.status === 'ordered')
-    const pendingCount = procurements.filter(
-      (p) => p.status === 'pending',
-    ).length
-    let overdue = 0
-    let soon = 0
-    let openValue = 0
-    for (const p of open) {
-      if (p.expectedDate) {
-        const st = dueState(p.expectedDate, today)
-        if (st === 'overdue') overdue++
-        else if (daysFromToday(p.expectedDate, today) <= 7) soon++
-      }
-      const t = procurementTotalCny(p)
-      if (typeof t === 'number') openValue += t
-    }
-    // 本月采购 — everything ordered this month, regardless of arrival status.
-    // 待下单 rows haven't been ordered, so they're not spend yet.
-    const thisMonth = today.slice(0, 7)
-    let monthValue = 0
-    for (const p of procurements) {
-      if (p.status === 'pending') continue
-      if (p.orderDate.slice(0, 7) !== thisMonth) continue
-      const t = procurementTotalCny(p)
-      if (typeof t === 'number') monthValue += t
-    }
-    return { openCount: open.length, pendingCount, overdue, soon, openValue, monthValue }
-  }, [procurements, today])
+    return { count: counted.length, sum }
+  }, [shown])
 
   function onDone() {
-    setMode(null)
+    setModal(null)
     router.refresh()
   }
 
-  const empty = procurements.length === 0
+  const boxes: { key: Tab; count: number | null; hot?: number }[] = [
+    { key: 'requested', count: counts.requested },
+    { key: 'buying', count: counts.buying, hot: counts.overdue },
+    { key: 'arrived', count: counts.arrived },
+    { key: 'ledger', count: null },
+  ]
 
   return (
     <div className="mx-auto max-w-5xl">
-      {/* Stats — the one-glance read on the queue's health. */}
-      <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-wrap items-stretch gap-2.5">
-          {stats.pendingCount > 0 && (
-            <Stat label="待下单" value={stats.pendingCount} tone="info" />
-          )}
-          <Stat label="采购中" value={stats.openCount} tone="neutral" />
-          <Stat label="一周内到货" value={stats.soon} tone="info" />
-          <Stat label="逾期" value={stats.overdue} tone="overdue" />
-          <Stat
-            label="在途金额"
-            value={stats.openValue > 0 ? formatCny(stats.openValue) : '—'}
-            tone="neutral"
-          />
-          <Stat
-            label="本月采购"
-            value={stats.monthValue > 0 ? formatCny(stats.monthValue) : '—'}
-            tone="neutral"
-          />
-        </div>
-        <div className="flex items-center gap-3">
+      {/* Top row — rectangular filter boxes, search, ＋请购. */}
+      <div className="mb-4 flex flex-wrap items-stretch gap-2">
+        {boxes.map((b) => {
+          const on = tab === b.key
+          return (
+            <button
+              key={b.key}
+              type="button"
+              onClick={() => {
+                setTab(b.key)
+                setOpenId(null)
+              }}
+              className={`inline-flex items-baseline gap-2 whitespace-nowrap rounded-[2px] border bg-[var(--color-surface)] px-3.5 py-[7px] ${
+                on
+                  ? 'border-[var(--color-ink)] shadow-[inset_0_0_0_1px_var(--color-ink)]'
+                  : 'border-[var(--color-border)] hover:border-[var(--color-border-strong)]'
+              }`}
+            >
+              <span
+                className={`text-[12.5px] ${
+                  on
+                    ? 'font-semibold text-[var(--color-ink)]'
+                    : 'font-medium text-[var(--color-ink-2)]'
+                }`}
+              >
+                {TAB_DEF[b.key].label}
+              </span>
+              {b.count !== null && (
+                <span className="mono text-[14px] font-semibold text-[var(--color-ink)]">
+                  {b.count}
+                </span>
+              )}
+              {b.hot ? (
+                <span className="text-[11px] font-semibold text-[var(--color-overdue)]">
+                  · 逾期{b.hot}
+                </span>
+              ) : null}
+            </button>
+          )
+        })}
+        <div className="flex-1" />
+        <div className="flex items-center gap-2.5">
           <div className="relative">
             <SearchIcon />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="搜索 · 品名 / 供应商 / 工号"
-              className="h-9 w-[220px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] pl-8 pr-3 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)] md:w-[260px]"
+              className="h-9 w-[190px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] pl-8 pr-3 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)] md:w-[240px]"
             />
           </div>
           <button
             type="button"
-            onClick={() => setMode({ kind: 'new' })}
+            onClick={() => setModal({ kind: 'request' })}
             className="h-9 shrink-0 rounded-[2px] bg-[var(--color-ink)] px-4 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85"
           >
-            新建采购
+            ＋ 请购
           </button>
         </div>
       </div>
 
-      {empty ? (
-        <EmptyState onNew={() => setMode({ kind: 'new' })} />
-      ) : (
-        <>
-          <Section
-            rows={inTransit}
-            today={today}
-            empty={query ? '没有匹配的在途采购' : '当前没有在途采购'}
-            onEdit={(row) => setMode({ kind: 'edit', row })}
-          />
-
-          {arrived.length > 0 && (
-            <div className="mt-9">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowArrived((v) => !v)}
-                  className="flex items-center gap-2 text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
-                >
-                  <Chevron open={showArrived} />
-                  <span className="label">已到货 · {arrived.length}</span>
-                </button>
-                {showArrived && arrivedMonth && (
-                  <div className="flex items-center gap-3">
-                    <MonthNav
-                      months={arrivedMonths}
-                      month={arrivedMonth}
-                      onPick={setPickedMonth}
-                    />
-                    <span className="label text-[var(--color-ink-3)]">
-                      {arrivedInMonth.length} 笔 ·{' '}
-                      <span className="mono text-[12px] text-[var(--color-ink)]">
-                        {formatCny(arrivedMonthValue)}
-                      </span>
-                    </span>
-                    <ProcurementExportButton
-                      rows={arrivedInMonth}
-                      filename={`采购到货_${arrivedMonth}`}
-                      compact
-                    />
-                  </div>
-                )}
-              </div>
-              {showArrived && (
-                <Section
-                  rows={arrivedInMonth}
-                  today={today}
-                  empty={query ? '本月没有匹配的到货' : '本月没有到货记录'}
-                  onEdit={(row) => setMode({ kind: 'edit', row })}
-                />
-              )}
+      <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+        {/* The table's own header strip — its money lives with its list. */}
+        {tab === 'ledger' ? (
+          <div className="flex flex-wrap items-center gap-3 border-b border-[var(--color-border)] px-5 py-2.5">
+            <MonthNav
+              months={ledgerMonths}
+              month={ledgerMonth}
+              onPick={setPickedMonth}
+            />
+            <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
+              {strip.count} 笔 · {formatCny(strip.sum)}
+            </span>
+            <div className="ml-auto">
+              <ProcurementExportButton
+                rows={ledgerRows}
+                filename={`采购台账_${ledgerMonth ?? today.slice(0, 7)}`}
+                compact
+              />
             </div>
-          )}
-        </>
-      )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 border-b border-[var(--color-border)] px-5 py-2.5">
+            <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
+              {strip.count} 笔 · {formatCny(strip.sum)}
+            </span>
+          </div>
+        )}
 
-      {mode && (
+        {/* Column header — desktop only. */}
+        <div className="hidden grid-cols-[14px_minmax(0,1fr)_170px_150px_110px] items-center gap-4 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
+          <span />
+          <span className="label">品名 · 供应商</span>
+          <span className="label text-right">金额 · 数量</span>
+          <span className="label">{TAB_DEF[tab].col}</span>
+          <span className="label text-right">经手</span>
+        </div>
+
+        {shown.length === 0 ? (
+          <p className="px-5 py-10 text-center text-[13px] text-[var(--color-ink-3)]">
+            {query ? '没有匹配的记录' : TAB_EMPTY[tab]}
+          </p>
+        ) : (
+          shown.map((p) => (
+            <Row
+              key={p.id}
+              p={p}
+              today={today}
+              dim={tab === 'ledger'}
+              open={openId === p.id}
+              onToggle={() => setOpenId(openId === p.id ? null : p.id)}
+              canApprove={canApprove}
+              jobOptions={jobOptions}
+              onEdit={() => setModal({ kind: 'edit', row: p })}
+            />
+          ))
+        )}
+      </div>
+
+      {modal && (
         <ProcurementModal
-          initial={mode.kind === 'edit' ? mode.row : null}
+          mode={modal.kind === 'edit' ? 'edit' : 'request'}
+          initial={modal.kind === 'edit' ? modal.row : null}
           products={products}
           jobOptions={jobOptions}
-          buyer={currentUser}
+          roster={roster}
+          currentUser={currentUser}
+          canApprove={canApprove}
           today={today}
-          onDone={onDone}
-          onCancel={() => setMode(null)}
+          onDone={(created) => {
+            if (created === 'requested') setTab('requested')
+            else if (created === 'approved') setTab('buying')
+            onDone()
+          }}
+          onCancel={() => setModal(null)}
         />
       )}
     </div>
   )
 }
 
-function Section({
-  rows,
-  today,
-  empty,
-  onEdit,
-}: {
-  rows: Procurement[]
-  today: string
-  empty: string
-  onEdit: (row: Procurement) => void
-}) {
-  return (
-    <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
-      {/* Column header — desktop only; on mobile each row is self-labeling. */}
-      <div className="hidden grid-cols-[14px_minmax(0,1fr)_120px_150px_140px] items-center gap-4 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
-        <span />
-        <span className="label">品名 · 供应商</span>
-        <span className="label text-right">数量 · 单价</span>
-        <span className="label">预计到货</span>
-        <span className="label text-right">采购人</span>
-      </div>
-      {rows.length === 0 ? (
-        <p className="px-5 py-10 text-center text-[13px] text-[var(--color-ink-3)]">
-          {empty}
-        </p>
-      ) : (
-        rows.map((p) => (
-          <Row key={p.id} p={p} today={today} onEdit={() => onEdit(p)} />
-        ))
-      )}
-    </div>
-  )
+// A row's date in the 已领料 ledger — 领料 day for done rows, 驳回 day for
+// rejected ones (they never got picked).
+function ledgerDate(p: Procurement): string {
+  return p.pickDate ?? p.rejectDate ?? p.arrivedDate ?? p.orderDate
 }
+
+// ===========================================================================
+// Row + inline panel
+// ===========================================================================
 
 function Row({
   p,
   today,
+  dim,
+  open,
+  onToggle,
+  canApprove,
+  jobOptions,
   onEdit,
 }: {
   p: Procurement
   today: string
+  dim: boolean
+  open: boolean
+  onToggle: () => void
+  canApprove: boolean
+  jobOptions: ProcurementJobOption[]
   onEdit: () => void
 }) {
-  const router = useRouter()
-  const [pending, start] = useTransition()
-  const [confirmingDelete, setConfirmingDelete] = useState(false)
-  // 不良 needs a story — arming the button swaps the action cluster for an
-  // inline note field, same gesture as 确认删除.
-  const [defectArming, setDefectArming] = useState(false)
-  const [defectNote, setDefectNote] = useState('')
-
   const total = procurementTotalCny(p)
-  const arrived = p.status === 'arrived'
-  const isPending = p.status === 'pending'
-  const st: DueState | null =
+  return (
+    <>
+      <div
+        onClick={onToggle}
+        className={`grid cursor-pointer grid-cols-[14px_minmax(0,1fr)_130px] items-center gap-3 border-b border-[var(--color-border)] px-4 py-3.5 last:border-b-0 md:grid-cols-[14px_minmax(0,1fr)_170px_150px_110px] md:gap-4 md:px-5 md:py-4 ${
+          open ? 'bg-[#faf8f2]' : 'hover:bg-[#faf8f2]'
+        }`}
+      >
+        <span className="flex justify-center">
+          <StatusDot p={p} today={today} />
+        </span>
+        <div className="min-w-0">
+          <div
+            className={`truncate tracking-tight ${
+              dim
+                ? 'text-[14px] font-medium text-[var(--color-ink-2)]'
+                : 'text-[15px] font-semibold text-[var(--color-ink)]'
+            }`}
+          >
+            {p.item}
+          </div>
+          <div className="mt-0.5 truncate text-[12px] text-[var(--color-ink-3)]">
+            {p.jobNo && (
+              <span className="mono text-[var(--color-ink-2)]">{p.jobNo} · </span>
+            )}
+            {p.supplier || '供应商待定'}
+            {p.notes ? ` · ${p.notes}` : ''}
+          </div>
+        </div>
+        <div className="hidden text-right md:block">
+          {typeof total === 'number' ? (
+            <>
+              <div className="mono text-[15px] font-semibold text-[var(--color-ink)]">
+                {formatCny(total)}
+              </div>
+              <div className="mono text-[11.5px] text-[var(--color-ink-3)]">
+                {p.qty} 件{typeof p.unitPriceCny === 'number' ? ` × ¥${p.unitPriceCny}` : ''}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-[15px] text-[var(--color-ink-4)]">—</div>
+              <div className="mono text-[11.5px] text-[var(--color-ink-3)]">
+                {typeof p.qty === 'number' ? `${p.qty} 件` : ''}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="truncate text-right text-[12.5px] md:text-left">
+          <StateCell p={p} today={today} />
+        </div>
+        <div className="hidden truncate text-right text-[12.5px] text-[var(--color-ink-2)] md:block">
+          {whoFor(p)}
+        </div>
+      </div>
+      {open && (
+        <Panel
+          p={p}
+          today={today}
+          canApprove={canApprove}
+          jobOptions={jobOptions}
+          onEdit={onEdit}
+          onClose={onToggle}
+        />
+      )}
+    </>
+  )
+}
+
+function whoFor(p: Procurement): string {
+  if (p.status === 'requested' || p.status === 'rejected')
+    return p.requester ?? ''
+  if (p.status === 'arrived' || p.status === 'done')
+    return p.picker ?? p.requester ?? ''
+  return p.buyer || p.requester || ''
+}
+
+function StatusDot({ p, today }: { p: Procurement; today: string }) {
+  // 待下单 — hollow amber ring: cleared, but nothing is moving yet.
+  if (p.status === 'approved') {
+    return (
+      <span
+        className="inline-block h-[7px] w-[7px] shrink-0 rounded-full border-[1.5px]"
+        style={{ borderColor: 'var(--color-warning)' }}
+        aria-hidden="true"
+      />
+    )
+  }
+  const st =
     p.status === 'ordered' && p.expectedDate
       ? dueState(p.expectedDate, today)
       : null
+  const color =
+    p.status === 'arrived'
+      ? 'var(--color-success)'
+      : p.status === 'done' || p.status === 'rejected'
+        ? 'var(--color-ink-4)'
+        : st === 'overdue'
+          ? 'var(--color-overdue)'
+          : st === 'today' || st === 'soon'
+            ? 'var(--color-warning)'
+            : 'var(--color-info)'
+  return (
+    <span
+      className="inline-block h-[7px] w-[7px] shrink-0 rounded-full"
+      style={{ backgroundColor: color }}
+      aria-hidden="true"
+    />
+  )
+}
 
-  function markArrived() {
-    start(async () => {
-      await mutate({
-        kind: 'updateProcurement',
-        procurementId: p.id,
-        patch: { status: 'arrived' },
-      })
-      router.refresh()
-    })
+// The tab's third column — each status answers its own question there.
+function StateCell({ p, today }: { p: Procurement; today: string }) {
+  if (p.status === 'requested')
+    return (
+      <span className="text-[var(--color-ink)]">
+        {p.requester}
+        <span className="text-[var(--color-ink-3)]">
+          {' '}
+          · {relDay(p.reqDate ?? p.orderDate, today)}
+        </span>
+      </span>
+    )
+  if (p.status === 'approved')
+    return <span className="font-medium text-[var(--color-warning)]">待下单</span>
+  if (p.status === 'ordered') {
+    if (!p.expectedDate)
+      return <span className="text-[var(--color-ink-3)]">未定到货</span>
+    const d = daysFromToday(p.expectedDate, today)
+    if (d < 0)
+      return (
+        <span className="font-medium text-[var(--color-overdue)]">
+          逾期 {-d} 天
+        </span>
+      )
+    if (d === 0)
+      return <span className="font-medium text-[var(--color-ink)]">今天到</span>
+    return (
+      <span className="mono text-[var(--color-ink)]">{mdCn(p.expectedDate)}</span>
+    )
   }
+  if (p.status === 'arrived')
+    return (
+      <span className="text-[var(--color-ink)]">
+        {p.picker ?? '—'}
+        <span className="text-[var(--color-ink-3)]">
+          {' '}
+          · {relDay(p.arrivedDate ?? p.orderDate, today)}到
+        </span>
+      </span>
+    )
+  if (p.status === 'rejected')
+    return <span className="text-[var(--color-ink-3)]">已驳回</span>
+  return (
+    <span className="text-[var(--color-ink-3)]">
+      <span className="mono">{p.pickDate ? mdCn(p.pickDate) : ''}</span>
+      {p.picker ? ` ${p.picker} 领` : ' 已领料'}
+      {p.inspectResult === 'defect' && (
+        <span className="font-medium text-[var(--color-overdue)]"> 不良</span>
+      )}
+    </span>
+  )
+}
 
-  // 待下单 → 已下单. The order clock starts NOW, not at row creation.
-  function markOrdered() {
-    start(async () => {
-      await mutate({
-        kind: 'updateProcurement',
-        procurementId: p.id,
-        patch: { status: 'ordered', orderDate: today },
-      })
-      router.refresh()
-    })
-  }
+// The expanded panel — the row's whole story, then exactly the actions its
+// stage allows. Every mutation is a labeled button; nothing writes silently.
+function Panel({
+  p,
+  today,
+  canApprove,
+  jobOptions,
+  onEdit,
+  onClose,
+}: {
+  p: Procurement
+  today: string
+  canApprove: boolean
+  jobOptions: ProcurementJobOption[]
+  onEdit: () => void
+  onClose: () => void
+}) {
+  const router = useRouter()
+  const [pending, start] = useTransition()
+  const [armReject, setArmReject] = useState(false)
+  const [armBad, setArmBad] = useState(false)
+  const [armDelete, setArmDelete] = useState(false)
+  const [note, setNote] = useState('')
+  const [calOpen, setCalOpen] = useState(false)
+  // 待下单 panel edits — held locally, committed by the labeled 已下单 button.
+  const [supplier, setSupplier] = useState(p.supplier ?? '')
+  const [price, setPrice] = useState(
+    p.unitPriceCny != null ? String(p.unitPriceCny) : '',
+  )
+  const [expected, setExpected] = useState(p.expectedDate ?? '')
 
-  function setInspect(result: 'ok' | 'defect' | null, note?: string) {
+  function run(patch: Record<string, unknown>, close = true) {
     start(async () => {
-      await mutate({
-        kind: 'updateProcurement',
-        procurementId: p.id,
-        patch: {
-          inspectResult: result,
-          inspectNote: result === 'defect' ? note?.trim() || null : null,
-        },
-      })
-      setDefectArming(false)
-      setDefectNote('')
+      await mutate({ kind: 'updateProcurement', procurementId: p.id, patch })
+      if (close) onClose()
       router.refresh()
     })
   }
@@ -377,371 +568,469 @@ function Row({
     })
   }
 
+  const job = p.jobId ? jobOptions.find((j) => j.id === p.jobId) : undefined
+
+  const btn =
+    'rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3.5 py-1.5 text-[12.5px] font-medium text-[var(--color-ink-2)] hover:border-[var(--color-ink-3)] hover:text-[var(--color-ink)] disabled:opacity-50'
+  const btnPri =
+    'rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-ink)] px-3.5 py-1.5 text-[12.5px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50'
+  const btnDanger =
+    'rounded-[2px] bg-[var(--color-overdue-soft)] px-3.5 py-1.5 text-[12.5px] font-medium text-[var(--color-overdue)] hover:opacity-85 disabled:opacity-50'
+  const inp =
+    'rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-[12.5px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]'
+
   return (
-    <div
-      className={`group grid grid-cols-1 gap-3 border-b border-[var(--color-border)] px-5 py-4 last:border-b-0 md:grid-cols-[14px_minmax(0,1fr)_120px_150px_140px] md:items-center md:gap-4 ${
-        arrived ? 'bg-[var(--color-bg)]/40' : 'hover:bg-[#faf8f2]'
-      }`}
-    >
-      {/* Status dot — the single calm urgency signal at the start of the row. */}
-      <div className="hidden md:flex md:justify-center">
-        <StatusDot arrived={arrived} isPending={isPending} state={st} />
-      </div>
-
-      {/* 品名 (clickable to its 链接) + supplier + 工号 */}
-      <div className="min-w-0">
-        <div className="flex items-center gap-1.5">
-          <StatusDot
-            arrived={arrived}
-            isPending={isPending}
-            state={st}
-            className="md:hidden"
-          />
-          <ItemName item={p.item} link={p.link} dim={arrived} />
-        </div>
-        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[var(--color-ink-3)]">
-          {p.jobNo &&
-            (p.jobId ? (
-              <Link
-                href={`/jobs/${p.jobId}`}
-                className="mono text-[var(--color-ink-2)] hover:underline underline-offset-2"
-                title="打开工单"
-              >
-                {p.jobNo}
-              </Link>
-            ) : (
-              <span className="mono text-[var(--color-ink-2)]">{p.jobNo}</span>
-            ))}
-          <span>{p.supplier || '供应商未填'}</span>
-          {p.notes && (
-            <span className="truncate text-[var(--color-ink-4)]" title={p.notes}>
-              · {p.notes}
-            </span>
+    <div className="border-b border-[var(--color-border)] bg-[#faf8f2] px-5 pb-4 pt-3 last:border-b-0 md:pl-[52px]">
+      {(p.jobNo || job) && (
+        <div className="my-0.5 text-[12px] text-[var(--color-ink-3)]">
+          {p.jobId ? (
+            <Link
+              href={`/jobs/${p.jobId}`}
+              className="mono text-[var(--color-info)] hover:underline"
+            >
+              {p.jobNo || job?.jobNo}
+            </Link>
+          ) : (
+            <span className="mono text-[var(--color-ink-2)]">{p.jobNo}</span>
           )}
+          {job?.product ? ` · ${job.product}` : ''}
         </div>
-      </div>
-
-      {/* 数量 × 单价 → 金额 */}
-      <div className="flex items-baseline justify-between md:flex-col md:items-end md:justify-center md:gap-0.5">
-        <span className="label md:hidden">数量 · 单价</span>
-        <div className="flex flex-col items-end leading-tight">
-          <span className="mono text-[13px] text-[var(--color-ink)]">
-            {typeof total === 'number' ? formatCny(total) : '—'}
-          </span>
-          <span className="mono text-[10px] text-[var(--color-ink-3)]">
-            {fmtQty(p.qty)}
-            {typeof p.unitPriceCny === 'number'
-              ? ` × ${formatCny(p.unitPriceCny)}`
-              : ''}
-          </span>
+      )}
+      {p.notes && (
+        <div className="my-0.5 text-[12px] text-[var(--color-ink-3)]">
+          {p.notes}
         </div>
+      )}
+      <div className="my-0.5 text-[12px] text-[var(--color-ink-3)]">
+        <HistoryLine p={p} />
       </div>
 
-      {/* 预计到货 — plain date + urgency, no arrows */}
-      <div className="flex items-baseline justify-between md:block">
-        <span className="label md:hidden">预计到货</span>
-        <Due p={p} arrived={arrived} isPending={isPending} state={st} today={today} />
-      </div>
-
-      {/* 采购人 + actions */}
-      <div className="flex items-center justify-between md:flex-col md:items-end md:gap-1.5">
-        <span className="text-[12px] text-[var(--color-ink-2)] md:text-right">
-          {p.buyer || '—'}
-        </span>
-        <div className="flex items-center gap-1">
-          {confirmingDelete ? (
+      {/* Stage actions */}
+      {p.status === 'requested' &&
+        (canApprove ? (
+          armReject ? (
             <>
-              <button
-                type="button"
-                onClick={del}
-                disabled={pending}
-                className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] font-medium text-[var(--color-overdue)] hover:bg-[var(--color-overdue-soft)] disabled:opacity-50"
-              >
-                确认删除
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmingDelete(false)}
-                className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
-              >
-                取消
-              </button>
-            </>
-          ) : defectArming ? (
-            <>
-              <input
-                type="text"
-                value={defectNote}
-                onChange={(e) => setDefectNote(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') setInspect('defect', defectNote)
-                  if (e.key === 'Escape') {
-                    setDefectArming(false)
-                    setDefectNote('')
+              <div className="mt-2.5 max-w-[480px]">
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  rows={2}
+                  placeholder={`驳回原因 · 让 ${p.requester ?? '请购人'} 知道为什么`}
+                  autoFocus
+                  className="w-full resize-none rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2.5 py-1.5 text-[12.5px] outline-none"
+                />
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  className={btn}
+                  onClick={() => setArmReject(false)}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className={btnDanger}
+                  disabled={pending}
+                  onClick={() =>
+                    run({ status: 'rejected', rejectNote: note.trim() || null })
                   }
-                }}
-                placeholder="不良记录 · 哪里不对"
-                autoFocus
-                className="w-[150px] rounded-[2px] border border-[var(--color-overdue)] bg-transparent px-2 py-1 text-[11px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)]"
-              />
-              <button
-                type="button"
-                onClick={() => setInspect('defect', defectNote)}
-                disabled={pending}
-                className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] font-medium text-[var(--color-overdue)] hover:bg-[var(--color-overdue-soft)] disabled:opacity-50"
-              >
-                确认不良
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDefectArming(false)
-                  setDefectNote('')
-                }}
-                className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
-              >
-                取消
-              </button>
+                >
+                  确认驳回
+                </button>
+              </div>
             </>
           ) : (
-            <div className="flex items-center gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100">
-              {isPending && (
-                <button
-                  type="button"
-                  onClick={markOrdered}
-                  disabled={pending}
-                  className="whitespace-nowrap rounded-[2px] bg-[var(--color-ink)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
-                >
-                  下单
-                </button>
-              )}
-              {p.status === 'ordered' && (
-                <button
-                  type="button"
-                  onClick={markArrived}
-                  disabled={pending}
-                  className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] font-medium text-[var(--color-success)] hover:bg-[var(--color-success-soft)] disabled:opacity-50"
-                >
-                  到货
-                </button>
-              )}
-              {arrived && !p.inspectResult && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setInspect('ok')}
-                    disabled={pending}
-                    className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] font-medium text-[var(--color-success)] hover:bg-[var(--color-success-soft)] disabled:opacity-50"
-                  >
-                    合格
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDefectArming(true)}
-                    disabled={pending}
-                    className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] font-medium text-[var(--color-overdue)] hover:bg-[var(--color-overdue-soft)] disabled:opacity-50"
-                  >
-                    不良
-                  </button>
-                </>
-              )}
-              {arrived && p.inspectResult && (
-                <button
-                  type="button"
-                  onClick={() => setInspect(null)}
-                  disabled={pending}
-                  title="撤销检验结果"
-                  className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
-                >
-                  撤销检验
-                </button>
-              )}
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              <span className="text-[12px] text-[var(--color-ink-3)]">
+                领料人 {p.picker ?? '—'}
+              </span>
               <button
                 type="button"
-                onClick={onEdit}
-                className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+                className={`${btnPri} ml-auto`}
+                disabled={pending}
+                onClick={() => run({ status: 'approved' })}
               >
-                编辑
+                批准
               </button>
               <button
                 type="button"
-                onClick={() => setConfirmingDelete(true)}
-                className="whitespace-nowrap rounded-[2px] px-2 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-overdue)]"
+                className={btn}
+                onClick={() => setArmReject(true)}
               >
-                删除
+                驳回
               </button>
             </div>
+          )
+        ) : (
+          <div className="mt-2.5 text-[12px] text-[var(--color-ink-3)]">
+            等审批 · 领料人 {p.picker ?? '—'}
+          </div>
+        ))}
+
+      {p.status === 'approved' && (
+        <>
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            <input
+              value={supplier}
+              onChange={(e) => setSupplier(e.target.value)}
+              placeholder="供应商"
+              className={`${inp} w-[160px]`}
+            />
+            <input
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              inputMode="decimal"
+              placeholder="单价 ¥"
+              className={`${inp} mono w-[84px]`}
+            />
+            <button
+              type="button"
+              className={calOpen ? btnPri : btn}
+              onClick={() => setCalOpen((v) => !v)}
+            >
+              {expected ? `${mdCn(expected)} 到` : '几号到？'}
+            </button>
+            <button
+              type="button"
+              className={`${btnPri} ml-auto`}
+              disabled={pending}
+              onClick={() =>
+                run({
+                  status: 'ordered',
+                  orderDate: today,
+                  supplier: supplier.trim() || null,
+                  unitPriceCny: parseNum(price) ?? null,
+                  expectedDate: expected || null,
+                })
+              }
+            >
+              已下单
+            </button>
+          </div>
+          {calOpen && (
+            <MiniCalendar
+              value={expected || undefined}
+              today={today}
+              onPick={(iso) => {
+                setExpected(iso)
+                setCalOpen(false)
+              }}
+            />
           )}
-        </div>
+        </>
+      )}
+
+      {p.status === 'ordered' && (
+        <>
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className={calOpen ? btnPri : btn}
+              onClick={() => setCalOpen((v) => !v)}
+            >
+              {p.expectedDate ? `${mdCn(p.expectedDate)} 到 · 改` : '几号到？'}
+            </button>
+            <button
+              type="button"
+              className={`${btnPri} ml-auto`}
+              disabled={pending}
+              onClick={() => run({ status: 'arrived' })}
+            >
+              到货了
+            </button>
+          </div>
+          {calOpen && (
+            <MiniCalendar
+              value={p.expectedDate}
+              today={today}
+              onPick={(iso) => {
+                setCalOpen(false)
+                run({ expectedDate: iso }, false)
+              }}
+            />
+          )}
+        </>
+      )}
+
+      {p.status === 'arrived' && (
+        <>
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            <span className="inline-flex overflow-hidden rounded-[2px] border border-[var(--color-border-strong)]">
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  run(
+                    p.inspectResult === 'ok'
+                      ? { inspectResult: null }
+                      : { inspectResult: 'ok', inspectNote: null },
+                    false,
+                  )
+                }
+                className={`px-3 py-1.5 text-[12px] ${
+                  p.inspectResult === 'ok'
+                    ? 'bg-[var(--color-success-soft)] font-semibold text-[var(--color-success)]'
+                    : 'bg-[var(--color-surface)] text-[var(--color-ink-3)]'
+                }`}
+              >
+                合格
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  if (p.inspectResult === 'defect') run({ inspectResult: null }, false)
+                  else setArmBad(true)
+                }}
+                className={`border-l border-[var(--color-border)] px-3 py-1.5 text-[12px] ${
+                  p.inspectResult === 'defect'
+                    ? 'bg-[var(--color-overdue-soft)] font-semibold text-[var(--color-overdue)]'
+                    : 'bg-[var(--color-surface)] text-[var(--color-ink-3)]'
+                }`}
+              >
+                不良
+              </button>
+            </span>
+            <button
+              type="button"
+              className={`${btnPri} ml-auto`}
+              disabled={pending}
+              onClick={() =>
+                run({
+                  status: 'done',
+                  ...(p.inspectResult ? {} : { inspectResult: 'ok' }),
+                })
+              }
+            >
+              {p.picker ? `${p.picker} 领料` : '领料'}
+            </button>
+          </div>
+          {armBad && (
+            <>
+              <div className="mt-2.5 max-w-[480px]">
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  rows={2}
+                  placeholder="哪里不对 · 怎么处理"
+                  autoFocus
+                  className="w-full resize-none rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2.5 py-1.5 text-[12.5px] outline-none"
+                />
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  className={btn}
+                  onClick={() => setArmBad(false)}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className={btnDanger}
+                  disabled={pending}
+                  onClick={() => {
+                    setArmBad(false)
+                    run(
+                      {
+                        inspectResult: 'defect',
+                        inspectNote: note.trim() || null,
+                      },
+                      false,
+                    )
+                  }}
+                >
+                  确认不良
+                </button>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {/* Quiet corrections — every stage. */}
+      <div className="mt-2.5 flex items-center justify-end gap-3">
+        {armDelete ? (
+          <>
+            <button
+              type="button"
+              onClick={del}
+              disabled={pending}
+              className="text-[11.5px] font-medium text-[var(--color-overdue)] hover:underline disabled:opacity-50"
+            >
+              确认删除
+            </button>
+            <button
+              type="button"
+              onClick={() => setArmDelete(false)}
+              className="text-[11.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+            >
+              取消
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={onEdit}
+              className="text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
+            >
+              编辑
+            </button>
+            <button
+              type="button"
+              onClick={() => setArmDelete(true)}
+              className="text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+            >
+              删除
+            </button>
+          </>
+        )}
       </div>
     </div>
   )
 }
 
-// 品名 — a link if the purchase carries one (淘宝/1688), plain text otherwise.
-// The small glyph is the only affordance; the whole name is the hit target.
-function ItemName({
-  item,
-  link,
-  dim,
-}: {
-  item: string
-  link?: string
-  dim: boolean
-}) {
-  const cls = `truncate text-[14px] font-medium tracking-tight ${
-    dim ? 'text-[var(--color-ink-2)]' : 'text-[var(--color-ink)]'
-  }`
-  if (link && isHttp(link)) {
-    return (
-      <a
-        href={link}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={`group/link inline-flex min-w-0 items-center gap-1 hover:underline ${cls}`}
-        title={item}
-      >
-        <span className="truncate">{item}</span>
-        <LinkGlyph />
-      </a>
+// 谁请购 → 谁批 → 谁下单 → 到货 → 谁领 — one soft line, dates in 月日.
+function HistoryLine({ p }: { p: Procurement }) {
+  const parts: React.ReactNode[] = []
+  if (p.requester)
+    parts.push(
+      `${p.requester} ${p.reqDate ? mdCn(p.reqDate) : ''} 请购`.replace('  ', ' '),
     )
+  if (p.status === 'rejected') {
+    parts.push(
+      <span key="rej" className="text-[var(--color-overdue)]">
+        {p.rejectedBy} {p.rejectDate ? mdCn(p.rejectDate) : ''} 驳回
+        {p.rejectNote ? ` — ${p.rejectNote}` : ''}
+      </span>,
+    )
+  } else {
+    if (p.approver) {
+      parts.push(
+        p.approver === p.requester
+          ? '免审批'
+          : `${p.approver} ${p.approveDate ? mdCn(p.approveDate) : ''} 批`,
+      )
+    }
+    if (
+      p.status === 'ordered' ||
+      p.status === 'arrived' ||
+      p.status === 'done'
+    ) {
+      parts.push(`${p.buyer || ''} ${mdCn(p.orderDate)} 下单`.trim())
+    }
+    if (p.arrivedDate) parts.push(`${mdCn(p.arrivedDate)} 到货`)
+    if (p.inspectResult === 'defect')
+      parts.push(
+        <span key="bad" className="text-[var(--color-overdue)]">
+          不良{p.inspectNote ? ` — ${p.inspectNote}` : ''}
+        </span>,
+      )
+    if (p.status === 'done' && p.pickDate)
+      parts.push(`${p.picker ?? ''} ${mdCn(p.pickDate)} 领`.trim())
   }
   return (
-    <span className={cls} title={item}>
-      {item}
-    </span>
-  )
-}
-
-function Due({
-  p,
-  arrived,
-  isPending,
-  state,
-  today,
-}: {
-  p: Procurement
-  arrived: boolean
-  isPending: boolean
-  state: DueState | null
-  today: string
-}) {
-  if (arrived) {
-    return (
-      <div className="flex flex-col gap-0.5 leading-tight">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[12px] leading-none text-[var(--color-success)]">
-            ✓
-          </span>
-          <span className="mono text-[12px] text-[var(--color-ink-2)]">
-            {p.arrivedDate ?? '已到货'}
-          </span>
-          <span className="label text-[var(--color-ink-4)]">到货</span>
-        </div>
-        {p.inspectResult === 'ok' && (
-          <span className="label text-[var(--color-success)]">检验合格</span>
-        )}
-        {p.inspectResult === 'defect' && (
-          <span
-            className="label text-[var(--color-overdue)]"
-            title={p.inspectNote || undefined}
-          >
-            不良{p.inspectNote ? ` · ${p.inspectNote}` : ''}
-          </span>
-        )}
-      </div>
-    )
-  }
-
-  // 待下单 — no clock is running yet; the only truth is "someone still has
-  // to place this order". Expected date (if guessed) shows dimly.
-  if (isPending) {
-    return (
-      <div className="flex flex-col leading-tight">
-        <span className="text-[13px] font-medium text-[var(--color-warning)]">
-          待下单
+    <>
+      {parts.map((x, i) => (
+        <span key={i}>
+          {i > 0 && <span className="mx-1.5 text-[var(--color-ink-4)]">·</span>}
+          {x}
         </span>
-        {p.expectedDate && (
-          <span className="label mt-0.5 text-[var(--color-ink-4)]">
-            期望 {p.expectedDate}
-          </span>
-        )}
-      </div>
+      ))}
+    </>
+  )
+}
+
+// ===========================================================================
+// Mini calendar — the 预计到货 picker. Month grid, ‹ › nav, past days off,
+// today ringed, tap a day and done. Never the native date input.
+// ===========================================================================
+
+function MiniCalendar({
+  value,
+  today,
+  onPick,
+}: {
+  value?: string
+  today: string
+  onPick: (iso: string) => void
+}) {
+  const [month, setMonth] = useState((value || today).slice(0, 7))
+  const [y, m] = month.split('-').map(Number)
+  const first = new Date(Date.UTC(y, m - 1, 1))
+  const offset = (first.getUTCDay() + 6) % 7 // Monday start
+  const daysIn = new Date(Date.UTC(y, m, 0)).getUTCDate()
+
+  function nav(step: number) {
+    const d = new Date(Date.UTC(y, m - 1 + step, 1))
+    setMonth(
+      `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`,
     )
   }
 
-  const dateTone =
-    state === 'overdue'
-      ? 'text-[var(--color-overdue)]'
-      : state === 'today' || state === 'soon'
-        ? 'text-[var(--color-warning)]'
-        : 'text-[var(--color-ink)]'
-  const labelTone =
-    state === 'overdue'
-      ? 'text-[var(--color-overdue)]'
-      : state === 'today' || state === 'soon'
-        ? 'text-[var(--color-warning)]'
-        : 'text-[var(--color-ink-3)]'
-
-  let sub = '未定到货'
-  if (p.expectedDate) {
-    const d = daysFromToday(p.expectedDate, today)
-    sub =
-      state === 'overdue'
-        ? `逾期 ${Math.abs(d)} 天`
-        : state === 'today'
-          ? '今日到货'
-          : `${d} 天后`
+  const days: React.ReactNode[] = []
+  for (let i = 0; i < offset; i++) days.push(<span key={`o${i}`} />)
+  for (let d = 1; d <= daysIn; d++) {
+    const iso = `${month}-${String(d).padStart(2, '0')}`
+    const past = iso < today
+    days.push(
+      <button
+        key={iso}
+        type="button"
+        disabled={past}
+        onClick={() => onPick(iso)}
+        className={`h-7 rounded-[2px] text-[12px] ${
+          iso === value
+            ? 'bg-[var(--color-ink)] font-semibold text-[var(--color-surface)]'
+            : past
+              ? 'cursor-default text-[var(--color-ink-4)]'
+              : 'text-[var(--color-ink)] hover:bg-[#f1efe9]'
+        } ${iso === today && iso !== value ? 'shadow-[inset_0_0_0_1px_var(--color-border-strong)]' : ''}`}
+      >
+        {d}
+      </button>,
+    )
   }
 
   return (
-    <div className="flex flex-col leading-tight">
-      <span className={`mono text-[13px] ${dateTone}`}>
-        {p.expectedDate ?? '—'}
-      </span>
-      <span className={`label mt-0.5 ${labelTone}`}>{sub}</span>
+    <div className="mt-2.5 w-[256px] rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 pb-3 pt-2.5">
+      <div className="mb-2 flex items-center">
+        <button
+          type="button"
+          onClick={() => nav(-1)}
+          className="rounded-[2px] px-2 py-0.5 text-[13px] text-[var(--color-ink-3)] hover:bg-[#f1efe9] hover:text-[var(--color-ink)]"
+        >
+          ‹
+        </button>
+        <span className="mono flex-1 text-center text-[12.5px] font-semibold">
+          {y}年{m}月
+        </span>
+        <button
+          type="button"
+          onClick={() => nav(1)}
+          className="rounded-[2px] px-2 py-0.5 text-[13px] text-[var(--color-ink-3)] hover:bg-[#f1efe9] hover:text-[var(--color-ink)]"
+        >
+          ›
+        </button>
+      </div>
+      <div className="grid grid-cols-7 gap-0.5">
+        {['一', '二', '三', '四', '五', '六', '日'].map((w) => (
+          <span
+            key={w}
+            className="pb-1 text-center text-[10px] text-[var(--color-ink-3)]"
+          >
+            {w}
+          </span>
+        ))}
+        {days}
+      </div>
     </div>
   )
 }
 
-function StatusDot({
-  arrived,
-  isPending = false,
-  state,
-  className = '',
-}: {
-  arrived: boolean
-  isPending?: boolean
-  state: DueState | null
-  className?: string
-}) {
-  // 待下单 — hollow amber ring: the buy exists but nothing is moving yet.
-  if (isPending) {
-    return (
-      <span
-        className={`inline-block h-[7px] w-[7px] shrink-0 rounded-full border-[1.5px] ${className}`}
-        style={{ borderColor: 'var(--color-warning)' }}
-        aria-hidden="true"
-      />
-    )
-  }
-  const color = arrived
-    ? 'var(--color-success)'
-    : state === 'overdue'
-      ? 'var(--color-overdue)'
-      : state === 'today' || state === 'soon'
-        ? 'var(--color-warning)'
-        : 'var(--color-info)'
-  return (
-    <span
-      className={`inline-block h-[7px] w-[7px] shrink-0 rounded-full ${className}`}
-      style={{ backgroundColor: color }}
-      aria-hidden="true"
-    />
-  )
-}
-
-// ‹ 2026-08 › — step through the months that actually have arrived rows.
+// ‹ 8月 › — step through the months that actually have ledger rows.
 // `months` is newest-first, so ‹ walks back in time and › walks forward.
 function MonthNav({
   months,
@@ -749,11 +1038,11 @@ function MonthNav({
   onPick,
 }: {
   months: string[]
-  month: string
+  month: string | null
   onPick: (m: string) => void
 }) {
-  const i = months.indexOf(month)
-  const older = i < months.length - 1 ? months[i + 1] : null
+  const i = month ? months.indexOf(month) : -1
+  const older = i >= 0 && i < months.length - 1 ? months[i + 1] : null
   const newer = i > 0 ? months[i - 1] : null
   const btn =
     'flex h-6 w-6 items-center justify-center rounded-[2px] border border-[var(--color-border)] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] disabled:cursor-default disabled:opacity-30 disabled:hover:border-[var(--color-border)] disabled:hover:text-[var(--color-ink-2)]'
@@ -776,8 +1065,8 @@ function MonthNav({
           />
         </svg>
       </button>
-      <span className="mono w-[62px] text-center text-[12px] text-[var(--color-ink)]">
-        {month}
+      <span className="mono min-w-[44px] text-center text-[12.5px] font-semibold text-[var(--color-ink)]">
+        {month ? monthLabel(month) : '—'}
       </span>
       <button
         type="button"
@@ -800,62 +1089,11 @@ function MonthNav({
   )
 }
 
-function Stat({
-  label,
-  value,
-  tone,
-}: {
-  label: string
-  value: number | string
-  tone: 'neutral' | 'info' | 'overdue'
-}) {
-  const ring =
-    tone === 'overdue'
-      ? 'border-[var(--color-overdue)]/25'
-      : tone === 'info'
-        ? 'border-[var(--color-border-strong)]'
-        : 'border-[var(--color-border)]'
-  const valueColor =
-    tone === 'overdue'
-      ? 'text-[var(--color-overdue)]'
-      : 'text-[var(--color-ink)]'
-  return (
-    <div
-      className={`flex min-w-[88px] flex-col gap-0.5 rounded-[2px] border ${ring} bg-[var(--color-surface)] px-3 py-2`}
-    >
-      <span className="label text-[var(--color-ink-3)]">{label}</span>
-      <span className={`mono text-[18px] font-medium leading-none ${valueColor}`}>
-        {value}
-      </span>
-    </div>
-  )
-}
-
-function EmptyState({ onNew }: { onNew: () => void }) {
-  return (
-    <div className="rounded-[2px] border border-dashed border-[var(--color-border)] py-24 text-center">
-      <p className="text-[14px] text-[var(--color-ink-2)]">还没有采购记录</p>
-      <p className="mt-1.5 text-[12px] text-[var(--color-ink-4)]">
-        买什么、从哪家、什么时候到 —— 选个物料记一笔，大家都看得见
-      </p>
-      <button
-        type="button"
-        onClick={onNew}
-        className="mt-5 rounded-[2px] bg-[var(--color-ink)] px-4 py-2 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85"
-      >
-        新建第一笔采购
-      </button>
-    </div>
-  )
-}
-
 // ===========================================================================
-// New / edit modal — product-first.
-//
-// Three faces of one modal:
-//   'pick'   — search the 物料库 or jump to 新建物料 (the default for a new buy)
+// ＋请购 / 编辑 modal — product-first, three faces:
+//   'pick'   — search the 物料库 or jump to 新建物料
 //   'create' — the 物料 form (name + 链接 + shop + price + spec)
-//   'form'   — the purchase itself: a picked 物料 up top, then 数量 / 日期 / 备注
+//   'form'   — the request itself: 数量 / 单价 / 工号 / 领料人 / 备注
 // ===========================================================================
 
 type Selected = {
@@ -869,20 +1107,26 @@ type Selected = {
 type Face = 'pick' | 'create' | 'form'
 
 function ProcurementModal({
+  mode,
   initial,
   products,
   jobOptions,
-  buyer,
+  roster,
+  currentUser,
+  canApprove,
   today,
   onDone,
   onCancel,
 }: {
+  mode: 'request' | 'edit'
   initial: Procurement | null
   products: ProcurementProduct[]
   jobOptions: ProcurementJobOption[]
-  buyer: string
+  roster: string[]
+  currentUser: string
+  canApprove: boolean
   today: string
-  onDone: () => void
+  onDone: (created?: ProcurementStatus) => void
   onCancel: () => void
 }) {
   const router = useRouter()
@@ -901,30 +1145,20 @@ function ProcurementModal({
       : null,
   )
   const [face, setFace] = useState<Face>(initial ? 'form' : 'pick')
-  // Pre-fill the 新建物料 form's name when the picker search came up dry.
   const [createSeedName, setCreateSeedName] = useState('')
-  // The 物料 being edited (vs. created) when the 'create' face is showing.
   const [editing, setEditing] = useState<ProcurementProduct | null>(null)
 
-  // Per-purchase fields (not the catalog).
   const [qty, setQty] = useState(initial?.qty != null ? String(initial.qty) : '')
   const [unitPrice, setUnitPrice] = useState(
     initial?.unitPriceCny != null ? String(initial.unitPriceCny) : '',
   )
-  const [orderDate, setOrderDate] = useState(initial?.orderDate ?? today)
-  const [expectedDate, setExpectedDate] = useState(initial?.expectedDate ?? '')
+  const [picker, setPicker] = useState(initial?.picker ?? currentUser)
   const [notes, setNotes] = useState(initial?.notes ?? '')
-  // 关联工号 — which job this buy feeds. Optional; snapshot both id + 号.
   const [jobPick, setJobPick] = useState<{ id: string; jobNo: string } | null>(
     initial && (initial.jobId || initial.jobNo)
       ? { id: initial.jobId ?? '', jobNo: initial.jobNo ?? '' }
       : null,
   )
-  // 已下单 / 待下单. Arrived rows never show the toggle (they're past it).
-  const [orderState, setOrderState] = useState<'ordered' | 'pending'>(
-    initial?.status === 'pending' ? 'pending' : 'ordered',
-  )
-  const showOrderToggle = !initial || initial.status !== 'arrived'
 
   const [pending, start] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -951,8 +1185,8 @@ function ProcurementModal({
       supplier: p.supplier ?? '',
       link: p.link ?? '',
     })
-    // Default this purchase's 单价 to the 物料's going price; the buyer can
-    // still override (the row snapshots whatever they confirm).
+    // Default the 单价 to the 物料's going price; the row snapshots whatever
+    // gets confirmed.
     if (typeof p.unitPriceCny === 'number' && !unitPrice) {
       setUnitPrice(String(p.unitPriceCny))
     }
@@ -970,23 +1204,11 @@ function ProcurementModal({
       setFace('pick')
       return
     }
-    if (!isDate(orderDate)) {
-      setError('采购日期格式应为 YYYY-MM-DD')
-      return
-    }
-    if (expectedDate && !isDate(expectedDate)) {
-      setError('预计到货格式应为 YYYY-MM-DD')
-      return
-    }
     setError(null)
 
     start(async () => {
       try {
-        if (initial) {
-          // Flipping a 待下单 row to 已下单 restarts the order clock at today —
-          // the row's original orderDate was just its creation day.
-          const becameOrdered =
-            initial.status === 'pending' && orderState === 'ordered'
+        if (mode === 'edit' && initial) {
           await mutate({
             kind: 'updateProcurement',
             procurementId: initial.id,
@@ -996,15 +1218,15 @@ function ProcurementModal({
               link: selected.link.trim() || null,
               qty: qtyNum ?? null,
               unitPriceCny: priceNum ?? null,
-              orderDate: becameOrdered ? today : orderDate.trim(),
-              expectedDate: expectedDate.trim() || null,
               notes: notes.trim() || null,
               jobId: jobPick?.id || null,
               jobNo: jobPick?.jobNo || null,
-              ...(initial.status !== 'arrived' ? { status: orderState } : {}),
+              picker: picker.trim() || null,
             },
           })
+          onDone()
         } else {
+          const status: ProcurementStatus = canApprove ? 'approved' : 'requested'
           await mutate({
             kind: 'createProcurement',
             input: {
@@ -1014,24 +1236,31 @@ function ProcurementModal({
               link: selected.link.trim() || undefined,
               qty: qtyNum,
               unitPriceCny: priceNum,
-              orderDate: orderDate.trim(),
-              expectedDate: expectedDate.trim() || undefined,
+              orderDate: today,
+              reqDate: today,
               notes: notes.trim() || undefined,
-              status: orderState,
+              status,
               jobId: jobPick?.id || undefined,
               jobNo: jobPick?.jobNo || undefined,
+              picker: picker.trim() || undefined,
             },
           })
+          onDone(status)
         }
-        onDone()
       } catch (e) {
         setError(e instanceof Error ? e.message : '保存失败')
       }
     })
   }
 
-  const titleByFace =
-    face === 'pick' ? '选择物料' : face === 'create' ? '新建物料' : initial ? '编辑采购' : '新建采购'
+  const title =
+    face === 'pick'
+      ? '选择物料'
+      : face === 'create'
+        ? '新建物料'
+        : mode === 'edit'
+          ? '编辑采购'
+          : '请购'
 
   return (
     <div
@@ -1043,9 +1272,11 @@ function ProcurementModal({
       <div className="w-full max-w-[480px] rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-surface)] shadow-xl">
         <div className="flex items-baseline justify-between border-b border-[var(--color-border)] px-5 py-3.5">
           <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
-            {titleByFace}
+            {title}
           </h2>
-          <span className="label text-[var(--color-ink-3)]">采购人 · {buyer}</span>
+          <span className="label text-[var(--color-ink-3)]">
+            请购人 · {mode === 'edit' ? (initial?.requester ?? currentUser) : currentUser}
+          </span>
         </div>
 
         {face === 'pick' && (
@@ -1075,7 +1306,7 @@ function ProcurementModal({
               })
               setEditing(null)
               router.refresh()
-              // A freshly created 物料 selects straight into the purchase;
+              // A freshly created 物料 selects straight into the request;
               // an edit just returns to the picker.
               if (editing) setFace('pick')
               else pickProduct(p)
@@ -1096,16 +1327,43 @@ function ProcurementModal({
         {face === 'form' && selected && (
           <>
             <div className="px-5 py-5">
-              {/* Picked 物料 card */}
               <SelectedCard
                 selected={selected}
                 onChange={() => setFace('pick')}
               />
 
-              {/* 关联工号 + 下单状态 — is this buy for a job, and has anyone
-                  actually placed the order yet. */}
+              <div className="mt-4 grid grid-cols-3 gap-4">
+                <Field label="数量">
+                  <Input
+                    value={qty}
+                    onChange={setQty}
+                    placeholder="0"
+                    mono
+                    inputMode="decimal"
+                    autoFocus
+                  />
+                </Field>
+                <Field label="单价 ¥">
+                  <Input
+                    value={unitPrice}
+                    onChange={setUnitPrice}
+                    placeholder="可留空"
+                    mono
+                    inputMode="decimal"
+                  />
+                </Field>
+                <div className="flex flex-col justify-end pb-2">
+                  <span className="label text-[var(--color-ink-3)]">
+                    合计{' '}
+                    <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
+                      {typeof liveTotal === 'number' ? formatCny(liveTotal) : '—'}
+                    </span>
+                  </span>
+                </div>
+              </div>
+
               <div className="mt-4 grid grid-cols-2 gap-4">
-                <Field label="关联工号">
+                <Field label="关联工号 · 可空">
                   <div className="flex items-center gap-1">
                     <SearchSelect
                       options={jobOptions.map((j) => ({
@@ -1139,123 +1397,24 @@ function ProcurementModal({
                     )}
                   </div>
                 </Field>
-                {showOrderToggle && (
-                  <Field label="下单状态">
-                    <div className="flex h-[34px] items-stretch gap-1">
-                      {(
-                        [
-                          { key: 'ordered', label: '已下单' },
-                          { key: 'pending', label: '待下单' },
-                        ] as const
-                      ).map((opt) => {
-                        const on = orderState === opt.key
-                        return (
-                          <button
-                            key={opt.key}
-                            type="button"
-                            onClick={() => setOrderState(opt.key)}
-                            aria-pressed={on}
-                            className={`flex-1 rounded-[2px] border text-[13px] transition-colors ${
-                              on
-                                ? 'border-[var(--color-ink)] bg-[var(--color-ink)] font-medium text-[var(--color-surface)]'
-                                : 'border-[var(--color-border)] text-[var(--color-ink-3)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]'
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </Field>
-                )}
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-4">
-                <Field label="数量">
-                  <Input
-                    value={qty}
-                    onChange={setQty}
-                    placeholder="0"
-                    mono
-                    inputMode="decimal"
-                    autoFocus
+                <Field label="领料人">
+                  <SearchSelect
+                    options={roster.map((n) => ({ id: n, label: n }))}
+                    value={picker}
+                    onChange={setPicker}
+                    placeholder="谁来领"
+                    searchPlaceholder="搜索姓名…"
+                    triggerClass="w-full"
                   />
                 </Field>
-                <Field label="单价 ¥">
-                  <Input
-                    value={unitPrice}
-                    onChange={setUnitPrice}
-                    placeholder="0"
-                    mono
-                    inputMode="decimal"
-                  />
-                </Field>
-              </div>
-
-              <div className="mt-2 flex justify-end">
-                <span className="label text-[var(--color-ink-3)]">
-                  合计{' '}
-                  <span className="mono text-[12px] text-[var(--color-ink)]">
-                    {typeof liveTotal === 'number' ? formatCny(liveTotal) : '—'}
-                  </span>
-                </span>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-4">
-                {/* 待下单 rows have no order date yet — it stamps itself the
-                    moment someone taps 下单. */}
-                {orderState === 'ordered' && (
-                  <Field label="采购日期" required>
-                    <Input
-                      value={orderDate}
-                      onChange={setOrderDate}
-                      placeholder="YYYY-MM-DD"
-                      mono
-                    />
-                  </Field>
-                )}
-                <Field label={orderState === 'ordered' ? '预计到货' : '期望到货'}>
-                  <Input
-                    value={expectedDate}
-                    onChange={setExpectedDate}
-                    placeholder="YYYY-MM-DD"
-                    mono
-                  />
-                </Field>
-              </div>
-
-              {/* Quick presets for 预计到货 — intuition over typing dates. */}
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                {[
-                  { label: '+3天', days: 3 },
-                  { label: '+1周', days: 7 },
-                  { label: '+2周', days: 14 },
-                  { label: '+1月', days: 30 },
-                ].map((preset) => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    onClick={() =>
-                      setExpectedDate(
-                        addDays(
-                          isDate(orderDate) ? orderDate : today,
-                          preset.days,
-                        ),
-                      )
-                    }
-                    className="rounded-[2px] border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]"
-                  >
-                    {preset.label}
-                  </button>
-                ))}
               </div>
 
               <div className="mt-4">
-                <Field label="备注">
+                <Field label="备注 · 可空">
                   <textarea
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    placeholder="本次用途 / 数量说明 · 可留空"
+                    placeholder="给审批和采购的一句话"
                     rows={2}
                     className="w-full resize-none rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 py-1.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
                   />
@@ -1283,7 +1442,13 @@ function ProcurementModal({
                 disabled={pending}
                 className="rounded-[2px] bg-[var(--color-ink)] px-4 py-1.5 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
               >
-                {pending ? '保存中…' : initial ? '保存' : '新建采购'}
+                {pending
+                  ? '保存中…'
+                  : mode === 'edit'
+                    ? '保存'
+                    : canApprove
+                      ? '提交 · 免审批'
+                      : '提交请购'}
               </button>
             </div>
           </>
@@ -1724,11 +1889,6 @@ function Input({
 
 // === helpers ===
 
-function fmtQty(qty?: number): string {
-  if (typeof qty !== 'number' || !Number.isFinite(qty)) return '数量未填'
-  return `${qty} 件`
-}
-
 function parseNum(s: string): number | undefined {
   const t = s.trim()
   if (!t) return undefined
@@ -1736,24 +1896,32 @@ function parseNum(s: string): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
-function isDate(s: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(s.trim())
-}
-
 function isHttp(s: string): boolean {
   return /^https?:\/\//i.test(s.trim())
 }
 
-// Add N days to a YYYY-MM-DD date, returning YYYY-MM-DD. UTC math so it never
-// drifts across a DST boundary (and the factory's Shanghai tz has none anyway).
-function addDays(date: string, days: number): string {
-  const [y, m, d] = date.split('-').map(Number)
-  const t = Date.UTC(y, m - 1, d) + days * 86_400_000
-  const dt = new Date(t)
-  const yy = dt.getUTCFullYear()
-  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0')
-  const dd = String(dt.getUTCDate()).padStart(2, '0')
-  return `${yy}-${mm}-${dd}`
+// 2026-08-16 → 8月16日
+function mdCn(d: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return d
+  return `${parseInt(d.slice(5, 7), 10)}月${parseInt(d.slice(8, 10), 10)}日`
+}
+
+// 今天 / 昨天 / 明天, otherwise 8月16日
+function relDay(d: string, today: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return d
+  const n = daysFromToday(d, today)
+  if (n === 0) return '今天'
+  if (n === -1) return '昨天'
+  if (n === 1) return '明天'
+  return mdCn(d)
+}
+
+// 2026-08 → 8月 (same year) / 2025年12月 (other years)
+function monthLabel(m: string): string {
+  const y = m.slice(0, 4)
+  const mo = `${parseInt(m.slice(5, 7), 10)}月`
+  const nowY = String(new Date().getFullYear())
+  return y === nowY ? mo : `${y}年${mo}`
 }
 
 function SearchIcon() {
@@ -1822,27 +1990,6 @@ function Plus() {
         stroke="currentColor"
         strokeWidth="1.4"
         strokeLinecap="round"
-      />
-    </svg>
-  )
-}
-
-function Chevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="none"
-      aria-hidden="true"
-      className={`transition-transform ${open ? 'rotate-90' : ''}`}
-    >
-      <path
-        d="M4.5 3 L7.5 6 L4.5 9"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
       />
     </svg>
   )

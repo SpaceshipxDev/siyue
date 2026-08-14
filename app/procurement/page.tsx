@@ -1,33 +1,34 @@
 import { TopBar } from '@/app/_ui'
-import { requireUser, canSeeReport } from '@/lib/auth'
+import { requireUser, canSeeReport, canApproveProcurement } from '@/lib/auth'
 import {
   getProcurements,
   getProcurementProducts,
   getProcurementJobOptions,
+  getActiveUsers,
 } from '@/lib/db'
 import { today } from '@/lib/today'
 import { ProcurementBoard } from './_procurement'
 
 export const dynamic = 'force-dynamic'
 
-// 采购 — the standalone purchasing ledger. Open to anyone signed in (no role
-// gate beyond requireUser): the floor, 工程, and 商务 all buy things and all
-// need to see what's on the way. Pick the part, the price, the supplier, the
-// date ordered, and the date it should come back — then read one calm ordered
-// queue of what's in transit and what's landed.
+// 采购 — the standalone purchasing conveyor. Open to anyone signed in (no role
+// gate beyond requireUser): the floor asks (请购), an approver clears it (审批),
+// 采购 places the order, the material lands, its 领料人 collects it. Four tabs,
+// one table each: 待审批 → 待到货 → 待领料 → 已领料.
 export default async function ProcurementPage() {
   const user = await requireUser()
-  const [procurements, products, jobOptions] = await Promise.all([
+  const [procurements, products, jobOptions, users] = await Promise.all([
     getProcurements(),
     getProcurementProducts(),
     getProcurementJobOptions(),
+    getActiveUsers(),
   ])
 
   return (
     <div className="min-h-dvh bg-[var(--color-bg)]">
       <TopBar
         title="采购"
-        subtitle="所需 · 在途 · 到货"
+        subtitle="请购 · 审批 · 到货 · 领料"
         currentTab="采购"
         role={user.role}
         defaultStage={user.defaultStage}
@@ -39,7 +40,9 @@ export default async function ProcurementPage() {
           procurements={procurements}
           products={products}
           jobOptions={jobOptions}
+          roster={users.map((u) => u.name)}
           currentUser={user.name}
+          canApprove={canApproveProcurement(user)}
           today={today()}
         />
       </main>

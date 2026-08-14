@@ -8040,9 +8040,24 @@ function asNumber(x: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
+const PROCUREMENT_STATUSES: readonly ProcurementStatus[] = [
+  'requested',
+  'approved',
+  'ordered',
+  'arrived',
+  'done',
+  'rejected',
+]
+
 function fromProcurement(r: AnyRow): Procurement {
-  const status: ProcurementStatus =
-    r.status === 'arrived' ? 'arrived' : r.status === 'pending' ? 'pending' : 'ordered'
+  // Legacy 'pending' (pre-0089 待下单) reads as 'approved' — same meaning.
+  const status: ProcurementStatus = (
+    PROCUREMENT_STATUSES as readonly string[]
+  ).includes(r.status as string)
+    ? (r.status as ProcurementStatus)
+    : r.status === 'pending'
+      ? 'approved'
+      : 'ordered'
   return {
     id: r.id as string,
     item: (r.item as string | null) ?? '',
@@ -8064,6 +8079,15 @@ function fromProcurement(r: AnyRow): Procurement {
         ? r.inspect_result
         : undefined,
     inspectNote: (r.inspect_note as string | null) ?? undefined,
+    requester: (r.requester as string | null) ?? undefined,
+    reqDate: (r.req_date as string | null) ?? undefined,
+    picker: (r.picker as string | null) ?? undefined,
+    approver: (r.approver as string | null) ?? undefined,
+    approveDate: (r.approve_date as string | null) ?? undefined,
+    rejectedBy: (r.rejected_by as string | null) ?? undefined,
+    rejectDate: (r.reject_date as string | null) ?? undefined,
+    rejectNote: (r.reject_note as string | null) ?? undefined,
+    pickDate: (r.pick_date as string | null) ?? undefined,
     createdBy: (r.created_by as string | null) ?? undefined,
     createdAt: r.created_at as string,
   }
@@ -8079,11 +8103,14 @@ export type NewProcurementInput = {
   orderDate: string
   expectedDate?: string
   notes?: string
-  // 待下单 want-list rows are born 'pending'; omitted = 'ordered' (the
-  // pre-0082 behavior, so old clients keep working unchanged).
-  status?: 'pending' | 'ordered'
+  // Floor requests are born 'requested'; an approver's own request skips to
+  // 'approved' (免审批). 'pending' (pre-0089 clients) reads as 'approved';
+  // omitted = 'ordered' (the pre-0082 behavior, so old clients keep working).
+  status?: 'requested' | 'approved' | 'pending' | 'ordered'
   jobId?: string
   jobNo?: string
+  picker?: string // 领料人 — decided at request time
+  reqDate?: string
 }
 
 export type ProcurementPatch = {
@@ -8101,11 +8128,16 @@ export type ProcurementPatch = {
   jobNo?: string | null
   inspectResult?: 'ok' | 'defect' | null
   inspectNote?: string | null
+  picker?: string | null
+  rejectNote?: string | null // stamped with the 驳回 transition
 }
 
-// product_id + link land in migration 0043; job/inspect lifecycle in 0082.
-// Selecting columns a not-yet-migrated DB lacks throws 42703; fall back tier
-// by tier so the tab renders through the deploy window instead of 500'ing.
+// product_id + link land in migration 0043; job/inspect lifecycle in 0082;
+// the 请购/审批/领料 trail in 0089. Selecting columns a not-yet-migrated DB
+// lacks throws 42703; fall back tier by tier so the tab renders through the
+// deploy window instead of 500'ing.
+const PROCUREMENT_COLS_FLOW =
+  'id, item, qty, unit_price_cny, supplier, order_date, expected_date, status, arrived_date, buyer, notes, product_id, link, job_id, job_no, inspect_result, inspect_note, requester, req_date, picker, approver, approve_date, rejected_by, reject_date, reject_note, pick_date, created_by, created_at'
 const PROCUREMENT_COLS_FULL =
   'id, item, qty, unit_price_cny, supplier, order_date, expected_date, status, arrived_date, buyer, notes, product_id, link, job_id, job_no, inspect_result, inspect_note, created_by, created_at'
 const PROCUREMENT_COLS_V43 =
@@ -8124,7 +8156,10 @@ export async function getProcurements(): Promise<Procurement[]> {
       .from('procurements')
       .select(cols)
       .order('created_at', { ascending: false }) as unknown as Promise<Res>
-  let { data, error } = await run(PROCUREMENT_COLS_FULL)
+  let { data, error } = await run(PROCUREMENT_COLS_FLOW)
+  if (error && isMissingColumnError(error)) {
+    ;({ data, error } = await run(PROCUREMENT_COLS_FULL))
+  }
   if (error && isMissingColumnError(error)) {
     ;({ data, error } = await run(PROCUREMENT_COLS_V43))
   }
@@ -8144,6 +8179,14 @@ export async function createProcurement(
   createdBy: string,
 ): Promise<string> {
   const id = uid('po')
+  // Legacy 'pending' means the same thing 'approved' does now; a plain create
+  // with no status (pre-0082 clients) stays 'ordered'.
+  const status =
+    input.status === 'requested'
+      ? 'requested'
+      : input.status === 'approved' || input.status === 'pending'
+        ? 'approved'
+        : 'ordered'
   const { error } = await supabase.from('procurements').insert({
     id,
     item: input.item.trim(),
@@ -8154,11 +8197,17 @@ export async function createProcurement(
     supplier: input.supplier?.trim() || null,
     order_date: input.orderDate,
     expected_date: input.expectedDate || null,
-    status: input.status === 'pending' ? 'pending' : 'ordered',
+    status,
     buyer: createdBy,
     notes: input.notes?.trim() || null,
     job_id: input.jobId || null,
     job_no: input.jobNo?.trim() || null,
+    requester: createdBy,
+    req_date: input.reqDate || input.orderDate,
+    picker: input.picker?.trim() || createdBy,
+    // A request born 'approved' was self-cleared by its own creator (免审批).
+    approver: status === 'approved' ? createdBy : null,
+    approve_date: status === 'approved' ? input.reqDate || input.orderDate : null,
     created_by: createdBy,
   })
   if (error) throw error
@@ -8176,6 +8225,7 @@ export async function createProcurement(
 export async function updateProcurement(
   procurementId: string,
   patch: ProcurementPatch,
+  actor: string,
 ): Promise<void> {
   const update: AnyRow = {}
   if (patch.item !== undefined) update.item = patch.item.trim()
@@ -8190,22 +8240,51 @@ export async function updateProcurement(
   if (patch.notes !== undefined) update.notes = patch.notes?.trim() || null
   if (patch.jobId !== undefined) update.job_id = patch.jobId || null
   if (patch.jobNo !== undefined) update.job_no = patch.jobNo?.trim() || null
+  if (patch.picker !== undefined) update.picker = patch.picker?.trim() || null
   if (patch.inspectResult !== undefined)
     update.inspect_result = patch.inspectResult
   if (patch.inspectNote !== undefined)
     update.inspect_note = patch.inspectNote?.trim() || null
   if (patch.status !== undefined) {
     update.status = patch.status
-    // Marking arrived without an explicit date stamps today; reverting to
-    // ordered / pending clears the arrival (and its inspection) so the row
-    // re-enters the queue clean.
+    // Each transition stamps its own actor + date, so the row carries its
+    // whole story: 谁请购 → 谁批 → 谁下单 → 到货 → 谁领.
+    if (patch.status === 'approved') {
+      update.approver = actor
+      update.approve_date = today()
+      update.rejected_by = null
+      update.reject_date = null
+      update.reject_note = null
+    }
+    if (patch.status === 'rejected') {
+      update.rejected_by = actor
+      update.reject_date = today()
+      update.reject_note = patch.rejectNote?.trim() || null
+    }
+    if (patch.status === 'ordered') {
+      // Whoever actually places the order becomes the 采购人; the order
+      // clock starts NOW (client sends orderDate: today alongside).
+      update.buyer = actor
+    }
     if (patch.status === 'arrived') {
       update.arrived_date =
         patch.arrivedDate !== undefined ? patch.arrivedDate || null : today()
-    } else {
+    }
+    if (patch.status === 'done') {
+      update.pick_date = today()
+    }
+    // Moving BACK into the queue (待审批/待下单/在途) clears the arrival and
+    // its inspection so the row re-enters clean. 'done' keeps them — the
+    // ledger row still tells the arrival + inspection story.
+    if (
+      patch.status === 'requested' ||
+      patch.status === 'approved' ||
+      patch.status === 'ordered'
+    ) {
       update.arrived_date = null
       update.inspect_result = null
       update.inspect_note = null
+      update.pick_date = null
     }
   } else if (patch.arrivedDate !== undefined) {
     update.arrived_date = patch.arrivedDate || null

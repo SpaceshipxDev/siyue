@@ -631,12 +631,23 @@ export type Handover = {
 }
 
 // 采购 — a single purchase. The standalone purchasing ledger anyone can write
-// to: pick the part you need, the price, who you're buying from, the date you
-// ordered, and the date it should come back. Lifecycle is three states —
-// 'pending' (待下单 — the want-list: needed, not yet ordered), 'ordered'
-// (在途) until it shows up, then 'arrived'. Flat by design (one row per
-// purchase); see supabase/migrations/0042_procurement.sql + 0082 (lifecycle).
-export type ProcurementStatus = 'pending' | 'ordered' | 'arrived'
+// to. Lifecycle is a four-step conveyor plus one dead end:
+//   'requested' (待审批 — someone on the floor asked for it)
+//   'approved'  (待下单 — cleared; 采购 still has to place the order)
+//   'ordered'   (在途 — the clock runs against 预计到货)
+//   'arrived'   (待领料 — landed, waiting for its 领料人 to collect)
+//   'done'      (已领料 — the month ledger)
+//   'rejected'  (驳回 — dead, with the reason)
+// Requests by an approver themselves skip straight to 'approved' (免审批).
+// Flat by design (one row per purchase); see supabase/migrations/
+// 0042_procurement.sql + 0082 (lifecycle) + 0089 (approval flow).
+export type ProcurementStatus =
+  | 'requested'
+  | 'approved'
+  | 'ordered'
+  | 'arrived'
+  | 'done'
+  | 'rejected'
 
 // 到料检验 — the receiving verdict. null/undefined = not inspected yet.
 // 'defect' rows carry the story in inspectNote; per-supplier 良率 derives
@@ -664,6 +675,17 @@ export type Procurement = {
   // 到料检验 — set after arrival; undefined = not inspected yet.
   inspectResult?: ProcurementInspectResult
   inspectNote?: string // 不良记录 — what was wrong
+  // 请购 → 审批 → 领料 trail (0089). Legacy rows carry requester = buyer and
+  // no approver (they were self-serve buys, born before approvals existed).
+  requester?: string // 请购人
+  reqDate?: string // 请购日期 (YYYY-MM-DD)
+  picker?: string // 领料人 — decided at request time, stamps the pickup
+  approver?: string // 批准人
+  approveDate?: string
+  rejectedBy?: string
+  rejectDate?: string
+  rejectNote?: string // 驳回原因 — so the requester knows why
+  pickDate?: string // 领料日期 (YYYY-MM-DD) — keys the 已领料 month ledger
   createdBy?: string
   createdAt: string
 }

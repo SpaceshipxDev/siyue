@@ -16,11 +16,20 @@ import type { Procurement } from '@/lib/data'
 // Money goes in as raw numbers, never formatted strings — the whole point of
 // handing 财务 a sheet is that they can sum the 金额 column.
 function statusText(p: Procurement): string {
-  if (p.status === 'arrived') return '已到货'
-  // 待下单 exists in the lifecycle work that hasn't shipped yet; treat any
-  // unknown state as 在途 rather than printing a raw enum into the sheet.
-  if ((p.status as string) === 'pending') return '待下单'
-  return '采购中'
+  switch (p.status) {
+    case 'requested':
+      return '待审批'
+    case 'approved':
+      return '待下单'
+    case 'arrived':
+      return '待领料'
+    case 'done':
+      return '已领料'
+    case 'rejected':
+      return '已驳回'
+    default:
+      return '采购中'
+  }
 }
 
 function isoLocalToday(): string {
@@ -58,9 +67,12 @@ export function ProcurementExportButton({
         '数量',
         '单价',
         '金额',
+        '请购人',
         '采购日期',
         '预计到货',
         '到货日期',
+        '领料人',
+        '领料日期',
         '采购人',
         '备注',
         '链接',
@@ -72,9 +84,12 @@ export function ProcurementExportButton({
         p.qty ?? '',
         p.unitPriceCny ?? '',
         procurementTotalCny(p) ?? '',
+        p.requester ?? '',
         p.orderDate,
         p.expectedDate ?? '',
         p.arrivedDate ?? '',
+        p.picker ?? '',
+        p.pickDate ?? '',
         p.buyer,
         p.notes ?? '',
         p.link ?? '',

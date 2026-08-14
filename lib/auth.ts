@@ -109,6 +109,13 @@ export function canEditJob(s: Scope): boolean {
   return s.role === 'commerce'
 }
 
+// 采购 审批 — clearing (or rejecting) the floor's 请购 requests, and creating
+// buys that skip the approval queue (免审批). The office (商务) plus whoever
+// mans the 采购 station itself. Everyone else's new buys are born 待审批.
+export function canApproveProcurement(s: Scope): boolean {
+  return s.role === 'commerce' || s.defaultStage === '采购'
+}
+
 // Stage chips on import draft (商务) and job detail (工程) pages. 商务 owns
 // the initial route; 工程 keeps editing rights post-import because they
 // catch routing mistakes once the part actually hits the floor. Other

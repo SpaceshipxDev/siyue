@@ -106,6 +106,7 @@ import {
   type VendorPatch,
 } from '@/lib/db'
 import {
+  canApproveProcurement,
   canManageOutsource,
   canSeeExpenses,
   canSeeFactoryPulse,
@@ -300,14 +301,28 @@ function isValidProcurementInput(x: unknown): x is NewProcurementInput {
   if (!isOptString(o.expectedDate)) return false
   if (!isOptString(o.productId) || !isOptString(o.link)) return false
   if (!isOptString(o.jobId) || !isOptString(o.jobNo)) return false
+  if (!isOptString(o.picker) || !isOptString(o.reqDate)) return false
   if (
     o.status !== undefined &&
+    o.status !== 'requested' &&
+    o.status !== 'approved' &&
     o.status !== 'pending' &&
     o.status !== 'ordered'
   )
     return false
   return true
 }
+
+const PROCUREMENT_PATCH_STATUSES = [
+  'requested',
+  'approved',
+  'ordered',
+  'arrived',
+  'done',
+  'rejected',
+  // pre-0089 clients still in flight mid-deploy
+  'pending',
+]
 
 function isValidProcurementPatch(x: unknown): x is ProcurementPatch {
   if (typeof x !== 'object' || x === null) return false
@@ -329,14 +344,14 @@ function isValidProcurementPatch(x: unknown): x is ProcurementPatch {
     'jobId',
     'jobNo',
     'inspectNote',
+    'picker',
+    'rejectNote',
   ]) {
     if (!isOptString(o[f])) return false
   }
   if (
     o.status !== undefined &&
-    o.status !== 'pending' &&
-    o.status !== 'ordered' &&
-    o.status !== 'arrived'
+    !PROCUREMENT_PATCH_STATUSES.includes(o.status as string)
   )
     return false
   if (
@@ -1743,12 +1758,17 @@ async function dispatch(
       return Response.json(ok())
     }
 
-    // === 采购 (procurement ledger) — anyone signed in can write ===
+    // === 采购 (procurement ledger) — anyone signed in can write; only
+    // approvers (商务 + 采购站) clear/reject requests or skip the queue ===
     case 'createProcurement': {
       const input = body.input
       if (!isValidProcurementInput(input))
         return err('bad createProcurement args')
       const u = await requireUser()
+      // Non-approvers can only ask — whatever their client claims, the row
+      // is born 待审批.
+      if (!canApproveProcurement(u) && input.status !== 'requested')
+        input.status = 'requested'
       const id = await createProcurement(input, u.name)
       revalidatePath('/procurement')
       return Response.json(ok({ id }))
@@ -1759,8 +1779,15 @@ async function dispatch(
       const patch = body.patch
       if (!isString(procurementId) || !isValidProcurementPatch(patch))
         return err('bad updateProcurement args')
-      await requireUser()
-      await updateProcurement(procurementId, patch)
+      const u = await requireUser()
+      // pre-0089 clients still say 'pending' for 待下单
+      if ((patch.status as string) === 'pending') patch.status = 'approved'
+      if (
+        (patch.status === 'approved' || patch.status === 'rejected') &&
+        !canApproveProcurement(u)
+      )
+        return err('只有审批人可以批准或驳回')
+      await updateProcurement(procurementId, patch, u.name)
       revalidatePath('/procurement')
       return Response.json(ok())
     }
