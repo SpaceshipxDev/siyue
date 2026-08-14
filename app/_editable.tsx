@@ -1,10 +1,12 @@
 'use client'
 
 import {
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   useTransition,
   type ChangeEvent,
   type KeyboardEvent,
@@ -595,6 +597,143 @@ export function ComponentText({
   )
 }
 
+// ─── 小计 = 数量 × 单价 ──────────────────────────────────────────────────────
+//
+// 数量, 单价 and 小计 are three separate <td>s of a row rendered by a server
+// component, so they cannot share React state — they share it here, in one slot
+// per part. Type a 单价 and the 小计 beside it lands immediately: the slot
+// recomputes and the 小计 cell, watching its slot, re-reads. Nobody multiplies
+// by hand.
+//
+// The authority for what actually gets stored is syncedLineTotal() in
+// lib/db.ts, which applies the same rule to every write server-side. This
+// mirror exists only because mutate deliberately never refreshes the page (see
+// the note at the top of this file) — the number on screen has to be right
+// before any refresh would arrive.
+type LineSlot = { qty?: number; unit?: number | null; total?: number | null }
+
+const lineSlots = new Map<string, LineSlot>()
+const lineWatchers = new Map<string, Set<() => void>>()
+
+const lineKey = (jobId: string, componentId: string) => `${jobId}/${componentId}`
+
+function lineSlot(key: string): LineSlot {
+  let slot = lineSlots.get(key)
+  if (!slot) {
+    slot = {}
+    lineSlots.set(key, slot)
+  }
+  return slot
+}
+
+function notifyLine(key: string) {
+  for (const fn of lineWatchers.get(key) ?? []) fn()
+}
+
+function subscribeLine(key: string, fn: () => void) {
+  let set = lineWatchers.get(key)
+  if (!set) {
+    set = new Set()
+    lineWatchers.set(key, set)
+  }
+  set.add(fn)
+  return () => {
+    set.delete(fn)
+    if (set.size === 0) lineWatchers.delete(key)
+  }
+}
+
+// ¥0.01 is the smallest thing anyone quotes; without the rounding, plain float
+// multiplication leaves 1.0000000000000002 sitting in the sheet.
+const roundMoney = (n: number) => Math.round(n * 100) / 100
+
+function derivedLineTotal(slot: LineSlot): number | undefined {
+  const { qty, unit } = slot
+  if (typeof qty !== 'number' || !Number.isFinite(qty)) return undefined
+  if (typeof unit !== 'number' || !Number.isFinite(unit)) return undefined
+  return roundMoney(qty * unit)
+}
+
+// Seed one field of the slot from the server, and re-seed it whenever the
+// server's value actually changes (a refresh, someone else's edit). Done in an
+// effect, not in render, so a cell can never set state on a sibling mid-render.
+function useLineFact(
+  key: string,
+  field: 'qty' | 'unit' | 'total',
+  value: number | null | undefined,
+) {
+  useEffect(() => {
+    const slot: Record<string, number | null | undefined> = lineSlot(key)
+    if (slot[field] === value) return
+    slot[field] = value
+    notifyLine(key)
+  }, [key, field, value])
+}
+
+// What a cell reads at rest: the slot's value once anything has been committed
+// on this page, the server's until then — and for 小计, the product as the last
+// resort. A primitive, so it can be a useSyncExternalStore snapshot.
+//
+// Reading the slot rather than the prop is also what makes "clear the 单价 you
+// just typed" work at all: nothing refreshes the page after a write, so the
+// prop still says what the row said on arrival.
+function lineAtRest(
+  key: string,
+  field: 'qty' | 'unit' | 'total',
+  stored: number | undefined,
+): number | undefined {
+  const slot: Record<string, number | null | undefined> = lineSlot(key)
+  const own = slot[field]
+  const value = (own === undefined ? stored : own) ?? undefined
+  if (field === 'total') return value ?? derivedLineTotal(lineSlot(key))
+  return value
+}
+
+// Watch the row's money. useSyncExternalStore, not useState — the writes that
+// move 小计 happen inside a transition (safeStart), and a plain setState from
+// there is deferred behind the in-flight write, which is exactly the lag this
+// whole thing exists to remove. An external store re-renders immediately, and
+// React re-checks the snapshot right after subscribing, so a row that was
+// already seeded before this cell mounted still paints its product.
+function useLineAtRest(
+  key: string,
+  field: 'qty' | 'unit' | 'total',
+  stored: number | undefined,
+) {
+  return useSyncExternalStore(
+    (fn) => subscribeLine(key, fn),
+    () => lineAtRest(key, field, stored),
+    () => stored,
+  )
+}
+
+// Local twin of syncedLineTotal() in lib/db.ts — keep the two rules identical.
+// Applies a committed 数量 / 单价 to the slot, moves 小计 with it, and tells the
+// cells. Returns an undo so a failed write can put the row back.
+function applyLineEdit(key: string, next: { qty?: number; unit?: number | null }) {
+  const slot = lineSlot(key)
+  const before: LineSlot = { ...slot }
+  if (next.qty !== undefined) slot.qty = next.qty
+  if (next.unit !== undefined) slot.unit = next.unit
+  const derived = derivedLineTotal(slot)
+  if (derived !== undefined) {
+    slot.total = derived
+  } else if (next.unit === null) {
+    // 单价 cleared: the total goes with it, unless it was quoted on its own
+    // rather than derived — same carve-out the server makes.
+    const wasDerived =
+      typeof before.unit === 'number' &&
+      typeof before.qty === 'number' &&
+      roundMoney(before.qty * before.unit) === before.total
+    if (wasDerived) slot.total = null
+  }
+  notifyLine(key)
+  return () => {
+    lineSlots.set(key, before)
+    notifyLine(key)
+  }
+}
+
 export function ComponentQty({
   jobId,
   componentId,
@@ -606,17 +745,26 @@ export function ComponentQty({
   value: number
   className?: string
 }) {
+  const key = lineKey(jobId, componentId)
+  useLineFact(key, 'qty', value)
+  const atRest = useLineAtRest(key, 'qty', value)
   return (
     <EditableNumber
-      value={value}
+      value={atRest ?? value}
       min={0}
       onSave={async (n) => {
-        await mutate({
-          kind: 'updateComponent',
-          jobId,
-          componentId,
-          patch: { qty: n },
-        })
+        const undo = applyLineEdit(key, { qty: n })
+        try {
+          await mutate({
+            kind: 'updateComponent',
+            jobId,
+            componentId,
+            patch: { qty: n },
+          })
+        } catch (e) {
+          undo()
+          throw e
+        }
       }}
       className={className}
     />
@@ -627,17 +775,16 @@ export function ComponentQty({
 // stray AI guess can be fully removed rather than coerced to 0 — important
 // when the part actually has no quoted price and we don't want it polluting
 // the breakdown total. Mirrors JobAmount's behavior.
+// `value` is what the cell reads at rest — for 小计 that can be a number the
+// row derived rather than one the server stored, so the write itself is left to
+// the caller via onCommit.
 function ComponentMoney({
-  jobId,
-  componentId,
   value,
-  field,
+  onCommit,
   className,
 }: {
-  jobId: string
-  componentId: string
   value: number | undefined
-  field: 'unitPriceCny' | 'lineTotalCny'
+  onCommit: (next: number | null) => Promise<unknown>
   className?: string
 }) {
   const ref = useRef<HTMLInputElement>(null)
@@ -650,31 +797,13 @@ function ComponentMoney({
     const trimmed = next.trim()
     if (trimmed === '') {
       if (initial === undefined) return
-      safeStart(
-        () =>
-          mutate({
-            kind: 'updateComponent',
-            jobId,
-            componentId,
-            patch: { [field]: null },
-          }),
-        initialStr,
-      )
+      safeStart(() => onCommit(null), initialStr)
       return
     }
     const n = Number(trimmed)
     if (!Number.isFinite(n) || n < 0) return
     if (n === initial) return
-    safeStart(
-      () =>
-        mutate({
-          kind: 'updateComponent',
-          jobId,
-          componentId,
-          patch: { [field]: n },
-        }),
-      initialStr,
-    )
+    safeStart(() => onCommit(n), initialStr)
   }
 
   return (
@@ -821,17 +950,38 @@ export function ComponentUnitPrice({
   value: number | undefined
   className?: string
 }) {
+  const key = lineKey(jobId, componentId)
+  useLineFact(key, 'unit', value)
+  const atRest = useLineAtRest(key, 'unit', value)
   return (
     <ComponentMoney
-      jobId={jobId}
-      componentId={componentId}
-      value={value}
-      field="unitPriceCny"
+      value={atRest}
+      onCommit={async (next) => {
+        // 小计 moves with the price, on screen before the write returns.
+        const undo = applyLineEdit(key, { unit: next })
+        try {
+          await mutate({
+            kind: 'updateComponent',
+            jobId,
+            componentId,
+            patch: { unitPriceCny: next },
+          })
+        } catch (e) {
+          undo()
+          throw e
+        }
+      }}
       className={className}
     />
   )
 }
 
+// 小计 — 数量 × 单价 unless someone typed over it. The cell reads the slot, so
+// it shows the product for every row that has both numbers, including the ones
+// no one has ever opened: an imported 单价 with a blank 小计 column is a total
+// from the moment the sheet paints, not after an edit. Typing here stores an
+// explicit line total (the discount case) and the sheet keeps it until 数量 or
+// 单价 moves again.
 export function ComponentLineTotal({
   jobId,
   componentId,
@@ -843,12 +993,30 @@ export function ComponentLineTotal({
   value: number | undefined
   className?: string
 }) {
+  const key = lineKey(jobId, componentId)
+  useLineFact(key, 'total', value)
+  const atRest = useLineAtRest(key, 'total', value)
   return (
     <ComponentMoney
-      jobId={jobId}
-      componentId={componentId}
-      value={value}
-      field="lineTotalCny"
+      value={atRest}
+      onCommit={async (next) => {
+        const slot = lineSlot(key)
+        const before: LineSlot = { ...slot }
+        slot.total = next
+        notifyLine(key)
+        try {
+          await mutate({
+            kind: 'updateComponent',
+            jobId,
+            componentId,
+            patch: { lineTotalCny: next },
+          })
+        } catch (e) {
+          lineSlots.set(key, before)
+          notifyLine(key)
+          throw e
+        }
+      }}
       className={className}
     />
   )
