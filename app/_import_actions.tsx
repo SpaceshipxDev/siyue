@@ -1,12 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { STAGES, type Stage, type JobStatus } from '@/lib/data'
 import { confirmJobAction } from './actions'
 import { mutate } from '@/lib/mutate'
 import { EditableText } from './_editable'
+import { DELETE_PART_DENIED, PermissionDenied } from './_perm_denied'
 
 // Shared shape for a 工号 (job number) collision — a live/draft order already
 // holding the number this draft wants. Mirrors lib/db's JobNoConflict, kept
@@ -215,12 +216,16 @@ export function ImportJobNoField({
 export function InsertComponentButton({
   jobId,
   afterComponentId,
+  allowed,
 }: {
   jobId: string
   afterComponentId: string
+  // canCreatePartRow — the + simply isn't there for someone who can't add.
+  allowed: boolean
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
+  if (!allowed) return null
   return (
     <button
       type="button"
@@ -241,9 +246,16 @@ export function InsertComponentButton({
 }
 
 // The only add affordance on a draft with no parts yet — nothing to hover.
-export function AddComponentButton({ jobId }: { jobId: string }) {
+export function AddComponentButton({
+  jobId,
+  allowed,
+}: {
+  jobId: string
+  allowed: boolean
+}) {
   const router = useRouter()
   const [pending, start] = useTransition()
+  if (!allowed) return null
   return (
     <button
       type="button"
@@ -277,32 +289,59 @@ function PlusGlyph() {
   )
 }
 
+// Same 权限 rule as the job sheet's trash icon (canDeletePartRow): the word
+// stays put for every editor and says why when it can't act, rather than
+// disappearing and leaving the draft looking half-broken.
 export function DeleteComponentButton({
   jobId,
   componentId,
   componentName,
+  allowed,
 }: {
   jobId: string
   componentId: string
   componentName: string
+  allowed: boolean
 }) {
   const router = useRouter()
+  const ref = useRef<HTMLButtonElement>(null)
+  const [denied, setDenied] = useState<DOMRect | null>(null)
   const [pending, start] = useTransition()
   return (
-    <button
-      type="button"
-      disabled={pending}
-      onClick={() => {
-        const label = componentName || '该零件'
-        if (!confirm(`删除「${label}」？此操作不可撤销。`)) return
-        start(async () => {
-          await mutate({ kind: 'deleteComponent', jobId, componentId })
-          router.refresh()
-        })
-      }}
-      className="label text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] disabled:opacity-50"
-    >
-      删除
-    </button>
+    <>
+      <button
+        ref={ref}
+        type="button"
+        disabled={pending}
+        title={allowed ? undefined : '无删除权限'}
+        onClick={() => {
+          if (!allowed) {
+            setDenied(ref.current?.getBoundingClientRect() ?? null)
+            return
+          }
+          const label = componentName || '该零件'
+          if (!confirm(`删除「${label}」？此操作不可撤销。`)) return
+          start(async () => {
+            await mutate({ kind: 'deleteComponent', jobId, componentId })
+            router.refresh()
+          })
+        }}
+        className={`label disabled:opacity-50 ${
+          allowed
+            ? 'text-[var(--color-ink-3)] hover:text-[var(--color-overdue)]'
+            : 'text-[var(--color-ink-4)] hover:text-[var(--color-ink-3)]'
+        }`}
+      >
+        删除
+      </button>
+      {denied ? (
+        <PermissionDenied
+          anchor={denied}
+          title={DELETE_PART_DENIED.title}
+          body={DELETE_PART_DENIED.body}
+          onClose={() => setDenied(null)}
+        />
+      ) : null}
+    </>
   )
 }

@@ -70,6 +70,8 @@ import {
 } from '@/lib/db'
 import type { JobReturn } from '@/lib/data'
 import {
+  canCreatePartRow,
+  canDeletePartRow,
   requireCommerce,
   requireOutsourceManager,
   requirePartRouteEditor,
@@ -280,7 +282,8 @@ export async function setComponentImageAction(
 }
 
 export async function appendComponentAction(jobId: string): Promise<string | undefined> {
-  await requirePartRouteEditor()
+  const u = await requireUser()
+  if (!canCreatePartRow(u)) throw new Error('无权添加零件 (仅商务/工程可操作)')
   const id = await appendComponent(jobId)
   revalidatePath(`/import/${jobId}`)
   revalidatePath(`/jobs/${jobId}`)
@@ -291,7 +294,8 @@ export async function deleteComponentAction(
   jobId: string,
   componentId: string,
 ): Promise<void> {
-  await requirePartRouteEditor()
+  const u = await requireUser()
+  if (!canDeletePartRow(u)) throw new Error('无权删除零件')
   await deleteComponent(jobId, componentId)
   revalidatePath(`/import/${jobId}`)
   revalidatePath(`/jobs/${jobId}`)

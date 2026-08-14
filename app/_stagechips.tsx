@@ -11,10 +11,12 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  ALWAYS_ON_STAGES,
   DEFAULT_ROUTE_STAGES,
   OPT_IN_STAGES,
   STAGES,
   partRoute,
+  routeAfterEnabling,
   type Component,
   type Stage,
 } from '@/lib/data'
@@ -24,7 +26,7 @@ import type { SetPartRouteResult } from '@/lib/db'
 // 出货 is always in the route — every part eventually ships, so the row is
 // shown lit and non-interactive. Outsource-covered stages are also locked
 // (the block owns those stages, the picker can't take them out).
-const ALWAYS_ON: ReadonlySet<Stage> = new Set<Stage>(['出货'])
+const ALWAYS_ON: ReadonlySet<Stage> = new Set<Stage>(ALWAYS_ON_STAGES)
 
 type ConflictDialogState = {
   desired: Stage[]
@@ -128,9 +130,17 @@ export function StageChips({
     if (readOnly) return
     if (ALWAYS_ON.has(stage)) return
     if (lockedByOutsource.has(stage)) return
-    const next = new Set(currentRoute)
-    if (next.has(stage)) next.delete(stage)
-    else next.add(stage)
+    let next: Set<Stage>
+    if (currentRoute.has(stage)) {
+      next = new Set(currentRoute)
+      next.delete(stage)
+    } else {
+      // Switching a stage ON isn't always a plain add — 采购 on a part with no
+      // 报工 yet resets the route to 工程·采购·编程·出货 (routeAfterEnabling).
+      // The picker stays open and every downstream 工段 stays clickable, so
+      // switching one back on is the next click, not a different screen.
+      next = new Set(routeAfterEnabling(component, currentRoute, stage))
+    }
     void apply(next, false)
   }
 

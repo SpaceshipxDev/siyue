@@ -31,6 +31,8 @@ import { logJobView } from '@/lib/access-log'
 import { getContractFiles } from '@/lib/contract-file'
 import { BRAND } from '@/lib/brand'
 import {
+  canCreatePartRow,
+  canDeletePartRow,
   canEditPartRoute,
   canEditProductionFields,
   canExportProductionOrder,
@@ -139,6 +141,11 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // jobNo, dueDate, component name/qty/material/notes, image). Pure-floor
   // production users (焊接, 喷塑, etc.) keep the read-only view they had.
   const canEditFields = canEditProductionFields(user)
+  // Structural rights on the 零件 sheet — deliberately narrower than editing a
+  // cell, and per-person rather than per-stage (see lib/auth.ts). Adding hides
+  // the +; deleting keeps the 删除 icon and swaps its action for a 权限 note.
+  const canAddPartRow = canCreatePartRow(user)
+  const canDeletePartRowHere = canDeletePartRow(user)
   // 工程's 生产单 export. Commerce gets it in the documents zone up next to
   // 产品; that whole row is customer-gated (showCustomer), which 工程 fails, so
   // theirs rides beside 工单备注 instead. Same sheet, minus 源文件 — that
@@ -630,6 +637,8 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             base: i + 1,
           }))}
           canEdit={canEditFields}
+          canAddRow={canAddPartRow}
+          canDeleteRow={canDeletePartRowHere}
           showMoney={showMoney}
         >
         <ComponentsScrollArea
@@ -1087,6 +1096,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           jobId={job.id}
                           componentId={c.id}
                           componentName={c.name}
+                          allowed={canDeletePartRowHere}
                         />
                       </td>
                     )}

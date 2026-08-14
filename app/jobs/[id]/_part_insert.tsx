@@ -47,7 +47,14 @@ type Kids = Record<string, Kid[]>
 
 type Ctx = {
   jobId: string
+  // Field-level editing (names, qty, #, 备注) — also decides which COLUMNS the
+  // sheet has, so it must stay exactly as it was.
   canEdit: boolean
+  // Structural rights, narrower and per-person (lib/auth canCreatePartRow /
+  // canDeletePartRow). canDeleteRow does not remove the 删除 column: the button
+  // renders for every editor and explains itself when it can't act.
+  canAddRow: boolean
+  canDeleteRow: boolean
   showMoney: boolean
   totalCols: number
   kids: Kids
@@ -68,6 +75,8 @@ export function PartInsertProvider({
   jobId,
   serverRows,
   canEdit,
+  canAddRow,
+  canDeleteRow,
   showMoney,
   children,
 }: {
@@ -77,6 +86,8 @@ export function PartInsertProvider({
   // the sheet, those base numbers have gaps, and they must keep them).
   serverRows: { id: string; base: number }[]
   canEdit: boolean
+  canAddRow: boolean
+  canDeleteRow: boolean
   showMoney: boolean
   children: React.ReactNode
 }) {
@@ -144,6 +155,8 @@ export function PartInsertProvider({
     () => ({
       jobId,
       canEdit,
+      canAddRow,
+      canDeleteRow,
       showMoney,
       totalCols: countCols(canEdit, showMoney),
       kids,
@@ -151,7 +164,17 @@ export function PartInsertProvider({
       insertAfter,
       dropRow,
     }),
-    [jobId, canEdit, showMoney, kids, ordinals, insertAfter, dropRow],
+    [
+      jobId,
+      canEdit,
+      canAddRow,
+      canDeleteRow,
+      showMoney,
+      kids,
+      ordinals,
+      insertAfter,
+      dropRow,
+    ],
   )
 
   return (
@@ -199,7 +222,7 @@ export function RowInsert({ afterId }: { afterId: string | null }) {
   const ctx = useContext(PartInsertCtx)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  if (!ctx || !ctx.canEdit) return null
+  if (!ctx || !ctx.canAddRow) return null
 
   const add = async () => {
     if (pending) return
@@ -294,13 +317,13 @@ export function PartsTailRoom() {
           colSpan={ctx?.totalCols ?? 1}
           className="p-0"
           style={{
-            height: empty && ctx?.canEdit ? 40 : 12,
+            height: empty && ctx?.canAddRow ? 40 : 12,
             borderRight: 'none',
             borderBottom: 'none',
             overflow: 'visible',
           }}
         >
-          {empty && ctx?.canEdit ? (
+          {empty && ctx?.canAddRow ? (
             <span className="flex items-center pl-3">
               <TailAdd />
             </span>
@@ -542,6 +565,7 @@ function NewPartRow({
             jobId={jobId}
             componentId={componentId}
             componentName=""
+            allowed={ctx.canDeleteRow}
             onDeleted={() => ctx.dropRow(componentId)}
           />
         </td>

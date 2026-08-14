@@ -49,6 +49,26 @@ export const DEFAULT_ROUTE_STAGES: Stage[] = STAGES.filter(
   (s) => !OPT_IN_STAGES.includes(s),
 )
 
+// 出货 is in every part's route and can never be switched off — every part
+// eventually ships. The picker shows it lit and non-interactive.
+export const ALWAYS_ON_STAGES: Stage[] = ['出货']
+
+// 采购-first routing. Switching 采购 ON for a part nobody has touched yet is a
+// statement about what the part IS — something we buy, or something whose
+// material has to land before anyone can plan the rest — not an extra step
+// bolted onto a full machining route. So the route collapses to these four and
+// the downstream 工段 are switched back OFF rather than staying on by default.
+// Nothing is locked: 工程 clicks any of them back on in the same picker, as the
+// part's real route becomes known. Only applies to an untouched part (see
+// isPartUntouched) — a route with 报工 on it is never rewritten out from under
+// the floor.
+export const CAIGOU_FIRST_ROUTE_STAGES: Stage[] = [
+  '工程',
+  '采购',
+  '编程',
+  '出货',
+]
+
 // 出货 is always an in-house terminal stage: vendors never ship to the
 // customer directly — they ship parts back to us, then we ship to the
 // customer. Outsource blocks therefore cover production stages only.
@@ -531,6 +551,47 @@ export function jobComponentsTotal(job: Job): number {
 
 export function partRoute(component: Component): Stage[] {
   return STAGES.filter((s) => component.stages[s] !== undefined)
+}
+
+// The route that results from switching `stage` ON in the picker. Usually a
+// plain set-add — the exception is 采购 (see CAIGOU_FIRST_ROUTE_STAGES), and it
+// lives here rather than in the widget so "what does 采购 mean for a part" sits
+// with the rest of the routing rules. Switching a stage OFF is always a plain
+// removal and has no equivalent here.
+export function routeAfterEnabling(
+  component: Component,
+  current: ReadonlySet<Stage>,
+  stage: Stage,
+): Stage[] {
+  const next = new Set(current)
+  next.add(stage)
+  if (stage === '采购' && isPartUntouched(component)) {
+    for (const s of STAGES) {
+      if (CAIGOU_FIRST_ROUTE_STAGES.includes(s)) continue
+      if (ALWAYS_ON_STAGES.includes(s)) continue
+      next.delete(s)
+    }
+  }
+  return STAGES.filter((s) => next.has(s))
+}
+
+// Has anyone reported work on this part yet? True for a part fresh out of
+// import: every stage row still 'pending', no ▶, no ✓, no partial count, no
+// 检验 verdict, and nothing sent to a vendor. The route of such a part is still
+// a guess and may be rewritten wholesale (see CAIGOU_FIRST_ROUTE_STAGES); once
+// a single 报工 lands, the route is history and only ever changes one stage at
+// a time, through the normal confirm path.
+export function isPartUntouched(component: Component): boolean {
+  if ((component.outsourceBlocks?.length ?? 0) > 0) return false
+  for (const stage of STAGES) {
+    const st = component.stages[stage]
+    if (!st) continue
+    if (st.status !== 'pending') return false
+    if (st.startedAt || st.completedAt || st.finishedAt || st.verdict)
+      return false
+    if (typeof st.doneQty === 'number' && st.doneQty > 0) return false
+  }
+  return true
 }
 
 // How many of this component's qty have been finished at this stage,

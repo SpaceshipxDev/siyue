@@ -205,6 +205,59 @@ export async function requireNotesUser(): Promise<AuthUser> {
   redirect(landingPathFor(u))
 }
 
+// ─── 零件行 权限 (adding / deleting rows on a job's 零件进度 sheet) ───────────
+//
+// These two capabilities are PER-PERSON allowlists, not role/stage rules, and
+// that is deliberate. `defaultStage` is not trustworthy as an org chart on this
+// DB: the seed parked most production accounts at 工程, so 车工徐兴旺, 质量倪伟群,
+// 手工001潘健, 打磨喷漆, 批量组001夏, 塑料操机001吴亦能 … all read as "工程" today.
+// A rule of the form `role === 'commerce' || defaultStage === '工程'` therefore
+// hands the sheet's structure to half the shop floor.
+//
+// The alternative — repointing those accounts' default_stage at their real
+// station — would silently change what stages they may 报工 on (requireOwnStage
+// reads the same field) and where they land after login. That is a much larger,
+// riskier change than the one being asked for, so the stage data is left exactly
+// as it is and the row capability is expressed here instead.
+//
+// Granting or revoking someone = one line in the set below. Names are kept in
+// the comments because ids are unreadable; the id is what's authoritative.
+
+// Who can ADD a 零件 row (the + on a row's separator line, 添加零件, and the
+// same gestures on the import draft): the whole 商务 office, plus the actual
+// 工程 team by name.
+const PART_ROW_CREATOR_USER_IDS = new Set<string>([
+  'u-mose92lt-a0cutz', // 于海伟 — 工程
+  'u-mose0apu-9ugtd8', // 周江华 — 工程
+  'u-mpc3rcje-6987yo', // 程江华 — 工程
+  'u-mroawaab-g84mo6', // 彭炳才 — 工程
+  'u-mose7y1k-r91xn7', // 涂明杰 — 工程
+  'u-mose8blz-dnkt24', // 工程003
+  'u-mose8mdn-c8m695', // 工程004
+  'u-mounqsw2-5g86hh', // harry 2 — 工程 (dev/test account)
+])
+
+export function canCreatePartRow(u: AuthUser): boolean {
+  return u.role === 'commerce' || PART_ROW_CREATOR_USER_IDS.has(u.id)
+}
+
+// Who can DELETE a 零件 row. Strictly narrower than adding: an extra row is a
+// visible mistake anyone can see and remove, a deleted row takes its 报工
+// history with it and nobody notices until the part is missing at 出货. Named
+// people only — 于海伟 (both his accounts), 黄优兰香, 老板, Harry.
+const PART_ROW_DELETER_USER_IDS = new Set<string>([
+  'u-mose92lt-a0cutz', // 于海伟 — 工程
+  'u-ms45yjq9-2kbdi1', // 商务于海伟 — 他的商务号
+  'u-mosdsv5z-pzalzv', // 黄优兰香
+  'u-bootstrap-commerce', // 老板
+  'u-mosbgpwr-pczcze', // Harry
+  'u-mounqsw2-5g86hh', // harry 2 (dev/test account)
+])
+
+export function canDeletePartRow(u: AuthUser): boolean {
+  return PART_ROW_DELETER_USER_IDS.has(u.id)
+}
+
 // 报工 viewers: every 商务, PLUS a hand-picked allowlist of production users the
 // boss has explicitly granted the per-person scoreboard. Kept as an id set (not
 // a role/stage) precisely because the grant is per-person — e.g. 于海伟 sees 报工

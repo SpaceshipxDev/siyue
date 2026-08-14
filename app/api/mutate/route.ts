@@ -107,6 +107,8 @@ import {
 } from '@/lib/db'
 import {
   canApproveProcurement,
+  canCreatePartRow,
+  canDeletePartRow,
   canManageOutsource,
   canSeeExpenses,
   canSeeFactoryPulse,
@@ -793,7 +795,10 @@ async function dispatch(
     case 'appendComponent': {
       const jobId = body.jobId
       if (!isString(jobId)) return err('bad appendComponent args')
-      await requirePartRouteEditor()
+      // 加行 is narrower than editing a field — see canCreatePartRow.
+      const creator = await requireUser()
+      if (!canCreatePartRow(creator))
+        return err('无权添加零件 (仅商务/工程可操作)', 403)
       const id = await appendComponent(jobId)
       revalidateJob(jobId)
       return Response.json(ok({ id }))
@@ -806,7 +811,9 @@ async function dispatch(
       const afterComponentId = body.afterComponentId
       if (!isString(jobId) || !isString(afterComponentId))
         return err('bad insertComponentAfter args')
-      await requirePartRouteEditor()
+      const inserter = await requireUser()
+      if (!canCreatePartRow(inserter))
+        return err('无权添加零件 (仅商务/工程可操作)', 403)
       // seqLabel comes back so the client can paint the new row's # (a
       // sub-number of the row above, 1.1) without an RSC refresh.
       const created = await insertComponentAfter(jobId, afterComponentId)
@@ -819,7 +826,11 @@ async function dispatch(
       const componentId = body.componentId
       if (!isString(jobId) || !isString(componentId))
         return err('bad deleteComponent args')
-      await requirePartRouteEditor()
+      // Named people only — see canDeletePartRow. The client shows a 权限
+      // popover instead of firing this, so a 403 here means a stale tab or a
+      // hand-rolled request.
+      const deleter = await requireUser()
+      if (!canDeletePartRow(deleter)) return err('无权删除零件', 403)
       await deleteComponent(jobId, componentId)
       revalidateJob(jobId)
       return Response.json(ok())

@@ -1,6 +1,8 @@
 import { notFound, redirect } from 'next/navigation'
 import { findJobNoConflict, getJob, parseJobNoConflictError } from '@/lib/db'
 import {
+  canCreatePartRow,
+  canDeletePartRow,
   canEditProductionFields,
   canSeeReport,
   landingPathFor,
@@ -263,6 +265,8 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
                   index={i}
                   jobId={job.id}
                   component={c}
+                  canAddRow={canCreatePartRow(user)}
+                  canDeleteRow={canDeletePartRow(user)}
                 />
               ))}
               {job.components.length === 0 ? (
@@ -273,7 +277,10 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
                   >
                     <span className="inline-flex items-center gap-3">
                       无零件
-                      <AddComponentButton jobId={job.id} />
+                      <AddComponentButton
+                        jobId={job.id}
+                        allowed={canCreatePartRow(user)}
+                      />
                     </span>
                   </td>
                 </tr>
@@ -311,10 +318,14 @@ function ImportComponentRows({
   index,
   jobId,
   component,
+  canAddRow,
+  canDeleteRow,
 }: {
   index: number
   jobId: string
   component: Component
+  canAddRow: boolean
+  canDeleteRow: boolean
 }) {
   return (
     <tr className="group align-middle">
@@ -329,7 +340,11 @@ function ImportComponentRows({
             rather than its own index — otherwise this sheet and the job sheet
             call the same part two different numbers. */}
         {component.seqLabel ?? String(index + 1).padStart(2, '0')}
-        <InsertComponentButton jobId={jobId} afterComponentId={component.id} />
+        <InsertComponentButton
+          jobId={jobId}
+          afterComponentId={component.id}
+          allowed={canAddRow}
+        />
       </td>
       <td className="px-3 py-2">
         <ComponentImageUploader
@@ -420,6 +435,7 @@ function ImportComponentRows({
           jobId={jobId}
           componentId={component.id}
           componentName={component.name}
+          allowed={canDeleteRow}
         />
       </td>
     </tr>
