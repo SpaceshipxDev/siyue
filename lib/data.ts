@@ -53,15 +53,15 @@ export const DEFAULT_ROUTE_STAGES: Stage[] = STAGES.filter(
 // eventually ships. The picker shows it lit and non-interactive.
 export const ALWAYS_ON_STAGES: Stage[] = ['出货']
 
-// 采购-first routing. Switching 采购 ON for a part nobody has touched yet is a
-// statement about what the part IS — something we buy, or something whose
-// material has to land before anyone can plan the rest — not an extra step
-// bolted onto a full machining route. So the route collapses to these four and
-// the downstream 工段 are switched back OFF rather than staying on by default.
-// Nothing is locked: 工程 clicks any of them back on in the same picker, as the
-// part's real route becomes known. Only applies to an untouched part (see
-// isPartUntouched) — a route with 报工 on it is never rewritten out from under
-// the floor.
+// 采购-first routing. Switching 采购 ON is a statement about what the part IS —
+// something we buy, or something whose material has to land before anyone can
+// plan the rest — not an extra step bolted onto a full machining route. So the
+// route collapses to these four and the downstream 工段 are switched back OFF
+// rather than staying on by default. Nothing is locked: 工程 clicks any of them
+// back on in the same picker, as the part's real route becomes known.
+// The collapse is skipped only when a 工段 it would remove already carries 报工
+// or sits inside an outsource block — see routeAfterEnabling. Work ALREADY done
+// upstream (工程, 编程) never blocks it; those stages stay in the route.
 export const CAIGOU_FIRST_ROUTE_STAGES: Stage[] = [
   '工程',
   '采购',
@@ -565,33 +565,45 @@ export function routeAfterEnabling(
 ): Stage[] {
   const next = new Set(current)
   next.add(stage)
-  if (stage === '采购' && isPartUntouched(component)) {
-    for (const s of STAGES) {
-      if (CAIGOU_FIRST_ROUTE_STAGES.includes(s)) continue
-      if (ALWAYS_ON_STAGES.includes(s)) continue
-      next.delete(s)
-    }
+  if (stage === '采购') {
+    const dropping = STAGES.filter(
+      (s) =>
+        next.has(s) &&
+        !CAIGOU_FIRST_ROUTE_STAGES.includes(s) &&
+        !ALWAYS_ON_STAGES.includes(s),
+    )
+    // The test is on the stages being REMOVED, never on the part as a whole.
+    // 工程 is the stage immediately BEFORE 采购 — engineering analyzing the part
+    // is exactly when someone realizes it has to be bought, so 工程 (and 编程,
+    // and 采购 itself) will routinely already be 报工'd at this moment. None of
+    // those are removed, so none of them can block. What must block is a 工段
+    // that would LOSE its history: an 操机 already running, a 检验 verdict, a
+    // stage a vendor is holding.
+    const safeToDrop = dropping.every(
+      (s) => isStageUntouched(component, s) && !isStageOutsourced(component, s),
+    )
+    if (safeToDrop) for (const s of dropping) next.delete(s)
   }
   return STAGES.filter((s) => next.has(s))
 }
 
-// Has anyone reported work on this part yet? True for a part fresh out of
-// import: every stage row still 'pending', no ▶, no ✓, no partial count, no
-// 检验 verdict, and nothing sent to a vendor. The route of such a part is still
-// a guess and may be rewritten wholesale (see CAIGOU_FIRST_ROUTE_STAGES); once
-// a single 报工 lands, the route is history and only ever changes one stage at
-// a time, through the normal confirm path.
-export function isPartUntouched(component: Component): boolean {
-  if ((component.outsourceBlocks?.length ?? 0) > 0) return false
-  for (const stage of STAGES) {
-    const st = component.stages[stage]
-    if (!st) continue
-    if (st.status !== 'pending') return false
-    if (st.startedAt || st.completedAt || st.finishedAt || st.verdict)
-      return false
-    if (typeof st.doneQty === 'number' && st.doneQty > 0) return false
-  }
+// Has anyone reported work at this 工段 on this part? True for a stage fresh out
+// of import: row still 'pending', no ▶, no ✓, no partial count, no 检验 verdict.
+// A stage that answers true carries no history, so dropping it from the route
+// destroys nothing.
+export function isStageUntouched(component: Component, stage: Stage): boolean {
+  const st = component.stages[stage]
+  if (!st) return true
+  if (st.status !== 'pending') return false
+  if (st.startedAt || st.completedAt || st.finishedAt || st.verdict) return false
+  if (typeof st.doneQty === 'number' && st.doneQty > 0) return false
   return true
+}
+
+// Is this 工段 covered by an outsource block? The block owns those stages — the
+// picker can't take them out, so neither can a route reset.
+export function isStageOutsourced(component: Component, stage: Stage): boolean {
+  return (component.outsourceBlocks ?? []).some((b) => b.stages.includes(stage))
 }
 
 // How many of this component's qty have been finished at this stage,

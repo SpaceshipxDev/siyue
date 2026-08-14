@@ -135,8 +135,9 @@ export function StageChips({
       next = new Set(currentRoute)
       next.delete(stage)
     } else {
-      // Switching a stage ON isn't always a plain add — 采购 on a part with no
-      // 报工 yet resets the route to 工程·采购·编程·出货 (routeAfterEnabling).
+      // Switching a stage ON isn't always a plain add — 采购 resets the route
+      // to 工程·采购·编程·出货 whenever no 工段 it drops has 报工 on it
+      // (routeAfterEnabling; 工程/编程 being done upstream never blocks it).
       // The picker stays open and every downstream 工段 stays clickable, so
       // switching one back on is the next click, not a different screen.
       next = new Set(routeAfterEnabling(component, currentRoute, stage))
