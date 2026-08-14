@@ -644,106 +644,29 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
         <ComponentsScrollArea
           myStage={myStage}
           className="overflow-x-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]"
+          /* 冻结表头 — the same <colgroup> + <thead>, rendered a second time
+             into the strip that pins to the top of the window once the real
+             header scrolls off. Column names have to stay readable at row 60
+             the way they are at row 1. */
+          pinnedHeader={
+            <>
+              <PartsSheetCols canEditFields={canEditFields} showMoney={showMoney} />
+              <PartsSheetHead
+                myStage={myStage}
+                canEditFields={canEditFields}
+                showMoney={showMoney}
+                pinned
+              />
+            </>
+          }
         >
           <table className="sheet w-full text-left text-[13px]">
-            <colgroup>
-              <col style={{ width: 56 }} />
-              <col style={{ width: 78 }} />
-              <col style={{ width: 200 }} />
-              <col style={{ width: 120 }} />
-              <col style={{ width: 130 }} />
-              {/* 数量 / 材料 / 表面处理 are short values (a count, "6061-T6",
-                  "阳极氧化黑"). Kept narrow so the stage grid starts closer to
-                  the frozen 零件 column; the two text cells wrap. */}
-              <col style={{ width: 78 }} />
-              <col style={{ width: 110 }} />
-              <col style={{ width: 132 }} />
-              {/* 工序 (StageChips) — sits between 表面处理 and the stage grid.
-                  Without its own <col> every column to the right inherits the
-                  wrong width and 备注/单价/小计 fall off the end of the
-                  colgroup. */}
-              <col style={{ width: 150 }} />
-              {STAGES.map((s) => (
-                <col key={s} style={{ width: 90 }} />
-              ))}
-              <col style={{ width: 160 }} />
-              <col style={{ width: 170 }} />
-              {canEditFields && <col style={{ width: 170 }} />}
-              {showMoney && <col style={{ width: 110 }} />}
-              {showMoney && <col style={{ width: 100 }} />}
-              {canEditFields && <col style={{ width: 64 }} />}
-            </colgroup>
-            <thead>
-              <tr className="text-[var(--color-ink-2)]">
-                {/* Frozen identifier block. 零件 is what the eye tracks while
-                    the stage grid scrolls, and it can only sit at the left edge
-                    if # and 图 freeze with it (left offsets = their col widths).
-                    data-sticky-edge doubles as ComponentsScrollArea's anchor. */}
-                <th
-                  className="sticky-col px-3 py-3 text-center label whitespace-nowrap"
-                  style={{ left: 0 }}
-                >
-                  #
-                </th>
-                <th
-                  className="sticky-col px-3 py-3 label whitespace-nowrap"
-                  style={{ left: 56 }}
-                >
-                  图
-                </th>
-                <th
-                  data-sticky-edge
-                  className="sticky-col sticky-col-edge px-4 py-3 label whitespace-nowrap"
-                  style={{ left: 134 }}
-                >
-                  零件
-                </th>
-                <th className="px-4 py-3 label whitespace-nowrap">料号</th>
-                <th className="px-4 py-3 label whitespace-nowrap">加工工艺</th>
-                <th className="px-4 py-3 text-right label whitespace-nowrap">
-                  数量
-                </th>
-                <th className="px-4 py-3 label whitespace-nowrap">材料</th>
-                <th className="px-4 py-3 label whitespace-nowrap">表面处理</th>
-                <th className="px-4 py-3 label whitespace-nowrap">工序</th>
-                {STAGES.map((s) => (
-                  <th
-                    key={s}
-                    data-stage-col={s}
-                    // overflow visible so the funnel dropdown isn't clipped by
-                    // .sheet th { overflow:hidden } — same override the master
-                    // board uses for its column filters.
-                    style={{ overflow: 'visible' }}
-                    className={`relative px-2 py-3 text-center whitespace-nowrap ${
-                      s === myStage ? 'font-semibold text-[var(--color-ink)]' : ''
-                    }`}
-                  >
-                    <span className="inline-flex items-center justify-center gap-1">
-                      <StageHeader name={s} />
-                      <JobPartStageFunnel stage={s} />
-                    </span>
-                  </th>
-                ))}
-                <th className="px-3 py-3 label whitespace-nowrap">出货记录</th>
-                <th className="px-3 py-3 label whitespace-nowrap">动态</th>
-                {canEditFields && (
-                  <th className="px-4 py-3 label whitespace-nowrap">备注</th>
-                )}
-                {showMoney && (
-                  <th className="px-4 py-3 text-right label whitespace-nowrap">
-                    单价
-                  </th>
-                )}
-                {showMoney && (
-                  <th className="px-4 py-3 text-right label whitespace-nowrap">
-                    小计
-                  </th>
-                )}
-                {canEditFields && (
-                  <th className="px-3 py-3 text-center label whitespace-nowrap" />
-                )}
-              </tr>
-            </thead>
+            <PartsSheetCols canEditFields={canEditFields} showMoney={showMoney} />
+            <PartsSheetHead
+              myStage={myStage}
+              canEditFields={canEditFields}
+              showMoney={showMoney}
+            />
             <tbody>
               {/* 排产 plan row — a slim pinned first row carrying each stage's
                   job-level planned finish date, optically aligned over the stage
@@ -1177,6 +1100,133 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
         {/* /jobtabs-root */}
       </main>
     </div>
+  )
+}
+
+// Column widths of the 零件进度 sheet. Extracted because the sheet renders its
+// header TWICE — once in the table, once in the strip that pins to the top of
+// the window (ComponentsScrollArea) — and the two copies only line up if they
+// share one <colgroup>. Column count must also track _part_insert.tsx.
+function PartsSheetCols({
+  canEditFields,
+  showMoney,
+}: {
+  canEditFields: boolean
+  showMoney: boolean
+}) {
+  return (
+    <colgroup>
+      <col style={{ width: 56 }} />
+      <col style={{ width: 78 }} />
+      <col style={{ width: 200 }} />
+      <col style={{ width: 120 }} />
+      <col style={{ width: 130 }} />
+      {/* 数量 / 材料 / 表面处理 are short values (a count, "6061-T6",
+          "阳极氧化黑"). Kept narrow so the stage grid starts closer to
+          the frozen 零件 column; the two text cells wrap. */}
+      <col style={{ width: 78 }} />
+      <col style={{ width: 110 }} />
+      <col style={{ width: 132 }} />
+      {/* 工序 (StageChips) — sits between 表面处理 and the stage grid.
+          Without its own <col> every column to the right inherits the
+          wrong width and 备注/单价/小计 fall off the end of the
+          colgroup. */}
+      <col style={{ width: 150 }} />
+      {STAGES.map((s) => (
+        <col key={s} style={{ width: 90 }} />
+      ))}
+      <col style={{ width: 160 }} />
+      <col style={{ width: 170 }} />
+      {canEditFields && <col style={{ width: 170 }} />}
+      {showMoney && <col style={{ width: 110 }} />}
+      {showMoney && <col style={{ width: 100 }} />}
+      {canEditFields && <col style={{ width: 64 }} />}
+    </colgroup>
+  )
+}
+
+// The sheet's column names. `pinned` renders the copy that lives in the frozen
+// strip: identical cells and widths (it has to overlay the sheet pixel for
+// pixel), minus the two things that only make sense in the live table — the
+// status funnels (their menus would be clipped by the strip) and the
+// data-attributes ComponentsScrollArea uses to find the real header.
+function PartsSheetHead({
+  myStage,
+  canEditFields,
+  showMoney,
+  pinned = false,
+}: {
+  myStage: string | null | undefined
+  canEditFields: boolean
+  showMoney: boolean
+  pinned?: boolean
+}) {
+  return (
+    <thead>
+      <tr className="text-[var(--color-ink-2)]">
+        {/* Frozen identifier block. 零件 is what the eye tracks while
+            the stage grid scrolls, and it can only sit at the left edge
+            if # and 图 freeze with it (left offsets = their col widths).
+            data-sticky-edge doubles as ComponentsScrollArea's anchor. */}
+        <th
+          className="sticky-col px-3 py-3 text-center label whitespace-nowrap"
+          style={{ left: 0 }}
+        >
+          #
+        </th>
+        <th
+          className="sticky-col px-3 py-3 label whitespace-nowrap"
+          style={{ left: 56 }}
+        >
+          图
+        </th>
+        <th
+          data-sticky-edge={pinned ? undefined : ''}
+          className="sticky-col sticky-col-edge px-4 py-3 label whitespace-nowrap"
+          style={{ left: 134 }}
+        >
+          零件
+        </th>
+        <th className="px-4 py-3 label whitespace-nowrap">料号</th>
+        <th className="px-4 py-3 label whitespace-nowrap">加工工艺</th>
+        <th className="px-4 py-3 text-right label whitespace-nowrap">数量</th>
+        <th className="px-4 py-3 label whitespace-nowrap">材料</th>
+        <th className="px-4 py-3 label whitespace-nowrap">表面处理</th>
+        <th className="px-4 py-3 label whitespace-nowrap">工序</th>
+        {STAGES.map((s) => (
+          <th
+            key={s}
+            data-stage-col={pinned ? undefined : s}
+            // overflow visible so the funnel dropdown isn't clipped by
+            // .sheet th { overflow:hidden } — same override the master
+            // board uses for its column filters.
+            style={{ overflow: 'visible' }}
+            className={`relative px-2 py-3 text-center whitespace-nowrap ${
+              s === myStage ? 'font-semibold text-[var(--color-ink)]' : ''
+            }`}
+          >
+            <span className="inline-flex items-center justify-center gap-1">
+              <StageHeader name={s} />
+              {!pinned && <JobPartStageFunnel stage={s} />}
+            </span>
+          </th>
+        ))}
+        <th className="px-3 py-3 label whitespace-nowrap">出货记录</th>
+        <th className="px-3 py-3 label whitespace-nowrap">动态</th>
+        {canEditFields && (
+          <th className="px-4 py-3 label whitespace-nowrap">备注</th>
+        )}
+        {showMoney && (
+          <th className="px-4 py-3 text-right label whitespace-nowrap">单价</th>
+        )}
+        {showMoney && (
+          <th className="px-4 py-3 text-right label whitespace-nowrap">小计</th>
+        )}
+        {canEditFields && (
+          <th className="px-3 py-3 text-center label whitespace-nowrap" />
+        )}
+      </tr>
+    </thead>
   )
 }
 

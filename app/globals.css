@@ -344,6 +344,29 @@ html, body {
 .sheet .sticky-col-edge {
   box-shadow: 6px 0 6px -6px rgba(0, 0, 0, 0.08);
 }
+/* 冻结表头 — the second copy of the sheet's header row, pinned to the top of
+ * the window while the sheet's rows are on screen (see ComponentsScrollArea).
+ * Same cells, same widths, sitting exactly where the real header would be, so
+ * a 60-part job reads like row 1 all the way down. Inert by design — it is a
+ * label row, nothing in it is clickable — but it does ABSORB clicks: letting
+ * them fall through would put a ▶ 报工 tap on a row the user can't see. */
+.pinned-head {
+  position: fixed;
+  top: 0;
+  z-index: 30;
+  overflow: hidden;
+  cursor: default;
+  user-select: none;
+  box-shadow: 0 10px 18px -16px rgba(20, 19, 15, 0.5);
+}
+.pinned-head .sheet thead th.sticky-col {
+  /* The strip is not a scroll container, so `position: sticky` has nothing to
+   * stick to — the frozen identifier columns are held at the left edge by a
+   * counter-translate instead. `!important` to beat the inline `left`. */
+  position: relative;
+  left: auto !important;
+  z-index: 11;
+}
 .mono {
   font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
   font-variant-numeric: tabular-nums;
