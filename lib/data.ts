@@ -55,19 +55,13 @@ export const ALWAYS_ON_STAGES: Stage[] = ['出货']
 
 // 采购-first routing. Switching 采购 ON is a statement about what the part IS —
 // something we buy, or something whose material has to land before anyone can
-// plan the rest — not an extra step bolted onto a full machining route. So the
-// route collapses to these four and the downstream 工段 are switched back OFF
-// rather than staying on by default. Nothing is locked: 工程 clicks any of them
-// back on in the same picker, as the part's real route becomes known.
-// The collapse is skipped only when a 工段 it would remove already carries 报工
-// or sits inside an outsource block — see routeAfterEnabling. Work ALREADY done
-// upstream (工程, 编程) never blocks it; those stages stay in the route.
-export const CAIGOU_FIRST_ROUTE_STAGES: Stage[] = [
-  '工程',
-  '采购',
-  '编程',
-  '出货',
-]
+// plan the rest — not an extra step bolted onto a full machining route. A part
+// we buy isn't programmed either, so 编程 goes with the rest: what's left is
+// 工程 (who decided), 采购 (the buy) and 出货. Every other 工段 is switched back
+// OFF rather than staying on by default. Nothing is locked — 工程 clicks any of
+// them back on in the same picker as the part's real route becomes known.
+// See routeAfterEnabling for the one thing that can stop the reset.
+export const CAIGOU_FIRST_ROUTE_STAGES: Stage[] = ['工程', '采购', '出货']
 
 // 出货 is always an in-house terminal stage: vendors never ship to the
 // customer directly — they ship parts back to us, then we ship to the
@@ -574,15 +568,22 @@ export function routeAfterEnabling(
     )
     // The test is on the stages being REMOVED, never on the part as a whole.
     // 工程 is the stage immediately BEFORE 采购 — engineering analyzing the part
-    // is exactly when someone realizes it has to be bought, so 工程 (and 编程,
-    // and 采购 itself) will routinely already be 报工'd at this moment. None of
-    // those are removed, so none of them can block. What must block is a 工段
-    // that would LOSE its history: an 操机 already running, a 检验 verdict, a
-    // stage a vendor is holding.
-    const safeToDrop = dropping.every(
-      (s) => isStageUntouched(component, s) && !isStageOutsourced(component, s),
-    )
-    if (safeToDrop) for (const s of dropping) next.delete(s)
+    // is exactly when someone realizes it has to be bought, so 工程 is routinely
+    // already 报工'd at this moment. It isn't removed, so it can't block.
+    //
+    // 编程 IS removed but still never blocks: it's desk work that runs alongside
+    // 工程's analysis, so it's the one dropped 工段 that may legitimately already
+    // carry 报工. When it does it simply STAYS in the route — history is never
+    // thrown away, and the reset still happens for everything else.
+    //
+    // What does block is a 工段 that would lose real shop-floor history: an 操机
+    // already running, a 检验 verdict, 打磨 with a partial count, a stage a
+    // vendor is holding. Then nothing moves and 采购 is a plain single add.
+    const worked = (s: Stage) =>
+      !isStageUntouched(component, s) || isStageOutsourced(component, s)
+    const keep = (s: Stage) => s === '编程' && worked(s)
+    const blocked = dropping.some((s) => !keep(s) && worked(s))
+    if (!blocked) for (const s of dropping) if (!keep(s)) next.delete(s)
   }
   return STAGES.filter((s) => next.has(s))
 }
