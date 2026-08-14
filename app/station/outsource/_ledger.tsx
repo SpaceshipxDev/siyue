@@ -784,7 +784,15 @@ function Panel({
           {!closed && pendingMembers.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <span className="label">收件日期</span>
-              <DatePop value={date} onChange={setDate} allowFuture={false} disabled={pending} />
+              {/* portal — the row panel lives inside the ledger's
+                  overflow-x-auto wrapper, which clips an absolute calendar. */}
+              <DatePop
+                value={date}
+                onChange={setDate}
+                allowFuture={false}
+                disabled={pending}
+                portal
+              />
               <button
                 type="button"
                 onClick={submit}
