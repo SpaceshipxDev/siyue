@@ -1,4 +1,4 @@
-import { NextRequest, after } from 'next/server'
+import { NextRequest } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import {
   createParsingJob,
@@ -175,10 +175,13 @@ export async function POST(request: NextRequest) {
     return Response.json({ ok: false, error: message }, { status: 500 })
   }
 
-  // Image attachment — after the response, chunked, progressive revalidate.
+  // Image attachment — BEFORE the response. The user just SAW these 图纸 in
+  // the mapping workspace; landing them on a review page with empty frames
+  // that fill in later reads as "my images vanished". Uploads run chunked at
+  // concurrency 8, which fits comfortably inside maxDuration on the VM.
   const wantsFileImages = components.some((c) => c.imageRef)
   const fileForImages = wantsFileImages ? file : null
-  after(async () => {
+  {
     try {
       const pending: { partIndex: number; bytes: Uint8Array; mime: string; name: string }[] = []
 
@@ -251,12 +254,14 @@ export async function POST(request: NextRequest) {
         revalidatePath(`/import/${job.id}`)
       }
     } catch (err) {
+      // Non-fatal — the draft is committed; the review page's uploaders can
+      // fill any photo the pass dropped.
       console.error('[qingdan/commit] image pass failed', {
         jobId: job.id,
         err: errMessage(err),
       })
     }
-  })
+  }
 
   revalidatePath('/')
   revalidatePath(`/import/${job.id}`)

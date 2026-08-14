@@ -40,7 +40,7 @@ const FIELDS: { key: FieldKey; label: string; numeric?: boolean }[] = [
   { key: 'material', label: '材料' },
   { key: 'surfaceTreatment', label: '表面处理' },
   { key: 'process', label: '加工工艺' },
-  { key: 'partNo', label: '图号 / 料号' },
+  { key: 'partNo', label: '料号' },
   { key: 'notes', label: '备注' },
   { key: 'unitPriceCny', label: '单价', numeric: true },
   { key: 'lineTotalCny', label: '小计', numeric: true },
@@ -61,7 +61,11 @@ const SYNONYMS: Record<FieldKey, string[]> = {
   material: ['材料', '材质', '原材料', '材料材质'],
   surfaceTreatment: ['表面处理', '表处', '表面', '后处理', '表面要求', '处理方式'],
   process: ['加工工艺', '工艺', '加工方式', '工艺要求', '加工类型', '加工'],
-  partNo: ['图号', '料号', '零件图号', '图纸编号', '物料编码', '物料号', '编码', '编号', '规格型号', '型号', '规格'],
+  // 料号-family ONLY. 图号/规格型号 headers are NOT auto-claimed: a drawing
+  // number is not a 料号, and auto-labeling one as the other poisons the
+  // 出货单/生产单 downstream. The user can still map such a column to 料号
+  // by hand when that's what their sheet actually means.
+  partNo: ['料号', '物料编码', '物料编号', '物料号'],
   notes: ['备注', '说明', '要求', '技术要求', '其他要求', 'remark'],
   unitPriceCny: ['单价', '含税单价', '不含税单价', '单价元', 'price'],
   lineTotalCny: ['小计', '金额', '总价', '合计', '总金额', '总额', 'amount'],
@@ -766,16 +770,19 @@ export function ManualImportWorkspace() {
       </div>
 
       <div className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] overflow-auto max-h-[62vh]">
-        <table className="w-full text-left text-[12px] border-collapse">
+        <table className="w-full border-separate border-spacing-0 text-left text-[12px]">
           <thead>
             <tr>
-              <th className="sticky top-0 z-10 bg-[var(--color-surface)] border-b border-[var(--color-border-strong)] px-2 py-2 w-[44px]" />
+              <th className="sticky top-0 z-10 w-[44px] border-b border-r border-[var(--color-border-strong)] bg-[#f5f3ed] px-2 py-2" />
               {Array.from({ length: cols }, (_, c) => {
                 const field = mapping[c] ?? null
                 return (
+                  // The whole header cell is the mapping control. A mapped
+                  // column's head goes solid ink — selected should LOOK
+                  // selected from across the room, not via a small chip.
                   <th
                     key={c}
-                    className="sticky top-0 z-10 bg-[var(--color-surface)] border-b border-[var(--color-border-strong)] px-2 py-2 align-bottom min-w-[92px]"
+                    className="sticky top-0 z-10 min-w-[92px] border-b border-r border-b-[var(--color-border-strong)] border-r-[var(--color-border)] p-0 align-bottom"
                   >
                     <button
                       type="button"
@@ -791,17 +798,38 @@ export function ManualImportWorkspace() {
                               },
                         )
                       }}
-                      className={`inline-flex items-center gap-1 px-2 py-1 text-[12px] tracking-wider rounded-[2px] transition-colors ${
+                      className={`block w-full px-3 py-2 text-left transition-colors ${
                         field
-                          ? 'bg-[var(--color-ink)] text-[var(--color-surface)] hover:opacity-80'
-                          : 'border border-dashed border-[var(--color-border-strong)] text-[var(--color-ink-4)] hover:text-[var(--color-ink-2)] hover:border-[var(--color-ink-3)]'
+                          ? 'bg-[var(--color-ink)] hover:opacity-90'
+                          : 'bg-[#f5f3ed] hover:bg-[var(--color-active-bg)]'
                       }`}
                     >
-                      {field ? FIELD_LABEL[field] : '对应…'}
+                      <span
+                        className={`flex items-center gap-1.5 whitespace-nowrap text-[12px] tracking-wider ${
+                          field
+                            ? 'font-medium text-[var(--color-surface)]'
+                            : 'text-[var(--color-ink-4)]'
+                        }`}
+                      >
+                        {field ? FIELD_LABEL[field] : '对应…'}
+                        <span className={`text-[9px] ${field ? 'opacity-60' : ''}`}>▾</span>
+                      </span>
+                      <span
+                        className={`mt-0.5 block max-w-[180px] truncate text-[11px] font-normal ${
+                          field
+                            ? 'text-[var(--color-surface)] opacity-55'
+                            : 'text-[var(--color-ink-3)]'
+                        }`}
+                      >
+                        {(() => {
+                          const raw = (header[c] ?? '').trim()
+                          // A floating image anchored on the header row leaves
+                          // its marker here — show the column letter, not the
+                          // raw <<IMG:…>> token.
+                          return !raw || IMG_RE.test(raw) ? colLetter(c) : raw
+                        })()}
+                      </span>
                     </button>
-                    <div className="mt-1.5 text-[11px] font-normal text-[var(--color-ink-3)] truncate max-w-[180px]">
-                      {(header[c] ?? '').trim() || colLetter(c)}
-                    </div>
                   </th>
                 )
               })}
@@ -811,13 +839,8 @@ export function ManualImportWorkspace() {
             {rows.map(({ r, autoSkip, included: inc }) => {
               const row = aoa[r] ?? []
               return (
-                <tr
-                  key={r}
-                  className={`border-b border-[var(--color-border)] last:border-b-0 ${
-                    inc ? 'hover:bg-[var(--color-bg)]' : 'opacity-35'
-                  }`}
-                >
-                  <td className="px-2 py-1.5">
+                <tr key={r} className={`group ${inc ? '' : 'opacity-35'}`}>
+                  <td className="border-b border-r border-[var(--color-border)] bg-[#f5f3ed] px-2 py-1.5">
                     <button
                       type="button"
                       disabled={autoSkip}
@@ -846,10 +869,16 @@ export function ManualImportWorkspace() {
                     const marker = IMG_RE.exec(raw)
                     const field = mapping[c] ?? null
                     const numeric = field ? FIELDS.find((f) => f.key === field)?.numeric : false
+                    // Column separation + a lit/dim split: mapped columns stay
+                    // white (they're what actually imports), unmapped sink to
+                    // the page bg — the sheet reads as "these lanes go in".
+                    const laneBg = field
+                      ? 'bg-[var(--color-surface)] group-hover:bg-[#faf8f2]'
+                      : 'bg-[var(--color-bg)]'
                     if (marker || (field === 'image' && sheet?.rowImgs?.[r])) {
                       const uri = marker ? loaded.images[marker[1]] : sheet?.rowImgs?.[r]
                       return (
-                        <td key={c} className="px-2 py-1">
+                        <td key={c} className={`border-b border-r border-[var(--color-border)] px-2 py-1 ${laneBg}`}>
                           {uri ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
@@ -869,9 +898,11 @@ export function ManualImportWorkspace() {
                       <td
                         key={c}
                         title={raw.length > 30 ? raw : undefined}
-                        className={`px-2 py-1.5 whitespace-nowrap max-w-[240px] overflow-hidden text-ellipsis ${
+                        className={`border-b border-r border-[var(--color-border)] px-2 py-1.5 whitespace-nowrap max-w-[240px] overflow-hidden text-ellipsis ${
                           numeric ? 'text-right mono' : ''
-                        } ${field ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-3)]'}`}
+                        } ${
+                          field ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-4)]'
+                        } ${laneBg}`}
                       >
                         {raw}
                       </td>

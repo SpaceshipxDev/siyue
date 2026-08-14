@@ -3,6 +3,7 @@ import { requireProductionOrderExporter } from '@/lib/auth'
 import { getJob } from '@/lib/db'
 import { fetchImages } from '@/lib/pdf/images'
 import { buildProductionOrderWorkbook } from '@/lib/production-order/workbook'
+import { contentDisposition } from '@/lib/content-disposition'
 
 // 一键导出生产单 — rebuilds the 越侬生产单 .xlsx from the stored order so
 // nobody hand-maintains it in WPS. 商务 + 工程 (canExportProductionOrder): the
@@ -28,14 +29,18 @@ export async function GET(
   const body = await wb.xlsx.writeBuffer()
 
   const jobNo = job.jobNo || 'draft'
-  const fallback = `production-order-${jobNo}.xlsx`
-  const encoded = encodeURIComponent(`生产单_${jobNo}.xlsx`)
 
+  // contentDisposition, not a hand-rolled header: a non-ASCII 工号 (返修…, or
+  // any hand-typed 清单导入 one) in a raw filename="" makes the Response
+  // constructor throw ByteString errors AFTER the workbook already rendered.
   return new Response(body, {
     headers: {
       'content-type':
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'content-disposition': `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`,
+      'content-disposition': contentDisposition(
+        `生产单_${jobNo}.xlsx`,
+        'attachment',
+      ),
       'cache-control': 'no-store',
     },
   })

@@ -226,6 +226,7 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
               <col style={{ width: 56 }} />
               <col style={{ width: 84 }} />
               <col style={{ width: 220 }} />
+              <col style={{ width: 110 }} />
               <col style={{ width: 80 }} />
               <col style={{ width: 160 }} />
               <col style={{ width: 200 }} />
@@ -241,6 +242,7 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
                 <th className="px-3 py-3 text-center label whitespace-nowrap">#</th>
                 <th className="px-3 py-3 label whitespace-nowrap">图</th>
                 <th className="px-4 py-3 label whitespace-nowrap">零件名称</th>
+                <th className="px-4 py-3 label whitespace-nowrap">料号</th>
                 <th className="px-4 py-3 text-right label whitespace-nowrap">
                   数量
                 </th>
@@ -272,7 +274,7 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
               {job.components.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={12}
+                    colSpan={13}
                     className="px-4 py-6 text-center text-[12px] text-[var(--color-ink-3)]"
                   >
                     <span className="inline-flex items-center gap-3">
@@ -289,7 +291,7 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
                 // separator line and would otherwise be clipped).
                 <tr>
                   <td
-                    colSpan={12}
+                    colSpan={13}
                     className="p-0"
                     style={{
                       height: 12,
@@ -362,6 +364,19 @@ function ImportComponentRows({
           value={component.name}
           placeholder="零件名称"
           className="text-[14px] font-medium text-[var(--color-ink)]"
+        />
+      </td>
+      {/* 料号 — same editable cell the job sheet has (partNo prints on the
+          出货单/外协单 and as 图号(产品编号) on the 生产单), so 商务 can see
+          and fix it BEFORE confirming instead of discovering it post-import. */}
+      <td className="px-3 py-3">
+        <ComponentText
+          jobId={jobId}
+          componentId={component.id}
+          field="partNo"
+          value={component.partNo}
+          placeholder="—"
+          className="mono text-[12px] text-[var(--color-ink-2)]"
         />
       </td>
       <td className="px-3 py-3">
