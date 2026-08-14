@@ -4832,6 +4832,50 @@ export type ComponentPatch = {
   seqLabel?: string | null
 }
 
+// 数量 × 单价 → 小计, to 2 decimals (¥0.01 is the smallest thing anyone quotes;
+// plain float multiplication otherwise leaves 1.0000000000000002 in the sheet).
+const roundMoney = (n: number) => Math.round(n * 100) / 100
+
+// The one rule for keeping 小计 true, given a part's current row and the patch
+// about to land on it. Returns the 小计 correction to fold into that patch, or
+// {} to leave the stored value alone.
+//
+//   · 小计 typed explicitly → untouched (a line discount is the user's call)
+//   · 数量 or 单价 changed, and both are known → 小计 = 数量 × 单价
+//   · 单价 cleared → 小计 goes with it, UNLESS the stored 小计 was never the
+//     product of the two (someone quoted the line total on its own — keep it)
+//
+// The 小计 cell in app/_editable.tsx applies the same rule locally so the
+// number appears the instant you leave the 单价 field; this is the authority.
+function syncedLineTotal(
+  prev: PartRow | undefined,
+  patch: ComponentPatch,
+): { lineTotalCny?: number | null } {
+  if (!prev) return {}
+  if (patch.lineTotalCny !== undefined) return {}
+  if (patch.qty === undefined && patch.unitPriceCny === undefined) return {}
+  const qty = patch.qty ?? prev.qty
+  const unit =
+    patch.unitPriceCny !== undefined ? patch.unitPriceCny : prev.unitPriceCny
+  if (
+    typeof unit === 'number' &&
+    Number.isFinite(unit) &&
+    typeof qty === 'number' &&
+    Number.isFinite(qty)
+  ) {
+    const next = roundMoney(qty * unit)
+    return next === prev.lineTotalCny ? {} : { lineTotalCny: next }
+  }
+  // No 单价 to multiply by. Only an explicit clearing of the price drops the
+  // total, and only when that total was this rule's own work.
+  if (patch.unitPriceCny !== null) return {}
+  if (prev.lineTotalCny === undefined) return {}
+  const wasDerived =
+    typeof prev.unitPriceCny === 'number' &&
+    roundMoney(prev.qty * prev.unitPriceCny) === prev.lineTotalCny
+  return wasDerived ? { lineTotalCny: null } : {}
+}
+
 export async function updateComponent(
   jobId: string,
   componentId: string,
@@ -4841,6 +4885,13 @@ export async function updateComponent(
     const snap = await loadJobSnapshot(jobId)
     const partId = findPartIdInSnap(snap, jobId, componentId)
     if (!partId) return
+    // 小计 follows 数量 × 单价. Touching either input rewrites the line total
+    // here, server-side, so it holds no matter which surface typed the number
+    // (job sheet / 导入 draft / a future one) — nobody does the multiplication
+    // by hand. An explicitly-typed 小计 in the same patch always wins; that is
+    // the line-discount escape hatch. Mirrored on screen by the 小计 cell in
+    // app/_editable.tsx, which must keep telling the same story.
+    patch = { ...patch, ...syncedLineTotal(snap.parts.find((p) => p.id === partId), patch) }
     const update: AnyRow = {}
     if (patch.name !== undefined) update.name = patch.name
     if (patch.qty !== undefined) update.qty = patch.qty
