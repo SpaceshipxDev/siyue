@@ -258,6 +258,96 @@ export function canDeletePartRow(u: AuthUser): boolean {
   return PART_ROW_DELETER_USER_IDS.has(u.id)
 }
 
+// ─── 报工 工段范围 (which stage cells a user may CLICK) ──────────────────────
+//
+// The boss reads money out of stage progress now, so a tap on someone else's
+// station is no longer harmless noise — it corrupts the measurement. Every
+// stage write (start/finish/undo/数量/检验/移交 — /api/mutate and the server
+// actions alike) goes through canClickStage; the client shows a denial popup
+// before the request even fires (app/_stage_scope.tsx).
+//
+// PER-PERSON map, same pattern (and same reason) as the part-row allowlists
+// below: default_stage is NOT an org chart — the seed parked most of the
+// floor at 工程, and repointing it would silently move logins and 报工
+// attribution. The stage data stays exactly as-is; scope lives here.
+//
+// Derived 2026-08-15 from the boss's ERP permission matrix (✓ = operate,
+// 查看 = read-only) cross-checked against 45 days of real taps in
+// worker_stage_events, so nobody's actual recorded work went dark.
+// Grant/revoke = edit one line.
+
+export type StageScope = 'all' | readonly Stage[]
+
+// 商务 office pattern: floor stages are 查看-only; they operate the
+// commercial tail of the route. (外协 is its own surface, gated separately
+// by canManageOutsource.)
+const COMMERCE_STAGE_SCOPE: readonly Stage[] = ['采购', '表处', '出货']
+
+const STAGE_SCOPE_BY_USER_ID: Record<string, StageScope> = {
+  // — full access —
+  'u-bootstrap-commerce': 'all', // 老板
+  'u-mosbgpwr-pczcze': 'all', // Harry
+  'u-mounqsw2-5g86hh': 'all', // harry 2 (dev/test)
+  'u-ms45yjq9-2kbdi1': 'all', // 商务于海伟
+  'u-mosdsv5z-pzalzv': 'all', // 黄优兰香 — boss's explicit grant
+  // — 工程 (the real team) — routing owners act anywhere —
+  'u-mose92lt-a0cutz': 'all', // 于海伟
+  'u-mose0apu-9ugtd8': 'all', // 周江华
+  'u-mpc3rcje-6987yo': 'all', // 程江华
+  'u-mroawaab-g84mo6': 'all', // 彭炳才
+  'u-mose7y1k-r91xn7': 'all', // 涂明杰
+  'u-mose8blz-dnkt24': 'all', // 工程003
+  'u-mose8mdn-c8m695': 'all', // 工程004
+  // — 商务 —
+  'u-mose9jng-o2g5ux': COMMERCE_STAGE_SCOPE, // 王雪梅
+  'u-mp0s2vcp-1n0j4g': COMMERCE_STAGE_SCOPE, // 俞予悦
+  'u-mosebiu8-81wy27': COMMERCE_STAGE_SCOPE, // 商务002
+  'u-mose9xll-rtkinm': COMMERCE_STAGE_SCOPE, // 商务003
+  'u-mosea6fl-p7zplz': COMMERCE_STAGE_SCOPE, // 商务004
+  'u-moseby56-6vvs6y': COMMERCE_STAGE_SCOPE, // 商务005
+  'u-mpvyxug7-9qo3hr': [], // 费会计 — reads the books, never taps a stage
+  // — floor (most were seed-parked at default_stage=工程; this map is truth) —
+  'u-mpkp07b5-fo939e': ['操机'], // 塑料操机001吴亦能
+  'u-mpdgnrqb-66dbhr': ['操机'], // 塑料操机002罗杰
+  'u-mpdgme24-aqp6cm': ['操机'], // 金属操机001高发祥
+  'u-mpdgmq1d-q1celf': ['操机'], // 金属操机002小伍
+  'u-mpdgklfi-3r0tfm': ['编程', '操机'], // 车工李元发 — 车工 run both per ERP matrix
+  'u-mpdgkaii-we81gu': ['编程', '操机'], // 车工徐兴旺
+  'u-mpdgg8zl-6vavvt': ['编程', '操机'], // 编程001高浩灿
+  'u-mpdgirjs-facsb5': ['编程', '操机'], // 编程002李军军
+  'u-mpdgj774-wnwgsf': ['编程', '操机'], // 编程003吴润静
+  'u-mpdgjdiu-lq2hso': ['编程', '操机'], // 编程004毛伟超
+  'u-mpdgjma9-lgyznp': ['编程', '操机'], // 编程005戴棵
+  'u-mpdgjtj2-nzx055': ['编程', '操机'], // 编程006宋跃文
+  'u-mpdg0tcr-beaxrv': ['手工', '打磨'], // 手工001潘健 — 299 real 打磨 taps/45d
+  'u-mpdgdq8f-fn7k40': ['打磨', '喷漆', '丝印', '手工', '表处'], // 打磨喷漆 — finishing cluster, all usage-backed
+  'u-mpdg1xc0-w221oi': ['手工', '打磨', '喷漆'], // 批量组001夏
+  'u-mpdgqdy0-twnhmy': ['质量', '检验', '出货'], // 质量周中华 — de facto shipper (2,105 出货 taps/45d)
+  'u-mpdgra00-srf0qm': ['质量', '检验'], // 质量倪伟群
+  'u-mpkkcscl-9aoza0': ['质量', '检验'], // 刘敏敏
+  'u-mpkkghqt-p8qrvy': ['质量', '检验'], // 李佳怡
+  'u-mqoj62uq-olmh4c': ['采购'], // 采购人事
+}
+
+// Accounts created after this map was written (new hires) fall back to the
+// closest sane rule until someone adds them above: 商务 → the commercial
+// tail, 工程 → everywhere, other production → their own station only.
+function fallbackStageScope(u: AuthUser): StageScope {
+  if (u.role === 'commerce') return COMMERCE_STAGE_SCOPE
+  if (u.defaultStage === '工程') return 'all'
+  return u.defaultStage ? [u.defaultStage] : []
+}
+
+export function stageScopeFor(u: AuthUser): StageScope {
+  if (isAdminUser(u.id)) return 'all'
+  return STAGE_SCOPE_BY_USER_ID[u.id] ?? fallbackStageScope(u)
+}
+
+export function canClickStage(u: AuthUser, stage: Stage): boolean {
+  const scope = stageScopeFor(u)
+  return scope === 'all' || scope.includes(stage)
+}
+
 // 报工 viewers: every 商务, PLUS a hand-picked allowlist of production users the
 // boss has explicitly granted the per-person scoreboard. Kept as an id set (not
 // a role/stage) precisely because the grant is per-person — e.g. 于海伟 sees 报工

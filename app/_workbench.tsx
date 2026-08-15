@@ -23,6 +23,7 @@ import {
 } from '@/lib/master'
 import { DueCell, Pause } from './_ui'
 import { JobStageActionButton, type StageCounts } from './_cell'
+import { useCanClickStage } from './_stage_scope'
 import { JobNotesInline } from './_editable'
 import { ReturnChip } from './_returns'
 import { TypeChip, useOptimisticJobType } from './_type_chip'
@@ -201,12 +202,11 @@ export function StationWorkbench({
 
   // See everything, act on yours: every account can now open every station
   // tab, but the ▶/⏸ action cells only render on a station the viewer may
-  // mutate (mirrors requireOwnStage in /api/mutate — commerce and 工程 head
-  // act anywhere, a scoped worker only at their own station). Foreign
-  // stations render the same queue read-only, so a 打磨 worker peeking at
-  // 操机 never taps a button that the server would reject.
-  const canAct =
-    role === 'commerce' || defaultStage === '工程' || defaultStage === stage
+  // mutate (mirrors requireOwnStage in /api/mutate, which reads the same
+  // per-person stage scope from lib/auth). Foreign stations render the same
+  // queue read-only, so a 打磨 worker peeking at 操机 never taps a button
+  // that the server would reject.
+  const canAct = useCanClickStage(stage)
 
   // Pipeline: text → date → sort. Partition into the three tabs at the end
   // so each tab badge reflects the live filter. row.searchHaystack carries

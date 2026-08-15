@@ -70,6 +70,7 @@ import {
 } from '@/lib/db'
 import type { JobReturn } from '@/lib/data'
 import {
+  canClickStage,
   canCreatePartRow,
   canDeletePartRow,
   requireCommerce,
@@ -85,18 +86,13 @@ function revalidateStage(jobId: string, stage: Stage) {
   revalidatePath(`/station/${encodeURIComponent(stage)}/${jobId}`)
 }
 
-// Pure-floor production users (焊接, 喷塑, etc.) can only operate on their
-// own assigned stage. Commerce + 工程 head can operate on any stage — 工程
-// owns the routing and routinely advances or rolls back parts at other
-// stations when something has to be re-cut, re-shipped, or unblocked.
+// Per-person stage scope (lib/auth STAGE_SCOPE_BY_USER_ID) — mirrors
+// requireOwnStage in /api/mutate. The 无权 prefix in the message is
+// load-bearing: the client denial dialog keys off it.
 async function requireStage(stage: Stage) {
   const u = await requireUser()
-  if (
-    u.role === 'production' &&
-    u.defaultStage !== '工程' &&
-    u.defaultStage !== stage
-  ) {
-    throw new Error('无权操作其他工段')
+  if (!canClickStage(u, stage)) {
+    throw new Error(`无权操作 ${stage} 工段`)
   }
   return u
 }

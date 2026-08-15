@@ -5,6 +5,7 @@ import { withBase } from '@/lib/base-path'
 import type { PartPhoto, StageState, Verdict } from '@/lib/data'
 import { BLOCKING_VERDICTS, isBlockingVerdict } from '@/lib/data'
 import { mutate } from '@/lib/mutate'
+import { useStageGuard } from './_stage_scope'
 
 // 检验 cell — replaces the ▶/⏸/✓ StageCellButton at the inspection stage.
 // The inspector's gesture is a VERDICT, not a start/finish pair: 重做/返修/
@@ -43,6 +44,9 @@ export function InspectionCell({
   const [pending, start] = useTransition()
   const [optimistic, setOptimistic] = useState<StageState | null>(null)
   const [error, setError] = useState(false)
+  // 报工范围 guard — the modal stays openable for LOOKING (verdict + photos);
+  // only the verdict/undo writes check scope.
+  const guard = useStageGuard('检验')
 
   // Same prev-prop sentinel as StageCellButton: hold the optimistic value
   // until the server-pushed prop catches up, killing the one-frame flicker.
@@ -68,6 +72,7 @@ export function InspectionCell({
     verdict: Verdict,
     detail: { reason?: string; owner?: string; note?: string },
   ) => {
+    if (!guard.check()) return
     setError(false)
     setOptimistic(
       verdict === 'OK'
@@ -109,23 +114,24 @@ export function InspectionCell({
         if (Object.keys(patch).length > 0) {
           await mutate({ kind: 'setInspectionVerdictDetail', jobId, componentId, ...patch })
         }
-      } catch {
+      } catch (e) {
         setOptimistic(null)
-        setError(true)
+        if (!guard.denyIfScopeError(e)) setError(true)
       }
     })
   }
 
   const onUndo = () => {
+    if (!guard.check()) return
     setError(false)
     setOptimistic({ status: 'in_progress', verdict: display.verdict })
     setOpen(false)
     start(async () => {
       try {
         await mutate({ kind: 'undoStage', jobId, componentId, stage: '检验' })
-      } catch {
+      } catch (e) {
         setOptimistic(null)
-        setError(true)
+        if (!guard.denyIfScopeError(e)) setError(true)
       }
     })
   }

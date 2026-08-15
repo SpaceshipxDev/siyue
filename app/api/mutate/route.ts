@@ -107,6 +107,7 @@ import {
 } from '@/lib/db'
 import {
   canApproveProcurement,
+  canClickStage,
   canCreatePartRow,
   canDeletePartRow,
   canManageOutsource,
@@ -623,16 +624,15 @@ function revalidateExternal(jobId?: string) {
 }
 
 // Auth gates mirror the server-action versions in app/actions.ts exactly.
-// Production-station users that are not 工程 head can only mutate their own
-// stage column.
+// Per-person stage scope (lib/auth STAGE_SCOPE_BY_USER_ID) — replaces the
+// old default_stage rule, which exempted every commerce account and the
+// ~15 floor accounts seed-parked at 工程. The 无权 prefix in the message is
+// load-bearing: the client (app/_stage_scope.tsx) keys the denial dialog
+// off it when a stale client slips a request through.
 async function requireOwnStage(stage: Stage): Promise<AuthUser> {
   const u = await requireUser()
-  if (
-    u.role === 'production' &&
-    u.defaultStage !== '工程' &&
-    u.defaultStage !== stage
-  ) {
-    throw new Error('无权操作其他工段')
+  if (!canClickStage(u, stage)) {
+    throw new Error(`无权操作 ${stage} 工段`)
   }
   return u
 }

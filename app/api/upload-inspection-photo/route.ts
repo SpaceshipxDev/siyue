@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import { addPartPhoto } from '@/lib/db'
-import { currentUser } from '@/lib/auth'
+import { canClickStage, currentUser } from '@/lib/auth'
 import { ALLOWED_IMAGE_MIMES, MAX_IMAGE_BYTES } from '@/lib/component-image'
 import { uploadInspectionPhoto } from '@/lib/inspection-photo'
 
@@ -10,16 +10,11 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 // 检验照片 upload. Same auth shape as the mutate route's requireOwnStage('检验'):
-// commerce, 工程 head, and 检验-station workers may upload; other production
-// stations may not.
+// per-person stage scope from lib/auth — whoever may click 检验 may attach
+// its photos.
 export async function POST(request: NextRequest) {
   const user = await currentUser()
-  if (
-    !user ||
-    (user.role === 'production' &&
-      user.defaultStage !== '工程' &&
-      user.defaultStage !== '检验')
-  ) {
+  if (!user || !canClickStage(user, '检验')) {
     return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 })
   }
   const form = await request.formData()

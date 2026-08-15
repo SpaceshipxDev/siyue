@@ -42,7 +42,9 @@ import {
   canSeeReport,
   canSeeOrderLedger,
   requireUser,
+  stageScopeFor,
 } from '@/lib/auth'
+import { StageScopeProvider } from '@/app/_stage_scope'
 import { scrubJob, scrubVendors } from '@/lib/dto'
 import { StageHeader, TopBar, type TabKey } from '@/app/_ui'
 import { EffectiveStageCell } from '@/app/_stagecell'
@@ -292,6 +294,9 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   ]
 
   return (
+    // 报工范围 — the 零件进度 stage cells + 检验 modal consult this; an
+    // out-of-scope tap opens the denial dialog instead of writing.
+    <StageScopeProvider scope={stageScopeFor(user)}>
     <div className="flex-1 flex flex-col">
       <TopBar
         title={`${job.jobNo} · ${job.product}`}
@@ -1102,6 +1107,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
         {/* /jobtabs-root */}
       </main>
     </div>
+    </StageScopeProvider>
   )
 }
 

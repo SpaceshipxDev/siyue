@@ -7,6 +7,7 @@ import { Pause, stageTimeHint } from './_ui'
 import { mutate } from '@/lib/mutate'
 import { RowTimer } from './_row_timer'
 import { QtyEditor } from './_qty_editor'
+import { useStageGuard } from './_stage_scope'
 
 // Stage button writes go through /api/mutate (~30-byte JSON) instead of
 // server actions. Server-action responses inline the current page's RSC,
@@ -43,6 +44,10 @@ export function StageCellButton({
   const [optimistic, setOptimistic] = useState<StageState | null>(null)
   const [error, setError] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
+  // 报工范围 guard — out-of-scope taps open the denial dialog instead of
+  // writing. The server re-checks, so a stale client only ever costs a
+  // round-trip, never a wrong write.
+  const guard = useStageGuard(stage)
 
   // Hold the optimistic value until the server-pushed `state` prop actually
   // catches up. Without this, after the action resolves the optimistic clears
@@ -61,45 +66,49 @@ export function StageCellButton({
   const padding = size === 'lg' ? 'py-3' : 'py-2'
 
   const onStart = () => {
+    if (!guard.check()) return
     setError(false)
     setOptimistic({ status: 'in_progress' })
     start(async () => {
       try {
         await mutate({ kind: 'startStage', jobId, componentId, stage })
-      } catch {
+      } catch (e) {
         setOptimistic(null)
-        setError(true)
+        if (!guard.denyIfScopeError(e)) setError(true)
       }
     })
   }
 
   const onFinish = () => {
+    if (!guard.check()) return
     setError(false)
     setOptimistic({ status: 'done', completedAt: 'now' })
     start(async () => {
       try {
         await mutate({ kind: 'finishStage', jobId, componentId, stage })
-      } catch {
+      } catch (e) {
         setOptimistic(null)
-        setError(true)
+        if (!guard.denyIfScopeError(e)) setError(true)
       }
     })
   }
 
   const onUndo = () => {
+    if (!guard.check()) return
     setError(false)
     setOptimistic({ status: 'in_progress' })
     start(async () => {
       try {
         await mutate({ kind: 'undoStage', jobId, componentId, stage })
-      } catch {
+      } catch (e) {
         setOptimistic(null)
-        setError(true)
+        if (!guard.denyIfScopeError(e)) setError(true)
       }
     })
   }
 
   const onSubmitQty = (qty: number) => {
+    if (!guard.check()) return
     setError(false)
     const willFinish = qty >= componentQty
     setEditorOpen(false)
@@ -117,9 +126,9 @@ export function StageCellButton({
           stage,
           qty,
         })
-      } catch {
+      } catch (e) {
         setOptimistic(null)
-        setError(true)
+        if (!guard.denyIfScopeError(e)) setError(true)
       }
     })
   }
@@ -189,7 +198,9 @@ export function StageCellButton({
           <button
             type="button"
             disabled={pending}
-            onClick={() => setEditorOpen(true)}
+            onClick={() => {
+              if (guard.check()) setEditorOpen(true)
+            }}
             aria-label={`${stage} · 编辑完成数量`}
             title="编辑完成数量"
             className="flex w-full items-center justify-center pb-1.5 mono text-[10px] tracking-wider text-[var(--color-warning)]/80 hover:text-[var(--color-warning)] hover:underline underline-offset-[3px] decoration-dotted focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:cursor-not-allowed"
@@ -291,6 +302,7 @@ export function JobStageActionButton({
   const [transition, start] = useTransition()
   const [optimistic, setOptimistic] = useState<RowStatus | null>(null)
   const [error, setError] = useState(false)
+  const guard = useStageGuard(stage)
   // Fresh counts echoed by /api/mutate after each job-stage write. The master
   // board fetches its rows ONCE per navigation (_master_loaders.tsx), so the
   // count props go stale the moment we write. Before this echo existed, the
@@ -330,6 +342,7 @@ export function JobStageActionButton({
     glyph: RowStatus,
     fallback: StageCounts,
   ) => {
+    if (!guard.check()) return
     setError(false)
     setOptimistic(glyph)
     start(async () => {
@@ -339,9 +352,9 @@ export function JobStageActionButton({
         setLive(fresh)
         setOptimistic(null)
         if (kind === 'startJobStage') onStarted?.(fresh)
-      } catch {
+      } catch (e) {
         setOptimistic(null)
-        setError(true)
+        if (!guard.denyIfScopeError(e)) setError(true)
       }
     })
   }
@@ -504,6 +517,7 @@ export function JobAssignSelect({
   fromStage: Stage
 }) {
   const [pending, start] = useTransition()
+  const guard = useStageGuard(fromStage)
   const others = STAGES.filter((s) => s !== fromStage)
   return (
     <select
@@ -511,7 +525,9 @@ export function JobAssignSelect({
       defaultValue=""
       onChange={(e) => {
         const to = e.currentTarget.value as Stage
+        e.currentTarget.value = ''
         if (!to) return
+        if (!guard.check()) return
         start(async () => {
           await mutate({
             kind: 'assignJobToStage',
@@ -520,7 +536,6 @@ export function JobAssignSelect({
             toStage: to,
           })
         })
-        e.currentTarget.value = ''
       }}
       className="text-[12px] tracking-wider text-[var(--color-ink-2)] bg-transparent border border-[var(--color-border)] rounded-[2px] px-2 py-1 hover:border-[var(--color-ink-3)] focus:outline-none focus:border-[var(--color-ink)] cursor-pointer disabled:opacity-40"
       title="移交整单至其他工段"
@@ -545,6 +560,7 @@ export function AssignSelect({
   fromStage: Stage
 }) {
   const [pending, start] = useTransition()
+  const guard = useStageGuard(fromStage)
   const others = STAGES.filter((s) => s !== fromStage)
   return (
     <select
@@ -552,7 +568,9 @@ export function AssignSelect({
       defaultValue=""
       onChange={(e) => {
         const to = e.currentTarget.value as Stage
+        e.currentTarget.value = ''
         if (!to) return
+        if (!guard.check()) return
         start(async () => {
           await mutate({
             kind: 'assignToStage',
@@ -562,7 +580,6 @@ export function AssignSelect({
             toStage: to,
           })
         })
-        e.currentTarget.value = ''
       }}
       className="text-[12px] tracking-wider text-[var(--color-ink-2)] bg-transparent border border-[var(--color-border)] rounded-[2px] px-2 py-1 hover:border-[var(--color-ink-3)] focus:outline-none focus:border-[var(--color-ink)] cursor-pointer disabled:opacity-40"
       title="移交至其他工段"
