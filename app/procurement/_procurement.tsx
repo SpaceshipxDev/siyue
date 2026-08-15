@@ -168,6 +168,22 @@ export function ProcurementBoard({
     return [...s].sort().reverse()
   }, [procurements])
 
+  // Split-off picks grouped under the row they were taken from, oldest first
+  // — the remainder's panel lists them so the whole 领料 story reads in place.
+  const picksByParent = useMemo(() => {
+    const m = new Map<string, Procurement[]>()
+    for (const p of procurements) {
+      if (p.parentId && p.status === 'done') {
+        const l = m.get(p.parentId) ?? []
+        l.push(p)
+        m.set(p.parentId, l)
+      }
+    }
+    for (const l of m.values())
+      l.sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+    return m
+  }, [procurements])
+
   const [pickedMonth, setPickedMonth] = useState<string | null>(null)
   const ledgerMonth =
     pickedMonth && ledgerMonths.includes(pickedMonth)
@@ -322,6 +338,9 @@ export function ProcurementBoard({
               canApprove={canApprove}
               jobOptions={jobOptions}
               roster={roster}
+              pastPicks={(picksByParent.get(p.parentId ?? p.id) ?? []).filter(
+                (x) => x.id !== p.id,
+              )}
               onEdit={() => setModal({ kind: 'edit', row: p })}
             />
           ))
@@ -354,6 +373,16 @@ function ledgerDate(p: Procurement): string {
   return p.pickDate ?? p.rejectDate ?? p.arrivedDate ?? p.orderDate
 }
 
+// 数量 with its ordered total once partial 领料 has split the row —
+// `17 / 20 件` reads 17 left of the 20 ordered (待领料), or 3 of 20 taken
+// (a split-off 已领料 row). Never-split rows stay plain `20 件`.
+function qtyText(p: Procurement): string {
+  if (typeof p.qty !== 'number') return ''
+  return p.orderedQty != null && p.orderedQty !== p.qty
+    ? `${p.qty} / ${p.orderedQty} 件`
+    : `${p.qty} 件`
+}
+
 // ===========================================================================
 // Row + inline panel
 // ===========================================================================
@@ -367,6 +396,7 @@ function Row({
   canApprove,
   jobOptions,
   roster,
+  pastPicks,
   onEdit,
 }: {
   p: Procurement
@@ -377,6 +407,7 @@ function Row({
   canApprove: boolean
   jobOptions: ProcurementJobOption[]
   roster: string[]
+  pastPicks: Procurement[]
   onEdit: () => void
 }) {
   const total = procurementTotalCny(p)
@@ -416,14 +447,14 @@ function Row({
                 {formatCny(total)}
               </div>
               <div className="mono text-[11.5px] text-[var(--color-ink-3)]">
-                {p.qty} 件{typeof p.unitPriceCny === 'number' ? ` × ¥${p.unitPriceCny}` : ''}
+                {qtyText(p)}{typeof p.unitPriceCny === 'number' ? ` × ¥${p.unitPriceCny}` : ''}
               </div>
             </>
           ) : (
             <>
               <div className="text-[15px] text-[var(--color-ink-4)]">—</div>
               <div className="mono text-[11.5px] text-[var(--color-ink-3)]">
-                {typeof p.qty === 'number' ? `${p.qty} 件` : ''}
+                {qtyText(p)}
               </div>
             </>
           )}
@@ -442,6 +473,7 @@ function Row({
           canApprove={canApprove}
           jobOptions={jobOptions}
           roster={roster}
+          pastPicks={pastPicks}
           onEdit={onEdit}
           onClose={onToggle}
         />
@@ -562,6 +594,7 @@ function Panel({
   canApprove,
   jobOptions,
   roster,
+  pastPicks,
   onEdit,
   onClose,
 }: {
@@ -570,6 +603,7 @@ function Panel({
   canApprove: boolean
   jobOptions: ProcurementJobOption[]
   roster: string[]
+  pastPicks: Procurement[]
   onEdit: () => void
   onClose: () => void
 }) {
@@ -642,7 +676,7 @@ function Panel({
         </div>
       )}
       <div className="my-0.5 text-[12px] text-[var(--color-ink-3)]">
-        <HistoryLine p={p} />
+        <HistoryLine p={p} picks={pastPicks} />
       </div>
 
       {/* Stage actions */}
@@ -960,7 +994,15 @@ function Panel({
 }
 
 // 谁请购 → 谁批 → 谁下单 → 到货 → 谁领 — one soft line, dates in 月日.
-function HistoryLine({ p }: { p: Procurement }) {
+// `picks` = the split-off partial 领料 rows of this row's family, oldest
+// first, so the remainder (and every sibling) tells the whole pickup story.
+function HistoryLine({
+  p,
+  picks = [],
+}: {
+  p: Procurement
+  picks?: Procurement[]
+}) {
   const parts: React.ReactNode[] = []
   if (p.requester)
     parts.push(
@@ -989,6 +1031,11 @@ function HistoryLine({ p }: { p: Procurement }) {
       parts.push(`${p.buyer || ''} ${mdCn(p.orderDate)} 下单`.trim())
     }
     if (p.arrivedDate) parts.push(`${mdCn(p.arrivedDate)} 到货`)
+    for (const k of picks)
+      if (k.pickDate)
+        parts.push(
+          `${k.picker ?? ''} ${mdCn(k.pickDate)} 领 ${k.pickQty ?? k.qty ?? ''} 件`.trim(),
+        )
     if (p.inspectResult === 'defect')
       parts.push(
         <span key="bad" className="text-[var(--color-overdue)]">

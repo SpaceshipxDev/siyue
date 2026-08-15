@@ -8315,6 +8315,8 @@ function fromProcurement(r: AnyRow): Procurement {
     rejectNote: (r.reject_note as string | null) ?? undefined,
     pickDate: (r.pick_date as string | null) ?? undefined,
     pickQty: asNumber(r.pick_qty),
+    orderedQty: asNumber(r.ordered_qty),
+    parentId: (r.parent_id as string | null) ?? undefined,
     createdBy: (r.created_by as string | null) ?? undefined,
     createdAt: r.created_at as string,
   }
@@ -8365,7 +8367,7 @@ export type ProcurementPatch = {
 // lacks throws 42703; fall back tier by tier so the tab renders through the
 // deploy window instead of 500'ing.
 const PROCUREMENT_COLS_FLOW =
-  'id, item, qty, unit_price_cny, supplier, order_date, expected_date, status, arrived_date, buyer, notes, product_id, link, job_id, job_no, inspect_result, inspect_note, requester, req_date, picker, approver, approve_date, rejected_by, reject_date, reject_note, pick_date, pick_qty, created_by, created_at'
+  'id, item, qty, unit_price_cny, supplier, order_date, expected_date, status, arrived_date, buyer, notes, product_id, link, job_id, job_no, inspect_result, inspect_note, requester, req_date, picker, approver, approve_date, rejected_by, reject_date, reject_note, pick_date, pick_qty, ordered_qty, parent_id, created_by, created_at'
 const PROCUREMENT_COLS_FULL =
   'id, item, qty, unit_price_cny, supplier, order_date, expected_date, status, arrived_date, buyer, notes, product_id, link, job_id, job_no, inspect_result, inspect_note, created_by, created_at'
 const PROCUREMENT_COLS_V43 =
@@ -8461,6 +8463,8 @@ async function splitPartialPick(
   const row = data as AnyRow
   const qty = asNumber(row.qty)
   if (!qty || pickQty >= qty) return false
+  // Freeze the originally ordered 数量 on first split; later splits carry it.
+  const orderedQty = asNumber(row.ordered_qty) ?? qty
   const { error: insErr } = await supabase.from('procurements').insert({
     ...row,
     id: uid('po'),
@@ -8469,13 +8473,15 @@ async function splitPartialPick(
     picker: patch.picker?.trim() || row.picker || null,
     pick_qty: pickQty,
     pick_date: today(),
+    ordered_qty: orderedQty,
+    parent_id: (row.parent_id as string | null) ?? procurementId,
     inspect_result: patch.inspectResult ?? row.inspect_result ?? null,
     created_at: new Date().toISOString(),
   })
   if (insErr) throw insErr
   const { error: updErr } = await supabase
     .from('procurements')
-    .update({ qty: qty - pickQty })
+    .update({ qty: qty - pickQty, ordered_qty: orderedQty })
     .eq('id', procurementId)
   if (updErr) throw updErr
   return true

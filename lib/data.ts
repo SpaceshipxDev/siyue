@@ -762,6 +762,12 @@ export type Procurement = {
   rejectNote?: string // 驳回原因 — so the requester knows why
   pickDate?: string // 领料日期 (YYYY-MM-DD) — keys the 已领料 month ledger
   pickQty?: number // 领用数量 — how many the 领料人 actually took
+  // Partial-领料 trail. A pick smaller than the row's 数量 splits the row:
+  // orderedQty freezes the originally ordered 数量 (qty then holds the
+  // remainder / the picked share), parentId on the split-off done row points
+  // at the row it was taken from. Both undefined on never-split rows.
+  orderedQty?: number
+  parentId?: string
   createdBy?: string
   createdAt: string
 }
