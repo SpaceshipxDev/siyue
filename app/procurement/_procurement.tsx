@@ -546,6 +546,7 @@ function StateCell({ p, today }: { p: Procurement; today: string }) {
     <span className="text-[var(--color-ink-3)]">
       <span className="mono">{p.pickDate ? mdCn(p.pickDate) : ''}</span>
       {p.picker ? ` ${p.picker} 领` : ' 已领料'}
+      {p.pickQty != null && <span className="mono"> {p.pickQty} 件</span>}
       {p.inspectResult === 'defect' && (
         <span className="font-medium text-[var(--color-overdue)]"> 不良</span>
       )}
@@ -585,9 +586,12 @@ function Panel({
     p.unitPriceCny != null ? String(p.unitPriceCny) : '',
   )
   const [expected, setExpected] = useState(p.expectedDate ?? '')
-  // 待领料 — who actually walks off with the material. Preset to the 领料人
-  // named at request time; the 领料 button won't fire without a name.
+  // 待领料 — who actually walks off with the material, and how many. Name is
+  // free text (仓库 hands material to people who aren't in the system); qty
+  // presets to the ordered 数量 so the full-pick case is one tap. The 领料
+  // button won't fire without both.
   const [pickerSel, setPickerSel] = useState(p.picker ?? '')
+  const [pickQty, setPickQty] = useState(p.qty ? String(p.qty) : '')
 
   function run(patch: Record<string, unknown>, close = true) {
     start(async () => {
@@ -834,16 +838,33 @@ function Panel({
                 value={pickerSel}
                 onChange={setPickerSel}
                 placeholder="谁领料"
-                searchPlaceholder="搜索姓名…"
+                searchPlaceholder="选人或直接输入姓名…"
+                createLabel="领料人"
+                onCreate={setPickerSel}
+                triggerLabel={
+                  pickerSel && !roster.includes(pickerSel)
+                    ? pickerSel
+                    : undefined
+                }
+              />
+              <input
+                value={pickQty}
+                onChange={(e) => setPickQty(e.target.value)}
+                inputMode="decimal"
+                placeholder="领几件"
+                className={`${inp} mono w-[76px]`}
               />
               <button
                 type="button"
                 className={btnPri}
-                disabled={pending || !pickerSel.trim()}
+                disabled={
+                  pending || !pickerSel.trim() || !(parseNum(pickQty)! > 0)
+                }
                 onClick={() =>
                   run({
                     status: 'done',
                     picker: pickerSel.trim(),
+                    pickQty: parseNum(pickQty) ?? null,
                     ...(p.inspectResult ? {} : { inspectResult: 'ok' }),
                   })
                 }
@@ -975,7 +996,11 @@ function HistoryLine({ p }: { p: Procurement }) {
         </span>,
       )
     if (p.status === 'done' && p.pickDate)
-      parts.push(`${p.picker ?? ''} ${mdCn(p.pickDate)} 领`.trim())
+      parts.push(
+        `${p.picker ?? ''} ${mdCn(p.pickDate)} 领${
+          p.pickQty != null ? ` ${p.pickQty} 件` : ''
+        }`.trim(),
+      )
   }
   return (
     <>
@@ -1448,7 +1473,12 @@ function ProcurementModal({
                     value={picker}
                     onChange={setPicker}
                     placeholder="谁来领"
-                    searchPlaceholder="搜索姓名…"
+                    searchPlaceholder="选人或直接输入姓名…"
+                    createLabel="领料人"
+                    onCreate={setPicker}
+                    triggerLabel={
+                      picker && !roster.includes(picker) ? picker : undefined
+                    }
                     triggerClass="w-full"
                   />
                 </Field>

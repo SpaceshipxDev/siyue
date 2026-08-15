@@ -8314,6 +8314,7 @@ function fromProcurement(r: AnyRow): Procurement {
     rejectDate: (r.reject_date as string | null) ?? undefined,
     rejectNote: (r.reject_note as string | null) ?? undefined,
     pickDate: (r.pick_date as string | null) ?? undefined,
+    pickQty: asNumber(r.pick_qty),
     createdBy: (r.created_by as string | null) ?? undefined,
     createdAt: r.created_at as string,
   }
@@ -8355,6 +8356,7 @@ export type ProcurementPatch = {
   inspectResult?: 'ok' | 'defect' | null
   inspectNote?: string | null
   picker?: string | null
+  pickQty?: number | null // 领用数量 — sent with the 领料 transition
   rejectNote?: string | null // stamped with the 驳回 transition
 }
 
@@ -8363,7 +8365,7 @@ export type ProcurementPatch = {
 // lacks throws 42703; fall back tier by tier so the tab renders through the
 // deploy window instead of 500'ing.
 const PROCUREMENT_COLS_FLOW =
-  'id, item, qty, unit_price_cny, supplier, order_date, expected_date, status, arrived_date, buyer, notes, product_id, link, job_id, job_no, inspect_result, inspect_note, requester, req_date, picker, approver, approve_date, rejected_by, reject_date, reject_note, pick_date, created_by, created_at'
+  'id, item, qty, unit_price_cny, supplier, order_date, expected_date, status, arrived_date, buyer, notes, product_id, link, job_id, job_no, inspect_result, inspect_note, requester, req_date, picker, approver, approve_date, rejected_by, reject_date, reject_note, pick_date, pick_qty, created_by, created_at'
 const PROCUREMENT_COLS_FULL =
   'id, item, qty, unit_price_cny, supplier, order_date, expected_date, status, arrived_date, buyer, notes, product_id, link, job_id, job_no, inspect_result, inspect_note, created_by, created_at'
 const PROCUREMENT_COLS_V43 =
@@ -8458,6 +8460,7 @@ export async function updateProcurement(
   if (patch.jobId !== undefined) update.job_id = patch.jobId || null
   if (patch.jobNo !== undefined) update.job_no = patch.jobNo?.trim() || null
   if (patch.picker !== undefined) update.picker = patch.picker?.trim() || null
+  if (patch.pickQty !== undefined) update.pick_qty = patch.pickQty
   if (patch.inspectResult !== undefined)
     update.inspect_result = patch.inspectResult
   if (patch.inspectNote !== undefined)
@@ -8502,6 +8505,7 @@ export async function updateProcurement(
       update.inspect_result = null
       update.inspect_note = null
       update.pick_date = null
+      update.pick_qty = null
     }
   } else if (patch.arrivedDate !== undefined) {
     update.arrived_date = patch.arrivedDate || null

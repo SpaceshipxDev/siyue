@@ -336,7 +336,12 @@ function isValidProcurementPatch(x: unknown): x is ProcurementPatch {
     (!isString(o.orderDate) || o.orderDate.trim().length === 0)
   )
     return false
-  if (!isOptNumber(o.qty) || !isOptNumber(o.unitPriceCny)) return false
+  if (
+    !isOptNumber(o.qty) ||
+    !isOptNumber(o.unitPriceCny) ||
+    !isOptNumber(o.pickQty)
+  )
+    return false
   for (const f of [
     'supplier',
     'expectedDate',

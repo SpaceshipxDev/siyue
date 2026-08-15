@@ -761,6 +761,7 @@ export type Procurement = {
   rejectDate?: string
   rejectNote?: string // 驳回原因 — so the requester knows why
   pickDate?: string // 领料日期 (YYYY-MM-DD) — keys the 已领料 month ledger
+  pickQty?: number // 领用数量 — how many the 领料人 actually took
   createdBy?: string
   createdAt: string
 }
