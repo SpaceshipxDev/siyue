@@ -8441,11 +8441,58 @@ export async function createProcurement(
   return id
 }
 
+// Partial 领料 — taking fewer than the row's 数量 splits the row instead of
+// closing it: the picked share leaves as its own `done` ledger row (who took
+// how many, today), the original stays 待领料 holding the remainder. Money
+// stays honest on both sides (each row's 金额 = its qty × the shared 单价).
+// Returns false when there's nothing to split — no 数量 on the row, or the
+// pick covers it all — so the caller runs the plain full-close transition.
+async function splitPartialPick(
+  procurementId: string,
+  patch: ProcurementPatch,
+  pickQty: number,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('procurements')
+    .select('*')
+    .eq('id', procurementId)
+    .maybeSingle()
+  if (error || !data) return false
+  const row = data as AnyRow
+  const qty = asNumber(row.qty)
+  if (!qty || pickQty >= qty) return false
+  const { error: insErr } = await supabase.from('procurements').insert({
+    ...row,
+    id: uid('po'),
+    qty: pickQty,
+    status: 'done',
+    picker: patch.picker?.trim() || row.picker || null,
+    pick_qty: pickQty,
+    pick_date: today(),
+    inspect_result: patch.inspectResult ?? row.inspect_result ?? null,
+    created_at: new Date().toISOString(),
+  })
+  if (insErr) throw insErr
+  const { error: updErr } = await supabase
+    .from('procurements')
+    .update({ qty: qty - pickQty })
+    .eq('id', procurementId)
+  if (updErr) throw updErr
+  return true
+}
+
 export async function updateProcurement(
   procurementId: string,
   patch: ProcurementPatch,
   actor: string,
 ): Promise<void> {
+  if (
+    patch.status === 'done' &&
+    typeof patch.pickQty === 'number' &&
+    patch.pickQty > 0 &&
+    (await splitPartialPick(procurementId, patch, patch.pickQty))
+  )
+    return
   const update: AnyRow = {}
   if (patch.item !== undefined) update.item = patch.item.trim()
   if (patch.qty !== undefined) update.qty = patch.qty
