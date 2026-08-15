@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { withBase } from '@/lib/base-path'
 import { BackButton } from '@/app/_back'
 import { DatePop } from '@/app/_datepop'
+import { autoMapColumns, detectHeaderRow, IMG_RE, type FieldKey } from './_map'
 
 /*
  * 清单导入 — the no-AI import workspace.
@@ -22,25 +23,17 @@ import { DatePop } from '@/app/_datepop'
 
 // ---------------------------------------------------------------- model
 
-type FieldKey =
-  | 'name'
-  | 'qty'
-  | 'material'
-  | 'surfaceTreatment'
-  | 'process'
-  | 'partNo'
-  | 'notes'
-  | 'unitPriceCny'
-  | 'lineTotalCny'
-  | 'image'
-
+// Menu + numeric-alignment metadata. Ordered exactly like the board's 零件
+// sheet (零件 · 料号 · 加工工艺 · 数量 · 材料 · 表面处理 · … · 备注 · 单价 ·
+// 小计) so the mapping menu reads as the same fixed sequence every order
+// imports into.
 const FIELDS: { key: FieldKey; label: string; numeric?: boolean }[] = [
   { key: 'name', label: '零件名称' },
+  { key: 'partNo', label: '料号' },
+  { key: 'process', label: '加工工艺' },
   { key: 'qty', label: '数量', numeric: true },
   { key: 'material', label: '材料' },
   { key: 'surfaceTreatment', label: '表面处理' },
-  { key: 'process', label: '加工工艺' },
-  { key: 'partNo', label: '料号' },
   { key: 'notes', label: '备注' },
   { key: 'unitPriceCny', label: '单价', numeric: true },
   { key: 'lineTotalCny', label: '小计', numeric: true },
@@ -52,40 +45,8 @@ const FIELD_LABEL = Object.fromEntries(FIELDS.map((f) => [f.key, f.label])) as R
   string
 >
 
-// Exact matches against a normalized header cell (spaces/punctuation/units in
-// parens stripped). Deliberately exact, not contains — "数量备注" must not
-// grab 数量.
-const SYNONYMS: Record<FieldKey, string[]> = {
-  name: ['零件名称', '零件名', '名称', '品名', '产品名称', '产品名', '零件', '部件名称', '品番', '项目名称', 'name'],
-  qty: ['数量', '件数', '加工数量', '订单数量', '需求数量', '数量件', 'qty', 'quantity'],
-  material: ['材料', '材质', '原材料', '材料材质'],
-  surfaceTreatment: ['表面处理', '表处', '表面', '后处理', '表面要求', '处理方式'],
-  process: ['加工工艺', '工艺', '加工方式', '工艺要求', '加工类型', '加工'],
-  // 料号-family ONLY. 图号/规格型号 headers are NOT auto-claimed: a drawing
-  // number is not a 料号, and auto-labeling one as the other poisons the
-  // 出货单/生产单 downstream. The user can still map such a column to 料号
-  // by hand when that's what their sheet actually means.
-  partNo: ['料号', '物料编码', '物料编号', '物料号'],
-  notes: ['备注', '说明', '要求', '技术要求', '其他要求', 'remark'],
-  unitPriceCny: ['单价', '含税单价', '不含税单价', '单价元', 'price'],
-  lineTotalCny: ['小计', '金额', '总价', '合计', '总金额', '总额', 'amount'],
-  image: ['图片', '图纸', '产品图', '图', '照片', '示意图', '零件图', '图例'],
-}
-
-const SYNONYM_TO_FIELD = new Map<string, FieldKey>()
-for (const f of FIELDS) for (const s of SYNONYMS[f.key]) SYNONYM_TO_FIELD.set(s, f.key)
-
-const IMG_RE = /^<<IMG:([^>]+)>>$/
-
 // 合计-style footer rows never import, whatever sits in their name cell.
 const FOOTER_ROW_RE = /^(合计|总计|小计|总价|总金额|备注|说明|以下空白)/
-
-function norm(raw: string): string {
-  return raw
-    .replace(/[（(][^（()）]*[)）]/g, '')
-    .replace(/[\s　:：*＊·．.、/\\_-]/g, '')
-    .toLowerCase()
-}
 
 function colLetter(c: number): string {
   let s = ''
@@ -95,61 +56,6 @@ function colLetter(c: number): string {
     n = Math.floor(n / 26) - 1
   } while (n >= 0)
   return s
-}
-
-function detectHeaderRow(aoa: string[][]): number {
-  let best = 0
-  let bestScore = 0
-  for (let r = 0; r < Math.min(aoa.length, 20); r++) {
-    let score = 0
-    for (const cell of aoa[r] ?? []) {
-      const v = norm(cell)
-      if (v && SYNONYM_TO_FIELD.has(v)) score++
-    }
-    if (score > bestScore) {
-      bestScore = score
-      best = r
-    }
-  }
-  return bestScore >= 2 ? best : 0
-}
-
-function autoMapColumns(aoa: string[][], headerRow: number): (FieldKey | null)[] {
-  const header = aoa[headerRow] ?? []
-  const cols = Math.max(header.length, ...aoa.map((r) => r.length), 0)
-  const mapping: (FieldKey | null)[] = Array.from({ length: cols }, () => null)
-
-  // The column that actually CONTAINS embedded pictures is the 图纸 column,
-  // whatever its header says — resolve it FIRST so its header text (often
-  // 图号, with the pictures pasted over) doesn't eat a field another column
-  // deserves (e.g. 规格型号 → 图号/料号).
-  let imgCol = -1
-  let imgBest = 0
-  for (let c = 0; c < cols; c++) {
-    let count = 0
-    for (let r = headerRow + 1; r < aoa.length; r++) {
-      if (IMG_RE.test(aoa[r]?.[c] ?? '')) count++
-    }
-    if (count > imgBest) {
-      imgBest = count
-      imgCol = c
-    }
-  }
-
-  const used = new Set<FieldKey>()
-  if (imgCol >= 0) {
-    mapping[imgCol] = 'image'
-    used.add('image')
-  }
-  for (let c = 0; c < cols; c++) {
-    if (c === imgCol) continue
-    const field = SYNONYM_TO_FIELD.get(norm(header[c] ?? ''))
-    if (field && !used.has(field)) {
-      mapping[c] = field
-      used.add(field)
-    }
-  }
-  return mapping
 }
 
 type MetaDraft = {
