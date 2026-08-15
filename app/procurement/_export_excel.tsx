@@ -20,7 +20,9 @@ function statusText(p: Procurement): string {
     case 'requested':
       return '待审批'
     case 'approved':
-      return '待下单'
+      return '待采购'
+    case 'ordered':
+      return '待到货'
     case 'arrived':
       return '待领料'
     case 'done':

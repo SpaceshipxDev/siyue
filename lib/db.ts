@@ -8230,14 +8230,6 @@ export async function createProcurement(
   createdBy: string,
 ): Promise<string> {
   const id = uid('po')
-  // Legacy 'pending' means the same thing 'approved' does now; a plain create
-  // with no status (pre-0082 clients) stays 'ordered'.
-  const status =
-    input.status === 'requested'
-      ? 'requested'
-      : input.status === 'approved' || input.status === 'pending'
-        ? 'approved'
-        : 'ordered'
   const { error } = await supabase.from('procurements').insert({
     id,
     item: input.item.trim(),
@@ -8248,7 +8240,9 @@ export async function createProcurement(
     supplier: input.supplier?.trim() || null,
     order_date: input.orderDate,
     expected_date: input.expectedDate || null,
-    status,
+    // Every request is born 待审批 (the mutate route enforces it too) —
+    // approval, ordering, arrival, and pickup each stamp their own actor.
+    status: 'requested',
     buyer: createdBy,
     notes: input.notes?.trim() || null,
     job_id: input.jobId || null,
@@ -8256,9 +8250,6 @@ export async function createProcurement(
     requester: createdBy,
     req_date: input.reqDate || input.orderDate,
     picker: input.picker?.trim() || createdBy,
-    // A request born 'approved' was self-cleared by its own creator (免审批).
-    approver: status === 'approved' ? createdBy : null,
-    approve_date: status === 'approved' ? input.reqDate || input.orderDate : null,
     created_by: createdBy,
   })
   if (error) throw error

@@ -93,7 +93,7 @@ export async function MonthlyCashflow({
   }
 
   // 采购 — purchases ordered in the picked month. Rows that haven't been
-  // ordered yet (待审批 / 待下单) and 驳回 rows aren't spend.
+  // ordered yet (待审批 / 待采购) and 驳回 rows aren't spend.
   let procurementCny = 0
   let procurementCount = 0
   for (const p of procurements) {

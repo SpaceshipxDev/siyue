@@ -1770,16 +1770,15 @@ async function dispatch(
     }
 
     // === 采购 (procurement ledger) — anyone signed in can write; only
-    // approvers (商务 + 采购站) clear/reject requests or skip the queue ===
+    // approvers (商务 + 采购站) clear/reject requests ===
     case 'createProcurement': {
       const input = body.input
       if (!isValidProcurementInput(input))
         return err('bad createProcurement args')
       const u = await requireUser()
-      // Non-approvers can only ask — whatever their client claims, the row
-      // is born 待审批.
-      if (!canApproveProcurement(u) && input.status !== 'requested')
-        input.status = 'requested'
+      // Every request is born 待审批 — approvers included; there is no
+      // 免审批 path, whatever the client claims.
+      input.status = 'requested'
       const id = await createProcurement(input, u.name)
       revalidatePath('/procurement')
       return Response.json(ok({ id }))

@@ -705,14 +705,15 @@ export type Handover = {
 }
 
 // 采购 — a single purchase. The standalone purchasing ledger anyone can write
-// to. Lifecycle is a four-step conveyor plus one dead end:
+// to. Lifecycle is a five-step conveyor plus one dead end:
 //   'requested' (待审批 — someone on the floor asked for it)
-//   'approved'  (待下单 — cleared; 采购 still has to place the order)
-//   'ordered'   (在途 — the clock runs against 预计到货)
+//   'approved'  (待采购 — cleared; 采购 still has to place + pay the order)
+//   'ordered'   (待到货 — the clock runs against 预计到货)
 //   'arrived'   (待领料 — landed, waiting for its 领料人 to collect)
 //   'done'      (已领料 — the month ledger)
 //   'rejected'  (驳回 — dead, with the reason)
-// Requests by an approver themselves skip straight to 'approved' (免审批).
+// Every request is born 'requested' — there is no 免审批 path (a few pre-8/15
+// rows created by approvers carry approver = requester from the old skip).
 // Flat by design (one row per purchase); see supabase/migrations/
 // 0042_procurement.sql + 0082 (lifecycle) + 0089 (approval flow).
 export type ProcurementStatus =

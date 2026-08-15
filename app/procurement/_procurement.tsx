@@ -20,16 +20,17 @@ import type {
 } from '@/lib/data'
 import type { ProcurementJobOption } from '@/lib/db'
 
-// 采购 board — a four-step conveyor read through four rectangular filter
-// boxes: 待审批 → 待到货 → 待领料 → 已领料. One table per box; each table
-// carries its own money strip (笔数 · ¥) at the top, the 已领料 ledger browses
-// month by month with 导出. A row click opens an inline panel holding that
-// row's whole story (请购 → 批 → 下单 → 到货 → 领) and exactly the actions its
-// stage allows. ＋请购 is the only entry point: pick the 物料, say how many,
-// who picks it up (领料人), which 工号 it feeds — approvers' own requests skip
-// the queue (免审批), everyone else's wait in 待审批.
+// 采购 board — a five-step conveyor read through five rectangular filter
+// boxes: 待审批 → 待采购 → 待到货 → 待领料 → 已领料. One table per box; each
+// table carries its own money strip (笔数 · ¥) at the top, the 已领料 ledger
+// browses month by month with 导出. A row click opens an inline panel holding
+// that row's whole story (请购 → 批 → 下单 → 到货 → 领) and exactly the
+// actions its stage allows. ＋请购 is the only entry point — every request,
+// approvers' included, is born 待审批; approval moves it to 待采购, placing
+// (paying) the order to 待到货, arrival to 待领料, and the named 领料人
+// collecting it closes the loop.
 
-type Tab = 'requested' | 'buying' | 'arrived' | 'ledger'
+type Tab = 'requested' | 'purchase' | 'buying' | 'arrived' | 'ledger'
 
 const TAB_DEF: Record<
   Tab,
@@ -40,10 +41,15 @@ const TAB_DEF: Record<
     col: '请购',
     match: (p) => p.status === 'requested',
   },
+  purchase: {
+    label: '待采购',
+    col: '批准',
+    match: (p) => p.status === 'approved',
+  },
   buying: {
     label: '待到货',
     col: '预计到货',
-    match: (p) => p.status === 'approved' || p.status === 'ordered',
+    match: (p) => p.status === 'ordered',
   },
   arrived: {
     label: '待领料',
@@ -59,6 +65,7 @@ const TAB_DEF: Record<
 
 const TAB_EMPTY: Record<Tab, string> = {
   requested: '没有等审批的请购',
+  purchase: '没有等下单的采购',
   buying: '料都到齐了',
   arrived: '到了的料都领走了',
   ledger: '本月没有记录',
@@ -111,6 +118,7 @@ export function ProcurementBoard({
     const done = procurements.filter((p) => p.status === 'done').length
     return {
       requested: n('requested'),
+      purchase: n('purchase'),
       buying: n('buying'),
       arrived: n('arrived'),
       done,
@@ -118,14 +126,12 @@ export function ProcurementBoard({
     }
   }, [procurements, today])
 
-  // The active tab's rows, queue-sorted. 待到货 floats 待下单 rows first (a
-  // human still has to act before any clock starts), then soonest-expected;
-  // the two waiting queues read oldest-first; the ledger reads newest-first.
+  // The active tab's rows, queue-sorted. 待到货 reads soonest-expected first;
+  // the waiting queues read oldest-first; the ledger reads newest-first.
   const rows = useMemo(() => {
     const list = procurements.filter(TAB_DEF[tab].match).filter(matches)
     if (tab === 'buying') {
       list.sort((a, b) => {
-        if (a.status !== b.status) return a.status === 'approved' ? -1 : 1
         const ae = a.expectedDate ?? '9999-99-99'
         const be = b.expectedDate ?? '9999-99-99'
         if (ae !== be) return ae < be ? -1 : 1
@@ -134,6 +140,13 @@ export function ProcurementBoard({
     } else if (tab === 'requested') {
       list.sort((a, b) =>
         (a.reqDate ?? a.orderDate) < (b.reqDate ?? b.orderDate) ? -1 : 1,
+      )
+    } else if (tab === 'purchase') {
+      list.sort((a, b) =>
+        (a.approveDate ?? a.reqDate ?? a.orderDate) <
+        (b.approveDate ?? b.reqDate ?? b.orderDate)
+          ? -1
+          : 1,
       )
     } else if (tab === 'arrived') {
       list.sort((a, b) =>
@@ -187,6 +200,7 @@ export function ProcurementBoard({
 
   const boxes: { key: Tab; count: number | null; hot?: number }[] = [
     { key: 'requested', count: counts.requested },
+    { key: 'purchase', count: counts.purchase },
     { key: 'buying', count: counts.buying, hot: counts.overdue },
     { key: 'arrived', count: counts.arrived },
     { key: 'ledger', count: counts.done },
@@ -307,6 +321,7 @@ export function ProcurementBoard({
               onToggle={() => setOpenId(openId === p.id ? null : p.id)}
               canApprove={canApprove}
               jobOptions={jobOptions}
+              roster={roster}
               onEdit={() => setModal({ kind: 'edit', row: p })}
             />
           ))
@@ -321,11 +336,9 @@ export function ProcurementBoard({
           jobOptions={jobOptions}
           roster={roster}
           currentUser={currentUser}
-          canApprove={canApprove}
           today={today}
           onDone={(created) => {
-            if (created === 'requested') setTab('requested')
-            else if (created === 'approved') setTab('buying')
+            if (created) setTab('requested')
             onDone()
           }}
           onCancel={() => setModal(null)}
@@ -353,6 +366,7 @@ function Row({
   onToggle,
   canApprove,
   jobOptions,
+  roster,
   onEdit,
 }: {
   p: Procurement
@@ -362,6 +376,7 @@ function Row({
   onToggle: () => void
   canApprove: boolean
   jobOptions: ProcurementJobOption[]
+  roster: string[]
   onEdit: () => void
 }) {
   const total = procurementTotalCny(p)
@@ -426,6 +441,7 @@ function Row({
           today={today}
           canApprove={canApprove}
           jobOptions={jobOptions}
+          roster={roster}
           onEdit={onEdit}
           onClose={onToggle}
         />
@@ -489,7 +505,15 @@ function StateCell({ p, today }: { p: Procurement; today: string }) {
       </span>
     )
   if (p.status === 'approved')
-    return <span className="font-medium text-[var(--color-warning)]">待下单</span>
+    return (
+      <span className="text-[var(--color-ink)]">
+        {p.approver ?? '—'}
+        <span className="text-[var(--color-ink-3)]">
+          {' '}
+          · {relDay(p.approveDate ?? p.reqDate ?? p.orderDate, today)}批
+        </span>
+      </span>
+    )
   if (p.status === 'ordered') {
     if (!p.expectedDate)
       return <span className="text-[var(--color-ink-3)]">未定到货</span>
@@ -536,6 +560,7 @@ function Panel({
   today,
   canApprove,
   jobOptions,
+  roster,
   onEdit,
   onClose,
 }: {
@@ -543,6 +568,7 @@ function Panel({
   today: string
   canApprove: boolean
   jobOptions: ProcurementJobOption[]
+  roster: string[]
   onEdit: () => void
   onClose: () => void
 }) {
@@ -553,12 +579,15 @@ function Panel({
   const [armDelete, setArmDelete] = useState(false)
   const [note, setNote] = useState('')
   const [calOpen, setCalOpen] = useState(false)
-  // 待下单 panel edits — held locally, committed by the labeled 已下单 button.
+  // 待采购 panel edits — held locally, committed by the labeled 已下单 button.
   const [supplier, setSupplier] = useState(p.supplier ?? '')
   const [price, setPrice] = useState(
     p.unitPriceCny != null ? String(p.unitPriceCny) : '',
   )
   const [expected, setExpected] = useState(p.expectedDate ?? '')
+  // 待领料 — who actually walks off with the material. Preset to the 领料人
+  // named at request time; the 领料 button won't fire without a name.
+  const [pickerSel, setPickerSel] = useState(p.picker ?? '')
 
   function run(patch: Record<string, unknown>, close = true) {
     start(async () => {
@@ -799,19 +828,29 @@ function Panel({
                 不良
               </button>
             </span>
-            <button
-              type="button"
-              className={`${btnPri} ml-auto`}
-              disabled={pending}
-              onClick={() =>
-                run({
-                  status: 'done',
-                  ...(p.inspectResult ? {} : { inspectResult: 'ok' }),
-                })
-              }
-            >
-              {p.picker ? `${p.picker} 领料` : '领料'}
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <SearchSelect
+                options={roster.map((n) => ({ id: n, label: n }))}
+                value={pickerSel}
+                onChange={setPickerSel}
+                placeholder="谁领料"
+                searchPlaceholder="搜索姓名…"
+              />
+              <button
+                type="button"
+                className={btnPri}
+                disabled={pending || !pickerSel.trim()}
+                onClick={() =>
+                  run({
+                    status: 'done',
+                    picker: pickerSel.trim(),
+                    ...(p.inspectResult ? {} : { inspectResult: 'ok' }),
+                  })
+                }
+              >
+                领料
+              </button>
+            </div>
           </div>
           {armBad && (
             <>
@@ -1120,7 +1159,6 @@ function ProcurementModal({
   jobOptions,
   roster,
   currentUser,
-  canApprove,
   today,
   onDone,
   onCancel,
@@ -1131,7 +1169,6 @@ function ProcurementModal({
   jobOptions: ProcurementJobOption[]
   roster: string[]
   currentUser: string
-  canApprove: boolean
   today: string
   onDone: (created?: ProcurementStatus) => void
   onCancel: () => void
@@ -1233,7 +1270,8 @@ function ProcurementModal({
           })
           onDone()
         } else {
-          const status: ProcurementStatus = canApprove ? 'approved' : 'requested'
+          // Every request is born 待审批 — the server enforces it too.
+          const status: ProcurementStatus = 'requested'
           await mutate({
             kind: 'createProcurement',
             input: {
@@ -1449,13 +1487,7 @@ function ProcurementModal({
                 disabled={pending}
                 className="rounded-[2px] bg-[var(--color-ink)] px-4 py-1.5 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
               >
-                {pending
-                  ? '保存中…'
-                  : mode === 'edit'
-                    ? '保存'
-                    : canApprove
-                      ? '提交 · 免审批'
-                      : '提交请购'}
+                {pending ? '保存中…' : mode === 'edit' ? '保存' : '提交请购'}
               </button>
             </div>
           </>

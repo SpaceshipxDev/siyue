@@ -109,9 +109,9 @@ export function canEditJob(s: Scope): boolean {
   return s.role === 'commerce'
 }
 
-// 采购 审批 — clearing (or rejecting) the floor's 请购 requests, and creating
-// buys that skip the approval queue (免审批). The office (商务) plus whoever
-// mans the 采购 station itself. Everyone else's new buys are born 待审批.
+// 采购 审批 — clearing (or rejecting) the floor's 请购 requests. The office
+// (商务) plus whoever mans the 采购 station itself. Every new buy is born
+// 待审批, approvers' own included — approval is always a second pair of eyes.
 export function canApproveProcurement(s: Scope): boolean {
   return s.role === 'commerce' || s.defaultStage === '采购'
 }
