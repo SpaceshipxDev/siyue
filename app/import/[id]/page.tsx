@@ -222,15 +222,19 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
 
         <div className="overflow-x-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
           <table className="sheet w-full text-left text-[13px]">
+            {/* Column sequence mirrors the board's 零件 sheet exactly —
+                零件 · 料号 · 加工工艺 · 数量 · 材料 · 表面处理 · 工序 —
+                so what commerce checks here is the same table they'll scan
+                on the job page after 确认导入. */}
             <colgroup>
               <col style={{ width: 56 }} />
               <col style={{ width: 84 }} />
               <col style={{ width: 220 }} />
               <col style={{ width: 110 }} />
+              <col style={{ width: 110 }} />
               <col style={{ width: 80 }} />
               <col style={{ width: 160 }} />
               <col style={{ width: 200 }} />
-              <col style={{ width: 110 }} />
               <col style={{ width: 220 }} />
               <col style={{ minWidth: 200 }} />
               <col style={{ width: 100 }} />
@@ -243,12 +247,12 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
                 <th className="px-3 py-3 label whitespace-nowrap">图</th>
                 <th className="px-4 py-3 label whitespace-nowrap">零件名称</th>
                 <th className="px-4 py-3 label whitespace-nowrap">料号</th>
+                <th className="px-4 py-3 label whitespace-nowrap">加工工艺</th>
                 <th className="px-4 py-3 text-right label whitespace-nowrap">
                   数量
                 </th>
                 <th className="px-4 py-3 label whitespace-nowrap">材料</th>
                 <th className="px-4 py-3 label whitespace-nowrap">表面处理</th>
-                <th className="px-4 py-3 label whitespace-nowrap">加工工艺</th>
                 <th className="px-4 py-3 label whitespace-nowrap">工序</th>
                 <th className="px-4 py-3 label whitespace-nowrap">备注</th>
                 <th className="px-4 py-3 text-right label whitespace-nowrap">
@@ -380,6 +384,16 @@ function ImportComponentRows({
         />
       </td>
       <td className="px-3 py-3">
+        <ComponentText
+          jobId={jobId}
+          componentId={component.id}
+          field="process"
+          value={component.process}
+          placeholder="机加 / 3D打印"
+          className="text-[12px] text-[var(--color-ink-2)]"
+        />
+      </td>
+      <td className="px-3 py-3">
         <ComponentQty
           jobId={jobId}
           componentId={component.id}
@@ -404,16 +418,6 @@ function ImportComponentRows({
           field="surfaceTreatment"
           value={component.surfaceTreatment}
           placeholder="表面处理"
-          className="text-[12px] text-[var(--color-ink-2)]"
-        />
-      </td>
-      <td className="px-3 py-3">
-        <ComponentText
-          jobId={jobId}
-          componentId={component.id}
-          field="process"
-          value={component.process}
-          placeholder="机加 / 3D打印"
           className="text-[12px] text-[var(--color-ink-2)]"
         />
       </td>
