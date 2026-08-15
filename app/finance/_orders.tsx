@@ -403,6 +403,31 @@ function CostCell({ amount, count }: { amount: number; count: number }) {
   )
 }
 
+// Per-厂 rollup of an order's 外协 spend — several blocks to the same vendor
+// collapse into one slice. Drives the panel's 分厂 subtotal line and the
+// export's 外协(分厂) column, in first-dispatch order.
+type VendorSlice = { name: string; amountCny: number; unpriced: number }
+
+function vendorSlices(row: OrderLedgerRow): VendorSlice[] {
+  const m = new Map<string, VendorSlice>()
+  for (const o of row.outsource) {
+    let s = m.get(o.vendorName)
+    if (!s) {
+      s = { name: o.vendorName, amountCny: 0, unpriced: 0 }
+      m.set(o.vendorName, s)
+    }
+    if (o.amountCny == null) s.unpriced += 1
+    else s.amountCny += o.amountCny
+  }
+  return [...m.values()]
+}
+
+// '科恒 ¥700' / '科恒 ¥700 (含1笔未定价)' / '科恒 未定价' — one slice as text.
+function sliceText(s: VendorSlice): string {
+  if (s.amountCny === 0 && s.unpriced > 0) return `${s.name} 未定价`
+  return `${s.name} ${formatCny(s.amountCny)}${s.unpriced > 0 ? ` (含${s.unpriced}笔未定价)` : ''}`
+}
+
 // The receipts behind the row: every 外协 block and every 采购 buy, each with
 // its own money line, plus the derived total. Read-only by design.
 function ReceiptsPanel({
@@ -412,6 +437,7 @@ function ReceiptsPanel({
   row: OrderLedgerRow
   margin: number | undefined
 }) {
+  const slices = vendorSlices(row)
   return (
     <div className="pl-1 md:pl-6">
       <div className="grid gap-x-14 gap-y-6 md:grid-cols-2 items-start">
@@ -441,6 +467,21 @@ function ReceiptsPanel({
                 </li>
               ))}
             </ul>
+          )}
+          {/* 分厂小计 — only earns its line when the order actually split
+              across vendors; a single-厂 order's total IS its block list. */}
+          {slices.length > 1 && (
+            <p className="mt-2.5 pt-2 border-t border-[var(--color-border)] text-[12px] text-[var(--color-ink-3)] tabular-nums">
+              {slices.map((s, i) => (
+                <span key={s.name}>
+                  {i > 0 && <span className="text-[var(--color-ink-4)]"> · </span>}
+                  {s.name}{' '}
+                  <span className="text-[var(--color-ink-2)] font-medium">
+                    {s.amountCny === 0 && s.unpriced > 0 ? '未定价' : formatCny(s.amountCny)}
+                  </span>
+                </span>
+              ))}
+            </p>
           )}
         </section>
         <section>
@@ -535,7 +576,7 @@ function ExportButton({
         '采购成本',
         '成本合计',
         '毛利',
-        '外协厂商',
+        '外协分厂', // per-厂 money, e.g. 科恒 ¥700、旺发 ¥1,200
         '交期',
       ]
       const orderBody = rows.map((r) => [
@@ -550,7 +591,7 @@ function ExportButton({
         r.amountCny == null
           ? ''
           : r.amountCny - r.outsourceCny - r.procurementCny,
-        Array.from(new Set(r.outsource.map((o) => o.vendorName))).join('、'),
+        vendorSlices(r).map(sliceText).join('、'),
         r.dueDate,
       ])
 
@@ -594,7 +635,7 @@ function ExportButton({
       }
       XLSX.utils.book_append_sheet(
         wb,
-        sheet(orderHead, orderBody, [11, 16, 20, 22, 10, 10, 10, 10, 10, 24, 11]),
+        sheet(orderHead, orderBody, [11, 16, 20, 22, 10, 10, 10, 10, 10, 32, 11]),
         '订单',
       )
       XLSX.utils.book_append_sheet(
