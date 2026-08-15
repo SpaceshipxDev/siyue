@@ -9,7 +9,9 @@ import {
   useSyncExternalStore,
   useTransition,
   type ChangeEvent,
+  type ClipboardEvent,
   type KeyboardEvent,
+  type RefObject,
 } from 'react'
 import type {
   BlockPatch,
@@ -129,18 +131,21 @@ export function EditableNumber({
   className = '',
   min,
   step = 1,
+  paste,
 }: {
   value: number | undefined
   onSave: (next: number) => Promise<void>
   className?: string
   min?: number
   step?: number
+  paste?: PasteFill
 }) {
   const ref = useRef<HTMLInputElement>(null)
   const initial = value ?? 0
   const initialStr = String(initial)
   const { draft, setDraft, setFocused, pending, safeStart } =
     useDraft(initialStr)
+  const onPaste = usePasteFill(paste, ref)
 
   const commit = (next: string) => {
     const n = Number(next)
@@ -156,6 +161,7 @@ export function EditableNumber({
       min={min}
       step={step}
       value={draft}
+      onPaste={onPaste}
       onChange={(e) => setDraft(e.target.value)}
       onFocus={() => setFocused(true)}
       onBlur={() => {
@@ -734,6 +740,101 @@ function applyLineEdit(key: string, next: { qty?: number; unit?: number | null }
   }
 }
 
+// ─── Excel-style bulk paste (fill-down) ─────────────────────────────────────
+//
+// Copy a column in WPS/Excel, click the first 单价 cell, ⌘V — the values land
+// downward row by row, like pasting into a spreadsheet. Every cell of a
+// column registers under `${field}:${jobId}`; the cell that receives the
+// paste finds itself and the cells below it in DOM order and hands each
+// clipboard line to that cell's own commit path. A single-line clipboard is
+// left to the browser (a normal paste into one input).
+type PasteFill = { col: string; cellId: string; commitRaw: (raw: string) => void }
+type PasteTarget = { el: HTMLInputElement; commitRaw: (raw: string) => void }
+
+const pasteCols = new Map<string, Map<string, PasteTarget>>()
+
+// Numbers as Excel money cells actually carry them: ¥/￥/$ signs, thousand
+// separators (ASCII and full-width), stray spaces, a trailing 元. A dash or
+// blank means "no value here" and the row is skipped, never cleared.
+function parsePastedNumber(raw: string): number | undefined {
+  const cleaned = raw.replace(/[¥￥$,，\s]/g, '').replace(/元$/, '')
+  if (cleaned === '' || cleaned === '—' || cleaned === '-') return undefined
+  const n = Number(cleaned)
+  if (!Number.isFinite(n) || n < 0) return undefined
+  return n
+}
+
+function usePasteFill(
+  fill: PasteFill | undefined,
+  ref: RefObject<HTMLInputElement | null>,
+) {
+  // The registry keeps one closure per cell for the column's lifetime; route
+  // it through a ref so a paste always runs the current render's commit.
+  const commitRef = useRef(fill?.commitRaw)
+  commitRef.current = fill?.commitRaw
+  const col = fill?.col
+  const cellId = fill?.cellId
+  useEffect(() => {
+    const el = ref.current
+    if (!col || !cellId || !el) return
+    let cells = pasteCols.get(col)
+    if (!cells) {
+      cells = new Map()
+      pasteCols.set(col, cells)
+    }
+    cells.set(cellId, { el, commitRaw: (raw) => commitRef.current?.(raw) })
+    return () => {
+      cells.delete(cellId)
+      if (cells.size === 0) pasteCols.delete(col)
+    }
+  }, [col, cellId, ref])
+
+  if (!fill) return undefined
+  return (e: ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData('text/plain')
+    // Only spreadsheet-shaped clipboards (Excel/WPS always append a trailing
+    // newline, even for one cell) take this path; plain text pastes normally.
+    // The 1-line case must be handled here too — Chrome silently drops a
+    // paste containing "\n" into a type=number input.
+    if (!text.includes('\n') && !text.includes('\r')) return
+    const lines = text.replace(/\r\n?/g, '\n').split('\n')
+    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop()
+    // A clipboard wider than one column (an Excel selection spanning 数量+单价,
+    // say) pastes its FIRST column — the one under the cursor is unknowable.
+    const values = lines.map((l) => l.split('\t')[0].trim())
+    if (values.length === 0) return
+    e.preventDefault()
+    const registered = [...(pasteCols.get(fill.col)?.values() ?? [])].filter(
+      (c) => c.el.isConnected,
+    )
+    registered.sort((a, b) =>
+      a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING
+        ? -1
+        : 1,
+    )
+    const startAt = registered.findIndex((c) => c.el === ref.current)
+    if (startAt === -1) return
+    // Blur before filling: the input still holds its pre-paste draft, so the
+    // blur-commit is a no-op, and an unfocused cell repaints from the slot
+    // the moment its commitRaw lands the new value.
+    ref.current?.blur()
+    let applied = 0
+    for (let i = 0; i < values.length; i++) {
+      const target = registered[startAt + i]
+      if (!target) break
+      if (values[i] === '') continue
+      target.commitRaw(values[i])
+      applied += 1
+    }
+    const overflow = values.length - (registered.length - startAt)
+    showToast(
+      overflow > 0
+        ? `已粘贴 ${applied} 行 · 剪贴板多出 ${overflow} 行`
+        : `已粘贴 ${applied} 行`,
+    )
+  }
+}
+
 export function ComponentQty({
   jobId,
   componentId,
@@ -766,6 +867,32 @@ export function ComponentQty({
           throw e
         }
       }}
+      paste={{
+        col: `qty:${jobId}`,
+        cellId: componentId,
+        commitRaw: (raw) => {
+          const parsed = parsePastedNumber(raw)
+          if (parsed === undefined) return
+          const n = Math.round(parsed)
+          if (n === lineAtRest(key, 'qty', value)) return
+          // Outside the cell's transition on purpose: while `pending` is up,
+          // useDraft won't re-sync, and a bulk-filled unfocused cell must
+          // repaint from the slot the moment the value lands.
+          const undo = applyLineEdit(key, { qty: n })
+          mutate({
+            kind: 'updateComponent',
+            jobId,
+            componentId,
+            patch: { qty: n },
+          }).catch((e) => {
+            undo()
+            showToast(
+              `保存失败 · ${e instanceof Error ? e.message : '网络中断'}`,
+              'warning',
+            )
+          })
+        },
+      }}
       className={className}
     />
   )
@@ -782,16 +909,19 @@ function ComponentMoney({
   value,
   onCommit,
   className,
+  paste,
 }: {
   value: number | undefined
   onCommit: (next: number | null) => Promise<unknown>
   className?: string
+  paste?: PasteFill
 }) {
   const ref = useRef<HTMLInputElement>(null)
   const initial = value
   const initialStr = typeof initial === 'number' ? String(initial) : ''
   const { draft, setDraft, setFocused, pending, safeStart } =
     useDraft(initialStr)
+  const onPaste = usePasteFill(paste, ref)
 
   const commit = (next: string) => {
     const trimmed = next.trim()
@@ -815,6 +945,7 @@ function ComponentMoney({
       step={1}
       value={draft}
       placeholder="—"
+      onPaste={onPaste}
       onChange={(e) => setDraft(e.target.value)}
       onFocus={() => setFocused(true)}
       onBlur={() => {
@@ -971,6 +1102,29 @@ export function ComponentUnitPrice({
           throw e
         }
       }}
+      paste={{
+        col: `unit:${jobId}`,
+        cellId: componentId,
+        commitRaw: (raw) => {
+          const n = parsePastedNumber(raw)
+          if (n === undefined) return
+          if (n === lineAtRest(key, 'unit', value)) return
+          // Outside the cell's transition on purpose — see ComponentQty.
+          const undo = applyLineEdit(key, { unit: n })
+          mutate({
+            kind: 'updateComponent',
+            jobId,
+            componentId,
+            patch: { unitPriceCny: n },
+          }).catch((e) => {
+            undo()
+            showToast(
+              `保存失败 · ${e instanceof Error ? e.message : '网络中断'}`,
+              'warning',
+            )
+          })
+        },
+      }}
       className={className}
     />
   )
@@ -1016,6 +1170,33 @@ export function ComponentLineTotal({
           notifyLine(key)
           throw e
         }
+      }}
+      paste={{
+        col: `total:${jobId}`,
+        cellId: componentId,
+        commitRaw: (raw) => {
+          const n = parsePastedNumber(raw)
+          if (n === undefined) return
+          if (n === lineAtRest(key, 'total', value)) return
+          // Outside the cell's transition on purpose — see ComponentQty.
+          const slot = lineSlot(key)
+          const before: LineSlot = { ...slot }
+          slot.total = n
+          notifyLine(key)
+          mutate({
+            kind: 'updateComponent',
+            jobId,
+            componentId,
+            patch: { lineTotalCny: n },
+          }).catch((e) => {
+            lineSlots.set(key, before)
+            notifyLine(key)
+            showToast(
+              `保存失败 · ${e instanceof Error ? e.message : '网络中断'}`,
+              'warning',
+            )
+          })
+        },
       }}
       className={className}
     />
