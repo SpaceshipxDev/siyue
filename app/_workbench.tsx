@@ -23,7 +23,6 @@ import {
 } from '@/lib/master'
 import { DueCell, Pause } from './_ui'
 import { JobStageActionButton, type StageCounts } from './_cell'
-import { useCanClickStage } from './_stage_scope'
 import { JobNotesInline } from './_editable'
 import { ReturnChip } from './_returns'
 import { TypeChip, useOptimisticJobType } from './_type_chip'
@@ -200,13 +199,14 @@ export function StationWorkbench({
   const promote = (jobId: string, counts: StageCounts) =>
     setPromoted((prev) => new Map(prev).set(jobId, counts))
 
-  // See everything, act on yours: every account can now open every station
-  // tab, but the ▶/⏸ action cells only render on a station the viewer may
-  // mutate (mirrors requireOwnStage in /api/mutate, which reads the same
-  // per-person stage scope from lib/auth). Foreign stations render the same
-  // queue read-only, so a 打磨 worker peeking at 操机 never taps a button
-  // that the server would reject.
-  const canAct = useCanClickStage(stage)
+  // See everything, act on yours: every account can open every station tab;
+  // this only decides which stations render ▶/⏸ ACTION CELLS at all — the
+  // same rendering rule as before per-person stage scopes existed, kept
+  // deliberately so the UI looks unchanged. Whether a tap is actually
+  // allowed is the scope's job (useStageGuard inside the cells): an
+  // out-of-scope tap opens the denial dialog instead of writing.
+  const canAct =
+    role === 'commerce' || defaultStage === '工程' || defaultStage === stage
 
   // Pipeline: text → date → sort. Partition into the three tabs at the end
   // so each tab badge reflects the live filter. row.searchHaystack carries
