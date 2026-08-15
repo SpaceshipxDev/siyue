@@ -14,7 +14,7 @@ import {
   getOrderMoneyLightByJob,
   getStageFlowMinutes,
 } from '@/lib/db'
-import { requireUser, canSeeFactoryPulse, canSeeMoney, canSeeReport } from '@/lib/auth'
+import { requireUser, canSeeFactoryPulse, canSeeMoney, canSeeReport, canSeeOrderLedger } from '@/lib/auth'
 import { logBoardView } from '@/lib/access-log'
 import { scrubMasterRow } from '@/lib/dto'
 import { getStationWip, getWorkerSelfStats } from '@/lib/pulse'
@@ -236,6 +236,7 @@ export default async function MasterBoard(
         defaultStage={user.defaultStage}
         userName={user.name}
         canSeeReport={canSeeReport(user)}
+        canSeeFinance={canSeeOrderLedger(user)}
         right={
           isEngineeringOverview ? (
             // 工程 head sees the same flow signals (overdue / today / 在产)

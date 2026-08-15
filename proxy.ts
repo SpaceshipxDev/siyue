@@ -66,6 +66,11 @@ const ENGINEERING_ALLOWED_PREFIXES = [
   // 工作交接单 — the 工程 head runs the floor and needs the unified handover
   // board (same gate as /pulse: commerce + 工程 head only).
   '/handover',
+  // 财务 — the JWT only carries role + stage, so the proxy lets 工程 through
+  // and the page itself narrows to the per-person allowlist (canSeeOrderLedger:
+  // 于海伟 only today). Non-granted 工程 accounts bounce at the page, exactly
+  // like /report does with its own allowlist.
+  '/finance',
 ]
 
 export async function proxy(request: NextRequest) {

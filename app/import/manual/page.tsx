@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import {
   canEditProductionFields,
   canSeeReport,
+  canSeeOrderLedger,
   landingPathFor,
   requireUser,
 } from '@/lib/auth'
@@ -25,6 +26,7 @@ export default async function ManualImportPage() {
         defaultStage={user.defaultStage}
         userName={user.name}
         canSeeReport={canSeeReport(user)}
+        canSeeFinance={canSeeOrderLedger(user)}
       />
       <ManualImportWorkspace />
     </div>

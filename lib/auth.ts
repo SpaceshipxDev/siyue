@@ -272,6 +272,28 @@ export function canSeeReport(u: AuthUser): boolean {
   return u.role === 'commerce' || REPORT_VIEWER_USER_IDS.has(u.id)
 }
 
+// 财务·订单 viewers: every 商务, plus a per-person allowlist. Same shape as
+// REPORT_VIEWER_USER_IDS and for the same reason — the grant is by name, not
+// by stage (于海伟 sees the order money book; the rest of 工程 does not). A
+// production grantee sees ONLY the 订单 tab on /finance — 记账/看钱 stay
+// commerce-wide and 支出/月度 stay canSeeExpenses; the page enforces both.
+const ORDER_LEDGER_VIEWER_USER_IDS = new Set<string>([
+  'u-mose92lt-a0cutz', // 于海伟 (production / 工程) — his 商务号 qualifies via role
+])
+
+export function canSeeOrderLedger(u: AuthUser): boolean {
+  return u.role === 'commerce' || ORDER_LEDGER_VIEWER_USER_IDS.has(u.id)
+}
+
+// Page guard for /finance now that it is no longer commerce-only: 商务 in
+// full, allowlisted production users for the 订单 tab. Everyone else bounces
+// to their landing page.
+export async function requireOrderLedgerViewer(): Promise<AuthUser> {
+  const u = await requireUser()
+  if (canSeeOrderLedger(u)) return u
+  redirect(landingPathFor(u))
+}
+
 // 报工 viewer gate. 商务 always; specific granted production users (see
 // REPORT_VIEWER_USER_IDS) too. Everyone else bounces to their landing page on a
 // direct URL hit.

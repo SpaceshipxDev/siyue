@@ -9,6 +9,7 @@ import {
   isMemberFullyReturned,
   jobIntakeDate,
   jobNoSortKey,
+  procurementTotalCny,
   stageStartImpliesUpstreamDone,
 } from './data'
 import { today, todayMMDD } from './today'
@@ -3547,6 +3548,180 @@ export async function getFenqiData(): Promise<FenqiData> {
   const events: FenqiEvent[] = moneyEventsRaw.map(fromMoneyEvent)
 
   return { jobs, lines, events }
+}
+
+// === 订单账 (/finance 订单 tab) ==============================================
+//
+// One payload: every confirmed order + its full money story — 订单额, the
+// 外协 blocks it paid for (vendor, 工序, resolved spend), the 采购 buys linked
+// to it (关联工号). Client-driven like getFenqiData: the tab filters/searches/
+// exports in the browser off this one read.
+//
+// Block spend mirrors getFinanceRows exactly: block-level amount_cny when set,
+// else Σ(数量 × 单价) across members (rush pricing), else null (未定价 —
+// counted as 0 in the rollup, surfaced as 未定价 in the row's panel).
+export async function getOrderLedgerRows(): Promise<
+  import('./data').OrderLedgerRow[]
+> {
+  await ensureSeeded()
+
+  // Column-scoped paginated read — selectAll's loop but without dragging every
+  // column of the two biggest tables (jobs carries notes/stage_plan blobs,
+  // parts carries image URLs) into a page whose payload ships to the client.
+  const fetchCols = async (
+    table: string,
+    cols: string,
+    eq?: [col: string, val: string],
+  ): Promise<AnyRow[]> => {
+    const out: AnyRow[] = []
+    let from = 0
+    while (true) {
+      let q = supabase.from(table).select(cols)
+      if (eq) q = q.eq(eq[0], eq[1])
+      const { data, error } = await q.range(from, from + PAGE_SIZE - 1)
+      if (error) throw error
+      const rows = (data ?? []) as unknown as AnyRow[]
+      out.push(...rows)
+      if (rows.length < PAGE_SIZE) break
+      from += PAGE_SIZE
+    }
+    return out
+  }
+
+  const [jobsRaw, blocksRaw, blockPartsRaw, partsRaw, vendors, procurements] =
+    await Promise.all([
+      fetchCols(
+        'jobs',
+        'id, job_no, customer, product, amount_cny, due_date, created_at',
+        ['status', 'ready'],
+      ),
+      fetchCols(
+        'outsource_blocks',
+        'id, vendor_id, activity, amount_cny, sent_date, doc_no',
+      ),
+      fetchCols(
+        'outsource_block_parts',
+        'block_id, part_id, qty, unit_price_cny',
+      ),
+      fetchCols('parts', 'id, job_id, qty'),
+      getVendors(),
+      getProcurements(),
+    ])
+
+  const vendorName = new Map<string, string>()
+  for (const v of vendors) vendorName.set(v.id, v.name)
+
+  const partById = new Map<string, { jobId: string; qty: number }>()
+  for (const p of partsRaw)
+    partById.set(p.id as string, {
+      jobId: p.job_id as string,
+      qty: Number(p.qty ?? 0),
+    })
+
+  // Per-block: owning job + member line-total sum (undefined when no member
+  // carries a 单价 — that keeps a genuinely unpriced block null, not ¥0).
+  const jobByBlock = new Map<string, string>()
+  const lineSumByBlock = new Map<string, number>()
+  for (const bp of blockPartsRaw) {
+    const blockId = bp.block_id as string
+    const part = partById.get(bp.part_id as string)
+    if (part && !jobByBlock.has(blockId)) jobByBlock.set(blockId, part.jobId)
+    const unit = bp.unit_price_cny == null ? undefined : Number(bp.unit_price_cny)
+    if (unit !== undefined && Number.isFinite(unit)) {
+      const qty = bp.qty != null ? Number(bp.qty) : (part?.qty ?? 0)
+      lineSumByBlock.set(blockId, (lineSumByBlock.get(blockId) ?? 0) + qty * unit)
+    }
+  }
+
+  const outsourceByJob = new Map<string, import('./data').OrderLedgerOutsource[]>()
+  for (const b of blocksRaw) {
+    const blockId = b.id as string
+    const jobId = jobByBlock.get(blockId)
+    if (!jobId) continue // memberless / orphaned block — nothing to charge
+    const amount =
+      b.amount_cny != null
+        ? Number(b.amount_cny)
+        : (lineSumByBlock.get(blockId) ?? null)
+    const arr = outsourceByJob.get(jobId) ?? []
+    arr.push({
+      blockId,
+      vendorName:
+        vendorName.get(b.vendor_id as string) ?? (b.vendor_id as string),
+      activity: (b.activity as string | null) ?? undefined,
+      docNo: (b.doc_no as string | null) ?? undefined,
+      sentDate: (b.sent_date as string) ?? '',
+      amountCny: amount,
+    })
+    outsourceByJob.set(jobId, arr)
+  }
+
+  // 采购 attribution: job_id when linked, else the typed 工号 snapshot (some
+  // rows carry only the text). 已驳回 rows never became cost — skip them.
+  const jobIdByNo = new Map<string, string>()
+  for (const j of jobsRaw) {
+    const no = ((j.job_no as string | null) ?? '').trim().toLowerCase()
+    if (no) jobIdByNo.set(no, j.id as string)
+  }
+  const jobIdSet = new Set(jobsRaw.map((j) => j.id as string))
+  const buysByJob = new Map<string, import('./data').OrderLedgerBuy[]>()
+  for (const p of procurements) {
+    if (p.status === 'rejected') continue
+    const jobId =
+      p.jobId && jobIdSet.has(p.jobId)
+        ? p.jobId
+        : p.jobNo
+          ? jobIdByNo.get(p.jobNo.trim().toLowerCase())
+          : undefined
+    if (!jobId) continue // shop supplies etc. — not an order's cost
+    const arr = buysByJob.get(jobId) ?? []
+    arr.push({
+      id: p.id,
+      item: p.item,
+      supplier: p.supplier,
+      qty: p.qty,
+      unitPriceCny: p.unitPriceCny,
+      totalCny: procurementTotalCny(p),
+      status: p.status,
+      orderDate: p.orderDate,
+    })
+    buysByJob.set(jobId, arr)
+  }
+
+  const rows: import('./data').OrderLedgerRow[] = []
+  for (const j of jobsRaw) {
+    const jobId = j.id as string
+    const outsource = outsourceByJob.get(jobId) ?? []
+    const buys = buysByJob.get(jobId) ?? []
+    let outsourceCny = 0
+    for (const o of outsource) if (o.amountCny != null) outsourceCny += o.amountCny
+    let procurementCny = 0
+    for (const b of buys) if (b.totalCny != null) procurementCny += b.totalCny
+    rows.push({
+      jobId,
+      jobNo: (j.job_no as string | null) ?? '',
+      customer: (j.customer as string | null) ?? '',
+      product: (j.product as string | null) ?? '',
+      createdDate: new Date(j.created_at as string).toLocaleDateString(
+        'en-CA',
+        { timeZone: 'Asia/Shanghai' },
+      ),
+      dueDate: (j.due_date as string | null) ?? '',
+      amountCny: j.amount_cny == null ? undefined : Number(j.amount_cny),
+      outsource,
+      buys,
+      outsourceCny,
+      procurementCny,
+    })
+  }
+  // Newest order first — the ledger reads top-down like the 外协台. Ties on
+  // the intake day break by 工号 (jobNoSortKey already inverts to newest-first
+  // under an ASC compare).
+  rows.sort(
+    (a, b) =>
+      b.createdDate.localeCompare(a.createdDate) ||
+      jobNoSortKey(a).localeCompare(jobNoSortKey(b)),
+  )
+  return rows
 }
 
 // Book a 订单号 line on a job. `init` carries the values she typed in the

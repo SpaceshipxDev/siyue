@@ -795,6 +795,49 @@ export const PROCUREMENT_CATEGORIES = [
   '其他',
 ] as const
 
+// === 订单账 (/finance 订单 tab) ===
+//
+// One row per confirmed order, carrying the order's full money story: the
+// hand-typed 订单额 (undefined = 未定), every 外协 block it paid for (which
+// vendor, how much) and every 采购 buy linked to it. Composed server-side by
+// getOrderLedgerRows(); the client derives 毛利 = 订单额 − 外协 − 采购.
+
+export type OrderLedgerOutsource = {
+  blockId: string
+  vendorName: string
+  activity?: string // 工序 (打磨 / 表处 / …)
+  docNo?: string // 外协单号
+  sentDate: string // 寄出 YYYY-MM-DD
+  // Resolved spend: block-level 金额 when set, else Σ(数量 × 单价) across its
+  // members (rush pricing), else null = the block is genuinely unpriced.
+  amountCny: number | null
+}
+
+export type OrderLedgerBuy = {
+  id: string
+  item: string
+  supplier?: string
+  qty?: number
+  unitPriceCny?: number
+  totalCny?: number // 数量 × 单价; undefined when either half is missing
+  status: ProcurementStatus
+  orderDate: string
+}
+
+export type OrderLedgerRow = {
+  jobId: string
+  jobNo: string
+  customer: string
+  product: string
+  createdDate: string // 下单 (created_at as a Shanghai-local YYYY-MM-DD)
+  dueDate: string
+  amountCny?: number // 订单额; undefined = 未定
+  outsource: OrderLedgerOutsource[]
+  buys: OrderLedgerBuy[]
+  outsourceCny: number // Σ resolved block spend (unpriced blocks count 0)
+  procurementCny: number // Σ buy totals (unpriced buys count 0)
+}
+
 // 重点 — one row on a day's hand-curated focus list. The platform version of
 // the "today's important jobs" Excel. Only the human facts are stored (which
 // job, the 反馈 note); 交期 / 外协 / 客户 / 产品 are joined live from the

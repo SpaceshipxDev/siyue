@@ -35,7 +35,12 @@ type Tab = { key: TabKey; label: string; href: string }
 // EVERY role now carries the stage row (scoped floor accounts included):
 // one universal nav, your own station highlighted, the rest of the factory
 // one click away.
-function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): Tab[] {
+function tabsForRole(
+  role: Role,
+  defaultStage?: string,
+  canSeeReport = false,
+  canSeeFinance = false,
+): Tab[] {
   // 采购 is a Stage (board column, route picker) but NOT a station tab — the
   // nav already carries one 采购 tab pointing at /procurement, and that ledger
   // IS the 采购 station. Two tabs with one name would be a coin-flip.
@@ -63,6 +68,9 @@ function tabsForRole(role: Role, defaultStage?: string, canSeeReport = false): T
         // 报工 shown only for explicitly-granted 工程 users (canSeeReport — e.g.
         // 于海伟); the rest of 工程 don't get it. Gate: requireReportViewer.
         ...(canSeeReport ? [{ key: '报工' as TabKey, label: '报工', href: '/report' }] : []),
+        // 财务 (订单账) — same per-person grant pattern as 报工: only 工程
+        // users on the canSeeOrderLedger allowlist (于海伟) carry the tab.
+        ...(canSeeFinance ? [{ key: '财务' as TabKey, label: '财务', href: '/finance' }] : []),
         { key: '外协', label: '外协', href: '/station/outsource' },
         ...stageTabs('工程'),
         { key: '退货', label: '退货', href: '/returns' },
@@ -109,6 +117,7 @@ export function TopBar({
   defaultStage,
   userName,
   canSeeReport = false,
+  canSeeFinance = false,
 }: {
   title: string
   subtitle?: string
@@ -120,8 +129,10 @@ export function TopBar({
   userName: string
   /** Granted the 报工 tab (all 商务, plus allowlisted production e.g. 于海伟). */
   canSeeReport?: boolean
+  /** Granted the 财务 tab (all 商务, plus allowlisted production — canSeeOrderLedger). */
+  canSeeFinance?: boolean
 }) {
-  const tabs = tabsForRole(role, defaultStage, canSeeReport)
+  const tabs = tabsForRole(role, defaultStage, canSeeReport, canSeeFinance)
   const isCommerce = role === 'commerce'
   // 工程 head's "home" is the holistic master view at bare / (same as
    // commerce). Other production stations land on their station-filtered

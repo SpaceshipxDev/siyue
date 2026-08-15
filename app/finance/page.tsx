@@ -1,7 +1,12 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { canSeeExpenses, requireCommerce } from '@/lib/auth'
-import { getExpenses, getFenqiData } from '@/lib/db'
+import {
+  canSeeExpenses,
+  canSeeOrderLedger,
+  canSeeReport,
+  requireOrderLedgerViewer,
+} from '@/lib/auth'
+import { getExpenses, getFenqiData, getOrderLedgerRows } from '@/lib/db'
 import { getVouchersForExpenses } from '@/lib/voucher-file'
 import { today } from '@/lib/today'
 import { formatCny } from '@/lib/data'
@@ -22,13 +27,17 @@ import { FenqiLedger } from './_fenqi'
 import { BossMoney } from './_boss'
 import { ExpenseLedger } from './_expense_ledger'
 import { MonthlyCashflow } from './_monthly'
+import { OrderLedger } from './_orders'
 
 export const dynamic = 'force-dynamic'
 
 const PAGE_SIZE = 25
 
-// 财务 — one route, four reads of the same money:
-//   记账 (tab=ar, default)   the clerk's 分期账 — her Excel, columns and all,
+// 财务 — one route, five reads of the same money:
+//   订单 (tab=orders, default) every confirmed order with its full cost story —
+//                            订单额 − 外协 − 采购 = 毛利, month-scoped, with the
+//                            receipts one click down and a 3-sheet 导出.
+//   记账 (tab=ar)             the clerk's 分期账 — her Excel, columns and all,
 //                            where 开票/收款 installments are appended and every
 //                            剩余 derives itself (lib/fenqi). Rows are born from
 //                            出货 automatically.
@@ -36,10 +45,12 @@ const PAGE_SIZE = 25
 //                            per-customer 谁压着钱 wall. Same derived rows.
 //   支出 (tab=expense)       money out — the boss's 7 manual categories
 //   月度 (tab=month)         回款收入 − 支出 = 净现金流, by month
-// 记账 + 看钱 stay visible to every 商务. 支出/月度 carry per-person payroll,
-// so they're gated to the boss + designated finance users (users.is_finance).
+// 订单 opens to every 商务 plus the canSeeOrderLedger allowlist (于海伟's
+// production account). 记账 + 看钱 stay commerce-wide. 支出/月度 carry
+// per-person payroll, so they're gated to the boss + designated finance users
+// (users.is_finance).
 
-type FinanceTab = 'ar' | 'money' | 'expense' | 'month'
+type FinanceTab = 'orders' | 'ar' | 'money' | 'expense' | 'month'
 
 export default async function FinancePage({
   searchParams,
@@ -53,15 +64,21 @@ export default async function FinancePage({
     m?: string
   }>
 }) {
-  const user = await requireCommerce()
+  const user = await requireOrderLedgerViewer()
   const params = await searchParams
+  const isCommerce = user.role === 'commerce'
   const showExpenses = canSeeExpenses(user)
 
   const tab: FinanceTab =
-    params.tab === 'expense' || params.tab === 'month' || params.tab === 'money'
+    params.tab === 'ar' ||
+    params.tab === 'expense' ||
+    params.tab === 'month' ||
+    params.tab === 'money'
       ? (params.tab as FinanceTab)
-      : 'ar'
-  // Deep link to a gated tab from a non-finance user → land on the ledger.
+      : 'orders'
+  // Deep link to a tab beyond the user's grant → land on 订单. A production
+  // grantee (于海伟) holds ONLY the order ledger; 记账/看钱 stay commerce-wide.
+  if (tab !== 'orders' && !isCommerce) redirect('/finance')
   if ((tab === 'expense' || tab === 'month') && !showExpenses) redirect('/finance')
 
   const todayStr = today()
@@ -69,13 +86,15 @@ export default async function FinancePage({
   const monthLabel = `${parseInt(month.slice(5), 10)}月`
 
   const subtitle =
-    tab === 'ar'
-      ? '分期账'
-      : tab === 'money'
-        ? '看钱'
-        : tab === 'expense'
-          ? '支出台账'
-          : '月度现金流'
+    tab === 'orders'
+      ? '订单'
+      : tab === 'ar'
+        ? '分期账'
+        : tab === 'money'
+          ? '看钱'
+          : tab === 'expense'
+            ? '支出台账'
+            : '月度现金流'
 
   return (
     <div className="flex-1 flex flex-col">
@@ -86,9 +105,12 @@ export default async function FinancePage({
         role={user.role}
         defaultStage={user.defaultStage}
         userName={user.name}
+        canSeeReport={canSeeReport(user)}
+        canSeeFinance={canSeeOrderLedger(user)}
       />
       <main className="mx-auto w-full max-w-[1240px] px-5 md:px-10 py-10 md:py-14 flex-1">
-        <FinanceTabs tab={tab} showExpenses={showExpenses} />
+        <FinanceTabs tab={tab} isCommerce={isCommerce} showExpenses={showExpenses} />
+        {tab === 'orders' && <OrdersTab todayStr={todayStr} />}
         {tab === 'ar' && (
           <FenqiTab
             q={params.q ?? ''}
@@ -110,11 +132,25 @@ export default async function FinancePage({
 }
 
 // Sub-tab row — same underline-active text-toggle idiom as the ledger filters.
-// Server-rendered links so the gate stays on the server.
-function FinanceTabs({ tab, showExpenses }: { tab: FinanceTab; showExpenses: boolean }) {
+// Server-rendered links so the gate stays on the server. A production grantee
+// (于海伟) sees only 订单; the rest of the book stays commerce-wide.
+function FinanceTabs({
+  tab,
+  isCommerce,
+  showExpenses,
+}: {
+  tab: FinanceTab
+  isCommerce: boolean
+  showExpenses: boolean
+}) {
   const tabs: { key: FinanceTab; href: string; label: string }[] = [
-    { key: 'ar', href: '/finance', label: '记账' },
-    { key: 'money', href: '/finance?tab=money', label: '看钱' },
+    { key: 'orders', href: '/finance', label: '订单' },
+    ...(isCommerce
+      ? ([
+          { key: 'ar', href: '/finance?tab=ar', label: '记账' },
+          { key: 'money', href: '/finance?tab=money', label: '看钱' },
+        ] as { key: FinanceTab; href: string; label: string }[])
+      : []),
     ...(showExpenses
       ? ([
           { key: 'expense', href: '/finance?tab=expense', label: '支出' },
@@ -144,6 +180,13 @@ function FinanceTabs({ tab, showExpenses }: { tab: FinanceTab; showExpenses: boo
       })}
     </div>
   )
+}
+
+// === 订单 — every order's money story (one payload, client-driven) ===
+
+async function OrdersTab({ todayStr }: { todayStr: string }) {
+  const rows = await getOrderLedgerRows()
+  return <OrderLedger rows={rows} todayStr={todayStr} />
 }
 
 // === 记账 — the 分期账 ledger (her surface; one payload, client-driven) ===

@@ -3,7 +3,7 @@ import {
   getOutsourceBlockRows,
   getVendors,
 } from '@/lib/db'
-import { requireOutsourceManager, canSeeReport } from '@/lib/auth'
+import { requireOutsourceManager, canSeeReport, canSeeOrderLedger } from '@/lib/auth'
 import { TopBar } from '@/app/_ui'
 import { today } from '@/lib/today'
 import { OutsourceLedger } from './_ledger'
@@ -34,6 +34,7 @@ export default async function OutsourcePage() {
         defaultStage={user.defaultStage}
         userName={user.name}
         canSeeReport={canSeeReport(user)}
+        canSeeFinance={canSeeOrderLedger(user)}
       />
       <OutsourceLedger rows={rows} vendors={vendors} today={today()} />
     </div>

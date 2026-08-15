@@ -1,5 +1,5 @@
 import { TopBar } from '@/app/_ui'
-import { requireUser, canSeeReport, canApproveProcurement } from '@/lib/auth'
+import { requireUser, canSeeReport, canSeeOrderLedger, canApproveProcurement } from '@/lib/auth'
 import {
   getProcurements,
   getProcurementProducts,
@@ -34,6 +34,7 @@ export default async function ProcurementPage() {
         defaultStage={user.defaultStage}
         userName={user.name}
         canSeeReport={canSeeReport(user)}
+        canSeeFinance={canSeeOrderLedger(user)}
       />
       <main className="px-4 md:px-10 py-8">
         <ProcurementBoard
