@@ -14,7 +14,7 @@ import {
   getOrderMoneyLightByJob,
   getStageFlowMinutes,
 } from '@/lib/db'
-import { requireUser, canSeeFactoryPulse, canSeeMoney, canSeeReport, canSeeOrderLedger, stageScopeFor } from '@/lib/auth'
+import { requireUser, canDeleteJob, canSeeFactoryPulse, canSeeMoney, canSeeReport, canSeeOrderLedger, stageScopeFor } from '@/lib/auth'
 import { StageScopeProvider } from './_stage_scope'
 import { logBoardView } from '@/lib/access-log'
 import { scrubMasterRow } from '@/lib/dto'
@@ -308,6 +308,7 @@ export default async function MasterBoard(
 
         {showOverviewChrome && inbox.length > 0 ? (
           <InboxList
+            canDelete={canDeleteJob(user)}
             inbox={inbox.map((d) => ({
               id: d.id,
               jobNo: d.jobNo,

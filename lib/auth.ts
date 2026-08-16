@@ -258,6 +258,51 @@ export function canDeletePartRow(u: AuthUser): boolean {
   return PART_ROW_DELETER_USER_IDS.has(u.id)
 }
 
+// Who can DELETE a 工单 (the × in the 导入收件箱 and the 丢弃 on a 工号-conflict
+// import). The whole 商务 office has always had it; 工程 gets it by name only.
+// Named rather than by defaultStage because ~15 floor accounts (车工/质量/手工/
+// 打磨/操机) are parked at default_stage=工程 — the same trap canCreatePartRow
+// was built to dodge — and they can all reach /import.
+//
+// Note this is only half the rule: deleteJobAction also refuses any job at
+// status='ready'. A confirmed 单号 carries production history and is never
+// deletable by anyone; delete exists to clean up drafts and failed parses.
+const JOB_DELETER_USER_IDS = new Set<string>([
+  'u-mose92lt-a0cutz', // 于海伟 — 工程 (his 商务号 qualifies via role)
+  'u-mounqsw2-5g86hh', // harry 2 (dev/test account)
+])
+
+export function canDeleteJob(u: AuthUser): boolean {
+  return u.role === 'commerce' || JOB_DELETER_USER_IDS.has(u.id)
+}
+
+// Server-action guard for deleteJobAction. Mirrors requireCommerce — the
+// client shows a 权限 popover before it ever gets here, so reaching this
+// redirect means the button was bypassed.
+export async function requireJobDeleter(): Promise<AuthUser> {
+  const u = await requireUser()
+  if (canDeleteJob(u)) return u
+  redirect(landingPathFor(u))
+}
+
+// Who can DELETE a CONFIRMED 工单 — the 删除 on the job page, which takes the
+// whole order down regardless of status: parts, 报工 history, 出货记录 and the
+// board row all cascade with it (0001_init FK graph). Deliberately narrower
+// than canDeleteJob (draft cleanup, whole 商务 office): this is the only
+// irreversible gesture in the product, so it's named people, not a role.
+const ORDER_DELETER_USER_IDS = new Set<string>([
+  'u-bootstrap-commerce', // 老板
+  'u-mosbgpwr-pczcze', // Harry
+  'u-mosdsv5z-pzalzv', // 黄优兰香
+  'u-mose92lt-a0cutz', // 于海伟 — 工程号
+  'u-ms45yjq9-2kbdi1', // 商务于海伟 — 他的商务号
+  'u-mounqsw2-5g86hh', // harry 2 (dev/test account)
+])
+
+export function canDeleteOrder(u: AuthUser): boolean {
+  return ORDER_DELETER_USER_IDS.has(u.id)
+}
+
 // ─── 报工 工段范围 (which stage cells a user may CLICK) ──────────────────────
 //
 // The boss reads money out of stage progress now, so a tap on someone else's

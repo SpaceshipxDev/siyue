@@ -35,6 +35,7 @@ import {
   canDeletePartRow,
   canEditPartRoute,
   canEditProductionFields,
+  canDeleteOrder,
   canExportProductionOrder,
   canManageOutsource,
   canSeeCustomerData,
@@ -92,6 +93,7 @@ import { ShippingComposerButton } from '@/app/_shipping'
 import { ShipmentHistoryButton } from '@/app/_shipment_history'
 import { JobTypeEditor } from '@/app/_type_chip'
 import { DeletePartButton } from './_part_delete'
+import { DeleteOrderButton } from './_job_delete'
 import {
   InsertedRows,
   PartInsertProvider,
@@ -349,6 +351,11 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               jobId={job.id}
               components={job.components}
               shipments={job.shipments}
+            />
+            <DeleteOrderButton
+              jobId={job.id}
+              jobNo={job.jobNo}
+              allowed={canDeleteOrder(user)}
             />
           </div>
         </div>

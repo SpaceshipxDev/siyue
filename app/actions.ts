@@ -72,8 +72,10 @@ import type { JobReturn } from '@/lib/data'
 import {
   canClickStage,
   canCreatePartRow,
+  canDeleteOrder,
   canDeletePartRow,
   requireCommerce,
+  requireJobDeleter,
   requireOutsourceManager,
   requirePartRouteEditor,
   requireUser,
@@ -341,7 +343,10 @@ export async function confirmJobAction(
 }
 
 export async function deleteJobAction(jobId: string): Promise<void> {
-  await requireCommerce()
+  // 商务 + named 工程 (于海伟) — see canDeleteJob. Was requireCommerce, which
+  // silently no-op'd for 工程: they see the 收件箱 × (they run imports) and the
+  // row vanished locally while the redirect killed the delete.
+  await requireJobDeleter()
   // A confirmed 单号 can never be deleted — it carries production history the
   // factory relies on. Delete exists only to clean up unconfirmed imports
   // (drafts / failed parses), which is what the inbox and import screens use.
@@ -352,6 +357,20 @@ export async function deleteJobAction(jobId: string): Promise<void> {
   // survives cross-border HTTP/2 paths for mainland users. The inbox list also
   // does an optimistic local removal, so even if this RSC reply is truncated
   // the UI stays correct.
+  revalidatePath('/')
+}
+
+// The job page's 删除 — takes down ANY order, confirmed included. The one
+// gesture in the product that erases production history (parts / 报工 /
+// 出货记录 cascade on the jobs row), so the gate is a named allowlist
+// (canDeleteOrder: 老板, Harry, 黄优兰香, 于海伟×2), not a role, and the
+// client confirms in an anchored popover before calling. Throws (not
+// redirect) so a bypassed button gets a readable error, not a bounce.
+export async function deleteOrderAction(jobId: string): Promise<void> {
+  const u = await requireUser()
+  if (!canDeleteOrder(u)) throw new Error('无权删除工单')
+  await deleteJob(jobId)
+  // Page-scoped for the same GFW reason as deleteJobAction above.
   revalidatePath('/')
 }
 

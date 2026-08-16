@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useState, useTransition } from 'react'
 import { deleteJobAction } from './actions'
+import { PermissionDenied } from './_perm_denied'
 
 type InboxItem = {
   id: string
@@ -21,13 +22,20 @@ type InboxItem = {
 // immediately, and the next full page load confirms the deletion.
 const COLLAPSED_COUNT = 3
 
-export function InboxList({ inbox }: { inbox: InboxItem[] }) {
+export function InboxList({
+  inbox,
+  canDelete,
+}: {
+  inbox: InboxItem[]
+  canDelete: boolean
+}) {
   const [removed, setRemoved] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState(false)
   const visible = inbox.filter((d) => !removed.has(d.id))
   if (visible.length === 0) return null
   const overflow = visible.length - COLLAPSED_COUNT
-  const shown = expanded || overflow <= 0 ? visible : visible.slice(0, COLLAPSED_COUNT)
+  const shown =
+    expanded || overflow <= 0 ? visible : visible.slice(0, COLLAPSED_COUNT)
   return (
     <section className="mb-8 rounded-[2px] border border-[var(--color-warning)] bg-[var(--color-warning-soft)]">
       <div className="flex items-baseline justify-between px-5 py-3 border-b border-[var(--color-warning)]">
@@ -43,6 +51,7 @@ export function InboxList({ inbox }: { inbox: InboxItem[] }) {
           <InboxRow
             key={d.id}
             item={d}
+            canDelete={canDelete}
             onRemoveLocally={() =>
               setRemoved((prev) => {
                 const next = new Set(prev)
@@ -68,9 +77,11 @@ export function InboxList({ inbox }: { inbox: InboxItem[] }) {
 
 function InboxRow({
   item,
+  canDelete,
   onRemoveLocally,
 }: {
   item: InboxItem
+  canDelete: boolean
   onRemoveLocally: () => void
 }) {
   const tone =
@@ -108,6 +119,7 @@ function InboxRow({
         <DeleteButton
           jobId={item.id}
           label={`${item.jobNo} · ${item.customer}`}
+          allowed={canDelete}
           onRemoveLocally={onRemoveLocally}
         />
       </div>
@@ -115,39 +127,60 @@ function InboxRow({
   )
 }
 
+// `allowed` (canDeleteJob, server-decided) does NOT hide the button — the same
+// rule as the 零件 trash icon. A missing button reads as a broken page; a
+// button that answers "谁能删" teaches the rule once and stops the WeChat
+// message. Non-deleters still see the 收件箱 because 工程 runs the imports.
 function DeleteButton({
   jobId,
   label,
+  allowed,
   onRemoveLocally,
 }: {
   jobId: string
   label: string
+  allowed: boolean
   onRemoveLocally: () => void
 }) {
   const [pending, start] = useTransition()
+  const [denied, setDenied] = useState<DOMRect | null>(null)
   return (
-    <button
-      type="button"
-      disabled={pending}
-      onClick={() => {
-        if (!confirm(`删除「${label}」？`)) return
-        // Hide the row immediately. The DB delete is reliable; only the
-        // response RSC payload is at risk on cross-border links.
-        onRemoveLocally()
-        start(async () => {
-          try {
-            await deleteJobAction(jobId)
-          } catch {
-            // Action threw — most likely the response was truncated. The
-            // delete itself almost certainly succeeded; let the next nav
-            // confirm it rather than restore the row and confuse the user.
+    <>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={(e) => {
+          if (!allowed) {
+            setDenied(e.currentTarget.getBoundingClientRect())
+            return
           }
-        })
-      }}
-      title="删除此条草稿 / 解析失败 / 卡住的条目"
-      className="flex items-center justify-center w-9 h-9 -my-1 rounded-[2px] text-[22px] leading-none text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] hover:bg-[#f5e6b8] disabled:opacity-50"
-    >
-      {pending ? '…' : '×'}
-    </button>
+          if (!confirm(`删除「${label}」？`)) return
+          // Hide the row immediately. The DB delete is reliable; only the
+          // response RSC payload is at risk on cross-border links.
+          onRemoveLocally()
+          start(async () => {
+            try {
+              await deleteJobAction(jobId)
+            } catch {
+              // Action threw — most likely the response was truncated. The
+              // delete itself almost certainly succeeded; let the next nav
+              // confirm it rather than restore the row and confuse the user.
+            }
+          })
+        }}
+        title="删除此条草稿 / 解析失败 / 卡住的条目"
+        className="flex items-center justify-center w-9 h-9 -my-1 rounded-[2px] text-[22px] leading-none text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] hover:bg-[#f5e6b8] disabled:opacity-50"
+      >
+        {pending ? '…' : '×'}
+      </button>
+      {denied ? (
+        <PermissionDenied
+          anchor={denied}
+          title="无删除权限"
+          body="删除工单会一并删掉它的零件和报工记录，仅限授权人员操作。需要删除请找 于海伟 或 商务。"
+          onClose={() => setDenied(null)}
+        />
+      ) : null}
+    </>
   )
 }
