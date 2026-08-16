@@ -244,7 +244,7 @@ export function StageCellButton({
   // title is the only thing that actually shows. `state.by` is server truth
   // (optimistic finishes don't carry it yet); it fills in on the server echo.
   const attribution = state.by
-    ? `经手 ${state.by}${stageTimeHint(state.finishedAt)}`
+    ? `完成 ${state.by}${stageTimeHint(state.finishedAt)}`
     : undefined
   return (
     <button
@@ -281,7 +281,7 @@ export function JobStageActionButton({
   inProgress: number
   pending: number
   done: number
-  /** 经手 — most recent finisher at this stage, for the done-cell hover hint. */
+  /** 完成 — most recent finisher at this stage, for the done-cell hover hint. */
   latestBy?: string
   /** MM-DD of that finish, appended to the hover hint when present. */
   latestDate?: string
@@ -493,7 +493,7 @@ export function JobStageActionButton({
   )
   const hover = subdued ? '' : 'hover:bg-[#f1eee4]'
   const attribution = latestBy
-    ? `最近经手 ${latestBy}${latestDate ? ` · ${latestDate}` : ''}`
+    ? `最近完成 ${latestBy}${latestDate ? ` · ${latestDate}` : ''}`
     : undefined
   return (
     <button

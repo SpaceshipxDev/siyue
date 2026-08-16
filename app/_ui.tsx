@@ -524,11 +524,11 @@ export function MoneyCell({
 }
 
 // 报工 hover hint for an aggregate master-grid cell: who most recently clicked
-// ✓ here (经手), plus the date. Returns undefined when no in-house finisher is
+// ✓ here (完成), plus the date. Returns undefined when no in-house finisher is
 // known — so the cell stays bare rather than showing an empty tooltip.
 function rollupByHint(rollup: Rollup): string | undefined {
   if (!rollup.latestBy) return undefined
-  return `最近经手 ${rollup.latestBy}${rollup.latestDate ? ` · ${rollup.latestDate}` : ''}`
+  return `最近完成 ${rollup.latestBy}${rollup.latestDate ? ` · ${rollup.latestDate}` : ''}`
 }
 
 export function Pause({
@@ -617,11 +617,11 @@ export function StageCell({
       </div>
     )
   }
-  // 报工 attribution: surface 经手人 on hover for the read-only twin too.
-  // The grid stays a bare ✓+date at rest; the name only appears on the
+  // 报工 attribution: surface who finished on hover for the read-only twin
+  // too. The grid stays a bare ✓+date at rest; the name only appears on the
   // native tooltip so the dense view never gains a column.
   const attribution = state.by
-    ? `经手 ${state.by}${stageTimeHint(state.finishedAt)}`
+    ? `完成 ${state.by}${stageTimeHint(state.finishedAt)}`
     : undefined
   return (
     <div

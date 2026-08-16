@@ -1685,11 +1685,13 @@ function canStartInSnap(snap: DbSnapshot, partId: string, stage: Stage): boolean
 // 上游-forever failure: 编程 forgets to tick, 操机 can see the part on their
 // bench but their station page files the job under 上游 with no action).
 //
-// Attribution stays honest without any reporting change: `by` is left unset
-// (by_actor NULL) because nobody tapped those stages — worker_output/
-// worker_stage_events (0072) already drop null actors, so the starter is
-// never credited with upstream finishes. Genuinely-tapped stages are 'done'
-// and untouched, same rule as cascadeBackFinish.
+// Attribution: `by` = the starter, so the board/job hover can answer 谁完成
+// (their ▶ is the click that closed these rows). Reporting stays honest the
+// same way the 出货 cascade does — these rows share finished_at with the
+// downstream row's started_at, and worker_output/worker_stage_events (0092)
+// exclude any finish stamped at the instant another stage on the same part
+// started. Genuinely-tapped stages are 'done' and untouched, same rule as
+// cascadeBackFinish.
 //
 // Vendor-covered stages are skipped entirely: the outsource block lifecycle
 // (回厂 / 出货 sweep) owns their truth, and every rollup reads them through
@@ -1700,6 +1702,7 @@ function cascadeBackStart(
   atStage: Stage,
   date: string,
   startedAtIso: string,
+  actor: string,
 ): PartStageRow[] {
   const idx = STAGES.indexOf(atStage)
   if (idx <= 0) return []
@@ -1717,7 +1720,7 @@ function cascadeBackStart(
       status: 'done',
       completedAt: date,
       finishedAt: startedAtIso,
-      by: undefined,
+      by: actor,
       doneQty: undefined,
     })
   }
@@ -4240,7 +4243,7 @@ export async function startStage(
         doneQty: undefined,
       },
       // Part is physically here ⇒ close any upstream stage that missed its tap.
-      ...cascadeBackStart(snap, partId, stage, todayMMDD(), now),
+      ...cascadeBackStart(snap, partId, stage, todayMMDD(), now, actor),
     ])
   })
 }
@@ -4782,7 +4785,7 @@ export async function startJobStage(
         doneQty: undefined,
       })
       // Parts are physically here ⇒ close upstream stages that missed their tap.
-      updates.push(...cascadeBackStart(snap, part.id, stage, date, now))
+      updates.push(...cascadeBackStart(snap, part.id, stage, date, now, actor))
     }
     await upsertStages(updates)
   })

@@ -5,6 +5,7 @@ import { withBase } from '@/lib/base-path'
 import type { PartPhoto, StageState, Verdict } from '@/lib/data'
 import { BLOCKING_VERDICTS, isBlockingVerdict } from '@/lib/data'
 import { mutate } from '@/lib/mutate'
+import { stageTimeHint } from './_ui'
 import { useStageGuard } from './_stage_scope'
 
 // 检验 cell — replaces the ▶/⏸/✓ StageCellButton at the inspection stage.
@@ -212,9 +213,14 @@ export function InspectionCell({
           setOpen(true)
         }}
         title={
-          display.verdictBy && display.verdict
-            ? `检验 · ${display.verdict} · ${display.verdictBy}`
-            : '检验 · 点击判定'
+          // Done cell: who finished, same 完成 language as every other stage
+          // cell. Falls back to verdictBy for verdict-released parts whose
+          // by_actor predates attribution. Not-yet-done keeps the verdict hint.
+          display.status === 'done' && (state.by ?? display.verdictBy)
+            ? `检验 · 完成 ${state.by ?? display.verdictBy}${stageTimeHint(state.finishedAt)}`
+            : display.verdictBy && display.verdict
+              ? `检验 · ${display.verdict} · ${display.verdictBy}`
+              : '检验 · 点击判定'
         }
         aria-label={`检验 · ${componentName}`}
         className={`flex h-full w-full flex-col items-center justify-center gap-0.5 py-2 transition-colors ${cellBg} ${
@@ -340,7 +346,7 @@ function InspectionModal({
                 </span>
                 {serverState.by ? (
                   <span className="label text-[var(--color-ink-3)]">
-                    经手 {serverState.by}
+                    完成 {serverState.by}
                     {serverState.completedAt ? ` · ${serverState.completedAt}` : ''}
                   </span>
                 ) : null}
