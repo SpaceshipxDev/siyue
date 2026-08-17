@@ -71,18 +71,24 @@ export async function runExtraction(args: {
     ms: Date.now() - tGemini,
   })
 
-  // Decide imageRef → first-part-using-it mapping synchronously, before any
-  // upload. The previous parallel `usedRefs.has(...)` check inside Promise.all
-  // was racy: two parts with the same imageRef could both pass the not-yet-
-  // claimed gate and double-upload to the same key. Doing it serially here is
-  // both correct AND lets us shape the upload queue downstream.
-  const pendingUploads: { partIndex: number; imageRef: string }[] = []
-  const claimedRefs = new Set<string>()
+  // Group imageRef → EVERY part using it, synchronously, before any upload.
+  // Excel/WPS store a copy-pasted picture once and anchor it in many rows, so
+  // the same ref legitimately belongs to several parts (five identical 零件
+  // rows sharing one 图纸). Each ref's bytes upload once — under the first
+  // part's key — and the resulting URL is stamped onto every part in the
+  // group. Grouping serially here also keeps the upload queue race-free.
+  const pendingUploads: { partIndexes: number[]; imageRef: string }[] = []
+  const partsByRef = new Map<string, number[]>()
   extracted.components.forEach((c, i) => {
     const ref = c.imageRef
-    if (!ref || !images.has(ref) || claimedRefs.has(ref)) return
-    claimedRefs.add(ref)
-    pendingUploads.push({ partIndex: i, imageRef: ref })
+    if (!ref || !images.has(ref)) return
+    const group = partsByRef.get(ref)
+    if (group) group.push(i)
+    else {
+      const fresh = [i]
+      partsByRef.set(ref, fresh)
+      pendingUploads.push({ partIndexes: fresh, imageRef: ref })
+    }
   })
 
   // Drop imageRef from each part — fillParsedJob expects clean components.
@@ -126,11 +132,10 @@ export async function runExtraction(args: {
   for (let i = 0; i < pendingUploads.length; i += IMAGE_UPLOAD_CONCURRENCY) {
     const chunk = pendingUploads.slice(i, i + IMAGE_UPLOAD_CONCURRENCY)
     await Promise.all(
-      chunk.map(async ({ partIndex, imageRef }) => {
+      chunk.map(async ({ partIndexes, imageRef }) => {
         const img = images.get(imageRef)
         if (!img) return
-        const componentId = `p${partIndex + 1}`
-        const partId = `${jobId}:${componentId}`
+        const componentId = `p${partIndexes[0] + 1}`
         try {
           const imageUrl = await uploadComponentImage({
             jobId,
@@ -140,10 +145,12 @@ export async function runExtraction(args: {
             fallbackName: `${imageRef}.${img.ext}`,
             skipStaleCheck: true,
           })
-          await setPartImageUrlDirect(partId, imageUrl)
-          uploaded += 1
+          for (const partIndex of partIndexes) {
+            await setPartImageUrlDirect(`${jobId}:p${partIndex + 1}`, imageUrl)
+          }
+          uploaded += partIndexes.length
         } catch (err) {
-          failed += 1
+          failed += partIndexes.length
           console.error('[extract] image upload failed', {
             jobId,
             componentId,

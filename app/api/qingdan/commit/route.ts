@@ -183,24 +183,32 @@ export async function POST(request: NextRequest) {
   const fileForImages = wantsFileImages ? file : null
   {
     try {
-      const pending: { partIndex: number; bytes: Uint8Array; mime: string; name: string }[] = []
+      const pending: { partIndexes: number[]; bytes: Uint8Array; mime: string; name: string }[] = []
 
       if (fileForImages) {
         const buf = await fileForImages.arrayBuffer()
         const { images } = extractWorkbookImages(buf)
-        // First row to claim a ref wins — same policy as the AI import.
-        const claimed = new Set<string>()
+        // Excel/WPS store a copy-pasted picture once and anchor it in many
+        // rows, so one ref can belong to several parts. Upload the bytes once
+        // and stamp the URL onto every row in the group — same policy as the
+        // AI import.
+        const groupByRef = new Map<string, number[]>()
         components.forEach((c, i) => {
-          if (!c.imageRef || claimed.has(c.imageRef)) return
+          if (!c.imageRef) return
           const img = images.get(c.imageRef)
           if (!img) return
-          claimed.add(c.imageRef)
-          pending.push({
-            partIndex: i,
-            bytes: img.bytes,
-            mime: img.mime,
-            name: `${c.imageRef}.${img.ext}`,
-          })
+          const group = groupByRef.get(c.imageRef)
+          if (group) group.push(i)
+          else {
+            const fresh = [i]
+            groupByRef.set(c.imageRef, fresh)
+            pending.push({
+              partIndexes: fresh,
+              bytes: img.bytes,
+              mime: img.mime,
+              name: `${c.imageRef}.${img.ext}`,
+            })
+          }
         })
       }
 
@@ -210,7 +218,7 @@ export async function POST(request: NextRequest) {
         if (!m) return
         try {
           pending.push({
-            partIndex: i,
+            partIndexes: [i],
             bytes: new Uint8Array(Buffer.from(m[2], 'base64')),
             mime: m[1].toLowerCase(),
             name: `paste-${i + 1}`,
@@ -223,8 +231,8 @@ export async function POST(request: NextRequest) {
       for (let i = 0; i < pending.length; i += IMAGE_UPLOAD_CONCURRENCY) {
         const chunk = pending.slice(i, i + IMAGE_UPLOAD_CONCURRENCY)
         await Promise.all(
-          chunk.map(async ({ partIndex, bytes, mime, name }) => {
-            const componentId = `p${partIndex + 1}`
+          chunk.map(async ({ partIndexes, bytes, mime, name }) => {
+            const componentId = `p${partIndexes[0] + 1}`
             // One retry — a transient storage hiccup shouldn't cost a 图纸
             // the user already delivered inside the workbook.
             for (let attempt = 0; attempt < 2; attempt++) {
@@ -237,7 +245,9 @@ export async function POST(request: NextRequest) {
                   fallbackName: name,
                   skipStaleCheck: true,
                 })
-                await setPartImageUrlDirect(`${job.id}:${componentId}`, imageUrl)
+                for (const partIndex of partIndexes) {
+                  await setPartImageUrlDirect(`${job.id}:p${partIndex + 1}`, imageUrl)
+                }
                 return
               } catch (err) {
                 if (attempt === 1) {
