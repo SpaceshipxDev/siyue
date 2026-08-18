@@ -305,6 +305,7 @@ function isValidProcurementInput(x: unknown): x is NewProcurementInput {
   if (!isOptString(o.productId) || !isOptString(o.link)) return false
   if (!isOptString(o.jobId) || !isOptString(o.jobNo)) return false
   if (!isOptString(o.picker) || !isOptString(o.reqDate)) return false
+  if (!isOptString(o.requester)) return false
   if (
     o.status !== undefined &&
     o.status !== 'requested' &&
@@ -353,6 +354,7 @@ function isValidProcurementPatch(x: unknown): x is ProcurementPatch {
     'jobNo',
     'inspectNote',
     'picker',
+    'requester',
     'rejectNote',
   ]) {
     if (!isOptString(o[f])) return false

@@ -716,9 +716,11 @@ function Panel({
             </>
           ) : (
             <div className="mt-2.5 flex flex-wrap items-center gap-2">
-              <span className="text-[12px] text-[var(--color-ink-3)]">
-                领料人 {p.picker ?? '—'}
-              </span>
+              {p.picker && (
+                <span className="text-[12px] text-[var(--color-ink-3)]">
+                  领料人 {p.picker}
+                </span>
+              )}
               <button
                 type="button"
                 className={`${btnPri} ml-auto`}
@@ -738,7 +740,7 @@ function Panel({
           )
         ) : (
           <div className="mt-2.5 text-[12px] text-[var(--color-ink-3)]">
-            等审批 · 领料人 {p.picker ?? '—'}
+            等审批{p.picker ? ` · 领料人 ${p.picker}` : ''}
           </div>
         ))}
 
@@ -1211,7 +1213,7 @@ function MonthNav({
 // ＋请购 / 编辑 modal — product-first, three faces:
 //   'pick'   — search the 物料库 or jump to 新建物料
 //   'create' — the 物料 form (name + 链接 + shop + price + spec)
-//   'form'   — the request itself: 数量 / 单价 / 工号 / 领料人 / 备注
+//   'form'   — the request itself: 数量 / 单价 / 请购人 / 领料人 / 工号 / 备注
 // ===========================================================================
 
 type Selected = {
@@ -1268,7 +1270,10 @@ function ProcurementModal({
   const [unitPrice, setUnitPrice] = useState(
     initial?.unitPriceCny != null ? String(initial.unitPriceCny) : '',
   )
-  const [picker, setPicker] = useState(initial?.picker ?? currentUser)
+  // 请购人 defaults to whoever is signed in but stays pickable — filing for a
+  // colleague is normal. 领料人 starts blank; the 领料 step names the taker.
+  const [requester, setRequester] = useState(initial?.requester ?? currentUser)
+  const [picker, setPicker] = useState(initial?.picker ?? '')
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [jobPick, setJobPick] = useState<{ id: string; jobNo: string } | null>(
     initial && (initial.jobId || initial.jobNo)
@@ -1338,6 +1343,7 @@ function ProcurementModal({
               jobId: jobPick?.id || null,
               jobNo: jobPick?.jobNo || null,
               picker: picker.trim() || null,
+              requester: requester.trim() || undefined,
             },
           })
           onDone()
@@ -1360,6 +1366,7 @@ function ProcurementModal({
               jobId: jobPick?.id || undefined,
               jobNo: jobPick?.jobNo || undefined,
               picker: picker.trim() || undefined,
+              requester: requester.trim() || undefined,
             },
           })
           onDone(status)
@@ -1387,13 +1394,18 @@ function ProcurementModal({
       }}
     >
       <div className="w-full max-w-[480px] rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-surface)] shadow-xl">
-        <div className="flex items-baseline justify-between border-b border-[var(--color-border)] px-5 py-3.5">
+        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-3.5">
           <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
             {title}
           </h2>
-          <span className="label text-[var(--color-ink-3)]">
-            请购人 · {mode === 'edit' ? (initial?.requester ?? currentUser) : currentUser}
-          </span>
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="关闭"
+            className="rounded-[2px] px-1 text-[15px] leading-none text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
+          >
+            ×
+          </button>
         </div>
 
         {face === 'pick' && (
@@ -1449,7 +1461,7 @@ function ProcurementModal({
                 onChange={() => setFace('pick')}
               />
 
-              <div className="mt-4 grid grid-cols-3 gap-4">
+              <div className="mt-5 grid grid-cols-2 gap-4">
                 <Field label="数量">
                   <Input
                     value={qty}
@@ -1469,38 +1481,86 @@ function ProcurementModal({
                     inputMode="decimal"
                   />
                 </Field>
-                <div className="flex flex-col justify-end pb-2">
-                  <span className="label text-[var(--color-ink-3)]">
-                    合计{' '}
-                    <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
-                      {typeof liveTotal === 'number' ? formatCny(liveTotal) : '—'}
-                    </span>
-                  </span>
-                </div>
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-4">
-                <Field label="关联工号 · 可空">
+                <Field label="请购人">
+                  <SearchSelect
+                    options={roster.map((n) => ({ id: n, label: n }))}
+                    value={requester}
+                    onChange={setRequester}
+                    placeholder="谁请购"
+                    searchPlaceholder="选人或直接输入姓名…"
+                    createLabel="请购人"
+                    onCreate={setRequester}
+                    triggerLabel={
+                      requester && !roster.includes(requester)
+                        ? requester
+                        : undefined
+                    }
+                    triggerClass="w-full"
+                  />
+                </Field>
+                <Field label="领料人">
                   <div className="flex items-center gap-1">
-                    <SearchSelect
-                      options={jobOptions.map((j) => ({
-                        id: j.id,
-                        label: j.product ? `${j.jobNo} · ${j.product}` : j.jobNo,
-                      }))}
-                      value={jobPick?.id ?? ''}
-                      onChange={(id) => {
-                        const j = jobOptions.find((x) => x.id === id)
-                        if (j) setJobPick({ id: j.id, jobNo: j.jobNo })
-                      }}
-                      placeholder="可留空"
-                      searchPlaceholder="搜索工号 / 产品…"
-                      triggerClass="flex-1 min-w-0"
-                      triggerLabel={
-                        jobPick && !jobOptions.some((j) => j.id === jobPick.id)
-                          ? jobPick.jobNo
-                          : undefined
-                      }
-                    />
+                    <div className="min-w-0 flex-1">
+                      <SearchSelect
+                        options={roster.map((n) => ({ id: n, label: n }))}
+                        value={picker}
+                        onChange={setPicker}
+                        placeholder="可留空"
+                        searchPlaceholder="选人或直接输入姓名…"
+                        createLabel="领料人"
+                        onCreate={setPicker}
+                        triggerLabel={
+                          picker && !roster.includes(picker)
+                            ? picker
+                            : undefined
+                        }
+                        triggerClass="w-full"
+                      />
+                    </div>
+                    {picker && (
+                      <button
+                        type="button"
+                        onClick={() => setPicker('')}
+                        title="清除领料人"
+                        aria-label="清除领料人"
+                        className="shrink-0 rounded-[2px] px-1.5 py-1 text-[13px] leading-none text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </Field>
+              </div>
+
+              <div className="mt-4">
+                <Field label="关联工号">
+                  <div className="flex items-center gap-1">
+                    <div className="min-w-0 flex-1">
+                      <SearchSelect
+                        options={jobOptions.map((j) => ({
+                          id: j.id,
+                          label: j.product
+                            ? `${j.jobNo} · ${j.product}`
+                            : j.jobNo,
+                        }))}
+                        value={jobPick?.id ?? ''}
+                        onChange={(id) => {
+                          const j = jobOptions.find((x) => x.id === id)
+                          if (j) setJobPick({ id: j.id, jobNo: j.jobNo })
+                        }}
+                        placeholder="可留空"
+                        searchPlaceholder="搜索工号 / 产品…"
+                        triggerClass="w-full"
+                        triggerLabel={
+                          jobPick && !jobOptions.some((j) => j.id === jobPick.id)
+                            ? jobPick.jobNo
+                            : undefined
+                        }
+                      />
+                    </div>
                     {jobPick && (
                       <button
                         type="button"
@@ -1514,29 +1574,14 @@ function ProcurementModal({
                     )}
                   </div>
                 </Field>
-                <Field label="领料人">
-                  <SearchSelect
-                    options={roster.map((n) => ({ id: n, label: n }))}
-                    value={picker}
-                    onChange={setPicker}
-                    placeholder="谁来领"
-                    searchPlaceholder="选人或直接输入姓名…"
-                    createLabel="领料人"
-                    onCreate={setPicker}
-                    triggerLabel={
-                      picker && !roster.includes(picker) ? picker : undefined
-                    }
-                    triggerClass="w-full"
-                  />
-                </Field>
               </div>
 
               <div className="mt-4">
-                <Field label="备注 · 可空">
+                <Field label="备注">
                   <textarea
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    placeholder="给审批和采购的一句话"
+                    placeholder="给审批和采购的一句话 · 可空"
                     rows={2}
                     className="w-full resize-none rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 py-1.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
                   />
@@ -1550,7 +1595,12 @@ function ProcurementModal({
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-3 border-t border-[var(--color-border)] px-5 py-3.5">
+            <div className="flex items-center gap-3 border-t border-[var(--color-border)] px-5 py-3.5">
+              <span className="label text-[var(--color-ink-3)]">合计</span>
+              <span className="mono text-[15px] font-semibold tracking-tight text-[var(--color-ink)]">
+                {typeof liveTotal === 'number' ? formatCny(liveTotal) : '—'}
+              </span>
+              <div className="flex-1" />
               <button
                 type="button"
                 onClick={onCancel}

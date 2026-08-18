@@ -164,6 +164,11 @@ export function SearchSelect({
                 pick(activeIndex)
               } else if (e.key === 'Escape') {
                 e.preventDefault()
+                // Esc dismisses just this popover — never the modal hosting
+                // it. Hosts listen for Esc on document, the same node React
+                // delegates to, so plain stopPropagation can't shield them.
+                e.nativeEvent.stopImmediatePropagation()
+                e.stopPropagation()
                 setOpen(false)
               }
             }}

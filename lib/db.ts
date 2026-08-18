@@ -8341,7 +8341,8 @@ export type NewProcurementInput = {
   status?: 'requested' | 'approved' | 'pending' | 'ordered'
   jobId?: string
   jobNo?: string
-  picker?: string // 领料人 — decided at request time
+  picker?: string // 领料人 — decided at request time, can stay blank
+  requester?: string // 请购人 — pickable; omitted = the signed-in creator
   reqDate?: string
 }
 
@@ -8361,6 +8362,7 @@ export type ProcurementPatch = {
   inspectResult?: 'ok' | 'defect' | null
   inspectNote?: string | null
   picker?: string | null
+  requester?: string // 请购人 — editable on the request form
   pickQty?: number | null // 领用数量 — sent with the 领料 transition
   rejectNote?: string | null // stamped with the 驳回 transition
 }
@@ -8429,9 +8431,11 @@ export async function createProcurement(
     notes: input.notes?.trim() || null,
     job_id: input.jobId || null,
     job_no: input.jobNo?.trim() || null,
-    requester: createdBy,
+    // 请购人 is pickable (someone can file for a colleague); 领料人 can stay
+    // blank — the 领料 transition names the actual taker anyway.
+    requester: input.requester?.trim() || createdBy,
     req_date: input.reqDate || input.orderDate,
-    picker: input.picker?.trim() || createdBy,
+    picker: input.picker?.trim() || null,
     created_by: createdBy,
   })
   if (error) throw error
@@ -8516,6 +8520,8 @@ export async function updateProcurement(
   if (patch.jobId !== undefined) update.job_id = patch.jobId || null
   if (patch.jobNo !== undefined) update.job_no = patch.jobNo?.trim() || null
   if (patch.picker !== undefined) update.picker = patch.picker?.trim() || null
+  // 请购人 never blanks — an empty edit keeps whoever the row already carries.
+  if (patch.requester?.trim()) update.requester = patch.requester.trim()
   if (patch.pickQty !== undefined) update.pick_qty = patch.pickQty
   if (patch.inspectResult !== undefined)
     update.inspect_result = patch.inspectResult
