@@ -1,6 +1,7 @@
 'use client'
 
 import {
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -11,8 +12,10 @@ import {
   type ChangeEvent,
   type ClipboardEvent,
   type KeyboardEvent,
+  type ReactNode,
   type RefObject,
 } from 'react'
+import { formatCny } from '@/lib/data'
 import type {
   BlockPatch,
   ComponentPatch,
@@ -418,10 +421,15 @@ export function JobAmount({
   jobId,
   value,
   className,
+  onEcho,
 }: {
   jobId: string
   value: number | undefined
   className?: string
+  // Local echo for a surface that derives from 金额 (JobMoneyPosition's 毛利).
+  // Called synchronously — outside the commit transition, so dependents repaint
+  // before the write returns. Returns the undo to run if the write fails.
+  onEcho?: (next: number | null) => () => void
 }) {
   const ref = useRef<HTMLInputElement>(null)
   const initial = value
@@ -433,20 +441,29 @@ export function JobAmount({
     const trimmed = next.trim()
     if (trimmed === '') {
       if (initial === undefined) return
-      safeStart(
-        () =>
-          mutate({ kind: 'updateJob', jobId, patch: { amountCny: null } }),
-        initialStr,
-      )
+      const undo = onEcho?.(null)
+      safeStart(async () => {
+        try {
+          await mutate({ kind: 'updateJob', jobId, patch: { amountCny: null } })
+        } catch (e) {
+          undo?.()
+          throw e
+        }
+      }, initialStr)
       return
     }
     const n = Number(trimmed)
     if (!Number.isFinite(n) || n < 0) return
     if (n === initial) return
-    safeStart(
-      () => mutate({ kind: 'updateJob', jobId, patch: { amountCny: n } }),
-      initialStr,
-    )
+    const undo = onEcho?.(n)
+    safeStart(async () => {
+      try {
+        await mutate({ kind: 'updateJob', jobId, patch: { amountCny: n } })
+      } catch (e) {
+        undo?.()
+        throw e
+      }
+    }, initialStr)
   }
 
   return (
@@ -634,6 +651,8 @@ function lineSlot(key: string): LineSlot {
 
 function notifyLine(key: string) {
   for (const fn of lineWatchers.get(key) ?? []) fn()
+  // 财务 tab totals watch the whole job — every line movement reaches them.
+  notifyJob(key.slice(0, key.indexOf('/')))
 }
 
 function subscribeLine(key: string, fn: () => void) {
@@ -713,6 +732,17 @@ function useLineAtRest(
   )
 }
 
+// Count of price-touching edits (数量 / 单价 / 小计) committed per job this
+// visit. JobMoneyPosition's 金额 mirror keys off it: the server's rollup runs
+// on EVERY such edit — even one that leaves the sum unchanged — so "has the
+// rollup fired since my settle point" is a count comparison, not a sum one.
+const jobEditCounts = new Map<string, number>()
+
+function bumpJobEdits(key: string, delta: number) {
+  const jobId = key.slice(0, key.indexOf('/'))
+  jobEditCounts.set(jobId, (jobEditCounts.get(jobId) ?? 0) + delta)
+}
+
 // Local twin of syncedLineTotal() in lib/db.ts — keep the two rules identical.
 // Applies a committed 数量 / 单价 to the slot, moves 小计 with it, and tells the
 // cells. Returns an undo so a failed write can put the row back.
@@ -733,11 +763,277 @@ function applyLineEdit(key: string, next: { qty?: number; unit?: number | null }
       roundMoney(before.qty * before.unit) === before.total
     if (wasDerived) slot.total = null
   }
+  bumpJobEdits(key, 1)
   notifyLine(key)
   return () => {
     lineSlots.set(key, before)
+    bumpJobEdits(key, -1)
     notifyLine(key)
   }
+}
+
+// ─── 财务 position, live ─────────────────────────────────────────────────────
+//
+// The 财务 tab's 金额 / 毛利 / 零件合计 used to be server HTML frozen at page
+// load — type a 单价 in the sheet and the position sat on yesterday's numbers
+// until a hard reload (mutate deliberately never refreshes; see the top of
+// this file). JobMoneyPosition recomputes them from the same line slots the
+// row cells write, so the moment a 数量 / 单价 / 小计 lands, the position
+// moves with it.
+//
+// 金额 additionally mirrors the server's 零件 → 订单 rollup in lib/db.ts
+// updateComponent — keep the two rules identical: while 金额 is "auto" (blank,
+// or still equal to what the parts summed to when it settled) it follows the
+// parts total; a hand-typed 金额 stays put until blanked.
+
+const jobWatchers = new Map<string, Set<() => void>>()
+
+function notifyJob(jobId: string) {
+  for (const fn of jobWatchers.get(jobId) ?? []) fn()
+}
+
+function subscribeJob(jobId: string, fn: () => void) {
+  let set = jobWatchers.get(jobId)
+  if (!set) {
+    set = new Set()
+    jobWatchers.set(jobId, set)
+  }
+  set.add(fn)
+  return () => {
+    set.delete(fn)
+    if (set.size === 0) jobWatchers.delete(jobId)
+  }
+}
+
+// Rows deleted this visit. The position's `lines` prop is the server's list,
+// so a deleted row would keep counting until reload without this.
+const deletedLines = new Map<string, Set<string>>()
+
+export function removeLineFromTotals(jobId: string, componentId: string) {
+  let set = deletedLines.get(jobId)
+  if (!set) {
+    set = new Set()
+    deletedLines.set(jobId, set)
+  }
+  set.add(componentId)
+  notifyJob(jobId)
+}
+
+// The last 金额 someone typed (or blanked) on this page — a settle point: the
+// parts total and edit count at that moment, which the auto test compares
+// against. (A blanked 金额 stays "—" until the NEXT price edit re-arms it,
+// exactly like the server.)
+type AmountEcho = {
+  value: number | null
+  partsTotalAtCommit: number
+  editCountAtCommit: number
+}
+const jobAmountEchoes = new Map<string, AmountEcho>()
+
+export type MoneyLine = {
+  componentId: string
+  qty: number
+  unit?: number | null
+  total?: number | null
+}
+
+// One line's contribution: slot value where an edit landed this visit, the
+// server's otherwise — 小计 first, 数量 × 单价 second. Same derivation as
+// componentLineTotal in lib/data.
+function lineMoneyAtRest(jobId: string, line: MoneyLine): number | undefined {
+  const slot = lineSlots.get(lineKey(jobId, line.componentId))
+  const total =
+    slot && slot.total !== undefined
+      ? (slot.total ?? undefined)
+      : (line.total ?? undefined)
+  if (typeof total === 'number' && Number.isFinite(total)) return total
+  const qty = slot && slot.qty !== undefined ? slot.qty : line.qty
+  const unit =
+    slot && slot.unit !== undefined
+      ? (slot.unit ?? undefined)
+      : (line.unit ?? undefined)
+  if (
+    typeof unit === 'number' &&
+    Number.isFinite(unit) &&
+    typeof qty === 'number' &&
+    Number.isFinite(qty)
+  ) {
+    return roundMoney(qty * unit)
+  }
+  return undefined
+}
+
+function computeJobPartsTotal(jobId: string, lines: MoneyLine[]): number {
+  const deleted = deletedLines.get(jobId)
+  const listed = new Set<string>()
+  let sum = 0
+  for (const l of lines) {
+    listed.add(l.componentId)
+    if (deleted?.has(l.componentId)) continue
+    sum += lineMoneyAtRest(jobId, l) ?? 0
+  }
+  // Rows inserted this visit exist only in the slots — count them too.
+  const prefix = `${jobId}/`
+  for (const [key, slot] of lineSlots) {
+    if (!key.startsWith(prefix)) continue
+    const componentId = key.slice(prefix.length)
+    if (listed.has(componentId) || deleted?.has(componentId)) continue
+    const total = slot.total ?? derivedLineTotal(slot)
+    if (typeof total === 'number' && Number.isFinite(total)) sum += total
+  }
+  return roundMoney(sum)
+}
+
+export function JobMoneyPosition({
+  jobId,
+  amountCny,
+  externalSpend,
+  lines,
+}: {
+  jobId: string
+  amountCny: number | undefined
+  externalSpend: number
+  lines: MoneyLine[]
+}) {
+  // Mount hygiene: the module maps outlive client-side navigations, so a
+  // leftover echo or deletion marker from an earlier visit to this job would
+  // override the FRESH truth the server just rendered (which already includes
+  // everything those markers echoed). The edit counter is handled differently
+  // — the mount baseline below — because decrementing it would race in-flight
+  // undos. Render-phase on purpose (before the snapshots read), idempotent.
+  useState(() => {
+    jobAmountEchoes.delete(jobId)
+    deletedLines.delete(jobId)
+  })
+  const [mountEditCount] = useState(() => jobEditCounts.get(jobId) ?? 0)
+
+  const subscribe = useCallback(
+    (fn: () => void) => subscribeJob(jobId, fn),
+    [jobId],
+  )
+  const partsTotal = useSyncExternalStore(
+    subscribe,
+    () => computeJobPartsTotal(jobId, lines),
+    () => computeJobPartsTotal(jobId, lines),
+  )
+  const echo = useSyncExternalStore(
+    subscribe,
+    () => jobAmountEchoes.get(jobId),
+    () => undefined,
+  )
+  const editCount = useSyncExternalStore(
+    subscribe,
+    () => jobEditCounts.get(jobId) ?? 0,
+    () => 0,
+  )
+
+  // What the parts summed to server-side — the settle point for the 金额 the
+  // page arrived with. Slots deliberately ignored: this is "before any edit".
+  let serverTotal = 0
+  for (const l of lines) {
+    const t =
+      typeof l.total === 'number' && Number.isFinite(l.total)
+        ? l.total
+        : typeof l.unit === 'number' && Number.isFinite(l.unit)
+          ? roundMoney(l.qty * l.unit)
+          : undefined
+    serverTotal += t ?? 0
+  }
+  serverTotal = roundMoney(serverTotal)
+
+  const settle: AmountEcho = echo ?? {
+    value: amountCny ?? null,
+    partsTotalAtCommit: serverTotal,
+    editCountAtCommit: mountEditCount,
+  }
+  // Server rule, mirrored: 金额 is auto while blank or equal to what the parts
+  // summed to at its settle point. `touched` = the rollup has fired since —
+  // every price-touching edit runs it (even one that leaves the sum where it
+  // was: touching any 数量/单价/小计 fills a blank 金额 in), and a deletion
+  // that carried money moves the sum without an edit count.
+  const auto =
+    settle.value === null ||
+    settle.value === Math.round(settle.partsTotalAtCommit)
+  const touched =
+    editCount > settle.editCountAtCommit ||
+    partsTotal !== settle.partsTotalAtCommit
+  const displayAmount =
+    auto && touched
+      ? partsTotal > 0
+        ? Math.round(partsTotal)
+        : undefined
+      : (settle.value ?? undefined)
+  const margin =
+    typeof displayAmount === 'number' ? displayAmount - externalSpend : undefined
+
+  // Latest parts total for the blank-echo settle point, without making the
+  // JobAmount callback a re-subscribe hazard.
+  const partsTotalRef = useRef(partsTotal)
+  partsTotalRef.current = partsTotal
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-x-10 gap-y-8">
+      <MoneyStat label="金额">
+        <span className="mono text-[24px] text-[var(--color-ink-3)]">¥</span>
+        <JobAmount
+          jobId={jobId}
+          value={displayAmount}
+          className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]"
+          onEcho={(next) => {
+            const before = jobAmountEchoes.get(jobId)
+            jobAmountEchoes.set(jobId, {
+              value: next,
+              partsTotalAtCommit: partsTotalRef.current,
+              editCountAtCommit: jobEditCounts.get(jobId) ?? 0,
+            })
+            notifyJob(jobId)
+            return () => {
+              if (before) jobAmountEchoes.set(jobId, before)
+              else jobAmountEchoes.delete(jobId)
+              notifyJob(jobId)
+            }
+          }}
+        />
+      </MoneyStat>
+      <MoneyStat label="毛利">
+        <span
+          className={`mono text-[24px] font-semibold tracking-tight ${
+            typeof margin === 'number' && margin < 0
+              ? 'text-[var(--color-overdue)]'
+              : 'text-[var(--color-ink)]'
+          }`}
+        >
+          {typeof margin === 'number' ? formatCny(margin) : '—'}
+        </span>
+      </MoneyStat>
+      <MoneyStat label="外发金额">
+        <span className="mono text-[24px] font-semibold tracking-tight text-[var(--color-ink-2)]">
+          {externalSpend > 0 ? formatCny(externalSpend) : '—'}
+        </span>
+      </MoneyStat>
+      <MoneyStat label="零件合计">
+        <span className="mono text-[24px] font-semibold tracking-tight text-[var(--color-ink-2)]">
+          {partsTotal > 0 ? formatCny(partsTotal) : '—'}
+        </span>
+      </MoneyStat>
+    </div>
+  )
+}
+
+// One position stat — label over a single value line, baseline-aligned.
+function MoneyStat({
+  label,
+  children,
+}: {
+  label: string
+  children: ReactNode
+}) {
+  return (
+    <div>
+      <p className="label mb-2">{label}</p>
+      <div className="flex items-baseline gap-1 leading-none">{children}</div>
+    </div>
+  )
 }
 
 // ─── Excel-style bulk paste (fill-down) ─────────────────────────────────────
@@ -1157,6 +1453,7 @@ export function ComponentLineTotal({
         const slot = lineSlot(key)
         const before: LineSlot = { ...slot }
         slot.total = next
+        bumpJobEdits(key, 1)
         notifyLine(key)
         try {
           await mutate({
@@ -1167,6 +1464,7 @@ export function ComponentLineTotal({
           })
         } catch (e) {
           lineSlots.set(key, before)
+          bumpJobEdits(key, -1)
           notifyLine(key)
           throw e
         }
@@ -1182,6 +1480,7 @@ export function ComponentLineTotal({
           const slot = lineSlot(key)
           const before: LineSlot = { ...slot }
           slot.total = n
+          bumpJobEdits(key, 1)
           notifyLine(key)
           mutate({
             kind: 'updateComponent',
@@ -1190,6 +1489,7 @@ export function ComponentLineTotal({
             patch: { lineTotalCny: n },
           }).catch((e) => {
             lineSlots.set(key, before)
+            bumpJobEdits(key, -1)
             notifyLine(key)
             showToast(
               `保存失败 · ${e instanceof Error ? e.message : '网络中断'}`,

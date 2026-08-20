@@ -5420,9 +5420,61 @@ export async function deleteComponent(
     const rows = (data ?? []) as { id: string }[]
     const partId = rows.find((r) => r.id === direct)?.id ?? rows[0]?.id
     if (!partId) return
+    // Money snapshot BEFORE the delete — feeds the same 零件 → 订单 rollup
+    // updateComponent runs, so removing a priced row moves 金额 with it
+    // instead of leaving the sum stale (and, worse, permanently disarming
+    // the auto-rollup: a stale 金额 no longer equals the parts total, which
+    // reads as "boss typed it by hand" to every later price edit).
+    const moneyQ = await supabase
+      .from('parts')
+      .select('id, qty, unit_price_cny, line_total_cny')
+      .eq('job_id', jobId)
+    if (moneyQ.error) throw moneyQ.error
+    const moneyRows = (moneyQ.data ?? []) as {
+      id: string
+      qty: number | string | null
+      unit_price_cny: number | string | null
+      line_total_cny: number | string | null
+    }[]
     // FK cascade on parts → part_stages, outsource_blocks does the rest.
     const del = await supabase.from('parts').delete().eq('id', partId)
     if (del.error) throw del.error
+    const lineTotalOf = (r: (typeof moneyRows)[number]): number | undefined => {
+      if (r.line_total_cny != null) return Number(r.line_total_cny)
+      if (r.unit_price_cny != null) {
+        return Number(r.unit_price_cny) * Number(r.qty ?? 0)
+      }
+      return undefined
+    }
+    const deleted = moneyRows.find((r) => r.id === partId)
+    // An unpriced row can't move the sum — skip the extra jobs read/write and
+    // leave 金额 exactly as it was (including a deliberate blank).
+    if (!deleted || lineTotalOf(deleted) === undefined) return
+    let prevTotal = 0
+    let newTotal = 0
+    for (const r of moneyRows) {
+      const t = lineTotalOf(r) ?? 0
+      prevTotal += t
+      if (r.id !== partId) newTotal += t
+    }
+    const jobQ = await supabase
+      .from('jobs')
+      .select('amount_cny')
+      .eq('id', jobId)
+      .maybeSingle()
+    if (jobQ.error) throw jobQ.error
+    const currentAmount =
+      jobQ.data?.amount_cny == null ? null : Number(jobQ.data.amount_cny)
+    const rollupValue = newTotal > 0 ? Math.round(newTotal) : null
+    const isAuto =
+      currentAmount == null || currentAmount === Math.round(prevTotal)
+    if (isAuto && rollupValue !== currentAmount) {
+      const { error: jobErr } = await supabase
+        .from('jobs')
+        .update({ amount_cny: rollupValue })
+        .eq('id', jobId)
+      if (jobErr) throw jobErr
+    }
   })
 }
 
@@ -5649,11 +5701,28 @@ export async function fillParsedJob(jobId: string, input: NewJobInput): Promise<
     // polls the snapshot and would otherwise see status='draft' before parts
     // and stages are in place, rendering an empty 零件清单. We flip status
     // last so the consumer sees the new state atomically.
+    // 金额 defaults to the sheet's own grand total. When the sheet prices the
+    // lines but never states a total (common for 清单 workbooks), seed it from
+    // the line totals — otherwise the order lands with 金额 "—" and stays that
+    // way until someone happens to touch a single price cell (only
+    // updateComponent's rollup would fill it in). Same derivation as
+    // componentLineTotal: explicit 小计 first, 数量 × 单价 second.
+    const importedLineSum = input.components.reduce((sum, c) => {
+      const t =
+        typeof c.lineTotalCny === 'number' && Number.isFinite(c.lineTotalCny)
+          ? c.lineTotalCny
+          : typeof c.unitPriceCny === 'number' && Number.isFinite(c.unitPriceCny)
+            ? c.unitPriceCny * c.qty
+            : undefined
+      return sum + (typeof t === 'number' && Number.isFinite(t) ? t : 0)
+    }, 0)
     const metaUpdate: AnyRow = {
       job_no: input.jobNo,
       customer: input.customer,
       product: input.product,
-      amount_cny: input.amountCny ?? null,
+      amount_cny:
+        input.amountCny ??
+        (importedLineSum > 0 ? Math.round(importedLineSum) : null),
       due_date: input.dueDate,
       notes: input.notes ?? null,
       engineer: input.engineer ?? null,

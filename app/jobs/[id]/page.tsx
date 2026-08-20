@@ -8,14 +8,11 @@ import {
   dueState,
   effectiveStageState,
   formatActivityTimestamp,
-  formatCny,
   formatShipmentLog,
   isBlockClosed,
   isBlockingVerdict,
-  jobComponentsTotal,
   jobExternalSpend,
   jobIsShipped,
-  jobMargin,
   jobOutsourceState,
   jobReturnedQtyByPart,
   latestComponentActivity,
@@ -56,8 +53,8 @@ import {
   ComponentQty,
   ComponentText,
   ComponentUnitPrice,
-  JobAmount,
   JobDueDate,
+  JobMoneyPosition,
   JobSecondaryDueDate,
   JobNotes,
   JobShippingText,
@@ -251,8 +248,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   const showOutsourcePlan = planByStage.has('外协')
 
   const externalSpend = jobExternalSpend(job)
-  const margin = jobMargin(job)
-  const componentsTotal = jobComponentsTotal(job)
 
   // A block now spans N components — dedupe by block.id so the per-job list
   // shows one row per shipment with all members.
@@ -1096,12 +1091,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
 
           {showMoney && (
             <div data-jobtab="caiwu" hidden>
-              <JobFinancePanel
-                job={job}
-                externalSpend={externalSpend}
-                margin={margin}
-                componentsTotal={componentsTotal}
-              />
+              <JobFinancePanel job={job} externalSpend={externalSpend} />
               <ContractFiles
                 jobId={job.id}
                 initial={contractFiles}
@@ -1364,49 +1354,28 @@ function DueDelta({
 function JobFinancePanel({
   job,
   externalSpend,
-  margin,
-  componentsTotal,
 }: {
   job: NonNullable<Awaited<ReturnType<typeof getJob>>>
   externalSpend: number
-  margin: number | undefined
-  componentsTotal: number
 }) {
   return (
     <div className="max-w-3xl">
       {/* Position — 金额 leads (boss edits it in place); 毛利 is the number he
-          actually reads; 外发 / 零件合计 are supporting context. */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-x-10 gap-y-8">
-        <Money label="金额">
-          <span className="mono text-[24px] text-[var(--color-ink-3)]">¥</span>
-          <JobAmount
-            jobId={job.id}
-            value={job.amountCny}
-            className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]"
-          />
-        </Money>
-        <Money label="毛利">
-          <span
-            className={`mono text-[24px] font-semibold tracking-tight ${
-              typeof margin === 'number' && margin < 0
-                ? 'text-[var(--color-overdue)]'
-                : 'text-[var(--color-ink)]'
-            }`}
-          >
-            {typeof margin === 'number' ? formatCny(margin) : '—'}
-          </span>
-        </Money>
-        <Money label="外发金额">
-          <span className="mono text-[24px] font-semibold tracking-tight text-[var(--color-ink-2)]">
-            {externalSpend > 0 ? formatCny(externalSpend) : '—'}
-          </span>
-        </Money>
-        <Money label="零件合计">
-          <span className="mono text-[24px] font-semibold tracking-tight text-[var(--color-ink-2)]">
-            {componentsTotal > 0 ? formatCny(componentsTotal) : '—'}
-          </span>
-        </Money>
-      </div>
+          actually reads; 外发 / 零件合计 are supporting context. A client
+          island watching the same line slots the sheet's 数量/单价/小计 cells
+          write, so a price typed on the 零件 tab moves these numbers before
+          any reload (mutate never RSC-refreshes — the GFW path). */}
+      <JobMoneyPosition
+        jobId={job.id}
+        amountCny={job.amountCny}
+        externalSpend={externalSpend}
+        lines={job.components.map((c) => ({
+          componentId: c.id,
+          qty: c.qty,
+          unit: c.unitPriceCny ?? null,
+          total: c.lineTotalCny ?? null,
+        }))}
+      />
 
       {/* 开票 / 回款 — one tap per 出货单, the same capture as the board's 收款
           light. Full per-单 ledger (单价/小计) stays in 应收账款 for the clerk. */}
@@ -1424,22 +1393,6 @@ function JobFinancePanel({
           ，单价 / 小计 可在「零件」逐件填写。
         </p>
       </div>
-    </div>
-  )
-}
-
-// One position stat — label over a single value line, baseline-aligned.
-function Money({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div>
-      <p className="label mb-2">{label}</p>
-      <div className="flex items-baseline gap-1 leading-none">{children}</div>
     </div>
   )
 }

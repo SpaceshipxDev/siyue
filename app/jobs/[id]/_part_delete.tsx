@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from 'react'
 import { mutate } from '@/lib/mutate'
+import { removeLineFromTotals } from '@/app/_editable'
 import { DELETE_PART_DENIED, PermissionDenied } from '@/app/_perm_denied'
 
 // Trash-bin delete for one part row on the job page. Sits on the row scan
@@ -46,6 +47,9 @@ export function DeletePartButton({
           if (!confirm(`删除「${label}」？此操作不可撤销。`)) return
           start(async () => {
             await mutate({ kind: 'deleteComponent', jobId, componentId })
+            // 财务 tab totals drop the row the moment the delete lands —
+            // the server ran its own 零件 → 订单 rollup in deleteComponent.
+            removeLineFromTotals(jobId, componentId)
             if (onDeleted) onDeleted()
             // Server-rendered rows: drop the <tr> directly. Server truth is
             // already updated; the next natural page load agrees.
