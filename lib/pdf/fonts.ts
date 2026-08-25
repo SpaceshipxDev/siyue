@@ -1,5 +1,6 @@
 import 'server-only'
 import { Font } from '@react-pdf/renderer'
+import { hyphenateCjk } from './cjk-wrap'
 
 // Font registration is process-global. This module is imported by the PDF
 // renderers; the guard makes a re-import a no-op so we don't double-register
@@ -36,10 +37,13 @@ export function ensureFontsRegistered(): void {
       { src: SANS_BOLD, fontWeight: 700 },
     ],
   })
-  // Disable hyphenation entirely — Chinese text doesn't hyphenate, and the
-  // default English hyphenator inserts soft hyphens into ASCII codes like
-  // job numbers (YNMX-26-4-30-001 → YNMX-26-4-30-­001), which prints ugly.
-  Font.registerHyphenationCallback((word) => [word])
+  // No English hyphenation — the default hyphenator inserts soft hyphens into
+  // ASCII codes like job numbers (YNMX-26-4-30-001 → YNMX-26-4-30-­001), which
+  // prints ugly. But textkit ALSO only breaks lines at spaces or hyphenation
+  // points, so with hyphenation off a long Chinese 产品名称 (no spaces) could
+  // never wrap and overprinted the next column. hyphenateCjk gives long CJK
+  // words invisible, hyphen-free break points; ASCII stays whole. See cjk-wrap.
+  Font.registerHyphenationCallback(hyphenateCjk)
   registered = true
 }
 
