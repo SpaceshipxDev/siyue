@@ -17,8 +17,8 @@ export async function GaiHook() {
     return (
       <>
         <script dangerouslySetInnerHTML={{ __html: `window.__GAI_ALLOWED=${a.allowed ? 'true' : 'false'};` }} />
-        <link rel="stylesheet" href="/_gai/overlay.css" />
-        <script src="/_gai/overlay.js" defer />
+        <link rel="stylesheet" href="/_gai/gai.css" />
+        <script src="/_gai/gai.js" defer />
       </>
     )
   }
