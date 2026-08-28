@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { decrypt, encrypt, SESSION_COOKIE } from '@/lib/session'
 import { getUserById } from '@/lib/db'
+import { langDecorate, langRedirect } from '@/lib/i18n/lang-layer'
 
 // Next 16 proxy (formerly middleware.ts). Runs at Node runtime before route
 // rendering. We do an *optimistic* gate here using the JWT — page-level
@@ -27,7 +28,7 @@ import { getUserById } from '@/lib/db'
 // '/api/leads' is the lead-capture POST from the public siyue.ai landing —
 // it does its own validation/honeypot/rate-limit; a session gate here would
 // 307 every prospect's form submit to /login.
-const PUBLIC_PATHS = ['/login', '/join', '/w', '/api/machines/ingest', '/x/demo', '/api/leads']
+const PUBLIC_PATHS = ['/login', '/join', '/w', '/x/demo', '/api/leads']
 
 // Production users share the master board (/) and job detail (/jobs/<id>)
 // with commerce — the page itself scrubs commercial fields. Admin-only
@@ -73,9 +74,26 @@ const ENGINEERING_ALLOWED_PREFIXES = [
   '/finance',
 ]
 
+// Language layer for US visitors (sy_lang cookie) wraps the auth proxy below.
+// It only ADDS a cookie to the response (or handles ?lang=); every auth
+// decision is made by proxyCore exactly as before.
 export async function proxy(request: NextRequest) {
+  const redirect = langRedirect(request)
+  if (redirect) return redirect
+  const res = await proxyCore(request)
+  return langDecorate(request, res)
+}
+
+async function proxyCore(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl
-  const isPublic = PUBLIC_PATHS.some(
+  const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(request.nextUrl.hostname)
+  const isLocalMachineKit =
+    isLocalHost &&
+    (pathname === '/machine-kit' ||
+      pathname.startsWith('/machine-kit/') ||
+      pathname === '/api/lynuc' ||
+      pathname.startsWith('/api/lynuc/'))
+  const isPublic = isLocalMachineKit || PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   )
 
@@ -189,6 +207,6 @@ export const config = {
     // missing/expired cookie makes the worker fetch the /login HTML instead of
     // the WASM, and STEP parsing dies. Everything else (including API routes)
     // flows through.
-    '/((?!_next/static|_next/image|favicon\\.ico|occt\\.worker\\.js|occt-import-js\\.(?:js|wasm)|.*\\.(?:png|jpg|jpeg|svg|gif|webp|avif|ico)$).*)',
+    '/((?!_next/static|_next/image|i18n/|favicon\\.ico|occt\\.worker\\.js|occt-import-js\\.(?:js|wasm)|.*\\.(?:png|jpg|jpeg|svg|gif|webp|avif|ico)$).*)',
   ],
 }
