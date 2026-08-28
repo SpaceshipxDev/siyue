@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // The self-serve mirror (gai.<customer>.siyue.ai) runs `next dev` behind Caddy; without this the dev
+  // server rejects its own HMR socket + RSC fetches as cross-origin ("Unauthorized") and never hydrates.
+  allowedDevOrigins: ["gai.yuenong.siyue.ai", "*.siyue.ai"],
   // Mount the whole app under a sub-path for the /demo sales build
   // (siyue.ai/demo, a second pm2 process). Set at build time and inlined
   // into the client bundle. Must be `undefined` (not '') for the default
