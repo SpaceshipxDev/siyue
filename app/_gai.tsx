@@ -22,5 +22,5 @@ export async function GaiHook() {
       </>
     )
   }
-  return <GaiPill host={host!} allowed={a.allowed} skip={process.env.GAI_SKIP || ''} />
+  return <GaiPill host={host!} allowed={a.allowed} skip={process.env.GAI_SKIP || ''} bottom={Number(process.env.GAI_BOTTOM) || 18} />
 }
