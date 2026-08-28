@@ -5,6 +5,7 @@ import { EnBoot } from "./_en_boot";
 import { BASE_PATH } from '@/lib/base-path'
 import { ToastHost } from './_toast'
 import { APP_TITLE } from '@/lib/brand'
+import { GaiHook } from './_gai'
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -53,6 +54,7 @@ export default function RootLayout({
         {children}
         <ToastHost />
         <EnBoot />
+        <GaiHook />
       </body>
     </html>
   )
