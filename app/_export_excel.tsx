@@ -131,7 +131,7 @@ export function ExportExcelButton({
       <span className="translate-y-[1px]">
         <DownloadIcon />
       </span>
-      <span>{busy ? '导出中…' : '导出'}</span>
+      <span>{busy ? '导出中…' : '导出 Excel'}</span>
     </button>
   )
 }
