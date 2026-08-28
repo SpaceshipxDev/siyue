@@ -16,7 +16,9 @@ export async function GaiHook() {
   if (mirror) {
     return (
       <>
-        <script dangerouslySetInnerHTML={{ __html: `window.__GAI_ALLOWED=${a.allowed ? 'true' : 'false'};` }} />
+        {/* Inline so it runs during parse, before any app chunk: keyboard/clipboard events inside the 改一下 panel
+            never reach the host app's global handlers (spreadsheet-style grids preventDefault digits and space). */}
+        <script dangerouslySetInnerHTML={{ __html: `window.__GAI_ALLOWED=${a.allowed ? 'true' : 'false'};(function(){var ts=['keydown','keyup','keypress','beforeinput','input','paste','copy','cut'];for(var i=0;i<ts.length;i++)window.addEventListener(ts[i],function(e){var t=e.target;while(t&&t!==document){if(t.classList&&t.classList.contains('gai')){e.stopImmediatePropagation();return;}t=t.parentNode;}},true);})();` }} />
         <link rel="stylesheet" href="/_gai/gai.css" />
         <script src="/_gai/gai.js" defer />
       </>
