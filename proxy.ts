@@ -207,6 +207,6 @@ export const config = {
     // missing/expired cookie makes the worker fetch the /login HTML instead of
     // the WASM, and STEP parsing dies. Everything else (including API routes)
     // flows through.
-    '/((?!_next/static|_next/image|i18n/|favicon\\.ico|occt\\.worker\\.js|occt-import-js\\.(?:js|wasm)|.*\\.(?:png|jpg|jpeg|svg|gif|webp|avif|ico)$).*)',
+    '/((?!_next/static|_next/image|_next/webpack-hmr|__nextjs|i18n/|favicon\\.ico|occt\\.worker\\.js|occt-import-js\\.(?:js|wasm)|.*\\.(?:png|jpg|jpeg|svg|gif|webp|avif|ico)$).*)',
   ],
 }
