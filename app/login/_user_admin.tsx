@@ -10,6 +10,7 @@ import {
   resetPinAction,
   setActiveAction,
   setFinanceAction,
+  setGaiAction,
 } from './admin_actions'
 
 export function UserAdmin({
@@ -170,6 +171,7 @@ function UserList({
             <col style={{ width: 100 }} />
             <col style={{ width: 100 }} />
             <col style={{ width: 100 }} />
+            <col style={{ width: 96 }} />
             <col style={{ minWidth: 220 }} />
           </colgroup>
           <thead>
@@ -178,6 +180,7 @@ function UserList({
               <th className="px-4 py-3 label">角色</th>
               <th className="px-4 py-3 label">工段</th>
               <th className="px-4 py-3 label">状态</th>
+              <th className="px-4 py-3 label" title="能在页面上「改一下」并上线">改一下</th>
               <th className="px-4 py-3 label text-right">操作</th>
             </tr>
           </thead>
@@ -185,7 +188,7 @@ function UserList({
             {users.length === 0 ? (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={6}
                   className="px-4 py-8 text-center text-[12px] text-[var(--color-ink-3)]"
                 >
                   暂无员工
@@ -244,6 +247,17 @@ function UserRow({
   const onToggleFinance = () => {
     start(async () => {
       const res = await setFinanceAction(user.id, !user.isFinance)
+      if (res.ok) {
+        router.refresh()
+      } else {
+        window.alert(res.error)
+      }
+    })
+  }
+
+  const onToggleGai = () => {
+    start(async () => {
+      const res = await setGaiAction(user.id, !user.canGai)
       if (res.ok) {
         router.refresh()
       } else {
@@ -395,6 +409,29 @@ function UserRow({
           <span className="text-[var(--color-success)]">活跃</span>
         ) : (
           <span className="text-[var(--color-ink-3)]">已停用</span>
+        )}
+      </td>
+      <td className="px-4 py-3">
+        {isBoss || locked ? (
+          <span className="label text-[var(--color-ink-3)]">始终</span>
+        ) : (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={user.canGai}
+            onClick={onToggleGai}
+            disabled={pending}
+            title={user.canGai ? '可以改一下并上线 · 点击关闭' : '点击开通改一下'}
+            className={`relative inline-flex h-[22px] w-[38px] items-center rounded-full transition-colors cursor-pointer disabled:opacity-50 ${
+              user.canGai ? 'bg-[var(--color-success)]' : 'bg-[var(--color-border-strong)]'
+            }`}
+          >
+            <span
+              className={`inline-block h-[18px] w-[18px] rounded-full bg-white shadow-[0_1px_2px_rgba(20,19,15,.25)] transition-transform ${
+                user.canGai ? 'translate-x-[18px]' : 'translate-x-[2px]'
+              }`}
+            />
+          </button>
         )}
       </td>
       <td className="px-4 py-3 text-right">

@@ -76,6 +76,22 @@ export async function setFinanceAction(
   }
 }
 
+// Grant / revoke 改一下 (self-serve mirror + 上线). The boss row rejects
+// revocation at the lib/db level, and qualifies in code anyway.
+export async function setGaiAction(
+  userId: string,
+  canGai: boolean,
+): Promise<SetActiveResult> {
+  await requireCommerce()
+  try {
+    await updateUser(userId, { canGai })
+    revalidatePath('/login')
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '更新失败' }
+  }
+}
+
 // Rename an employee. The bootstrap 老板 row is excluded in the UI because
 // ensureBootstrapUser heals its name back to 老板 on next load.
 export async function renameUserAction(

@@ -7569,6 +7569,9 @@ export type AppUser = {
   // false until the SQL is applied; the boss row is granted in code
   // regardless (lib/auth canSeeExpenses).
   isFinance: boolean
+  // 改一下 — may open the self-serve mirror and ship changes (migration 0095).
+  // The boss qualifies in code regardless (lib/auth canGai).
+  canGai: boolean
   createdAt: string
 }
 
@@ -7583,6 +7586,7 @@ function fromUser(r: AnyRow): UserRow {
     defaultStage: (r.default_stage as Stage | null) ?? undefined,
     active: r.active as boolean,
     isFinance: (r.is_finance as boolean | null) ?? false,
+    canGai: (r.can_gai as boolean | null) ?? false,
     createdAt: r.created_at as string,
   }
 }
@@ -7659,6 +7663,7 @@ export async function ensureBootstrapUser(): Promise<void> {
       role: 'commerce',
       active: true,
       isFinance: true,
+      canGai: true,
       createdAt: new Date().toISOString(),
     }
     const { error: insErr } = await supabase
@@ -7715,6 +7720,7 @@ function stripPinHash(row: UserRow): AppUser {
     defaultStage: row.defaultStage,
     active: row.active,
     isFinance: row.isFinance,
+    canGai: row.canGai,
     createdAt: row.createdAt,
   }
 }
@@ -7774,6 +7780,7 @@ export async function createUser(input: NewUserInput): Promise<AppUser> {
       defaultStage: input.defaultStage,
       active: true,
       isFinance: false,
+      canGai: false,
       createdAt: new Date().toISOString(),
     }
     const { error } = await supabase.from('users').insert(toUserRow(row))
@@ -7788,6 +7795,7 @@ export type UserPatch = {
   defaultStage?: Stage | null
   active?: boolean
   isFinance?: boolean
+  canGai?: boolean
 }
 
 export async function updateUser(id: string, patch: UserPatch): Promise<void> {
@@ -7799,6 +7807,7 @@ export async function updateUser(id: string, patch: UserPatch): Promise<void> {
     // The boss qualifies in code anyway (canSeeExpenses), so a stored false
     // would be a confusing no-op — reject it outright.
     if (patch.isFinance === false) throw new Error('老板始终可见财务')
+    if (patch.canGai === false) throw new Error('老板始终可以改一下')
   }
   await withWriteLock(async () => {
     const update: AnyRow = {}
@@ -7809,6 +7818,7 @@ export async function updateUser(id: string, patch: UserPatch): Promise<void> {
     }
     if (patch.active !== undefined) update.active = patch.active
     if (patch.isFinance !== undefined) update.is_finance = patch.isFinance
+    if (patch.canGai !== undefined) update.can_gai = patch.canGai
     if (Object.keys(update).length === 0) return
     const { error } = await supabase.from('users').update(update).eq('id', id)
     if (error) throw error

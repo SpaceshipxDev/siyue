@@ -17,6 +17,8 @@ export type AuthUser = {
   // seeing 应收 only. Check via canSeeExpenses, never this flag directly
   // (the boss is granted in code even on a pre-migration DB).
   isFinance: boolean
+  // 改一下 access (users.can_gai, migration 0095). Check via canGai, never this flag directly.
+  canGai: boolean
 }
 
 // Wrapped in React `cache` so multiple component reads in the same render
@@ -34,6 +36,7 @@ export const currentUser = cache(async (): Promise<AuthUser | null> => {
     role: user.role,
     defaultStage: user.defaultStage,
     isFinance: user.isFinance,
+    canGai: user.canGai,
   }
 })
 
@@ -72,6 +75,12 @@ export function canSeeMoney(s: Scope): boolean {
 export function canSeeExpenses(u: AuthUser): boolean {
   if (u.role !== 'commerce') return false
   return u.isFinance || isAdminUser(u.id)
+}
+
+// 改一下 — the self-serve mirror + 上线. Granted by the boss per person in 管理员工;
+// the boss himself always qualifies, even on a pre-migration DB.
+export function canGai(u: AuthUser): boolean {
+  return u.canGai || isAdminUser(u.id)
 }
 
 // Page guard for the 支出/月度 finance tabs. Non-finance commerce users land
