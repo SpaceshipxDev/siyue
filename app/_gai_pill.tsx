@@ -2,13 +2,15 @@
 // The prod-side 改一下 pill: one link to the same page on the mirror. Hidden on login, vendor portal and print views.
 import { useEffect, useState } from 'react'
 
-export function GaiPill({ host }: { host: string }) {
+export function GaiPill({ host, skip }: { host: string; skip?: string }) {
   const [href, setHref] = useState<string | null>(null)
   useEffect(() => {
     const p = window.location.pathname
-    if (/^\/(login|w\/|join)/.test(p) || /\/print\//.test(p) || /\/pdf$/.test(p)) return
+    let hidden = false
+    try { hidden = new RegExp(skip || '^/(login|w/|join)|/print/|/pdf$').test(p) } catch { hidden = /^\/(login|w\/|join)/.test(p) }
+    if (hidden) return
     setHref(host.replace(/\/$/, '') + p + window.location.search)
-  }, [host])
+  }, [host, skip])
   if (!href) return null
   return (
     <a
