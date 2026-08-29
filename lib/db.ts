@@ -12,7 +12,7 @@ import {
   procurementTotalCny,
   stageStartImpliesUpstreamDone,
 } from './data'
-import { today, todayMMDD } from './today'
+import { shanghaiWindow, today, todayMMDD } from './today'
 import type {
   CaiwuRow,
   CaiwuSheet,
@@ -8686,6 +8686,44 @@ export type ProcurementNeed = {
   qty: number
   material?: string
   notes?: string
+}
+
+// === 当日自制负荷 ===
+//
+// The shop can absorb roughly ¥100k of work it makes ITSELF in a day. Past
+// that the machines are the constraint, not the calendar: every order taken
+// on top either goes out late or goes out to a 外协 vendor — and the only
+// moment anybody can still choose which is the moment the order is being
+// confirmed. So the import page adds up what today has already promised and
+// says so before the button is pressed, not after the 交期 is a promise.
+//
+// 自制 means the money NOT already flagged 外发 (jobs.needs_outsource). An
+// order 工程 has already marked for a vendor isn't machine time this shop has
+// to find, so it doesn't count against the day.
+export const SELF_MADE_DAILY_LIMIT_CNY = 100_000
+
+export async function getSelfMadeLoadOn(
+  date: string,
+  excludeJobId?: string,
+): Promise<{ cny: number; count: number }> {
+  const { from, to } = shanghaiWindow(date, 'day')
+  const { data, error } = await supabase
+    .from('jobs')
+    .select('id, amount_cny, needs_outsource')
+    .eq('status', 'ready')
+    .gte('created_at', from)
+    .lt('created_at', to)
+  if (error) throw error
+  let cny = 0
+  let count = 0
+  for (const r of (data ?? []) as AnyRow[]) {
+    if (excludeJobId && r.id === excludeJobId) continue
+    if (r.needs_outsource === true) continue
+    const amt = asNumber(r.amount_cny)
+    if (typeof amt === 'number') cny += amt
+    count += 1
+  }
+  return { cny, count }
 }
 
 export async function getProcurementNeeds(): Promise<ProcurementNeed[]> {

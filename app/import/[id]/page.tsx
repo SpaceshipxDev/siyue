@@ -1,6 +1,14 @@
 import { notFound, redirect } from 'next/navigation'
 import { BRAND } from '@/lib/brand'
-import { findJobNoConflict, getJob, parseJobNoConflictError } from '@/lib/db'
+import {
+  findJobNoConflict,
+  getJob,
+  getSelfMadeLoadOn,
+  parseJobNoConflictError,
+  SELF_MADE_DAILY_LIMIT_CNY,
+} from '@/lib/db'
+import { formatCny } from '@/lib/data'
+import { today } from '@/lib/today'
 import {
   canCreatePartRow,
   canDeletePartRow,
@@ -79,6 +87,14 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
   // after a 工号 edit clears the gate the instant it's renamed to a free number.
   const rawConflict = await findJobNoConflict(job.jobNo, job.id)
   const jobNoConflict = rawConflict?.status === 'ready' ? rawConflict : null
+
+  // 当日自制负荷 — what today has already promised the machines, plus what
+  // this draft would add. Over the day's limit the shop can't make it all on
+  // time, so the answer is a later 交期 or a 外协 vendor; the warning is
+  // advisory (it never blocks 确认导入) because only a human knows which.
+  const load = await getSelfMadeLoadOn(today(), job.id)
+  const withThis = load.cny + (job.needsOutsource ? 0 : (job.amountCny ?? 0))
+  const overloaded = withThis > SELF_MADE_DAILY_LIMIT_CNY
 
   return (
     <div className="flex-1 flex flex-col">
@@ -329,6 +345,18 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
             </tbody>
           </table>
         </div>
+
+        {overloaded && (
+          <div className="mt-10 rounded-[2px] border border-[var(--color-warning)] bg-[var(--color-warning-soft)] px-4 py-3 text-[13px] text-[var(--color-ink)]">
+            今天自制已接 <strong>{formatCny(withThis)}</strong>
+            （含这一单），超过一天做得完的{' '}
+            {formatCny(SELF_MADE_DAILY_LIMIT_CNY)}。
+            <span className="text-[var(--color-ink-2)]">
+              {' '}
+              交期往后排一点，或者这单安排外发。
+            </span>
+          </div>
+        )}
 
         <div className="mt-10 flex items-center justify-end gap-4">
           <span className="label text-[var(--color-ink-3)]">
