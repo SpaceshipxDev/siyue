@@ -1681,8 +1681,11 @@ function ProcurementModal({
       },
     ]
   })
-  // Which line the 物料 picker is choosing for; -1 means 加一行.
+  // Which line the 物料 picker is choosing for; -1 means append a new one.
   const [picking, setPicking] = useState(-1)
+  // The line whose 长 should take the cursor — set when a line is born, so
+  // adding one and typing its size is a single uninterrupted motion.
+  const [focusKey, setFocusKey] = useState<string | null>(null)
   const [face, setFace] = useState<Face>(initial ? 'form' : 'pick')
   const [createSeedName, setCreateSeedName] = useState('')
   const [editing, setEditing] = useState<ProcurementProduct | null>(null)
@@ -1718,23 +1721,52 @@ function ProcurementModal({
   }, [onCancel])
 
   // Picking swaps the 物料 on the target line and keeps what was already
-  // typed into it (规格 / 数量), or appends a fresh line when 加一行 opened
-  // the picker. The 单价 defaults to the 物料's going price; the row
-  // snapshots whatever gets submitted.
+  // typed into it (规格 / 数量), or opens the sheet's first line. The 单价
+  // defaults to the 物料's going price; the row snapshots whatever gets
+  // submitted.
   function pickProduct(p: ProcurementProduct) {
-    setLines((ls) => {
-      const at = picking >= 0 && picking < ls.length ? picking : -1
-      if (at < 0) return [...ls, newLine(p)]
-      const copy = [...ls]
-      copy[at] = newLine(p, ls[at])
-      return copy
-    })
+    const at = picking >= 0 && picking < lines.length ? picking : -1
+    const line = newLine(p, at < 0 ? undefined : lines[at])
+    setLines((ls) =>
+      at < 0 ? [...ls, line] : ls.map((l, x) => (x === at ? line : l)),
+    )
+    if (at < 0) setFocusKey(line.key)
     setError(null)
     setFace('form')
   }
 
   function patchLine(i: number, patch: Partial<Line>) {
     setLines((ls) => ls.map((l, x) => (x === i ? { ...l, ...patch } : l)))
+  }
+
+  // 加一行 carries the 物料 down from the line above — 单价 included, since
+  // the same 型号 costs the same until someone says otherwise. Buying one
+  // 型号 in four sizes is the normal shape of a 请购单, and re-picking
+  // 「6061铝板」 four times out of the 库 was the whole cost of it. Only the
+  // 规格 and 数量 — what differs piece to piece — come up empty, with the
+  // cursor already in 长. A line that needs a different 物料 says so by
+  // tapping its 品名.
+  function addLine() {
+    const last = lines[lines.length - 1]
+    if (!last) return
+    const key = `l${keySeq.current++}`
+    setLines((ls) => [
+      ...ls,
+      {
+        key,
+        productId: last.productId,
+        name: last.name,
+        category: last.category,
+        supplier: last.supplier,
+        link: last.link,
+        l: '',
+        w: '',
+        h: '',
+        qty: '',
+        unitPrice: last.unitPrice,
+      },
+    ])
+    setFocusKey(key)
   }
 
   // 合计 spans the whole 请购单 — what this one sheet is asking the shop to
@@ -1927,6 +1959,7 @@ function ProcurementModal({
                   <LineRow
                     key={l.key}
                     l={l}
+                    autoFocus={l.key === focusKey}
                     onPatch={(patch) => patchLine(i, patch)}
                     onChangeProduct={() => {
                       setPicking(i)
@@ -1947,10 +1980,7 @@ function ProcurementModal({
               {mode !== 'edit' && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setPicking(-1)
-                    setFace('pick')
-                  }}
+                  onClick={addLine}
                   className="mt-2 w-full rounded-[2px] border border-dashed border-[var(--color-border-strong)] py-2 text-[12.5px] font-medium text-[var(--color-ink-2)] hover:bg-[#faf8f2] hover:text-[var(--color-ink)]"
                 >
                   ＋ 加一行
@@ -2114,11 +2144,13 @@ function ProcurementModal({
 // without losing the size and quantity already typed.
 function LineRow({
   l,
+  autoFocus,
   onPatch,
   onChangeProduct,
   onRemove,
 }: {
   l: Line
+  autoFocus?: boolean
   onPatch: (patch: Partial<Line>) => void
   onChangeProduct: () => void
   onRemove?: () => void
@@ -2171,6 +2203,7 @@ function LineRow({
           value={l.l}
           onChange={(v) => onPatch({ l: v })}
           placeholder="长"
+          autoFocus={autoFocus}
         />
         <Times />
         <Cell
@@ -2223,17 +2256,20 @@ function Cell({
   onChange,
   placeholder,
   wide,
+  autoFocus,
 }: {
   value: string
   onChange: (v: string) => void
   placeholder: string
   wide?: boolean
+  autoFocus?: boolean
 }) {
   return (
     <input
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
+      autoFocus={autoFocus}
       inputMode="decimal"
       className={`mono min-w-0 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-1 text-center text-[12.5px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)] ${
         wide ? 'flex-[1.3]' : 'flex-1'
