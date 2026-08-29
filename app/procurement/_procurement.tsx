@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
@@ -1559,12 +1559,20 @@ function MonthNav({
 //              工号 / 备注
 // ===========================================================================
 
-type Selected = {
+// One line of the 请购单 — a 物料 picked from the 库, cut to a size, in a
+// quantity, at a price. Everything else on the form is shared by all lines.
+type Line = {
+  key: string
   productId?: string
   name: string
   category?: string
   supplier: string
   link: string
+  l: string
+  w: string
+  h: string
+  qty: string
+  unitPrice: string
 }
 
 // === 材料规格 — 长 × 宽 × 高, in mm ===
@@ -1629,29 +1637,55 @@ function ProcurementModal({
   // before the page-level router.refresh() catches up.
   const [catalog, setCatalog] = useState<ProcurementProduct[]>(products)
 
-  const [selected, setSelected] = useState<Selected | null>(() =>
-    initial
-      ? {
-          productId: initial.productId,
-          name: splitSpec(initial.item).name,
-          supplier: initial.supplier ?? '',
-          link: initial.link ?? '',
-        }
-      : null,
-  )
-  // 材料规格 — 长 × 宽 × 高, mm. Lifted back out of the 品名 on 编辑 so a
-  // second save doesn't append it twice.
-  const [spec, setSpec] = useState(() => splitSpec(initial?.item ?? ''))
+  // One 请购单, many 物料. Each line becomes its own procurements row on
+  // submit (the table is one-row-per-purchase by design, and the conveyor
+  // downstream — 审批, 下单, 到货, 领料 — happens per material anyway); what
+  // the lines share is the 请购人 / 领料人 / 工号 / 备注 below them, which is
+  // the part nobody wants to retype five times.
+  //
+  // 编辑 opens one existing row, so it stays exactly one line: no 加一行, no
+  // per-line 删除.
+  const keySeq = useRef(0)
+  const newLine = (p?: ProcurementProduct, from?: Line): Line => ({
+    key: from?.key ?? `l${keySeq.current++}`,
+    productId: p?.id,
+    name: p?.name ?? '',
+    category: p?.category,
+    supplier: p?.supplier ?? '',
+    link: p?.link ?? '',
+    l: from?.l ?? '',
+    w: from?.w ?? '',
+    h: from?.h ?? '',
+    qty: from?.qty ?? '',
+    unitPrice:
+      from?.unitPrice ||
+      (typeof p?.unitPriceCny === 'number' ? String(p.unitPriceCny) : ''),
+  })
+
+  const [lines, setLines] = useState<Line[]>(() => {
+    if (!initial) return []
+    const s = splitSpec(initial.item)
+    return [
+      {
+        key: 'l0',
+        productId: initial.productId,
+        name: s.name,
+        supplier: initial.supplier ?? '',
+        link: initial.link ?? '',
+        l: s.l,
+        w: s.w,
+        h: s.h,
+        qty: initial.qty != null ? String(initial.qty) : '',
+        unitPrice:
+          initial.unitPriceCny != null ? String(initial.unitPriceCny) : '',
+      },
+    ]
+  })
+  // Which line the 物料 picker is choosing for; -1 means 加一行.
+  const [picking, setPicking] = useState(-1)
   const [face, setFace] = useState<Face>(initial ? 'form' : 'pick')
   const [createSeedName, setCreateSeedName] = useState('')
   const [editing, setEditing] = useState<ProcurementProduct | null>(null)
-
-  const [qty, setQty] = useState(
-    initial?.qty != null ? String(initial.qty) : '',
-  )
-  const [unitPrice, setUnitPrice] = useState(
-    initial?.unitPriceCny != null ? String(initial.unitPriceCny) : '',
-  )
   // 请购人 defaults to whoever is signed in but stays pickable — filing for a
   // colleague is normal. 领料人 starts blank; the 领料 step names the taker.
   const [requester, setRequester] = useState(initial?.requester ?? currentUser)
@@ -1683,33 +1717,41 @@ function ProcurementModal({
     }
   }, [onCancel])
 
+  // Picking swaps the 物料 on the target line and keeps what was already
+  // typed into it (规格 / 数量), or appends a fresh line when 加一行 opened
+  // the picker. The 单价 defaults to the 物料's going price; the row
+  // snapshots whatever gets submitted.
   function pickProduct(p: ProcurementProduct) {
-    setSelected({
-      productId: p.id,
-      name: p.name,
-      category: p.category,
-      supplier: p.supplier ?? '',
-      link: p.link ?? '',
+    setLines((ls) => {
+      const at = picking >= 0 && picking < ls.length ? picking : -1
+      if (at < 0) return [...ls, newLine(p)]
+      const copy = [...ls]
+      copy[at] = newLine(p, ls[at])
+      return copy
     })
-    // Default the 单价 to the 物料's going price; the row snapshots whatever
-    // gets confirmed.
-    if (typeof p.unitPriceCny === 'number' && !unitPrice) {
-      setUnitPrice(String(p.unitPriceCny))
-    }
     setError(null)
     setFace('form')
   }
 
-  const qtyNum = parseNum(qty)
-  const priceNum = parseNum(unitPrice)
-  const liveTotal = procurementTotalCny({ qty: qtyNum, unitPriceCny: priceNum })
-  // What actually gets bought — 品名 with the 规格 on it. Shown live on the
-  // card so the requester reads the finished line before submitting.
-  const itemName = selected ? joinSpec(selected.name, spec) : ''
+  function patchLine(i: number, patch: Partial<Line>) {
+    setLines((ls) => ls.map((l, x) => (x === i ? { ...l, ...patch } : l)))
+  }
+
+  // 合计 spans the whole 请购单 — what this one sheet is asking the shop to
+  // spend, not what one of its lines costs.
+  const liveTotal = lines.reduce<number | undefined>((sum, l) => {
+    const t = procurementTotalCny({
+      qty: parseNum(l.qty),
+      unitPriceCny: parseNum(l.unitPrice),
+    })
+    if (typeof t !== 'number') return sum
+    return (sum ?? 0) + t
+  }, undefined)
 
   function submit() {
-    if (!selected || !selected.name.trim()) {
+    if (lines.length === 0 || !lines[0].name.trim()) {
       setError('请先选择或新建一个物料')
+      setPicking(-1)
       setFace('pick')
       return
     }
@@ -1718,15 +1760,16 @@ function ProcurementModal({
     start(async () => {
       try {
         if (mode === 'edit' && initial) {
+          const l = lines[0]
           await mutate({
             kind: 'updateProcurement',
             procurementId: initial.id,
             patch: {
-              item: itemName,
-              supplier: selected.supplier.trim() || null,
-              link: selected.link.trim() || null,
-              qty: qtyNum ?? null,
-              unitPriceCny: priceNum ?? null,
+              item: joinSpec(l.name, l),
+              supplier: l.supplier.trim() || null,
+              link: l.link.trim() || null,
+              qty: parseNum(l.qty) ?? null,
+              unitPriceCny: parseNum(l.unitPrice) ?? null,
               notes: notes.trim() || null,
               jobId: jobPick?.id || null,
               jobNo: jobPick?.jobNo || null,
@@ -1735,30 +1778,49 @@ function ProcurementModal({
             },
           })
           onDone()
-        } else {
-          // Every request is born 待审批 — the server enforces it too.
-          const status: ProcurementStatus = 'requested'
-          await mutate({
-            kind: 'createProcurement',
-            input: {
-              item: itemName,
-              productId: selected.productId || undefined,
-              supplier: selected.supplier.trim() || undefined,
-              link: selected.link.trim() || undefined,
-              qty: qtyNum,
-              unitPriceCny: priceNum,
-              orderDate: today,
-              reqDate: today,
-              notes: notes.trim() || undefined,
-              status,
-              jobId: jobPick?.id || undefined,
-              jobNo: jobPick?.jobNo || undefined,
-              picker: picker.trim() || undefined,
-              requester: requester.trim() || undefined,
-            },
-          })
-          onDone(status)
+          return
         }
+
+        // Every request is born 待审批 — the server enforces it too. Lines go
+        // one at a time and each one that lands is dropped from the sheet, so
+        // if the link dies halfway the form is left holding exactly what
+        // didn't make it and pressing 提交 again finishes the job instead of
+        // filing everything twice.
+        const status: ProcurementStatus = 'requested'
+        const rest = [...lines]
+        try {
+          while (rest.length > 0) {
+            const l = rest[0]
+            await mutate({
+              kind: 'createProcurement',
+              input: {
+                item: joinSpec(l.name, l),
+                productId: l.productId || undefined,
+                supplier: l.supplier.trim() || undefined,
+                link: l.link.trim() || undefined,
+                qty: parseNum(l.qty),
+                unitPriceCny: parseNum(l.unitPrice),
+                orderDate: today,
+                reqDate: today,
+                notes: notes.trim() || undefined,
+                status,
+                jobId: jobPick?.id || undefined,
+                jobNo: jobPick?.jobNo || undefined,
+                picker: picker.trim() || undefined,
+                requester: requester.trim() || undefined,
+              },
+            })
+            rest.shift()
+          }
+        } catch (e) {
+          const done = lines.length - rest.length
+          setLines(rest)
+          const msg = e instanceof Error ? e.message : '提交失败'
+          setError(done > 0 ? `已提交 ${done} 条，剩下的没成功 · ${msg}` : msg)
+          if (done > 0) router.refresh()
+          return
+        }
+        onDone(status)
       } catch (e) {
         setError(e instanceof Error ? e.message : '保存失败')
       }
@@ -1781,11 +1843,27 @@ function ProcurementModal({
         if (e.target === e.currentTarget) onCancel()
       }}
     >
-      <div className="w-full max-w-[480px] rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-surface)] shadow-xl">
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-3.5">
+      <div className="w-full max-w-[520px] rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-surface)] shadow-xl">
+        <div className="flex items-center gap-3 border-b border-[var(--color-border)] px-5 py-3.5">
           <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
             {title}
           </h2>
+          <div className="flex-1" />
+          {/* Picking a 物料 for a sheet that already has lines has to be
+              escapable — × closes the whole 请购单, and a half-typed form is
+              not something to lose to a change of mind. */}
+          {face === 'pick' && lines.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setPicking(-1)
+                setFace('form')
+              }}
+              className="text-[12.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+            >
+              返回
+            </button>
+          )}
           <button
             type="button"
             onClick={onCancel}
@@ -1841,72 +1919,47 @@ function ProcurementModal({
           />
         )}
 
-        {face === 'form' && selected && (
+        {face === 'form' && lines.length > 0 && (
           <>
             <div className="px-5 py-5">
-              <SelectedCard
-                selected={selected}
-                itemName={itemName}
-                onChange={() => setFace('pick')}
-              />
-
-              <div className="mt-4">
-                <Field label="材料规格 mm">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={spec.l}
-                      onChange={(v) => setSpec((s) => ({ ...s, l: v }))}
-                      placeholder="长"
-                      mono
-                      inputMode="decimal"
-                    />
-                    <span className="shrink-0 text-[13px] text-[var(--color-ink-4)]">
-                      ×
-                    </span>
-                    <Input
-                      value={spec.w}
-                      onChange={(v) => setSpec((s) => ({ ...s, w: v }))}
-                      placeholder="宽"
-                      mono
-                      inputMode="decimal"
-                    />
-                    <span className="shrink-0 text-[13px] text-[var(--color-ink-4)]">
-                      ×
-                    </span>
-                    <Input
-                      value={spec.h}
-                      onChange={(v) => setSpec((s) => ({ ...s, h: v }))}
-                      placeholder="高"
-                      mono
-                      inputMode="decimal"
-                    />
-                  </div>
-                </Field>
+              <div className="space-y-2">
+                {lines.map((l, i) => (
+                  <LineRow
+                    key={l.key}
+                    l={l}
+                    onPatch={(patch) => patchLine(i, patch)}
+                    onChangeProduct={() => {
+                      setPicking(i)
+                      setFace('pick')
+                    }}
+                    onRemove={
+                      lines.length > 1
+                        ? () => {
+                            setLines((ls) => ls.filter((_, x) => x !== i))
+                            setPicking(-1)
+                          }
+                        : undefined
+                    }
+                  />
+                ))}
               </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-4">
-                <Field label="数量">
-                  <Input
-                    value={qty}
-                    onChange={setQty}
-                    placeholder="0"
-                    mono
-                    inputMode="decimal"
-                    autoFocus
-                  />
-                </Field>
-                <Field label="单价 ¥">
-                  <Input
-                    value={unitPrice}
-                    onChange={setUnitPrice}
-                    placeholder="可留空"
-                    mono
-                    inputMode="decimal"
-                  />
-                </Field>
-              </div>
+              {mode !== 'edit' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPicking(-1)
+                    setFace('pick')
+                  }}
+                  className="mt-2 w-full rounded-[2px] border border-dashed border-[var(--color-border-strong)] py-2 text-[12.5px] font-medium text-[var(--color-ink-2)] hover:bg-[#faf8f2] hover:text-[var(--color-ink)]"
+                >
+                  ＋ 加一行
+                </button>
+              )}
 
-              <div className="mt-4 grid grid-cols-2 gap-4">
+              {/* Everything below the rule belongs to the whole 请购单, not
+                  to the line above it. */}
+              <div className="mt-5 grid grid-cols-2 gap-4 border-t border-[var(--color-border)] pt-5">
                 <Field label="请购人">
                   <SearchSelect
                     options={roster.map((n) => ({ id: n, label: n }))}
@@ -2037,7 +2090,13 @@ function ProcurementModal({
                 disabled={pending}
                 className="rounded-[2px] bg-[var(--color-ink)] px-4 py-1.5 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
               >
-                {pending ? '保存中…' : mode === 'edit' ? '保存' : '提交请购'}
+                {pending
+                  ? '保存中…'
+                  : mode === 'edit'
+                    ? '保存'
+                    : lines.length > 1
+                      ? `提交 ${lines.length} 条`
+                      : '提交请购'}
               </button>
             </div>
           </>
@@ -2049,50 +2108,137 @@ function ProcurementModal({
 
 // ===========================================================================
 
-// The 物料 as it will be bought — itemName is the 品名 with the 规格 already
-// on it, so the card is the live preview of the line the approver will read.
-function SelectedCard({
-  selected,
-  itemName,
-  onChange,
+// One line of the 请购单. The 品名 shown is the finished thing being bought —
+// 物料 with its 规格 on it — so what the requester reads here is exactly the
+// line the approver and the buyer will read later. Tapping it swaps the 物料
+// without losing the size and quantity already typed.
+function LineRow({
+  l,
+  onPatch,
+  onChangeProduct,
+  onRemove,
 }: {
-  selected: Selected
-  itemName: string
-  onChange: () => void
+  l: Line
+  onPatch: (patch: Partial<Line>) => void
+  onChangeProduct: () => void
+  onRemove?: () => void
 }) {
   return (
-    <div className="rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-bg)] px-3.5 py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            {selected.category && <CategoryChip category={selected.category} />}
-            <span className="truncate text-[14px] font-medium tracking-tight text-[var(--color-ink)]">
-              {itemName || selected.name}
-            </span>
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-[var(--color-ink-3)]">
-            <span>{selected.supplier || '供应商未填'}</span>
-            {selected.link && isHttp(selected.link) && (
-              <a
-                href={selected.link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[var(--color-info)] hover:underline"
-              >
-                链接 <LinkGlyph />
-              </a>
-            )}
-          </div>
-        </div>
+    <div className="rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-bg)] px-3 py-2.5">
+      <div className="flex items-start justify-between gap-2">
         <button
           type="button"
-          onClick={onChange}
-          className="shrink-0 rounded-[2px] border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]"
+          onClick={onChangeProduct}
+          className="group min-w-0 flex-1 text-left"
         >
-          更换
+          <div className="flex items-center gap-1.5">
+            {l.category && <CategoryChip category={l.category} />}
+            <span className="truncate text-[14px] font-medium tracking-tight text-[var(--color-ink)] group-hover:underline">
+              {joinSpec(l.name, l)}
+            </span>
+          </div>
+          <div className="mt-0.5 truncate text-[11px] text-[var(--color-ink-3)]">
+            {l.supplier || '供应商未填'} · 换物料
+          </div>
         </button>
+        {l.link && isHttp(l.link) && (
+          <a
+            href={l.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-0.5 inline-flex shrink-0 items-center gap-1 text-[11px] text-[var(--color-info)] hover:underline"
+          >
+            链接 <LinkGlyph />
+          </a>
+        )}
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label="删掉这一行"
+            title="删掉这一行"
+            className="shrink-0 rounded-[2px] px-1 text-[14px] leading-none text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+          >
+            ×
+          </button>
+        )}
+      </div>
+
+      {/* 长 × 宽 × 高 mm · 数量 件 · ¥ 单价 — units carry the labels, so the
+          row reads the same whether the boxes are empty or full. */}
+      <div className="mt-2 flex items-center gap-1.5">
+        <Cell
+          value={l.l}
+          onChange={(v) => onPatch({ l: v })}
+          placeholder="长"
+        />
+        <Times />
+        <Cell
+          value={l.w}
+          onChange={(v) => onPatch({ w: v })}
+          placeholder="宽"
+        />
+        <Times />
+        <Cell
+          value={l.h}
+          onChange={(v) => onPatch({ h: v })}
+          placeholder="高"
+        />
+        <Unit>mm</Unit>
+        <Cell
+          value={l.qty}
+          onChange={(v) => onPatch({ qty: v })}
+          placeholder="数量"
+          wide
+        />
+        <Unit>件</Unit>
+        <Unit>¥</Unit>
+        <Cell
+          value={l.unitPrice}
+          onChange={(v) => onPatch({ unitPrice: v })}
+          placeholder="单价"
+          wide
+        />
       </div>
     </div>
+  )
+}
+
+function Times() {
+  return (
+    <span className="shrink-0 text-[12px] text-[var(--color-ink-4)]">×</span>
+  )
+}
+
+function Unit({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="shrink-0 text-[11.5px] text-[var(--color-ink-3)]">
+      {children}
+    </span>
+  )
+}
+
+function Cell({
+  value,
+  onChange,
+  placeholder,
+  wide,
+}: {
+  value: string
+  onChange: (v: string) => void
+  placeholder: string
+  wide?: boolean
+}) {
+  return (
+    <input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      inputMode="decimal"
+      className={`mono min-w-0 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-1 text-center text-[12.5px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)] ${
+        wide ? 'flex-[1.3]' : 'flex-1'
+      }`}
+    />
   )
 }
 
