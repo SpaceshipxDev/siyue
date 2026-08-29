@@ -18,24 +18,32 @@ import type {
   ProcurementProduct,
   ProcurementStatus,
 } from '@/lib/data'
-import type { ProcurementJobOption } from '@/lib/db'
+import type { ProcurementJobOption, ProcurementNeed } from '@/lib/db'
 
-// 采购 board — a five-step conveyor read through five rectangular filter
-// boxes: 待审批 → 待采购 → 待到货 → 待领料 → 已领料. One table per box; each
-// table carries its own money strip (笔数 · ¥) at the top, the 已领料 ledger
-// browses month by month with 导出. A row click opens an inline panel holding
-// that row's whole story (请购 → 批 → 下单 → 到货 → 领) and exactly the
-// actions its stage allows. ＋请购 is the only entry point — every request,
+// 采购 board — a six-step conveyor read through six rectangular filter
+// boxes: 需求 → 待审批 → 待采购 → 待到货 → 待领料 → 已领料. One table per box;
+// each table carries its own money strip (笔数 · ¥) at the top, the 已领料
+// ledger browses month by month with 导出. A row click opens an inline panel
+// holding that row's whole story (请购 → 批 → 下单 → 到货 → 领) and exactly the
+// actions its stage allows. 请购 is the only entry point — every request,
 // approvers' included, is born 待审批; approval moves it to 待采购, placing
 // (paying) the order to 待到货, arrival to 待领料, and the named 领料人
 // collecting it closes the loop.
-
-type Tab = 'requested' | 'purchase' | 'buying' | 'arrived' | 'ledger'
+//
+// 需求 is the mouth of the conveyor and the only box that isn't procurements
+// rows: it's the live list of parts 工程 routed through 采购 and nobody has
+// bought yet, so what the shop decided to buy shows up here without anyone
+// having to retype it. Its 请购 button opens the normal form pre-filled with
+// the 工号 / 数量 / 零件名, which drops a real row into 待审批 like any other.
+type Tab = 'need' | 'requested' | 'purchase' | 'buying' | 'arrived' | 'ledger'
 
 const TAB_DEF: Record<
   Tab,
   { label: string; col: string; match: (p: Procurement) => boolean }
 > = {
+  // 需求 rows aren't procurements at all — it renders its own table, so this
+  // matcher never runs. It's here to keep the box labels in one place.
+  need: { label: '需求', col: '交期', match: () => false },
   requested: {
     label: '待审批',
     col: '请购',
@@ -64,6 +72,7 @@ const TAB_DEF: Record<
 }
 
 const TAB_EMPTY: Record<Tab, string> = {
+  need: '工程还没派下要买的活',
   requested: '没有等审批的请购',
   purchase: '没有等下单的采购',
   buying: '料都到齐了',
@@ -71,12 +80,26 @@ const TAB_EMPTY: Record<Tab, string> = {
   ledger: '本月没有记录',
 }
 
-type ModalMode = { kind: 'request' } | { kind: 'edit'; row: Procurement } | null
+// What a 需求 hands the 请购 form: the 工号 it belongs to, how many, and the
+// 零件 name — seeded into the 物料 search so one tap either finds the 物料 or
+// creates it under the right name.
+type RequestSeed = {
+  jobId: string
+  jobNo: string
+  qty: number
+  part: string
+}
+
+type ModalMode =
+  | { kind: 'request'; seed?: RequestSeed }
+  | { kind: 'edit'; row: Procurement }
+  | null
 
 export function ProcurementBoard({
   procurements,
   products,
   jobOptions,
+  needs,
   roster,
   currentUser,
   canApprove,
@@ -85,6 +108,7 @@ export function ProcurementBoard({
   procurements: Procurement[]
   products: ProcurementProduct[]
   jobOptions: ProcurementJobOption[]
+  needs: ProcurementNeed[]
   roster: string[]
   currentUser: string
   canApprove: boolean
@@ -125,6 +149,53 @@ export function ProcurementBoard({
       overdue,
     }
   }, [procurements, today])
+
+  // A 需求 is "已请购" once a live 请购 on the same 工号 names that part —
+  // either as the 物料 bought or in the 备注 the 需求 seeds. Those stay
+  // listed, dimmed and sorted last, so nobody buys the same part twice while
+  // the 采购 工段 waits for the material to physically land; the box counts
+  // only the ones still needing someone.
+  const needAll = useMemo(() => {
+    const key = (s: string) => s.trim().toLowerCase()
+    const byJob = new Map<string, Procurement[]>()
+    for (const p of procurements) {
+      if (!p.jobId || p.status === 'rejected') continue
+      const l = byJob.get(p.jobId) ?? []
+      l.push(p)
+      byJob.set(p.jobId, l)
+    }
+    return needs.map((n) => {
+      const part = key(n.part)
+      const asked =
+        part.length > 0 &&
+        (byJob.get(n.jobId) ?? []).some((p) => {
+          const item = key(p.item)
+          // The reverse direction (零件 "6061铝板-A" bought as 物料 "6061铝板")
+          // needs a real name to lean on — a one-character 物料 would match
+          // half the job.
+          return (
+            item.includes(part) ||
+            (item.length > 1 && part.includes(item)) ||
+            key(p.notes ?? '').includes(part)
+          )
+        })
+      return { need: n, asked }
+    })
+  }, [needs, procurements])
+
+  // 待请购 on top, 已请购 below — each half keeps the server's 交期 order.
+  const needMatch = (n: ProcurementNeed) =>
+    !query ||
+    n.part.toLowerCase().includes(query) ||
+    n.jobNo.toLowerCase().includes(query) ||
+    n.product.toLowerCase().includes(query) ||
+    (n.material ?? '').toLowerCase().includes(query)
+  const needRows = [
+    ...needAll.filter((r) => !r.asked && needMatch(r.need)),
+    ...needAll.filter((r) => r.asked && needMatch(r.need)),
+  ]
+
+  const needOpen = needAll.filter((n) => !n.asked).length
 
   // The active tab's rows, queue-sorted. 待到货 reads soonest-expected first;
   // the waiting queues read oldest-first; the ledger reads newest-first.
@@ -215,6 +286,7 @@ export function ProcurementBoard({
   }
 
   const boxes: { key: Tab; count: number | null; hot?: number }[] = [
+    { key: 'need', count: needOpen },
     { key: 'requested', count: counts.requested },
     { key: 'purchase', count: counts.purchase },
     { key: 'buying', count: counts.buying, hot: counts.overdue },
@@ -286,64 +358,108 @@ export function ProcurementBoard({
       </div>
 
       <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
-        {/* The table's own header strip — its money lives with its list. */}
-        {tab === 'ledger' ? (
-          <div className="flex flex-wrap items-center gap-3 border-b border-[var(--color-border)] px-5 py-2.5">
-            <MonthNav
-              months={ledgerMonths}
-              month={ledgerMonth}
-              onPick={setPickedMonth}
-            />
-            <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
-              {strip.count} 笔 · {formatCny(strip.sum)}
-            </span>
-            <div className="ml-auto">
-              <ProcurementExportButton
-                rows={ledgerRows}
-                filename={`采购台账_${ledgerMonth ?? today.slice(0, 7)}`}
-                compact
-              />
+        {tab === 'need' ? (
+          /* 需求 — its own table: parts, not purchases, so no money strip. */
+          <>
+            <div className="flex items-center gap-3 border-b border-[var(--color-border)] px-5 py-2.5">
+              <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
+                {needRows.filter((n) => !n.asked).length} 项待请购
+              </span>
             </div>
-          </div>
+            <div className="hidden grid-cols-[minmax(0,1fr)_100px_110px_84px] items-center gap-4 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
+              <span className="label">零件 · 工号</span>
+              <span className="label text-right">数量</span>
+              <span className="label">交期</span>
+              <span />
+            </div>
+            {needRows.length === 0 ? (
+              <p className="px-5 py-10 text-center text-[13px] text-[var(--color-ink-3)]">
+                {query ? '没有匹配的记录' : TAB_EMPTY.need}
+              </p>
+            ) : (
+              needRows.map(({ need, asked }) => (
+                <NeedRow
+                  key={need.partId}
+                  n={need}
+                  asked={asked}
+                  today={today}
+                  onRequest={() =>
+                    setModal({
+                      kind: 'request',
+                      seed: {
+                        jobId: need.jobId,
+                        jobNo: need.jobNo,
+                        qty: need.qty,
+                        part: need.part,
+                      },
+                    })
+                  }
+                />
+              ))
+            )}
+          </>
         ) : (
-          <div className="flex items-center gap-3 border-b border-[var(--color-border)] px-5 py-2.5">
-            <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
-              {strip.count} 笔 · {formatCny(strip.sum)}
-            </span>
-          </div>
-        )}
+          <>
+            {/* The table's own header strip — its money lives with its list. */}
+            {tab === 'ledger' ? (
+              <div className="flex flex-wrap items-center gap-3 border-b border-[var(--color-border)] px-5 py-2.5">
+                <MonthNav
+                  months={ledgerMonths}
+                  month={ledgerMonth}
+                  onPick={setPickedMonth}
+                />
+                <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
+                  {strip.count} 笔 · {formatCny(strip.sum)}
+                </span>
+                <div className="ml-auto">
+                  <ProcurementExportButton
+                    rows={ledgerRows}
+                    filename={`采购台账_${ledgerMonth ?? today.slice(0, 7)}`}
+                    compact
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 border-b border-[var(--color-border)] px-5 py-2.5">
+                <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
+                  {strip.count} 笔 · {formatCny(strip.sum)}
+                </span>
+              </div>
+            )}
 
-        {/* Column header — desktop only. */}
-        <div className="hidden grid-cols-[14px_minmax(0,1fr)_170px_150px_110px] items-center gap-4 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
-          <span />
-          <span className="label">品名 · 供应商</span>
-          <span className="label text-right">金额 · 数量</span>
-          <span className="label">{TAB_DEF[tab].col}</span>
-          <span className="label text-right">经手</span>
-        </div>
+            {/* Column header — desktop only. */}
+            <div className="hidden grid-cols-[14px_minmax(0,1fr)_170px_150px_110px] items-center gap-4 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
+              <span />
+              <span className="label">品名 · 供应商</span>
+              <span className="label text-right">金额 · 数量</span>
+              <span className="label">{TAB_DEF[tab].col}</span>
+              <span className="label text-right">经手</span>
+            </div>
 
-        {shown.length === 0 ? (
-          <p className="px-5 py-10 text-center text-[13px] text-[var(--color-ink-3)]">
-            {query ? '没有匹配的记录' : TAB_EMPTY[tab]}
-          </p>
-        ) : (
-          shown.map((p) => (
-            <Row
-              key={p.id}
-              p={p}
-              today={today}
-              dim={tab === 'ledger'}
-              open={openId === p.id}
-              onToggle={() => setOpenId(openId === p.id ? null : p.id)}
-              canApprove={canApprove}
-              jobOptions={jobOptions}
-              roster={roster}
-              pastPicks={(picksByParent.get(p.parentId ?? p.id) ?? []).filter(
-                (x) => x.id !== p.id,
-              )}
-              onEdit={() => setModal({ kind: 'edit', row: p })}
-            />
-          ))
+            {shown.length === 0 ? (
+              <p className="px-5 py-10 text-center text-[13px] text-[var(--color-ink-3)]">
+                {query ? '没有匹配的记录' : TAB_EMPTY[tab]}
+              </p>
+            ) : (
+              shown.map((p) => (
+                <Row
+                  key={p.id}
+                  p={p}
+                  today={today}
+                  dim={tab === 'ledger'}
+                  open={openId === p.id}
+                  onToggle={() => setOpenId(openId === p.id ? null : p.id)}
+                  canApprove={canApprove}
+                  jobOptions={jobOptions}
+                  roster={roster}
+                  pastPicks={(
+                    picksByParent.get(p.parentId ?? p.id) ?? []
+                  ).filter((x) => x.id !== p.id)}
+                  onEdit={() => setModal({ kind: 'edit', row: p })}
+                />
+              ))
+            )}
+          </>
         )}
       </div>
 
@@ -351,6 +467,7 @@ export function ProcurementBoard({
         <ProcurementModal
           mode={modal.kind === 'edit' ? 'edit' : 'request'}
           initial={modal.kind === 'edit' ? modal.row : null}
+          seed={modal.kind === 'request' ? modal.seed : undefined}
           products={products}
           jobOptions={jobOptions}
           roster={roster}
@@ -386,6 +503,83 @@ function qtyText(p: Procurement): string {
 // ===========================================================================
 // Row + inline panel
 // ===========================================================================
+
+// One 采购需求 — a part 工程 routed through 采购. The 工号 links to the order
+// so the buyer can read the drawing before buying, and 请购 opens the normal
+// form already knowing the 工号, 数量 and 零件名. Once a 请购 exists for it the
+// row stays, dimmed, until the material lands and 采购 gets 报工'd — the list
+// answers "还有什么没买" without ever needing to be tidied by hand.
+function NeedRow({
+  n,
+  asked,
+  today,
+  onRequest,
+}: {
+  n: ProcurementNeed
+  asked: boolean
+  today: string
+  onRequest: () => void
+}) {
+  const st = n.dueDate ? dueState(n.dueDate, today) : null
+  const due = n.dueDate ? (
+    <span
+      className={
+        st === 'overdue'
+          ? 'font-medium text-[var(--color-overdue)]'
+          : st === 'today' || st === 'soon'
+            ? 'font-medium text-[var(--color-ink)]'
+            : 'mono text-[var(--color-ink-2)]'
+      }
+    >
+      {relDay(n.dueDate, today)}
+    </span>
+  ) : (
+    <span className="text-[var(--color-ink-4)]">—</span>
+  )
+  return (
+    <div
+      className={`grid grid-cols-[minmax(0,1fr)_84px] items-center gap-3 border-b border-[var(--color-border)] px-4 py-3.5 last:border-b-0 md:grid-cols-[minmax(0,1fr)_100px_110px_84px] md:gap-4 md:px-5 md:py-4 ${
+        asked ? 'opacity-55' : ''
+      }`}
+    >
+      <div className="min-w-0">
+        <div className="truncate text-[15px] font-semibold tracking-tight text-[var(--color-ink)]">
+          {n.part}
+        </div>
+        <div className="mt-0.5 truncate text-[12px] text-[var(--color-ink-3)]">
+          <Link
+            href={`/jobs/${n.jobId}`}
+            className="mono text-[var(--color-ink-2)] hover:underline"
+          >
+            {n.jobNo}
+          </Link>
+          {n.material ? ` · ${n.material}` : n.product ? ` · ${n.product}` : ''}
+          <span className="md:hidden">
+            {' '}
+            · {n.qty} 件 · {n.dueDate ? relDay(n.dueDate, today) : '无交期'}
+          </span>
+        </div>
+      </div>
+      <div className="mono hidden text-right text-[13px] text-[var(--color-ink)] md:block">
+        {n.qty} 件
+      </div>
+      <div className="hidden truncate text-[12.5px] md:block">{due}</div>
+      <div className="text-right">
+        {asked ? (
+          <span className="text-[12px] text-[var(--color-ink-3)]">已请购</span>
+        ) : (
+          <button
+            type="button"
+            onClick={onRequest}
+            className="rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-1.5 text-[12.5px] font-medium text-[var(--color-ink)] hover:bg-[#faf8f2]"
+          >
+            请购
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function Row({
   p,
@@ -1229,6 +1423,7 @@ type Face = 'pick' | 'create' | 'form'
 function ProcurementModal({
   mode,
   initial,
+  seed,
   products,
   jobOptions,
   roster,
@@ -1239,6 +1434,7 @@ function ProcurementModal({
 }: {
   mode: 'request' | 'edit'
   initial: Procurement | null
+  seed?: RequestSeed
   products: ProcurementProduct[]
   jobOptions: ProcurementJobOption[]
   roster: string[]
@@ -1266,7 +1462,13 @@ function ProcurementModal({
   const [createSeedName, setCreateSeedName] = useState('')
   const [editing, setEditing] = useState<ProcurementProduct | null>(null)
 
-  const [qty, setQty] = useState(initial?.qty != null ? String(initial.qty) : '')
+  const [qty, setQty] = useState(
+    initial?.qty != null
+      ? String(initial.qty)
+      : seed?.qty
+        ? String(seed.qty)
+        : '',
+  )
   const [unitPrice, setUnitPrice] = useState(
     initial?.unitPriceCny != null ? String(initial.unitPriceCny) : '',
   )
@@ -1274,11 +1476,16 @@ function ProcurementModal({
   // colleague is normal. 领料人 starts blank; the 领料 step names the taker.
   const [requester, setRequester] = useState(initial?.requester ?? currentUser)
   const [picker, setPicker] = useState(initial?.picker ?? '')
-  const [notes, setNotes] = useState(initial?.notes ?? '')
+  // A 需求-seeded 请购 carries the 零件 name in 备注: what gets bought is a
+  // 物料 (板材, 标准件…), so the part it's for would otherwise be lost — and
+  // it's what tells the 需求 list this one has been asked for.
+  const [notes, setNotes] = useState(initial?.notes ?? seed?.part ?? '')
   const [jobPick, setJobPick] = useState<{ id: string; jobNo: string } | null>(
     initial && (initial.jobId || initial.jobNo)
       ? { id: initial.jobId ?? '', jobNo: initial.jobNo ?? '' }
-      : null,
+      : seed
+        ? { id: seed.jobId, jobNo: seed.jobNo }
+        : null,
   )
 
   const [pending, start] = useTransition()
@@ -1411,6 +1618,7 @@ function ProcurementModal({
         {face === 'pick' && (
           <ProductPicker
             catalog={catalog}
+            seedQuery={seed?.part}
             onPick={pickProduct}
             onCreateNew={(seed) => {
               setCreateSeedName(seed)
@@ -1671,16 +1879,20 @@ function SelectedCard({
 
 function ProductPicker({
   catalog,
+  seedQuery,
   onPick,
   onCreateNew,
   onEdit,
 }: {
   catalog: ProcurementProduct[]
+  // 需求-seeded 请购 opens with the 零件 name already typed — either it matches
+  // a 物料 already in the 库, or 新建物料 comes pre-named.
+  seedQuery?: string
   onPick: (p: ProcurementProduct) => void
   onCreateNew: (seed: string) => void
   onEdit: (p: ProcurementProduct) => void
 }) {
-  const [q, setQ] = useState('')
+  const [q, setQ] = useState(seedQuery ?? '')
   const query = q.trim().toLowerCase()
   const results = useMemo(() => {
     if (!query) return catalog

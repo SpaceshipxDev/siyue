@@ -8667,6 +8667,107 @@ export async function deleteProcurement(procurementId: string): Promise<void> {
   if (error) throw error
 }
 
+// === 采购需求 — what 工程 routed through 采购 and nobody has bought yet ===
+//
+// A 需求 is DERIVED, never stored. The moment 工程 switches 采购 ON for a part
+// (see routeAfterEnabling in lib/data.ts) that part IS something the shop has
+// to buy; it stops being one the moment the 采购 工段 is 报工'd, because a done
+// 采购 means the material physically arrived. So nothing is written when the
+// route is set and nothing needs cleaning up when it's undone — a 需求 can
+// never go stale, and an engineer's un-toggle can't leave a ghost row sitting
+// in the 采购 conveyor.
+export type ProcurementNeed = {
+  partId: string
+  jobId: string
+  jobNo: string
+  product: string
+  dueDate: string
+  part: string
+  qty: number
+  material?: string
+  notes?: string
+}
+
+export async function getProcurementNeeds(): Promise<ProcurementNeed[]> {
+  // Every open 采购 工段 row. Filtered server-side on (stage, status), so this
+  // is one row per part ever routed through 采购 — never all of part_stages.
+  const stageRows: AnyRow[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('part_stages')
+      .select('part_id')
+      .eq('stage', '采购')
+      .neq('status', 'done')
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) throw error
+    const rows = (data ?? []) as AnyRow[]
+    stageRows.push(...rows)
+    if (rows.length < PAGE_SIZE) break
+  }
+  if (stageRows.length === 0) return []
+  const partIds = Array.from(new Set(stageRows.map((r) => r.part_id as string)))
+
+  const [partRows, shippedRows] = await Promise.all([
+    inChunks<AnyRow>(partIds, (chunk) =>
+      supabase
+        .from('parts')
+        .select('id, job_id, name, qty, material, notes')
+        .in('id', chunk),
+    ),
+    // A part whose 出货 is done is history — whatever it needed was handled
+    // long ago, and a forgotten pending 采购 row on it isn't a live 需求.
+    inChunks<AnyRow>(partIds, (chunk) =>
+      supabase
+        .from('part_stages')
+        .select('part_id')
+        .in('part_id', chunk)
+        .eq('stage', '出货')
+        .eq('status', 'done'),
+    ),
+  ])
+  const shipped = new Set(shippedRows.map((r) => r.part_id as string))
+  const live = partRows.filter((p) => !shipped.has(p.id as string))
+  if (live.length === 0) return []
+
+  const jobIds = Array.from(new Set(live.map((p) => p.job_id as string)))
+  const jobRows = await inChunks<AnyRow>(jobIds, (chunk) =>
+    supabase
+      .from('jobs')
+      .select('id, job_no, product, due_date, status')
+      .in('id', chunk)
+      .eq('status', 'ready'),
+  )
+  const jobById = new Map<string, AnyRow>()
+  for (const j of jobRows) jobById.set(j.id as string, j)
+
+  const out: ProcurementNeed[] = []
+  for (const p of live) {
+    const job = jobById.get(p.job_id as string)
+    if (!job) continue
+    out.push({
+      partId: p.id as string,
+      jobId: job.id as string,
+      jobNo: (job.job_no as string | null) ?? '',
+      product: (job.product as string | null) ?? '',
+      dueDate: (job.due_date as string | null) ?? '',
+      part: (p.name as string | null) ?? '',
+      qty: Number(p.qty ?? 0),
+      material: (p.material as string | null) ?? undefined,
+      notes: (p.notes as string | null) ?? undefined,
+    })
+  }
+  // 交期 first — the shop buys for whatever ships soonest. Same job's parts
+  // land next to each other for free, in their 零件进度 order.
+  out.sort((a, b) => {
+    const ad = a.dueDate || '9999-99-99'
+    const bd = b.dueDate || '9999-99-99'
+    if (ad !== bd) return ad < bd ? -1 : 1
+    if (a.jobNo !== b.jobNo) return a.jobNo < b.jobNo ? -1 : 1
+    return a.part < b.part ? -1 : 1
+  })
+  return out
+}
+
 // 关联工号 picker feed — the last ~400 confirmed jobs, newest first. Job no +
 // product only (no customer: the 采购 tab is open to every signed-in role and
 // customer names stay off floor-visible surfaces). 400 covers months of
