@@ -124,6 +124,55 @@ export async function getHrMonths(): Promise<string[]> {
     .reverse()
 }
 
+// === 员工名册 ===
+//
+// The 人事 picker can't be the system's user list alone: plenty of people on
+// the floor share a station account or have none at all, and they still take
+// 事假 and still turn up late. So the roster is the account names PLUS every
+// name this module has ever been asked to remember, kept in one small file.
+//
+// Adding somebody is just filing their first record — type the name, and it's
+// in the picker from then on. There is no separate 员工管理 screen because
+// there is nothing to manage: a name that was never used costs nothing, and a
+// typo disappears the moment the record carrying it is deleted and the name
+// stops being offered... except it doesn't, so 名册 is append-only on purpose
+// and a mistyped name simply sits unused at the bottom of the picker.
+const ROSTER_KEY = 'hr/roster.json'
+
+async function readRoster(): Promise<string[]> {
+  const { data, error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .download(ROSTER_KEY)
+  if (error || !data) return []
+  try {
+    const arr = JSON.parse(await data.text())
+    if (!Array.isArray(arr)) return []
+    return (arr as unknown[]).filter(
+      (n): n is string => typeof n === 'string' && n.trim().length > 0,
+    )
+  } catch {
+    return []
+  }
+}
+
+export async function getHrRoster(): Promise<string[]> {
+  return (await readRoster()).sort((a, b) => a.localeCompare(b, 'zh'))
+}
+
+// Remember a name the picker didn't have. Runs inside the caller's lock.
+async function rememberName(name: string): Promise<void> {
+  const rows = await readRoster()
+  if (rows.includes(name)) return
+  rows.push(name)
+  const upR = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(ROSTER_KEY, Buffer.from(JSON.stringify(rows), 'utf8'), {
+      contentType: 'application/json',
+      upsert: true,
+    })
+  if (upR.error) throw upR.error
+}
+
 export type NewHrRecordInput = {
   name: string
   type: HrType
@@ -173,6 +222,8 @@ export async function addHrRecord(
     const rows = await readShard(month)
     rows.push(row)
     await writeShard(month, rows)
+    // Filing somebody's first record IS how they join the picker.
+    await rememberName(row.name)
   })
   return row
 }

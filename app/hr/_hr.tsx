@@ -15,12 +15,18 @@ import type { HrRecord, HrType } from '@/lib/data'
 // rather than a rule: the 日期 stays editable so yesterday's 旷工 can still
 // be entered this morning, and it always books into the month it happened in.
 //
+// The 谁 picker offers system accounts AND every name 人事 has been told to
+// remember — type a name that isn't there, file the record, and that person is
+// in the picker from then on. Half the floor shares a station account or has
+// no login at all, so the account list was never the shop's roster.
+//
 // Bottom: 一人一行 for the chosen 月 or 年 — one column per kind, ordered by
 // whoever has the most to answer for. The four absence kinds read in hours
 // (事假 16h), because hours are what payroll deducts from; 迟到 / 违纪 /
-// 重大质量异常 read as a count, because a 迟到 is a 迟到. Click a name to read
-// that person's actual lines. Nobody with a clean record appears; the table is
-// the exception list.
+// 重大质量异常 read as a count, because a 迟到 is a 迟到 whether it was five
+// minutes or fifty. 请假共 adds 事假 + 病假 + 工伤 into the one number the
+// month actually gets settled on. Click a name to read that person's actual
+// lines. Nobody with a clean record appears; the table is the exception list.
 
 export function HrBoard({
   records,
@@ -83,10 +89,15 @@ export function HrBoard({
           if (of.length === 0) return ''
           if (!hrHasHours(t)) return String(of.length)
           const h = of.reduce((sum, r) => sum + (r.hours ?? 0), 0)
-          // A kind that has hours but nobody filled them in still has to show
-          // that it happened — fall back to the count rather than a blank.
+          // Records filed before 时长 was required carry none — they still
+          // have to show that something happened, so they read as a count.
           return h > 0 ? `${trimNum(h)}h` : `${of.length}次`
         }),
+        // 累计请假时长 — 事假 + 病假 + 工伤 in one number, which is the one
+        // the person is actually asked about at the end of the month.
+        leave: list
+          .filter((r) => LEAVE.has(r.type))
+          .reduce((sum, r) => sum + (r.hours ?? 0), 0),
         total: list.length,
       }))
       .sort((a, b) =>
@@ -104,6 +115,12 @@ export function HrBoard({
       setError('先选一个人')
       return
     }
+    // 事假 / 病假 / 工伤 / 旷工 ARE their hours — a 请假 with no length is a
+    // line nothing can be added up from, so it isn't accepted at all.
+    if (hrHasHours(type) && parseHours(hours) === null) {
+      setError(`${type}要填时长 · 半天 4，一天 8`)
+      return
+    }
     setError(null)
     start(async () => {
       try {
@@ -113,7 +130,9 @@ export function HrBoard({
             name: name.trim(),
             type,
             date,
-            hours: hrHasHours(type) ? (parseHours(hours) ?? undefined) : undefined,
+            hours: hrHasHours(type)
+              ? (parseHours(hours) ?? undefined)
+              : undefined,
             note: note.trim() || undefined,
           },
         })
@@ -278,13 +297,16 @@ export function HrBoard({
           </span>
         </div>
 
-        <div className="hidden grid-cols-[minmax(0,1fr)_repeat(7,58px)_54px] items-center gap-2 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
+        <div className="hidden grid-cols-[minmax(0,1fr)_repeat(7,52px)_58px_46px] items-center gap-2 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
           <span className="label">姓名</span>
           {HR_TYPES.map((t) => (
             <span key={t} className="label text-center">
               {t === '重大质量异常' ? '质量' : t}
             </span>
           ))}
+          <span className="label text-center text-[var(--color-ink-2)]">
+            请假共
+          </span>
           <span className="label text-center">笔数</span>
         </div>
 
@@ -303,7 +325,7 @@ export function HrBoard({
                 onClick={() =>
                   setOpenName(openName === r.name ? null : r.name)
                 }
-                className={`grid w-full grid-cols-[minmax(0,1fr)_54px] items-center gap-2 px-4 py-3 text-left md:grid-cols-[minmax(0,1fr)_repeat(7,58px)_54px] md:px-5 ${
+                className={`grid w-full grid-cols-[minmax(0,1fr)_46px] items-center gap-2 px-4 py-3 text-left md:grid-cols-[minmax(0,1fr)_repeat(7,52px)_58px_46px] md:px-5 ${
                   openName === r.name ? 'bg-[#faf8f2]' : 'hover:bg-[#faf8f2]'
                 }`}
               >
@@ -324,7 +346,16 @@ export function HrBoard({
                     {c || '·'}
                   </span>
                 ))}
-                <span className="mono text-right text-[13px] font-semibold text-[var(--color-ink)] md:text-center">
+                <span
+                  className={`mono hidden text-center text-[12.5px] font-semibold md:block ${
+                    r.leave > 0
+                      ? 'text-[var(--color-ink)]'
+                      : 'text-[var(--color-ink-4)]'
+                  }`}
+                >
+                  {r.leave > 0 ? `${trimNum(r.leave)}h` : '·'}
+                </span>
+                <span className="mono text-right text-[12.5px] font-semibold text-[var(--color-ink)] md:text-center">
                   {r.total}
                 </span>
               </button>
@@ -384,6 +415,10 @@ export function HrBoard({
 // The kinds that read in red — nobody arranged them, and they're what a
 // conversation gets started over.
 const HEAVY = new Set<HrType>(['旷工', '违纪', '重大质量异常'])
+
+// What 请假共 adds up: the three arranged absences. 旷工 has hours too but is
+// not leave — nobody asked for it, and adding it in would flatter the number.
+const LEAVE = new Set<HrType>(['事假', '病假', '工伤'])
 
 // 8 not 8.0, 7.5 stays 7.5.
 function trimNum(n: number): string {
