@@ -12,7 +12,7 @@ const glass = {
 
 function pillStyle(locked: boolean, bottom: number): React.CSSProperties {
   return {
-    ...glass, position: 'fixed', right: 'max(18px, env(safe-area-inset-right))', bottom: `calc(${bottom}px + env(safe-area-inset-bottom))`,
+    ...glass, position: 'fixed', left: 0, right: 0, margin: '0 auto', width: 'max-content', bottom: `calc(${bottom}px + env(safe-area-inset-bottom))`,
     zIndex: 40, display: 'inline-flex', alignItems: 'center', gap: 6, height: 36, padding: '0 13px 0 11px', borderRadius: 999,
     color: locked ? '#8e8e93' : '#1d1d1f', fontFamily: FONT, fontSize: 13, fontWeight: 500, letterSpacing: '.01em',
     textDecoration: 'none', whiteSpace: 'nowrap', cursor: 'pointer',
@@ -58,7 +58,7 @@ export function GaiPill({ host, allowed, skip, bottom = 18 }: { host: string; al
         <div
           role="dialog"
           style={{
-            ...glass, background: 'rgba(255,255,255,.92)', position: 'fixed', right: 'max(18px, env(safe-area-inset-right))',
+            ...glass, background: 'rgba(255,255,255,.92)', position: 'fixed', left: 0, right: 0, margin: '0 auto',
             bottom: `calc(${bottom + 46}px + env(safe-area-inset-bottom))`, zIndex: 41, width: 'min(340px, calc(100vw - 36px))',
             padding: '14px 16px 12px', borderRadius: 18, display: 'flex', flexDirection: 'column', gap: 10, color: '#1d1d1f', fontFamily: FONT,
           }}
