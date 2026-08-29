@@ -1,18 +1,19 @@
 import 'server-only'
 import { supabase, STORAGE_BUCKET } from './supabase'
 import type { HrRecord, HrType } from './data'
-import { HR_TYPES } from './data'
+import { HR_TYPES, hrHasHours } from './data'
 
 /*
- * 人事 — 请假 / 迟到 / 旷工 / 违纪 / 重大质量异常, one line per event, written
- * the day it happens and read back per person by month or by year.
+ * 人事 — 事假 / 病假 / 工伤 / 迟到 / 旷工 / 违纪 / 重大质量异常, one line per
+ * event, written the day it happens and read back per person by month or by
+ * year. The four absence kinds carry 时长 in hours; the rest are counted.
  *
  * Deliberately TABLE-FREE — the same choice as 合同 (lib/contract-file.ts),
  * 凭证 (lib/voucher-file.ts) and 请购图片 (lib/procurement-photo.ts), so there
  * is NO migration to apply by hand and nothing to break on a stale DB.
  *
  * Sharded ONE FILE PER MONTH:
- *   hr/<YYYY-MM>.json    [{id,name,type,date,note,by,createdAt}, …]
+ *   hr/<YYYY-MM>.json    [{id,name,type,date,hours,note,by,createdAt}, …]
  *
  * The shard is the query. 月度 reads exactly one file; 年度 reads twelve in
  * parallel; a person's history is a filter over those. A shop this size books
@@ -43,6 +44,15 @@ function isHrType(x: unknown): x is HrType {
   return typeof x === 'string' && (HR_TYPES as readonly string[]).includes(x)
 }
 
+// Records filed before 请假 was split into 事假 / 病假 / 工伤 carry the old
+// single kind. They read as 事假 — the commonest of the three and the one
+// that costs the person pay, so the reading errs toward the record still
+// meaning something rather than quietly vanishing from the month.
+function migrateType(raw: unknown): HrType | null {
+  if (raw === '请假') return '事假'
+  return isHrType(raw) ? raw : null
+}
+
 // One month of records. Missing shard (nothing filed that month) reads as an
 // empty list — never an error, so the page always renders.
 async function readShard(month: string): Promise<HrRecord[]> {
@@ -53,9 +63,14 @@ async function readShard(month: string): Promise<HrRecord[]> {
   try {
     const arr = JSON.parse(await data.text())
     if (!Array.isArray(arr)) return []
-    return (arr as HrRecord[]).filter(
-      (r) => r && typeof r.name === 'string' && isHrType(r.type),
-    )
+    const out: HrRecord[] = []
+    for (const r of arr as HrRecord[]) {
+      if (!r || typeof r.name !== 'string') continue
+      const type = migrateType(r.type)
+      if (!type) continue
+      out.push({ ...r, type })
+    }
+    return out
   } catch {
     return []
   }
@@ -113,6 +128,7 @@ export type NewHrRecordInput = {
   name: string
   type: HrType
   date: string // YYYY-MM-DD
+  hours?: number // 时长, hours — only meaningful on 事假/病假/工伤/旷工
   note?: string
 }
 
@@ -124,6 +140,12 @@ export function isValidHrInput(x: unknown): x is NewHrRecordInput {
   if (typeof o.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(o.date))
     return false
   if (o.note !== undefined && typeof o.note !== 'string') return false
+  if (o.hours !== undefined) {
+    if (typeof o.hours !== 'number' || !Number.isFinite(o.hours)) return false
+    // A shift is 8h; a month of sick leave is ~200h. Anything past that is a
+    // typo (a 8000 that was meant to be 8), and 0 or negative is not a length.
+    if (o.hours <= 0 || o.hours > 999) return false
+  }
   return true
 }
 
@@ -137,6 +159,9 @@ export async function addHrRecord(
     name: input.name.trim(),
     type: input.type,
     date: input.date,
+    // Only the kinds measured in hours keep one — a 迟到 with a length would
+    // be a number nothing ever adds up.
+    hours: hrHasHours(input.type) ? input.hours : undefined,
     note: input.note?.trim() || undefined,
     by,
     createdAt: nowIso,

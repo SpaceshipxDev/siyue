@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
 import { SearchSelect } from '@/app/_search_select'
-import { HR_TYPES } from '@/lib/data'
+import { HR_TYPES, hrHasHours } from '@/lib/data'
 import type { HrRecord, HrType } from '@/lib/data'
 
 // 人事 — one screen, two halves.
@@ -15,10 +15,12 @@ import type { HrRecord, HrType } from '@/lib/data'
 // rather than a rule: the 日期 stays editable so yesterday's 旷工 can still
 // be entered this morning, and it always books into the month it happened in.
 //
-// Bottom: 一人一行 for the chosen 月 or 年 — how many 请假, 迟到, 旷工, 违纪,
-// 重大质量异常 each person has, heaviest column last, ordered by whoever has
-// the most to answer for. Click a name to read that person's actual lines.
-// Nobody with a clean record appears; the table is the exception list.
+// Bottom: 一人一行 for the chosen 月 or 年 — one column per kind, ordered by
+// whoever has the most to answer for. The four absence kinds read in hours
+// (事假 16h), because hours are what payroll deducts from; 迟到 / 违纪 /
+// 重大质量异常 read as a count, because a 迟到 is a 迟到. Click a name to read
+// that person's actual lines. Nobody with a clean record appears; the table is
+// the exception list.
 
 export function HrBoard({
   records,
@@ -39,8 +41,9 @@ export function HrBoard({
   const [pending, start] = useTransition()
 
   const [name, setName] = useState('')
-  const [type, setType] = useState<HrType>('请假')
+  const [type, setType] = useState<HrType>('事假')
   const [date, setDate] = useState(today)
+  const [hours, setHours] = useState('')
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [openName, setOpenName] = useState<string | null>(null)
@@ -75,7 +78,15 @@ export function HrBoard({
       .map(([person, list]) => ({
         name: person,
         list,
-        counts: HR_TYPES.map((t) => list.filter((r) => r.type === t).length),
+        cells: HR_TYPES.map((t) => {
+          const of = list.filter((r) => r.type === t)
+          if (of.length === 0) return ''
+          if (!hrHasHours(t)) return String(of.length)
+          const h = of.reduce((sum, r) => sum + (r.hours ?? 0), 0)
+          // A kind that has hours but nobody filled them in still has to show
+          // that it happened — fall back to the count rather than a blank.
+          return h > 0 ? `${trimNum(h)}h` : `${of.length}次`
+        }),
         total: list.length,
       }))
       .sort((a, b) =>
@@ -102,11 +113,13 @@ export function HrBoard({
             name: name.trim(),
             type,
             date,
+            hours: hrHasHours(type) ? (parseHours(hours) ?? undefined) : undefined,
             note: note.trim() || undefined,
           },
         })
         setNote('')
         setName('')
+        setHours('')
         setDate(today)
         // A record files into the month it happened in — jump there so the
         // person always sees what they just wrote.
@@ -172,6 +185,24 @@ export function HrBoard({
               </button>
             ))}
           </div>
+
+          {hrHasHours(type) && (
+            <div className="flex items-center gap-1">
+              <input
+                value={hours}
+                onChange={(e) => setHours(e.target.value)}
+                placeholder="时长"
+                inputMode="decimal"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') file()
+                }}
+                className="mono h-9 w-[68px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-center text-[12.5px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
+              />
+              <span className="text-[12px] text-[var(--color-ink-3)]">
+                小时
+              </span>
+            </div>
+          )}
 
           <input
             type="date"
@@ -247,14 +278,14 @@ export function HrBoard({
           </span>
         </div>
 
-        <div className="hidden grid-cols-[minmax(0,1fr)_repeat(5,64px)_64px] items-center gap-2 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
+        <div className="hidden grid-cols-[minmax(0,1fr)_repeat(7,58px)_54px] items-center gap-2 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
           <span className="label">姓名</span>
           {HR_TYPES.map((t) => (
             <span key={t} className="label text-center">
               {t === '重大质量异常' ? '质量' : t}
             </span>
           ))}
-          <span className="label text-center">合计</span>
+          <span className="label text-center">笔数</span>
         </div>
 
         {rows.length === 0 ? (
@@ -272,20 +303,20 @@ export function HrBoard({
                 onClick={() =>
                   setOpenName(openName === r.name ? null : r.name)
                 }
-                className={`grid w-full grid-cols-[minmax(0,1fr)_64px] items-center gap-2 px-4 py-3 text-left md:grid-cols-[minmax(0,1fr)_repeat(5,64px)_64px] md:px-5 ${
+                className={`grid w-full grid-cols-[minmax(0,1fr)_54px] items-center gap-2 px-4 py-3 text-left md:grid-cols-[minmax(0,1fr)_repeat(7,58px)_54px] md:px-5 ${
                   openName === r.name ? 'bg-[#faf8f2]' : 'hover:bg-[#faf8f2]'
                 }`}
               >
                 <span className="truncate text-[14.5px] font-medium tracking-tight text-[var(--color-ink)]">
                   {r.name}
                 </span>
-                {r.counts.map((c, i) => (
+                {r.cells.map((c, i) => (
                   <span
                     key={HR_TYPES[i]}
-                    className={`mono hidden text-center text-[13px] md:block ${
-                      c === 0
+                    className={`mono hidden text-center text-[12.5px] md:block ${
+                      !c
                         ? 'text-[var(--color-ink-4)]'
-                        : i >= 3
+                        : HEAVY.has(HR_TYPES[i])
                           ? 'font-semibold text-[var(--color-overdue)]'
                           : 'text-[var(--color-ink)]'
                     }`}
@@ -310,15 +341,18 @@ export function HrBoard({
                       </span>
                       <span
                         className={`shrink-0 text-[12.5px] font-medium ${
-                          rec.type === '违纪' ||
-                          rec.type === '重大质量异常' ||
-                          rec.type === '旷工'
+                          HEAVY.has(rec.type)
                             ? 'text-[var(--color-overdue)]'
                             : 'text-[var(--color-ink)]'
                         }`}
                       >
                         {rec.type}
                       </span>
+                      {rec.hours ? (
+                        <span className="mono shrink-0 text-[12.5px] text-[var(--color-ink-2)]">
+                          {trimNum(rec.hours)}h
+                        </span>
+                      ) : null}
                       <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--color-ink-2)]">
                         {rec.note}
                       </span>
@@ -345,6 +379,20 @@ export function HrBoard({
       </div>
     </div>
   )
+}
+
+// The kinds that read in red — nobody arranged them, and they're what a
+// conversation gets started over.
+const HEAVY = new Set<HrType>(['旷工', '违纪', '重大质量异常'])
+
+// 8 not 8.0, 7.5 stays 7.5.
+function trimNum(n: number): string {
+  return String(Math.round(n * 10) / 10)
+}
+
+function parseHours(raw: string): number | null {
+  const n = Number(raw.trim())
+  return Number.isFinite(n) && n > 0 && n <= 999 ? n : null
 }
 
 function monthLabel(m: string): string {

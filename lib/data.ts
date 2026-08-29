@@ -515,12 +515,20 @@ export type VoucherFile = {
 // in the bucket alongside the purchase (see lib/procurement-photo.ts).
 export type ProcurementPhoto = VoucherFile
 
-// 人事 — the five things a shop writes down about a person. Ordered lightest
-// to heaviest: 请假 is arranged, 迟到 is a slip, 旷工 is an absence nobody
-// arranged, 违纪 is a rule broken, 重大质量异常 is the one that reached the
-// customer. The order is the display order everywhere.
+// 人事 — the seven things a shop writes down about a person, in display order.
+//
+// 请假 is three separate things, not one: 事假 comes out of the person's pay,
+// 病假 partly, 工伤 not at all and it's the factory's own to answer for. A
+// single 请假 count would hide exactly the distinction payroll is made of, so
+// they're three first-class kinds rather than a kind with a sub-kind.
+//
+// Then the ones nobody arranged, lightest to heaviest: 迟到 is a slip, 旷工 is
+// an absence nobody arranged, 违纪 is a rule broken, 重大质量异常 is the one
+// that reached the customer.
 export const HR_TYPES = [
-  '请假',
+  '事假',
+  '病假',
+  '工伤',
   '迟到',
   '旷工',
   '违纪',
@@ -529,13 +537,30 @@ export const HR_TYPES = [
 
 export type HrType = (typeof HR_TYPES)[number]
 
-// One 人事 event: who, what, the day it happened, a line of why, and who
-// wrote it down. Stored table-free, one JSON shard per month — see lib/hr.ts.
+// The kinds measured in hours away from the bench, not in times it happened:
+// "李四 病假 3 次" says nothing, "病假 24 小时" is what payroll deducts from.
+// The rest are counted — a 迟到 is a 迟到 whether it was five minutes or
+// fifty, and 违纪 / 重大质量异常 have no duration at all.
+export const HR_HOURS_TYPES: readonly HrType[] = [
+  '事假',
+  '病假',
+  '工伤',
+  '旷工',
+]
+
+export function hrHasHours(t: HrType): boolean {
+  return HR_HOURS_TYPES.includes(t)
+}
+
+// One 人事 event: who, what, the day it happened, how long it cost (for the
+// kinds that have a length), a line of why, and who wrote it down. Stored
+// table-free, one JSON shard per month — see lib/hr.ts.
 export type HrRecord = {
   id: string
   name: string // 员工姓名 — the roster name, so 月度/年度 group by it
   type: HrType
   date: string // YYYY-MM-DD — the day it happened
+  hours?: number // 时长, in hours — 事假/病假/工伤/旷工 only
   note?: string
   by?: string // 记录人
   createdAt: string
