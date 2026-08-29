@@ -83,6 +83,20 @@ export function canGai(u: AuthUser): boolean {
   return u.canGai || isAdminUser(u.id)
 }
 
+// 人事 — 请假 / 迟到 / 旷工 / 违纪 / 重大质量异常 per person. Office-side only:
+// these lines decide pay and discipline, so the floor neither writes them nor
+// reads them, not even about itself. Same gate as 工单编辑 — whoever runs the
+// orders runs the roster.
+export function canUseHr(s: Scope): boolean {
+  return s.role === 'commerce'
+}
+
+export async function requireHrUser(): Promise<AuthUser> {
+  const u = await requireUser()
+  if (!canUseHr(u)) redirect(landingPathFor(u))
+  return u
+}
+
 // Page guard for the 支出/月度 finance tabs. Non-finance commerce users land
 // back on the 应收 tab rather than an error page.
 export async function requireFinance(): Promise<AuthUser> {

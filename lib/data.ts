@@ -515,6 +515,32 @@ export type VoucherFile = {
 // in the bucket alongside the purchase (see lib/procurement-photo.ts).
 export type ProcurementPhoto = VoucherFile
 
+// 人事 — the five things a shop writes down about a person. Ordered lightest
+// to heaviest: 请假 is arranged, 迟到 is a slip, 旷工 is an absence nobody
+// arranged, 违纪 is a rule broken, 重大质量异常 is the one that reached the
+// customer. The order is the display order everywhere.
+export const HR_TYPES = [
+  '请假',
+  '迟到',
+  '旷工',
+  '违纪',
+  '重大质量异常',
+] as const
+
+export type HrType = (typeof HR_TYPES)[number]
+
+// One 人事 event: who, what, the day it happened, a line of why, and who
+// wrote it down. Stored table-free, one JSON shard per month — see lib/hr.ts.
+export type HrRecord = {
+  id: string
+  name: string // 员工姓名 — the roster name, so 月度/年度 group by it
+  type: HrType
+  date: string // YYYY-MM-DD — the day it happened
+  note?: string
+  by?: string // 记录人
+  createdAt: string
+}
+
 // 笔记 — the boss's freeform scratchpad note (Apple-Notes style). Per-author;
 // `body` is the whole note (first line doubles as the title in the list).
 export type Note = {

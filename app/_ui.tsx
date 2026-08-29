@@ -16,6 +16,7 @@ export type TabKey =
   | '采购'
   | '报工'
   | '财务'
+  | '人事'
   | '工单'
   | (typeof STAGES)[number]
   | '外协'
@@ -102,6 +103,9 @@ function tabsForRole(
     { key: '采购', label: '采购', href: '/procurement' },
     { key: '报工', label: '报工', href: '/report' },
     { key: '财务', label: '财务', href: '/finance' },
+    // 人事 — 商务-only, no per-person grant: these lines decide pay and
+    // discipline, so the floor never carries the tab (canUseHr).
+    { key: '人事', label: '人事', href: '/hr' },
     { key: '外协', label: '外协', href: '/station/outsource' },
     ...stageTabs(),
     { key: '退货', label: '退货', href: '/returns' },

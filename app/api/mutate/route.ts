@@ -118,11 +118,17 @@ import {
   canUseNotes,
   currentUser,
   requireCommerce,
+  requireHrUser,
   requireOutsourceManager,
   requirePartRouteEditor,
   requireUser,
   type AuthUser,
 } from '@/lib/auth'
+import {
+  addHrRecord,
+  deleteHrRecord as deleteHrRecordRow,
+  isValidHrInput,
+} from '@/lib/hr'
 import { logStageAction } from '@/lib/access-log'
 import type { JobType, PlanKey, Stage, Verdict } from '@/lib/data'
 import { rowStageCounts } from '@/lib/master'
@@ -1831,6 +1837,28 @@ async function dispatch(
       revalidatePath('/procurement')
       if (result.ok) revalidateJob(jobId)
       return Response.json(ok(result))
+    }
+
+    // === 人事 — 请假 / 迟到 / 旷工 / 违纪 / 重大质量异常. Office-side only;
+    // the month a record belongs to is the month it happened in. ===
+    case 'addHrRecord': {
+      const input = body.input
+      if (!isValidHrInput(input)) return err('bad addHrRecord args')
+      const u = await requireHrUser()
+      const row = await addHrRecord(input, u.name, new Date().toISOString())
+      revalidatePath('/hr')
+      return Response.json(ok({ record: row }))
+    }
+
+    case 'deleteHrRecord': {
+      const month = body.month
+      const recordId = body.recordId
+      if (!isString(month) || !isString(recordId))
+        return err('bad deleteHrRecord args')
+      await requireHrUser()
+      await deleteHrRecordRow(month, recordId)
+      revalidatePath('/hr')
+      return Response.json(ok())
     }
 
     // === 物料库 (procurement product catalog) — anyone signed in can write ===
