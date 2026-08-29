@@ -510,6 +510,11 @@ export type VoucherFile = {
   createdAt: string
 }
 
+// 请购图片 — a picture hung on one 采购 row: the broken tool, the 淘宝 listing,
+// the shape a plate has to be cut to. Same shape as a 凭证, stored table-free
+// in the bucket alongside the purchase (see lib/procurement-photo.ts).
+export type ProcurementPhoto = VoucherFile
+
 // 笔记 — the boss's freeform scratchpad note (Apple-Notes style). Per-author;
 // `body` is the whole note (first line doubles as the title in the list).
 export type Note = {

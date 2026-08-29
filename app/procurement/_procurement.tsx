@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
+import { withBase } from '@/lib/base-path'
+import { proxiedStorageUrl } from '@/lib/storage-url'
 import { SearchSelect } from '@/app/_search_select'
 import { ProcurementExportButton } from './_export_excel'
 import {
@@ -15,6 +17,7 @@ import {
 } from '@/lib/data'
 import type {
   Procurement,
+  ProcurementPhoto,
   ProcurementProduct,
   ProcurementStatus,
 } from '@/lib/data'
@@ -1294,6 +1297,8 @@ function Panel({
         </>
       )}
 
+      <PhotoStrip procurementId={p.id} />
+
       {/* Quiet corrections — every stage. */}
       <div className="mt-2.5 flex items-center justify-end gap-3">
         {armDelete ? (
@@ -1573,6 +1578,8 @@ type Line = {
   h: string
   qty: string
   unitPrice: string
+  // Picked but not yet uploaded — they go up after the row exists.
+  photos: File[]
 }
 
 // === 材料规格 — 长 × 宽 × 高, in mm ===
@@ -1660,6 +1667,7 @@ function ProcurementModal({
     unitPrice:
       from?.unitPrice ||
       (typeof p?.unitPriceCny === 'number' ? String(p.unitPriceCny) : ''),
+    photos: from?.photos ?? [],
   })
 
   const [lines, setLines] = useState<Line[]>(() => {
@@ -1678,6 +1686,7 @@ function ProcurementModal({
         qty: initial.qty != null ? String(initial.qty) : '',
         unitPrice:
           initial.unitPriceCny != null ? String(initial.unitPriceCny) : '',
+        photos: [],
       },
     ]
   })
@@ -1764,6 +1773,7 @@ function ProcurementModal({
         h: '',
         qty: '',
         unitPrice: last.unitPrice,
+        photos: [],
       },
     ])
     setFocusKey(key)
@@ -1809,6 +1819,13 @@ function ProcurementModal({
               requester: requester.trim() || undefined,
             },
           })
+          for (const f of l.photos) {
+            try {
+              await uploadProcurementPhoto(initial.id, f)
+            } catch {
+              // Best-effort, same as 请购 — the row's panel can re-add it.
+            }
+          }
           onDone()
           return
         }
@@ -1823,7 +1840,7 @@ function ProcurementModal({
         try {
           while (rest.length > 0) {
             const l = rest[0]
-            await mutate({
+            const created = await mutate<{ id: string }>({
               kind: 'createProcurement',
               input: {
                 item: joinSpec(l.name, l),
@@ -1842,6 +1859,18 @@ function ProcurementModal({
                 requester: requester.trim() || undefined,
               },
             })
+            // Pictures ride up after the row exists. Best-effort: the 采购 is
+            // filed either way, and a photo that didn't make it can be added
+            // again from the row's own panel.
+            if (l.photos.length > 0 && created.data?.id) {
+              for (const f of l.photos) {
+                try {
+                  await uploadProcurementPhoto(created.data.id, f)
+                } catch {
+                  // Left for the panel to re-add.
+                }
+              }
+            }
             rest.shift()
           }
         } catch (e) {
@@ -2137,6 +2166,258 @@ function ProcurementModal({
 }
 
 // ===========================================================================
+// 请购图片
+// ===========================================================================
+
+// The pictures on a saved 采购 row, inside its open panel: what the requester
+// saw when they decided to buy it. Fetched when the panel opens rather than
+// rendered with the board — see /api/procurement-photos for why. Anyone
+// looking at the row can add one; the shop notices the missing photo at the
+// moment it's needed, which is rarely the moment of 请购.
+function PhotoStrip({ procurementId }: { procurementId: string }) {
+  const [photos, setPhotos] = useState<ProcurementPhoto[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    fetch(withBase(`/api/procurement-photos?id=${encodeURIComponent(procurementId)}`))
+      .then((r) => r.json())
+      .then((d: { ok?: boolean; photos?: ProcurementPhoto[] }) => {
+        if (alive) setPhotos(d.ok ? (d.photos ?? []) : [])
+      })
+      .catch(() => {
+        if (alive) setPhotos([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [procurementId])
+
+  async function add(files: FileList | null) {
+    if (!files || files.length === 0) return
+    setBusy(true)
+    setError(null)
+    for (const f of Array.from(files)) {
+      try {
+        const row = await uploadProcurementPhoto(procurementId, f)
+        setPhotos((ps) => [...(ps ?? []), row])
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '上传失败')
+      }
+    }
+    setBusy(false)
+  }
+
+  async function remove(photoId: string) {
+    setPhotos((ps) => (ps ?? []).filter((x) => x.id !== photoId))
+    await fetch(
+      withBase(
+        `/api/procurement-photos?id=${encodeURIComponent(procurementId)}&photoId=${encodeURIComponent(photoId)}`,
+      ),
+      { method: 'DELETE' },
+    ).catch(() => {})
+  }
+
+  const list = photos ?? []
+  const input = (
+    <input
+      type="file"
+      accept="image/*,application/pdf"
+      multiple
+      className="hidden"
+      onChange={(e) => {
+        add(e.target.files)
+        e.target.value = ''
+      }}
+    />
+  )
+
+  // Most 采购 rows will never have a picture. Empty is one quiet line of text,
+  // not an empty frame on every panel the shop opens.
+  if (list.length === 0) {
+    return (
+      <div className="mt-2.5 flex items-center gap-3">
+        <label className="cursor-pointer text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)]">
+          {busy ? '上传中…' : '＋ 加图'}
+          {input}
+        </label>
+        {error && (
+          <span className="text-[11px] text-[var(--color-overdue)]">
+            {error}
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-2.5 flex flex-wrap items-center gap-2">
+      {list.map((ph) => (
+        <PhotoTile key={ph.id} photo={ph} onRemove={() => remove(ph.id)} />
+      ))}
+      <label
+        className={`inline-flex h-[52px] w-[52px] cursor-pointer items-center justify-center rounded-[2px] border border-dashed border-[var(--color-border-strong)] text-[11px] text-[var(--color-ink-3)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] ${
+          busy ? 'opacity-50' : ''
+        }`}
+        title="加图"
+      >
+        {busy ? '…' : '＋图'}
+        {input}
+      </label>
+      {error && (
+        <span className="text-[11px] text-[var(--color-overdue)]">{error}</span>
+      )}
+    </div>
+  )
+}
+
+function PhotoTile({
+  photo,
+  onRemove,
+}: {
+  photo: ProcurementPhoto
+  onRemove: () => void
+}) {
+  const isPdf = /\.pdf$/i.test(photo.filename)
+  return (
+    <span className="group/ph relative inline-block">
+      <a
+        href={proxiedStorageUrl(photo.url)}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={photo.filename}
+        className="block h-[52px] w-[52px] overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)]"
+      >
+        {isPdf ? (
+          <span className="flex h-full w-full items-center justify-center text-[10px] text-[var(--color-ink-3)]">
+            PDF
+          </span>
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={proxiedStorageUrl(photo.url)}
+            alt={photo.filename}
+            className="h-full w-full object-cover"
+          />
+        )}
+      </a>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label="删掉这张图"
+        className="absolute -right-1.5 -top-1.5 hidden h-[16px] w-[16px] items-center justify-center rounded-full border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[11px] leading-none text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] group-hover/ph:flex"
+      >
+        ×
+      </button>
+    </span>
+  )
+}
+
+// One 请购单 line's pictures before the row exists. Held as plain File objects
+// and posted only after the 采购 row they belong to has been created — so a
+// 请购 abandoned halfway leaves nothing behind in the bucket.
+function PendingPhotos({
+  files,
+  onAdd,
+  onRemove,
+}: {
+  files: File[]
+  onAdd: (fs: File[]) => void
+  onRemove: (i: number) => void
+}) {
+  const [urls, setUrls] = useState<string[]>([])
+  useEffect(() => {
+    const made = files.map((f) => URL.createObjectURL(f))
+    setUrls(made)
+    return () => made.forEach((u) => URL.revokeObjectURL(u))
+  }, [files])
+
+  const input = (
+    <input
+      type="file"
+      accept="image/*,application/pdf"
+      multiple
+      className="hidden"
+      onChange={(e) => {
+        onAdd(Array.from(e.target.files ?? []))
+        e.target.value = ''
+      }}
+    />
+  )
+
+  if (files.length === 0) {
+    return (
+      <label className="mt-1.5 inline-block cursor-pointer text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)]">
+        ＋ 加图
+        {input}
+      </label>
+    )
+  }
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      {files.map((f, i) => (
+        <span key={`${f.name}-${i}`} className="group/ph relative inline-block">
+          <span
+            title={f.name}
+            className="block h-[44px] w-[44px] overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]"
+          >
+            {/\.pdf$/i.test(f.name) || !urls[i] ? (
+              <span className="flex h-full w-full items-center justify-center text-[10px] text-[var(--color-ink-3)]">
+                {/\.pdf$/i.test(f.name) ? 'PDF' : '图'}
+              </span>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={urls[i]}
+                alt={f.name}
+                className="h-full w-full object-cover"
+              />
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => onRemove(i)}
+            aria-label="去掉这张图"
+            className="absolute -right-1.5 -top-1.5 hidden h-[16px] w-[16px] items-center justify-center rounded-full border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[11px] leading-none text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] group-hover/ph:flex"
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <label
+        className="inline-flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-[2px] border border-dashed border-[var(--color-border-strong)] text-[11px] text-[var(--color-ink-3)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]"
+        title="加图"
+      >
+        ＋图
+        {input}
+      </label>
+    </div>
+  )
+}
+
+async function uploadProcurementPhoto(
+  procurementId: string,
+  file: File,
+): Promise<ProcurementPhoto> {
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('procurementId', procurementId)
+  const r = await fetch(withBase('/api/upload-procurement-photo'), {
+    method: 'POST',
+    body: fd,
+  })
+  const d = (await r.json()) as {
+    ok?: boolean
+    photo?: ProcurementPhoto
+    error?: string
+  }
+  if (!d.ok || !d.photo) throw new Error(d.error ?? '上传失败')
+  return d.photo
+}
+
+// ===========================================================================
 
 // One line of the 请购单. The 品名 shown is the finished thing being bought —
 // 物料 with its 规格 on it — so what the requester reads here is exactly the
@@ -2233,6 +2514,12 @@ function LineRow({
           wide
         />
       </div>
+
+      <PendingPhotos
+        files={l.photos}
+        onAdd={(fs) => onPatch({ photos: [...l.photos, ...fs] })}
+        onRemove={(i) => onPatch({ photos: l.photos.filter((_, x) => x !== i) })}
+      />
     </div>
   )
 }
