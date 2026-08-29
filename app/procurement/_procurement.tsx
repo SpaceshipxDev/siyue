@@ -2178,6 +2178,10 @@ function PhotoStrip({ procurementId }: { procurementId: string }) {
   const [photos, setPhotos] = useState<ProcurementPhoto[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A picture opens IN the page. Opening it in a new tab left the reader on a
+  // tab with no history — the back button dead, the only way out being to
+  // close the tab and find the 采购 board again.
+  const [viewing, setViewing] = useState<ProcurementPhoto | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -2211,6 +2215,7 @@ function PhotoStrip({ procurementId }: { procurementId: string }) {
 
   async function remove(photoId: string) {
     setPhotos((ps) => (ps ?? []).filter((x) => x.id !== photoId))
+    setViewing((v) => (v?.id === photoId ? null : v))
     await fetch(
       withBase(
         `/api/procurement-photos?id=${encodeURIComponent(procurementId)}&photoId=${encodeURIComponent(photoId)}`,
@@ -2254,7 +2259,12 @@ function PhotoStrip({ procurementId }: { procurementId: string }) {
   return (
     <div className="mt-2.5 flex flex-wrap items-center gap-2">
       {list.map((ph) => (
-        <PhotoTile key={ph.id} photo={ph} onRemove={() => remove(ph.id)} />
+        <PhotoTile
+          key={ph.id}
+          photo={ph}
+          onOpen={() => setViewing(ph)}
+          onRemove={() => remove(ph.id)}
+        />
       ))}
       <label
         className={`inline-flex h-[52px] w-[52px] cursor-pointer items-center justify-center rounded-[2px] border border-dashed border-[var(--color-border-strong)] text-[11px] text-[var(--color-ink-3)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] ${
@@ -2268,40 +2278,110 @@ function PhotoStrip({ procurementId }: { procurementId: string }) {
       {error && (
         <span className="text-[11px] text-[var(--color-overdue)]">{error}</span>
       )}
+      {viewing && (
+        <PhotoViewer photo={viewing} onClose={() => setViewing(null)} />
+      )}
+    </div>
+  )
+}
+
+// Full-size, over the page, with 返回 where the eye looks for it. Esc and a
+// click on the backdrop close it too; a click on the picture itself doesn't,
+// so nobody loses it mid-look.
+function PhotoViewer({
+  photo,
+  onClose,
+}: {
+  photo: ProcurementPhoto
+  onClose: () => void
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-[60] flex flex-col bg-black/85">
+      <div className="flex shrink-0 items-center gap-3 px-4 py-3">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-[2px] border border-white/40 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-white/10"
+        >
+          ‹ 返回
+        </button>
+        <span className="truncate text-[12.5px] text-white/60">
+          {photo.filename}
+        </span>
+      </div>
+      <div
+        className="flex min-h-0 flex-1 items-center justify-center p-4 pb-8"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) onClose()
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={proxiedStorageUrl(photo.url)}
+          alt={photo.filename}
+          className="max-h-full max-w-full object-contain"
+        />
+      </div>
     </div>
   )
 }
 
 function PhotoTile({
   photo,
+  onOpen,
   onRemove,
 }: {
   photo: ProcurementPhoto
+  onOpen: () => void
   onRemove: () => void
 }) {
+  // A PDF still goes to its own tab — that's the browser's reader, and a tab
+  // is where people expect a document to land. Pictures stay in the page.
   const isPdf = /\.pdf$/i.test(photo.filename)
+  const box =
+    'block h-[52px] w-[52px] overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)]'
   return (
     <span className="group/ph relative inline-block">
-      <a
-        href={proxiedStorageUrl(photo.url)}
-        target="_blank"
-        rel="noopener noreferrer"
-        title={photo.filename}
-        className="block h-[52px] w-[52px] overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)]"
-      >
-        {isPdf ? (
+      {isPdf ? (
+        <a
+          href={proxiedStorageUrl(photo.url)}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={photo.filename}
+          className={box}
+        >
           <span className="flex h-full w-full items-center justify-center text-[10px] text-[var(--color-ink-3)]">
             PDF
           </span>
-        ) : (
-          // eslint-disable-next-line @next/next/no-img-element
+        </a>
+      ) : (
+        <button
+          type="button"
+          onClick={onOpen}
+          title={photo.filename}
+          className={box}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={proxiedStorageUrl(photo.url)}
             alt={photo.filename}
             className="h-full w-full object-cover"
           />
-        )}
-      </a>
+        </button>
+      )}
       <button
         type="button"
         onClick={onRemove}
