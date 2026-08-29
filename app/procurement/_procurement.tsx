@@ -1555,7 +1555,8 @@ function MonthNav({
 // ＋请购 / 编辑 modal — product-first, three faces:
 //   'pick'   — search the 物料库 or jump to 新建物料
 //   'create' — the 物料 form (name + 链接 + shop + price + spec)
-//   'form'   — the request itself: 数量 / 单价 / 请购人 / 领料人 / 工号 / 备注
+//   'form'   — the request itself: 规格 / 数量 / 单价 / 请购人 / 领料人 /
+//              工号 / 备注
 // ===========================================================================
 
 type Selected = {
@@ -1564,6 +1565,40 @@ type Selected = {
   category?: string
   supplier: string
   link: string
+}
+
+// === 材料规格 — 长 × 宽 × 高, in mm ===
+//
+// The size belongs to the buy, not to the 物料: the 物料库 keeps the generic
+// 「6061铝板」 and each 请购 says how big a piece it wants. So it rides in the
+// 品名 snapshot the row already carries — 「6061铝板 200×100×20mm」 — which is
+// what the approver reads, what the buyer orders from, and what the 台账
+// exports, all without a place of its own.
+//
+// Written in one fixed shape (no inner spaces, one space before the numbers)
+// so 编辑 can lift it straight back out into the three boxes. The leading
+// space is what keeps a hand-typed 物料 like 「内六角螺丝 M6×20mm」 out of the
+// match — nothing is ever pulled off a name this didn't write.
+const SPEC_RE = /\s(\d+(?:\.\d+)?)×(\d+(?:\.\d+)?)×(\d+(?:\.\d+)?)mm$/
+
+type Spec = { name: string; l: string; w: string; h: string }
+
+function splitSpec(item: string): Spec {
+  const m = SPEC_RE.exec(item)
+  if (!m) return { name: item.trim(), l: '', w: '', h: '' }
+  return { name: item.slice(0, m.index).trim(), l: m[1], w: m[2], h: m[3] }
+}
+
+// All three or nothing — 「200××20mm」 would read as a typo, and a partial
+// size is one the buyer can't order from anyway. The 品名 shown on the card
+// updates live, so a half-filled 规格 is visibly not in the name yet.
+function joinSpec(name: string, s: Spec): string {
+  const n = name.trim()
+  const l = s.l.trim()
+  const w = s.w.trim()
+  const h = s.h.trim()
+  if (!l || !w || !h) return n
+  return `${n} ${l}×${w}×${h}mm`
 }
 
 type Face = 'pick' | 'create' | 'form'
@@ -1598,12 +1633,15 @@ function ProcurementModal({
     initial
       ? {
           productId: initial.productId,
-          name: initial.item,
+          name: splitSpec(initial.item).name,
           supplier: initial.supplier ?? '',
           link: initial.link ?? '',
         }
       : null,
   )
+  // 材料规格 — 长 × 宽 × 高, mm. Lifted back out of the 品名 on 编辑 so a
+  // second save doesn't append it twice.
+  const [spec, setSpec] = useState(() => splitSpec(initial?.item ?? ''))
   const [face, setFace] = useState<Face>(initial ? 'form' : 'pick')
   const [createSeedName, setCreateSeedName] = useState('')
   const [editing, setEditing] = useState<ProcurementProduct | null>(null)
@@ -1665,6 +1703,9 @@ function ProcurementModal({
   const qtyNum = parseNum(qty)
   const priceNum = parseNum(unitPrice)
   const liveTotal = procurementTotalCny({ qty: qtyNum, unitPriceCny: priceNum })
+  // What actually gets bought — 品名 with the 规格 on it. Shown live on the
+  // card so the requester reads the finished line before submitting.
+  const itemName = selected ? joinSpec(selected.name, spec) : ''
 
   function submit() {
     if (!selected || !selected.name.trim()) {
@@ -1681,7 +1722,7 @@ function ProcurementModal({
             kind: 'updateProcurement',
             procurementId: initial.id,
             patch: {
-              item: selected.name.trim(),
+              item: itemName,
               supplier: selected.supplier.trim() || null,
               link: selected.link.trim() || null,
               qty: qtyNum ?? null,
@@ -1700,7 +1741,7 @@ function ProcurementModal({
           await mutate({
             kind: 'createProcurement',
             input: {
-              item: selected.name.trim(),
+              item: itemName,
               productId: selected.productId || undefined,
               supplier: selected.supplier.trim() || undefined,
               link: selected.link.trim() || undefined,
@@ -1805,10 +1846,45 @@ function ProcurementModal({
             <div className="px-5 py-5">
               <SelectedCard
                 selected={selected}
+                itemName={itemName}
                 onChange={() => setFace('pick')}
               />
 
-              <div className="mt-5 grid grid-cols-2 gap-4">
+              <div className="mt-4">
+                <Field label="材料规格 mm">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={spec.l}
+                      onChange={(v) => setSpec((s) => ({ ...s, l: v }))}
+                      placeholder="长"
+                      mono
+                      inputMode="decimal"
+                    />
+                    <span className="shrink-0 text-[13px] text-[var(--color-ink-4)]">
+                      ×
+                    </span>
+                    <Input
+                      value={spec.w}
+                      onChange={(v) => setSpec((s) => ({ ...s, w: v }))}
+                      placeholder="宽"
+                      mono
+                      inputMode="decimal"
+                    />
+                    <span className="shrink-0 text-[13px] text-[var(--color-ink-4)]">
+                      ×
+                    </span>
+                    <Input
+                      value={spec.h}
+                      onChange={(v) => setSpec((s) => ({ ...s, h: v }))}
+                      placeholder="高"
+                      mono
+                      inputMode="decimal"
+                    />
+                  </div>
+                </Field>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-4">
                 <Field label="数量">
                   <Input
                     value={qty}
@@ -1973,11 +2049,15 @@ function ProcurementModal({
 
 // ===========================================================================
 
+// The 物料 as it will be bought — itemName is the 品名 with the 规格 already
+// on it, so the card is the live preview of the line the approver will read.
 function SelectedCard({
   selected,
+  itemName,
   onChange,
 }: {
   selected: Selected
+  itemName: string
   onChange: () => void
 }) {
   return (
@@ -1987,7 +2067,7 @@ function SelectedCard({
           <div className="flex items-center gap-1.5">
             {selected.category && <CategoryChip category={selected.category} />}
             <span className="truncate text-[14px] font-medium tracking-tight text-[var(--color-ink)]">
-              {selected.name}
+              {itemName || selected.name}
             </span>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-[var(--color-ink-3)]">
