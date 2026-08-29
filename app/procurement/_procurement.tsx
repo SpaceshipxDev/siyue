@@ -33,8 +33,9 @@ import type { ProcurementJobOption, ProcurementNeed } from '@/lib/db'
 // 需求 is the mouth of the conveyor and the only box that isn't procurements
 // rows: it's the live list of parts 工程 routed through 采购 and nobody has
 // bought yet, so what the shop decided to buy shows up here without anyone
-// having to retype it. Its 请购 button opens the normal form pre-filled with
-// the 工号 / 数量 / 零件名, which drops a real row into 待审批 like any other.
+// having to retype it. Each row is one yes/no question — 确认 files the 请购
+// in a single tap and the board jumps to 待审批 where it landed; 删除 takes
+// 采购 back off that part's route for the ones that shouldn't be bought.
 type Tab = 'need' | 'requested' | 'purchase' | 'buying' | 'arrived' | 'ledger'
 
 const TAB_DEF: Record<
@@ -80,18 +81,8 @@ const TAB_EMPTY: Record<Tab, string> = {
   ledger: '本月没有记录',
 }
 
-// What a 需求 hands the 请购 form: the 工号 it belongs to, how many, and the
-// 零件 name — seeded into the 物料 search so one tap either finds the 物料 or
-// creates it under the right name.
-type RequestSeed = {
-  jobId: string
-  jobNo: string
-  qty: number
-  part: string
-}
-
 type ModalMode =
-  | { kind: 'request'; seed?: RequestSeed }
+  | { kind: 'request' }
   | { kind: 'edit'; row: Procurement }
   | null
 
@@ -103,6 +94,7 @@ export function ProcurementBoard({
   roster,
   currentUser,
   canApprove,
+  canEditRoute,
   today,
 }: {
   procurements: Procurement[]
@@ -112,6 +104,7 @@ export function ProcurementBoard({
   roster: string[]
   currentUser: string
   canApprove: boolean
+  canEditRoute: boolean
   today: string
 }) {
   const router = useRouter()
@@ -363,10 +356,10 @@ export function ProcurementBoard({
           <>
             <div className="flex items-center gap-3 border-b border-[var(--color-border)] px-5 py-2.5">
               <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
-                {needRows.filter((n) => !n.asked).length} 项待请购
+                {needRows.filter((n) => !n.asked).length} 项待确认
               </span>
             </div>
-            <div className="hidden grid-cols-[minmax(0,1fr)_100px_110px_84px] items-center gap-4 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
+            <div className="hidden grid-cols-[minmax(0,1fr)_100px_110px_136px] items-center gap-4 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
               <span className="label">零件 · 工号</span>
               <span className="label text-right">数量</span>
               <span className="label">交期</span>
@@ -383,17 +376,12 @@ export function ProcurementBoard({
                   n={need}
                   asked={asked}
                   today={today}
-                  onRequest={() =>
-                    setModal({
-                      kind: 'request',
-                      seed: {
-                        jobId: need.jobId,
-                        jobNo: need.jobNo,
-                        qty: need.qty,
-                        part: need.part,
-                      },
-                    })
-                  }
+                  currentUser={currentUser}
+                  canEditRoute={canEditRoute}
+                  onFiled={() => {
+                    setTab('requested')
+                    router.refresh()
+                  }}
                 />
               ))
             )}
@@ -467,7 +455,6 @@ export function ProcurementBoard({
         <ProcurementModal
           mode={modal.kind === 'edit' ? 'edit' : 'request'}
           initial={modal.kind === 'edit' ? modal.row : null}
-          seed={modal.kind === 'request' ? modal.seed : undefined}
           products={products}
           jobOptions={jobOptions}
           roster={roster}
@@ -505,21 +492,94 @@ function qtyText(p: Procurement): string {
 // ===========================================================================
 
 // One 采购需求 — a part 工程 routed through 采购. The 工号 links to the order
-// so the buyer can read the drawing before buying, and 请购 opens the normal
-// form already knowing the 工号, 数量 and 零件名. Once a 请购 exists for it the
-// row stays, dimmed, until the material lands and 采购 gets 报工'd — the list
-// answers "还有什么没买" without ever needing to be tidied by hand.
+// so the buyer can read the drawing before buying, and the row asks exactly
+// one question: 这个要买吗?
+//
+//   确认 — yes. One tap files the 请购 (物料 = the part's 材料, or its name
+//          when there's none; 备注 carries the 零件名) and the board jumps to
+//          待审批 where it now sits. Nothing to type: everything a 需求 knows
+//          is already what the form would have been filled with, and 供应商 /
+//          单价 get filled in downstream by whoever places the order anyway.
+//          For anything the shop buys that isn't a 需求 — 刀具, consumables —
+//          ＋请购 up top still opens the full form.
+//   删除 — no. Takes 采购 back off that part's route (工程 ticked it by
+//          mistake / the material was already in the rack). Two taps, and
+//          only for whoever may edit a route.
+//
+// Once a 请购 exists the row stays, dimmed, until the material lands and 采购
+// gets 报工'd — the list answers "还有什么没买" without being tidied by hand.
 function NeedRow({
   n,
   asked,
   today,
-  onRequest,
+  currentUser,
+  canEditRoute,
+  onFiled,
 }: {
   n: ProcurementNeed
   asked: boolean
   today: string
-  onRequest: () => void
+  currentUser: string
+  canEditRoute: boolean
+  onFiled: () => void
 }) {
+  const router = useRouter()
+  const [pending, start] = useTransition()
+  const [armDelete, setArmDelete] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function confirmNeed() {
+    setError(null)
+    start(async () => {
+      try {
+        await mutate({
+          kind: 'createProcurement',
+          input: {
+            // What gets bought is the 材料; the 零件名 rides in 备注 so the
+            // approver reads what it's for — and so the 需求 list can tell
+            // this one has been asked for.
+            item: (n.material?.trim() || n.part).trim(),
+            qty: n.qty,
+            orderDate: today,
+            reqDate: today,
+            requester: currentUser,
+            notes: n.part,
+            jobId: n.jobId,
+            jobNo: n.jobNo,
+            status: 'requested',
+          },
+        })
+        onFiled()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '请购失败')
+      }
+    })
+  }
+
+  function removeNeed() {
+    setError(null)
+    start(async () => {
+      try {
+        const r = await mutate<{ ok: boolean; reason?: string }>({
+          kind: 'dismissProcurementNeed',
+          partId: n.partId,
+          jobId: n.jobId,
+        })
+        setArmDelete(false)
+        // 'not_found' means it's already gone (another tab, or 工程 unticked
+        // it) — the refresh makes the row vanish, which is the same outcome.
+        if (!r.data.ok && r.data.reason === 'started') {
+          setError('采购已开工，删不了')
+          return
+        }
+        router.refresh()
+      } catch (e) {
+        setArmDelete(false)
+        setError(e instanceof Error ? e.message : '删除失败')
+      }
+    })
+  }
+
   const st = n.dueDate ? dueState(n.dueDate, today) : null
   const due = n.dueDate ? (
     <span
@@ -538,7 +598,7 @@ function NeedRow({
   )
   return (
     <div
-      className={`grid grid-cols-[minmax(0,1fr)_84px] items-center gap-3 border-b border-[var(--color-border)] px-4 py-3.5 last:border-b-0 md:grid-cols-[minmax(0,1fr)_100px_110px_84px] md:gap-4 md:px-5 md:py-4 ${
+      className={`grid grid-cols-[minmax(0,1fr)_112px] items-center gap-3 border-b border-[var(--color-border)] px-4 py-3.5 last:border-b-0 md:grid-cols-[minmax(0,1fr)_100px_110px_136px] md:gap-4 md:px-5 md:py-4 ${
         asked ? 'opacity-55' : ''
       }`}
     >
@@ -564,17 +624,56 @@ function NeedRow({
         {n.qty} 件
       </div>
       <div className="hidden truncate text-[12.5px] md:block">{due}</div>
-      <div className="text-right">
-        {asked ? (
-          <span className="text-[12px] text-[var(--color-ink-3)]">已请购</span>
-        ) : (
-          <button
-            type="button"
-            onClick={onRequest}
-            className="rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-1.5 text-[12.5px] font-medium text-[var(--color-ink)] hover:bg-[#faf8f2]"
-          >
-            请购
-          </button>
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex items-center justify-end gap-3">
+          {asked ? (
+            <span className="text-[12px] text-[var(--color-ink-3)]">
+              已请购
+            </span>
+          ) : armDelete ? (
+            <>
+              <button
+                type="button"
+                onClick={removeNeed}
+                disabled={pending}
+                className="text-[11.5px] font-medium text-[var(--color-overdue)] hover:underline disabled:opacity-50"
+              >
+                确认删除
+              </button>
+              <button
+                type="button"
+                onClick={() => setArmDelete(false)}
+                className="text-[11.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+              >
+                取消
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={confirmNeed}
+                disabled={pending}
+                className="rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-1.5 text-[12.5px] font-medium text-[var(--color-ink)] hover:bg-[#faf8f2] disabled:opacity-50"
+              >
+                确认
+              </button>
+              {canEditRoute && (
+                <button
+                  type="button"
+                  onClick={() => setArmDelete(true)}
+                  className="text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+                >
+                  删除
+                </button>
+              )}
+            </>
+          )}
+        </div>
+        {error && (
+          <span className="text-right text-[11px] leading-tight text-[var(--color-overdue)]">
+            {error}
+          </span>
         )}
       </div>
     </div>
@@ -1423,7 +1522,6 @@ type Face = 'pick' | 'create' | 'form'
 function ProcurementModal({
   mode,
   initial,
-  seed,
   products,
   jobOptions,
   roster,
@@ -1434,7 +1532,6 @@ function ProcurementModal({
 }: {
   mode: 'request' | 'edit'
   initial: Procurement | null
-  seed?: RequestSeed
   products: ProcurementProduct[]
   jobOptions: ProcurementJobOption[]
   roster: string[]
@@ -1463,11 +1560,7 @@ function ProcurementModal({
   const [editing, setEditing] = useState<ProcurementProduct | null>(null)
 
   const [qty, setQty] = useState(
-    initial?.qty != null
-      ? String(initial.qty)
-      : seed?.qty
-        ? String(seed.qty)
-        : '',
+    initial?.qty != null ? String(initial.qty) : '',
   )
   const [unitPrice, setUnitPrice] = useState(
     initial?.unitPriceCny != null ? String(initial.unitPriceCny) : '',
@@ -1476,16 +1569,14 @@ function ProcurementModal({
   // colleague is normal. 领料人 starts blank; the 领料 step names the taker.
   const [requester, setRequester] = useState(initial?.requester ?? currentUser)
   const [picker, setPicker] = useState(initial?.picker ?? '')
-  // A 需求-seeded 请购 carries the 零件 name in 备注: what gets bought is a
-  // 物料 (板材, 标准件…), so the part it's for would otherwise be lost — and
-  // it's what tells the 需求 list this one has been asked for.
-  const [notes, setNotes] = useState(initial?.notes ?? seed?.part ?? '')
+  // 备注 names the 零件 a 请购 is for — what gets bought is a 物料 (板材,
+  // 标准件…), so the part it's for would otherwise be lost, and it's what
+  // tells the 需求 list this one has been asked for.
+  const [notes, setNotes] = useState(initial?.notes ?? '')
   const [jobPick, setJobPick] = useState<{ id: string; jobNo: string } | null>(
     initial && (initial.jobId || initial.jobNo)
       ? { id: initial.jobId ?? '', jobNo: initial.jobNo ?? '' }
-      : seed
-        ? { id: seed.jobId, jobNo: seed.jobNo }
-        : null,
+      : null,
   )
 
   const [pending, start] = useTransition()
@@ -1618,7 +1709,6 @@ function ProcurementModal({
         {face === 'pick' && (
           <ProductPicker
             catalog={catalog}
-            seedQuery={seed?.part}
             onPick={pickProduct}
             onCreateNew={(seed) => {
               setCreateSeedName(seed)
@@ -1879,20 +1969,16 @@ function SelectedCard({
 
 function ProductPicker({
   catalog,
-  seedQuery,
   onPick,
   onCreateNew,
   onEdit,
 }: {
   catalog: ProcurementProduct[]
-  // 需求-seeded 请购 opens with the 零件 name already typed — either it matches
-  // a 物料 already in the 库, or 新建物料 comes pre-named.
-  seedQuery?: string
   onPick: (p: ProcurementProduct) => void
   onCreateNew: (seed: string) => void
   onEdit: (p: ProcurementProduct) => void
 }) {
-  const [q, setQ] = useState(seedQuery ?? '')
+  const [q, setQ] = useState('')
   const query = q.trim().toLowerCase()
   const results = useMemo(() => {
     if (!query) return catalog

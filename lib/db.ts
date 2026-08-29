@@ -8768,6 +8768,44 @@ export async function getProcurementNeeds(): Promise<ProcurementNeed[]> {
   return out
 }
 
+// Drop a 需求 off the list. Since a 需求 is derived (never stored), the only
+// honest way to delete one is to take 采购 back off that part's route — which
+// is exactly what it means: 工程 ticked it by mistake, or the material was
+// already in the rack, so this part never had to be bought. 工程 can tick it
+// again and the 需求 comes straight back.
+//
+// Only a `pending` 采购 survives the guard: once someone has started (or 报工'd)
+// the 采购 工段 there's real work recorded against it, and the same
+// force-confirm rules as setPartRoute would apply — the 需求 list is not the
+// place for that conversation. 采购 is never inside an outsource block
+// (OUTSOURCEABLE_STAGES excludes it), so there's no block to check.
+export async function dismissProcurementNeed(
+  partId: string,
+): Promise<{ ok: true } | { ok: false; reason: 'not_found' | 'started' }> {
+  return withWriteLock(async () => {
+    const { data, error } = await supabase
+      .from('part_stages')
+      .delete()
+      .eq('part_id', partId)
+      .eq('stage', '采购')
+      .eq('status', 'pending')
+      .select('id')
+    if (error) throw error
+    if ((data ?? []).length > 0) return { ok: true }
+
+    // Nothing deleted — say which of the two it was so the buyer reads a
+    // sentence instead of a shrug.
+    const { data: row, error: readErr } = await supabase
+      .from('part_stages')
+      .select('status')
+      .eq('part_id', partId)
+      .eq('stage', '采购')
+      .maybeSingle()
+    if (readErr) throw readErr
+    return { ok: false, reason: row ? 'started' : 'not_found' }
+  })
+}
+
 // 关联工号 picker feed — the last ~400 confirmed jobs, newest first. Job no +
 // product only (no customer: the 采购 tab is open to every signed-in role and
 // customer names stay off floor-visible surfaces). 400 covers months of

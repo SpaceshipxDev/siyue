@@ -25,6 +25,7 @@ import {
   deleteHandover,
   deleteProcurement,
   deleteProcurementProduct,
+  dismissProcurementNeed,
   deleteComponent,
   deleteOutsourceBlock,
   deletePartPhoto,
@@ -1816,6 +1817,20 @@ async function dispatch(
       await deleteProcurement(procurementId)
       revalidatePath('/procurement')
       return Response.json(ok())
+    }
+
+    // Deleting a 需求 takes 采购 off the part's route, so it's a routing edit
+    // and carries the routing right (商务 + 工程) — not merely "signed in".
+    case 'dismissProcurementNeed': {
+      const partId = body.partId
+      const jobId = body.jobId
+      if (!isString(partId) || !isString(jobId))
+        return err('bad dismissProcurementNeed args')
+      await requirePartRouteEditor()
+      const result = await dismissProcurementNeed(partId)
+      revalidatePath('/procurement')
+      if (result.ok) revalidateJob(jobId)
+      return Response.json(ok(result))
     }
 
     // === 物料库 (procurement product catalog) — anyone signed in can write ===

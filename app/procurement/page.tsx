@@ -1,5 +1,11 @@
 import { TopBar } from '@/app/_ui'
-import { requireUser, canSeeReport, canSeeOrderLedger, canApproveProcurement } from '@/lib/auth'
+import {
+  requireUser,
+  canSeeReport,
+  canSeeOrderLedger,
+  canApproveProcurement,
+  canEditPartRoute,
+} from '@/lib/auth'
 import {
   getProcurements,
   getProcurementProducts,
@@ -51,6 +57,7 @@ export default async function ProcurementPage() {
           roster={users.map((u) => u.name)}
           currentUser={user.name}
           canApprove={canApproveProcurement(user)}
+          canEditRoute={canEditPartRoute(user)}
           today={today()}
         />
       </main>
