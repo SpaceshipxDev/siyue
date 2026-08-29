@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useRef, type ReactNode } from 'react'
+import { StickyHorizontalScrollbar } from './_sticky_hscroll'
 
 /**
- * Wraps the components table's horizontal scroll area. Two jobs:
+ * Wraps the components table's horizontal scroll area. Three jobs:
  *
  *  1. On mount (and when myStage changes) scroll so the user's stage column
  *     lands just past the frozen identifier columns — earlier stages get
@@ -24,6 +25,14 @@ import { useEffect, useRef, type ReactNode } from 'react'
  *     The strip is a label row and nothing more: no funnels, no hover, no
  *     clickable anything. It does absorb clicks rather than pass them through
  *     — a click falling through would land on a row hidden behind it.
+ *
+ *  3. 左右滚动条. The native horizontal bar lives at the BOTTOM EDGE OF THE
+ *     TABLE, which on a 60-part job is two screens below wherever you are —
+ *     so reaching the late 工序 columns meant scrolling to the end of the
+ *     list first, dragging sideways, then scrolling back up to the row you
+ *     cared about. The floating bar (same one the 商务 board uses) rides the
+ *     bottom of the WINDOW instead, in reach from any row, and the native one
+ *     is hidden so there's only ever one control.
  */
 export function ComponentsScrollArea({
   myStage,
@@ -132,9 +141,10 @@ export function ComponentsScrollArea({
 
   return (
     <>
-      <div ref={ref} className={className}>
+      <div ref={ref} className={`siyue-hscroll-hide-native ${className ?? ''}`}>
         {children}
       </div>
+      <StickyHorizontalScrollbar containerRef={ref} />
       {pinnedHeader && (
         <div
           ref={stripRef}

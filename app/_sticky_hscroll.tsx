@@ -2,13 +2,19 @@
 
 import { useEffect, useRef, useState, type RefObject } from 'react'
 
-// Floating horizontal scrollbar pinned to the bottom of the viewport while
-// a wide table extends past it. The native horizontal bar on a wide table
-// sits at the table's bottom edge — invisible whenever the user is scrolled
-// into the middle of a long list — and on macOS (and most modern browsers
-// with overlay scrollbars enabled) ::-webkit-scrollbar styling is overridden
-// by the OS "autohide" preference. So we render our own thumb element and
-// position it manually: persistent on every platform, every browser.
+// Floating horizontal scrollbar that stays in reach while a wide table
+// extends past the window. The native horizontal bar on a wide table sits at
+// the TABLE's bottom edge — two screens below wherever you are in a long list,
+// so reading the far-right columns of row 12 meant scrolling to the end of the
+// list, dragging sideways, and scrolling back. And on macOS (and most modern
+// browsers with overlay scrollbars enabled) ::-webkit-scrollbar styling is
+// overridden by the OS "autohide" preference. So we render our own thumb and
+// place it ourselves: persistent on every platform, every browser.
+//
+// Where it sits: against the bottom of the window while the table runs past
+// it, and against the table's own bottom edge once that edge comes into view
+// — so the control is always touching the thing it scrolls, never stranded at
+// the foot of a screen the table already ended on.
 //
 // Pair with `siyue-hscroll-hide-native` on the scroll container so the only
 // horizontal control the user sees is this one.
@@ -42,9 +48,11 @@ export function StickyHorizontalScrollbar({
 
       // Track aligns with the container's left edge / width — same metaphor
       // as the macOS "always visible" scrollbar that hugs its scroll region,
-      // not the window edges.
+      // not the window edges. Vertically it rides the window's bottom while
+      // the table runs past it, then parks on the table's own bottom edge.
       bar.style.left = `${rect.left}px`
       bar.style.width = `${rect.width}px`
+      bar.style.bottom = `${Math.max(0, window.innerHeight - rect.bottom)}px`
 
       if (hasOverflow) {
         const trackWidth = rect.width
