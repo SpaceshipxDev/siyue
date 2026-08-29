@@ -176,19 +176,49 @@ export function ProcurementBoard({
     })
   }, [needs, procurements])
 
-  // 待请购 on top, 已请购 below — each half keeps the server's 交期 order.
+  // 需求 reads by 订单, not by part: one 工号 is one block, and everything
+  // that 订单 needs bought sits under it. The buyer works an order at a time
+  // — one drawing pack, one supplier call — so splitting a job's parts across
+  // the list was making him re-find the same 工号 three times.
+  //
+  // Blocks with something still to confirm come first, then by 交期 (a job's
+  // parts all share it) and 工号. Inside a block the server's 零件进度 order
+  // holds, 待确认 above 已请购.
   const needMatch = (n: ProcurementNeed) =>
     !query ||
     n.part.toLowerCase().includes(query) ||
     n.jobNo.toLowerCase().includes(query) ||
     n.product.toLowerCase().includes(query) ||
     (n.material ?? '').toLowerCase().includes(query)
-  const needRows = [
-    ...needAll.filter((r) => !r.asked && needMatch(r.need)),
-    ...needAll.filter((r) => r.asked && needMatch(r.need)),
-  ]
+
+  const needGroups = useMemo(() => {
+    const byJob = new Map<string, typeof needAll>()
+    for (const r of needAll) {
+      if (!needMatch(r.need)) continue
+      const l = byJob.get(r.need.jobId) ?? []
+      l.push(r)
+      byJob.set(r.need.jobId, l)
+    }
+    const groups = [...byJob.values()].map((rows) => ({
+      head: rows[0].need,
+      open: rows.filter((r) => !r.asked).length,
+      rows: [...rows.filter((r) => !r.asked), ...rows.filter((r) => r.asked)],
+    }))
+    groups.sort((a, b) => {
+      const ao = a.open > 0
+      const bo = b.open > 0
+      if (ao !== bo) return ao ? -1 : 1
+      const ad = a.head.dueDate || '9999-99-99'
+      const bd = b.head.dueDate || '9999-99-99'
+      if (ad !== bd) return ad < bd ? -1 : 1
+      return a.head.jobNo < b.head.jobNo ? -1 : 1
+    })
+    return groups
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needAll, query])
 
   const needOpen = needAll.filter((n) => !n.asked).length
+  const needOpenShown = needGroups.reduce((s, g) => s + g.open, 0)
 
   // The active tab's rows, queue-sorted. 待到货 reads soonest-expected first;
   // the waiting queues read oldest-first; the ledger reads newest-first.
@@ -356,33 +386,35 @@ export function ProcurementBoard({
           <>
             <div className="flex items-center gap-3 border-b border-[var(--color-border)] px-5 py-2.5">
               <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
-                {needRows.filter((n) => !n.asked).length} 项待确认
+                {needOpenShown} 项待确认 · {needGroups.length} 个订单
               </span>
             </div>
-            <div className="hidden grid-cols-[minmax(0,1fr)_100px_110px_136px] items-center gap-4 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
-              <span className="label">零件 · 工号</span>
-              <span className="label text-right">数量</span>
-              <span className="label">交期</span>
-              <span />
-            </div>
-            {needRows.length === 0 ? (
+            {needGroups.length === 0 ? (
               <p className="px-5 py-10 text-center text-[13px] text-[var(--color-ink-3)]">
                 {query ? '没有匹配的记录' : TAB_EMPTY.need}
               </p>
             ) : (
-              needRows.map(({ need, asked }) => (
-                <NeedRow
-                  key={need.partId}
-                  n={need}
-                  asked={asked}
-                  today={today}
-                  currentUser={currentUser}
-                  canEditRoute={canEditRoute}
-                  onFiled={() => {
-                    setTab('requested')
-                    router.refresh()
-                  }}
-                />
+              needGroups.map((g) => (
+                <div
+                  key={g.head.jobId}
+                  className="border-b border-[var(--color-border)] last:border-b-0"
+                >
+                  <NeedJobHead n={g.head} open={g.open} today={today} />
+                  {g.rows.map(({ need, asked }) => (
+                    <NeedRow
+                      key={need.partId}
+                      n={need}
+                      asked={asked}
+                      today={today}
+                      currentUser={currentUser}
+                      canEditRoute={canEditRoute}
+                      onFiled={() => {
+                        setTab('requested')
+                        router.refresh()
+                      }}
+                    />
+                  ))}
+                </div>
               ))
             )}
           </>
@@ -491,9 +523,52 @@ function qtyText(p: Procurement): string {
 // Row + inline panel
 // ===========================================================================
 
-// One 采购需求 — a part 工程 routed through 采购. The 工号 links to the order
-// so the buyer can read the drawing before buying, and the row asks exactly
-// one question: 这个要买吗?
+// The 订单 a block of 需求 belongs to. Carries what's true of all of them —
+// 工号 (linking to the order so the buyer can read the drawings before
+// buying), 产品, 交期 — so the parts underneath only have to say what makes
+// them different from each other.
+function NeedJobHead({
+  n,
+  open,
+  today,
+}: {
+  n: ProcurementNeed
+  open: number
+  today: string
+}) {
+  const st = n.dueDate ? dueState(n.dueDate, today) : null
+  return (
+    <div className="flex items-baseline gap-2.5 border-b border-[var(--color-border)] bg-[#f5f3ed] px-4 py-2 md:px-5">
+      <Link
+        href={`/jobs/${n.jobId}`}
+        className="mono shrink-0 text-[13px] font-semibold text-[var(--color-ink)] hover:underline"
+      >
+        {n.jobNo}
+      </Link>
+      <span className="truncate text-[12.5px] text-[var(--color-ink-3)]">
+        {n.product}
+      </span>
+      <span className="ml-auto shrink-0 text-[12px] text-[var(--color-ink-3)]">
+        {open > 0 ? `${open} 项待确认` : '都已请购'}
+      </span>
+      <span
+        className={`shrink-0 text-[12.5px] ${
+          st === 'overdue'
+            ? 'font-semibold text-[var(--color-overdue)]'
+            : st === 'today' || st === 'soon'
+              ? 'font-medium text-[var(--color-ink)]'
+              : 'mono text-[var(--color-ink-2)]'
+        }`}
+      >
+        {n.dueDate ? relDay(n.dueDate, today) : '无交期'}
+      </span>
+    </div>
+  )
+}
+
+// One 采购需求 — a part 工程 routed through 采购, listed under its 订单. The
+// 工号 / 产品 / 交期 live on the block header above it, so the row says only
+// 零件名 · 材料 · 数量 and asks one question: 这个要买吗?
 //
 //   确认 — yes. One tap files the 请购 (物料 = the part's 材料, or its name
 //          when there's none; 备注 carries the 零件名) and the board jumps to
@@ -580,50 +655,24 @@ function NeedRow({
     })
   }
 
-  const st = n.dueDate ? dueState(n.dueDate, today) : null
-  const due = n.dueDate ? (
-    <span
-      className={
-        st === 'overdue'
-          ? 'font-medium text-[var(--color-overdue)]'
-          : st === 'today' || st === 'soon'
-            ? 'font-medium text-[var(--color-ink)]'
-            : 'mono text-[var(--color-ink-2)]'
-      }
-    >
-      {relDay(n.dueDate, today)}
-    </span>
-  ) : (
-    <span className="text-[var(--color-ink-4)]">—</span>
-  )
   return (
     <div
-      className={`grid grid-cols-[minmax(0,1fr)_112px] items-center gap-3 border-b border-[var(--color-border)] px-4 py-3.5 last:border-b-0 md:grid-cols-[minmax(0,1fr)_100px_110px_136px] md:gap-4 md:px-5 md:py-4 ${
+      className={`grid grid-cols-[minmax(0,1fr)_112px] items-center gap-3 border-b border-[var(--color-border)] py-3 pl-4 pr-4 last:border-b-0 md:grid-cols-[minmax(0,1fr)_100px_136px] md:gap-4 md:py-3.5 md:pl-7 md:pr-5 ${
         asked ? 'opacity-55' : ''
       }`}
     >
       <div className="min-w-0">
-        <div className="truncate text-[15px] font-semibold tracking-tight text-[var(--color-ink)]">
+        <div className="truncate text-[14.5px] font-medium tracking-tight text-[var(--color-ink)]">
           {n.part}
         </div>
         <div className="mt-0.5 truncate text-[12px] text-[var(--color-ink-3)]">
-          <Link
-            href={`/jobs/${n.jobId}`}
-            className="mono text-[var(--color-ink-2)] hover:underline"
-          >
-            {n.jobNo}
-          </Link>
-          {n.material ? ` · ${n.material}` : n.product ? ` · ${n.product}` : ''}
-          <span className="md:hidden">
-            {' '}
-            · {n.qty} 件 · {n.dueDate ? relDay(n.dueDate, today) : '无交期'}
-          </span>
+          {n.material?.trim() || '材料未注'}
+          <span className="md:hidden"> · {n.qty} 件</span>
         </div>
       </div>
       <div className="mono hidden text-right text-[13px] text-[var(--color-ink)] md:block">
         {n.qty} 件
       </div>
-      <div className="hidden truncate text-[12.5px] md:block">{due}</div>
       <div className="flex flex-col items-end gap-1">
         <div className="flex items-center justify-end gap-3">
           {asked ? (
