@@ -1,4 +1,5 @@
 import { notFound, redirect } from 'next/navigation'
+import { BRAND } from '@/lib/brand'
 import { findJobNoConflict, getJob, parseJobNoConflictError } from '@/lib/db'
 import {
   canCreatePartRow,
@@ -22,6 +23,7 @@ import {
   JobDueDate,
   JobSecondaryDueDate,
   JobNotes,
+  JobShippingText,
   JobText,
 } from '@/app/_editable'
 import { BatchPhotoUploader } from '@/app/_batch_photo_uploader'
@@ -164,6 +166,23 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
               jobId={job.id}
               value={job.secondaryDueDate}
               className="text-[15px] text-[var(--color-ink)]"
+            />
+          </div>
+          {/* 越侬商务 — OUR commercial owner. Required to confirm: an order
+              nobody's name is on is an order nobody answers for when the
+              floor, the customer or the 账 comes asking three months later.
+              Enforced in confirmJobAction, not just labelled here. */}
+          <div className="col-span-1 md:col-span-2">
+            <p className="label mb-2">
+              {BRAND.commerceLabel}
+              <span className="text-[var(--color-overdue)]"> ·</span>
+            </p>
+            <JobShippingText
+              jobId={job.id}
+              field="yuenongBusiness"
+              value={job.yuenongBusiness}
+              className="text-[15px] text-[var(--color-ink)]"
+              placeholder="必填"
             />
           </div>
           <div className="col-span-1 md:col-span-2">

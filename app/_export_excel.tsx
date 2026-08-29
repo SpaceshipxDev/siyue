@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { JOB_TYPE_LABEL, STAGES } from '@/lib/data'
+import { BRAND } from '@/lib/brand'
 import { rowRollupStage, type MasterRow } from '@/lib/master'
 
 // 导出 — downloads the CURRENT filtered view as .xlsx, mirroring the finance
@@ -79,6 +80,10 @@ export function ExportExcelButton({
         '类型',
         ...(showCustomer ? ['客户'] : []),
         '产品',
+        // 越侬商务 — who owns this order on our side. Internal, never
+        // scrubbed, so the column is here for the floor's export too: the
+        // sheet has to answer "whose order is this" without a second lookup.
+        BRAND.commerceLabel,
         ...(showMoney ? ['金额', '外发', '毛利'] : []),
         '交期',
         '出货日期',
@@ -90,6 +95,7 @@ export function ExportExcelButton({
         r.jobType ? JOB_TYPE_LABEL[r.jobType] : '',
         ...(showCustomer ? [r.customer] : []),
         r.product,
+        r.yuenongBusiness ?? '',
         // Raw numbers (not formatted strings) so Excel can sum the columns.
         ...(showMoney
           ? [r.amountCny ?? '', r.externalSpendCny || '', r.marginCny ?? '']
@@ -104,6 +110,7 @@ export function ExportExcelButton({
       ws['!cols'] = header.map((h) => {
         if (h === '工号') return { wch: 16 }
         if (h === '客户' || h === '产品') return { wch: 22 }
+        if (h === BRAND.commerceLabel) return { wch: 12 }
         if (h === '备注') return { wch: 28 }
         if (h === '交期' || h === '出货日期') return { wch: 12 }
         return { wch: 9 }

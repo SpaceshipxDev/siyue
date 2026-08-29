@@ -21,6 +21,7 @@
 
 import { revalidatePath } from 'next/cache'
 import type { Stage, JobStatus } from '@/lib/data'
+import { BRAND } from '@/lib/brand'
 import type { Customer, Vendor } from '@/lib/data'
 import {
   appendComponent,
@@ -327,6 +328,15 @@ export async function confirmJobAction(
 ): Promise<ConfirmJobResult> {
   // 工程 head can confirm imports they ran, same as commerce.
   const user = await requirePartRouteEditor()
+  // 越侬商务 is required to enter the board. An order with nobody's name on
+  // it is one nobody answers for when the floor, the customer or the 账 comes
+  // asking three months later — and the moment of import is the only moment
+  // anyone still remembers whose order it was. Checked server-side because
+  // the field is edited inline and could be blanked after the page rendered.
+  const draft = await getJob(jobId)
+  if (draft && !(draft.yuenongBusiness ?? '').trim()) {
+    return { ok: false, error: `请先填写「${BRAND.commerceLabel}」再确认导入` }
+  }
   if (startAt) {
     await markJobStartedAt(jobId, startAt, user.name)
   }
