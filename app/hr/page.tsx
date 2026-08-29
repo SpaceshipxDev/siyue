@@ -1,5 +1,10 @@
 import { TopBar } from '@/app/_ui'
-import { requireHrUser, canSeeReport, canSeeOrderLedger } from '@/lib/auth'
+import {
+  requireHrUser,
+  canDeleteHrRecord,
+  canSeeReport,
+  canSeeOrderLedger,
+} from '@/lib/auth'
 import { getActiveUsers } from '@/lib/db'
 import { getHrMonth, getHrMonths, getHrYear } from '@/lib/hr'
 import { today } from '@/lib/today'
@@ -52,6 +57,7 @@ export default async function HrPage({
           period={period}
           months={months}
           roster={users.map((u) => u.name)}
+          canDelete={canDeleteHrRecord(user)}
           today={now}
         />
       </main>

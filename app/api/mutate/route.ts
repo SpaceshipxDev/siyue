@@ -110,6 +110,7 @@ import {
   canApproveProcurement,
   canClickStage,
   canCreatePartRow,
+  canDeleteHrRecord,
   canDeletePartRow,
   canManageOutsource,
   canSeeExpenses,
@@ -1855,7 +1856,10 @@ async function dispatch(
       const recordId = body.recordId
       if (!isString(month) || !isString(recordId))
         return err('bad deleteHrRecord args')
-      await requireHrUser()
+      // Named people only — the client hides 删 for everyone else, so a 403
+      // here means a stale tab or a hand-rolled request.
+      const u = await requireHrUser()
+      if (!canDeleteHrRecord(u)) return err('无权删除人事记录', 403)
       await deleteHrRecordRow(month, recordId)
       revalidatePath('/hr')
       return Response.json(ok())

@@ -97,6 +97,19 @@ export async function requireHrUser(): Promise<AuthUser> {
   return u
 }
 
+// Who can DELETE a 人事 record. Strictly narrower than writing one: a wrong
+// line is visible and can be corrected by filing the right one, but a deleted
+// 违纪 leaves no trace that it ever happened — and these lines are what pay
+// and discipline get argued from. Named people only, same as 零件行删除 and
+// 订单删除.
+const HR_DELETER_USER_IDS = new Set<string>([
+  'u-ms45yjq9-2kbdi1', // 商务于海伟
+])
+
+export function canDeleteHrRecord(u: AuthUser): boolean {
+  return canUseHr(u) && HR_DELETER_USER_IDS.has(u.id)
+}
+
 // Page guard for the 支出/月度 finance tabs. Non-finance commerce users land
 // back on the 应收 tab rather than an error page.
 export async function requireFinance(): Promise<AuthUser> {

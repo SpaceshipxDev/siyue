@@ -25,12 +25,14 @@ export function HrBoard({
   period,
   months,
   roster,
+  canDelete,
   today,
 }: {
   records: HrRecord[]
   period: string
   months: string[]
   roster: string[]
+  canDelete: boolean
   today: string
 }) {
   const router = useRouter()
@@ -323,14 +325,16 @@ export function HrBoard({
                       <span className="shrink-0 text-[11.5px] text-[var(--color-ink-4)]">
                         {rec.by}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => remove(rec)}
-                        disabled={pending}
-                        className="shrink-0 text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)] disabled:opacity-50"
-                      >
-                        删
-                      </button>
+                      {canDelete && (
+                        <button
+                          type="button"
+                          onClick={() => remove(rec)}
+                          disabled={pending}
+                          className="shrink-0 text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)] disabled:opacity-50"
+                        >
+                          删
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
