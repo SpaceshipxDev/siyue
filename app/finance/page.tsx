@@ -6,8 +6,25 @@ import {
   canSeeReport,
   requireOrderLedgerViewer,
 } from '@/lib/auth'
-import { getExpenses, getFenqiData, getOrderLedgerRows } from '@/lib/db'
+import {
+  getActiveUsers,
+  getExpenses,
+  getFenqiData,
+  getOrderLedgerRows,
+} from '@/lib/db'
 import { getVouchersForExpenses } from '@/lib/voucher-file'
+import { getHrMonth, getHrMonths, getHrRoster } from '@/lib/hr'
+import {
+  buildPayslips,
+  isPayrollMonth,
+  summarizeAttendance,
+} from '@/lib/payroll'
+import {
+  getPayrollBase,
+  getPayrollMonths,
+  getPayrollRules,
+  getPayrollSheet,
+} from '@/lib/payroll-store'
 import { today } from '@/lib/today'
 import { formatCny } from '@/lib/data'
 import {
@@ -28,6 +45,7 @@ import { BossMoney } from './_boss'
 import { ExpenseLedger } from './_expense_ledger'
 import { MonthlyCashflow } from './_monthly'
 import { OrderLedger } from './_orders'
+import { PayrollBoard } from './_payroll'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,13 +62,15 @@ const PAGE_SIZE = 25
 //   看钱 (tab=money)         the boss's read — 4 plain-speak totals + the
 //                            per-customer 谁压着钱 wall. Same derived rows.
 //   支出 (tab=expense)       money out — the boss's 7 manual categories
+//   工资 (tab=payroll)       一人一行的月度工资表 — 考勤读自人事, 月休4天的
+//                            制度写在页头, 发放一键记进支出台账
 //   月度 (tab=month)         回款收入 − 支出 = 净现金流, by month
 // 订单 opens to every 商务 plus the canSeeOrderLedger allowlist (于海伟's
 // production account). 记账 + 看钱 stay commerce-wide. 支出/月度 carry
 // per-person payroll, so they're gated to the boss + designated finance users
 // (users.is_finance).
 
-type FinanceTab = 'orders' | 'ar' | 'money' | 'expense' | 'month'
+type FinanceTab = 'orders' | 'ar' | 'money' | 'expense' | 'payroll' | 'month'
 
 export default async function FinancePage({
   searchParams,
@@ -62,6 +82,7 @@ export default async function FinancePage({
     cat?: string
     page?: string
     m?: string
+    pm?: string
   }>
 }) {
   const user = await requireOrderLedgerViewer()
@@ -72,6 +93,7 @@ export default async function FinancePage({
   const tab: FinanceTab =
     params.tab === 'ar' ||
     params.tab === 'expense' ||
+    params.tab === 'payroll' ||
     params.tab === 'month' ||
     params.tab === 'money'
       ? (params.tab as FinanceTab)
@@ -79,7 +101,11 @@ export default async function FinancePage({
   // Deep link to a tab beyond the user's grant → land on 订单. A production
   // grantee (于海伟) holds ONLY the order ledger; 记账/看钱 stay commerce-wide.
   if (tab !== 'orders' && !isCommerce) redirect('/finance')
-  if ((tab === 'expense' || tab === 'month') && !showExpenses) redirect('/finance')
+  if (
+    (tab === 'expense' || tab === 'payroll' || tab === 'month') &&
+    !showExpenses
+  )
+    redirect('/finance')
 
   const todayStr = today()
   const month = todayStr.slice(0, 7) // 'YYYY-MM'
@@ -94,7 +120,9 @@ export default async function FinancePage({
           ? '看钱'
           : tab === 'expense'
             ? '支出台账'
-            : '月度现金流'
+            : tab === 'payroll'
+              ? '工资'
+              : '月度现金流'
 
   return (
     <div className="flex-1 flex flex-col">
@@ -125,6 +153,7 @@ export default async function FinancePage({
         {tab === 'expense' && (
           <ExpenseTab params={params} month={month} monthLabel={monthLabel} userName={user.name} />
         )}
+        {tab === 'payroll' && <PayrollTab pm={params.pm} thisMonth={month} />}
         {tab === 'month' && <MonthlyCashflow m={params.m} todayStr={todayStr} />}
       </main>
     </div>
@@ -154,6 +183,7 @@ function FinanceTabs({
     ...(showExpenses
       ? ([
           { key: 'expense', href: '/finance?tab=expense', label: '支出' },
+          { key: 'payroll', href: '/finance?tab=payroll', label: '工资' },
           { key: 'month', href: '/finance?tab=month', label: '月度' },
         ] as { key: FinanceTab; href: string; label: string }[])
       : []),
@@ -317,6 +347,73 @@ async function ExpenseTab({
         vouchers={vouchers}
       />
     </>
+  )
+}
+
+// === 工资 — 一人一行的月度工资表 ===
+//
+// Nothing here is typed twice: 月薪 is a standing number, the 考勤 columns are
+// the 人事 log for that month read back through lib/payroll, and 加班/奖罚 are
+// the only two cells a person fills. A month that's been 发放'd renders its
+// frozen 工资条 instead of a live recomputation — what was paid out is history.
+//
+// The 名册 is 人事's: system accounts plus every name 人事 was told to
+// remember, which is the only list this shop has of people who don't have a
+// login. Somebody without a 月薪 sits under 未定月薪 until one is typed.
+async function PayrollTab({
+  pm,
+  thisMonth,
+}: {
+  pm?: string
+  thisMonth: string
+}) {
+  const month = isPayrollMonth(pm ?? '') ? (pm as string) : thisMonth
+
+  const [rules, base, sheet, hrRecords, payrollMonths, hrMonths, users, extra] =
+    await Promise.all([
+      getPayrollRules(),
+      getPayrollBase(),
+      getPayrollSheet(month),
+      getHrMonth(month),
+      getPayrollMonths(),
+      getHrMonths(),
+      getActiveUsers(),
+      getHrRoster(),
+    ])
+
+  const slips = sheet.paid
+    ? sheet.paid.slips
+    : buildPayslips(
+        base,
+        summarizeAttendance(hrRecords),
+        sheet.lines,
+        rules,
+        month,
+      )
+
+  const onPayroll = new Set(slips.map((s) => s.name))
+  const offRoster = [...new Set([...users.map((u) => u.name), ...extra])]
+    .filter((n) => !onPayroll.has(n))
+    .sort((a, b) => a.localeCompare(b, 'zh'))
+
+  return (
+    <PayrollBoard
+      month={month}
+      months={[...new Set([...payrollMonths, ...hrMonths, thisMonth])]}
+      rules={rules}
+      slips={slips}
+      offRoster={offRoster}
+      paid={
+        sheet.paid
+          ? {
+              at: sheet.paid.at,
+              by: sheet.paid.by,
+              total: sheet.paid.total,
+              count: sheet.paid.slips.length,
+            }
+          : null
+      }
+    />
   )
 }
 

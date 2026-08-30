@@ -131,8 +131,33 @@ import {
 import {
   addHrRecord,
   deleteHrRecord as deleteHrRecordRow,
+  getHrMonth,
   isValidHrInput,
 } from '@/lib/hr'
+import {
+  buildPayslips,
+  isPayrollMonth,
+  isRuleKey,
+  isValidAdjust,
+  isValidMonthlyCny,
+  isValidOtHours,
+  isValidRuleValue,
+  monthLabel as payrollMonthLabel,
+  payrollTotal,
+  summarizeAttendance,
+  type PayrollLine,
+} from '@/lib/payroll'
+import {
+  clearPayrollPaid,
+  getPayrollBase,
+  getPayrollRules,
+  getPayrollSheet,
+  markPayrollPaid,
+  setPayrollBase,
+  setPayrollLine,
+  setPayrollRule,
+} from '@/lib/payroll-store'
+import { today } from '@/lib/today'
 import { logStageAction } from '@/lib/access-log'
 import type { JobType, PlanKey, Stage, Verdict } from '@/lib/data'
 import { rowStageCounts } from '@/lib/master'
@@ -2022,6 +2047,137 @@ async function dispatch(
       await deleteExpense(expenseId)
       revalidatePath('/finance')
       return Response.json(ok())
+    }
+
+    // === 工资核算 / 发放 — same gate as 支出 (canSeeExpenses): these carry
+    // every person's pay. The 制度 and the 月薪名册 are shop-wide standing
+    // numbers; 加班/奖罚 are per person per month; 发放 is the one write that
+    // touches money, and it recomputes the whole run server-side rather than
+    // trusting an amount off the wire. ===
+    case 'setPayrollRule': {
+      const key = body.key
+      const value = body.value
+      if (!isRuleKey(key)) return err('bad setPayrollRule args')
+      if (!isValidRuleValue(key, value)) return err('这个数超出范围了')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      await setPayrollRule(key, value as number)
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    case 'setPayrollBase': {
+      const name = body.name
+      const monthlyCny = body.monthlyCny
+      if (!isString(name) || !name.trim())
+        return err('bad setPayrollBase args')
+      if (!isValidMonthlyCny(monthlyCny)) return err('月薪这个数不对')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      await setPayrollBase(name.trim(), monthlyCny)
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    case 'setPayrollLine': {
+      const month = body.month
+      const name = body.name
+      const patch = body.patch
+      if (!isPayrollMonth(month) || !isString(name) || !name.trim())
+        return err('bad setPayrollLine args')
+      if (typeof patch !== 'object' || patch === null)
+        return err('bad setPayrollLine args')
+      const p = patch as Record<string, unknown>
+      const line: PayrollLine = {}
+      if (p.otHours !== undefined) {
+        if (!isValidOtHours(p.otHours)) return err('加班小时不对')
+        line.otHours = p.otHours
+      }
+      if (p.adjustCny !== undefined) {
+        if (!isValidAdjust(p.adjustCny)) return err('奖罚金额不对')
+        line.adjustCny = p.adjustCny
+      }
+      if (p.note !== undefined) {
+        if (!isString(p.note)) return err('bad setPayrollLine args')
+        line.note = p.note
+      }
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      try {
+        await setPayrollLine(month, name.trim(), line)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '改不上')
+      }
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    // 发放 — turns the month's 工资条 into 支出台账 rows (类别 工资, 对象 人名)
+    // dated the day the cash actually moves, and freezes the run. The expense
+    // ids are kept so 撤销 can delete exactly those rows and nothing else.
+    case 'payPayroll': {
+      const month = body.month
+      if (!isPayrollMonth(month)) return err('bad payPayroll args')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+
+      const sheet = await getPayrollSheet(month)
+      if (sheet.paid) return err('这个月已经发过了')
+
+      const [rules, base, hr] = await Promise.all([
+        getPayrollRules(),
+        getPayrollBase(),
+        getHrMonth(month),
+      ])
+      const slips = buildPayslips(
+        base,
+        summarizeAttendance(hr),
+        sheet.lines,
+        rules,
+        month,
+      )
+      if (slips.length === 0) return err('这个月还没有人定工资')
+      if (slips.some((s) => s.netCny < 0))
+        return err('有人实发是负数，先用奖罚调平再发放')
+
+      const label = payrollMonthLabel(month)
+      const expenseIds = await createExpenses(
+        slips.map((s) => ({
+          expenseDate: today(),
+          category: 'payroll' as const,
+          amountCny: s.netCny,
+          payee: s.name,
+          note: `${label}工资`,
+        })),
+        u.name,
+      )
+      const total = payrollTotal(slips)
+      const frozen = await markPayrollPaid(month, {
+        at: new Date().toISOString(),
+        by: u.name,
+        total,
+        expenseIds,
+        slips,
+      })
+      if (!frozen) {
+        // Somebody else paid it out between the read and the write. Undo our
+        // rows so the ledger never carries the month twice.
+        for (const id of expenseIds) await deleteExpense(id)
+        return err('这个月刚刚被发过了')
+      }
+      revalidatePath('/finance')
+      return Response.json(ok({ count: slips.length, total }))
+    }
+
+    case 'unpayPayroll': {
+      const month = body.month
+      if (!isPayrollMonth(month)) return err('bad unpayPayroll args')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      const expenseIds = await clearPayrollPaid(month)
+      for (const id of expenseIds) await deleteExpense(id)
+      revalidatePath('/finance')
+      return Response.json(ok({ count: expenseIds.length }))
     }
 
     // === 笔记 (notes) — per-author scratchpad, 商务 + 工程 (canUseNotes).
