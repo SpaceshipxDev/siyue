@@ -6,25 +6,11 @@ import {
   canSeeReport,
   requireOrderLedgerViewer,
 } from '@/lib/auth'
-import {
-  getActiveUsers,
-  getExpenses,
-  getFenqiData,
-  getOrderLedgerRows,
-} from '@/lib/db'
+import { getExpenses, getFenqiData, getOrderLedgerRows } from '@/lib/db'
 import { getVouchersForExpenses } from '@/lib/voucher-file'
-import { getHrMonth, getHrMonths, getHrRoster } from '@/lib/hr'
-import {
-  buildPayslips,
-  isPayrollMonth,
-  summarizeAttendance,
-} from '@/lib/payroll'
-import {
-  getPayrollBase,
-  getPayrollMonths,
-  getPayrollRules,
-  getPayrollSheet,
-} from '@/lib/payroll-store'
+import { getHrMonths } from '@/lib/hr'
+import { isPayrollMonth } from '@/lib/payroll'
+import { getPayrollMonths, loadPayroll } from '@/lib/payroll-store'
 import { today } from '@/lib/today'
 import { formatCny } from '@/lib/data'
 import {
@@ -352,14 +338,20 @@ async function ExpenseTab({
 
 // === 工资 — 一人一行的月度工资表 ===
 //
-// Nothing here is typed twice: 月薪 is a standing number, the 考勤 columns are
-// the 人事 log for that month read back through lib/payroll, and 加班/奖罚 are
-// the only two cells a person fills. A month that's been 发放'd renders its
-// frozen 工资条 instead of a live recomputation — what was paid out is history.
+// Nothing here is typed twice: 月薪 and 部门 are standing facts, the 考勤
+// columns are the 人事 log for that month read back through lib/payroll, and
+// 加班/奖罚 are the only two cells a person fills. A month that's been 发放'd
+// renders its frozen 工资条 instead of a live recomputation — what was paid out
+// is history.
 //
 // The 名册 is 人事's: system accounts plus every name 人事 was told to
 // remember, which is the only list this shop has of people who don't have a
 // login. Somebody without a 月薪 sits under 未定月薪 until one is typed.
+//
+// 部门 is what decides how long that person's day is, so it's guessed rather
+// than asked for: an account's own 工段 (商务 for the office), else the 部门
+// stamped on their 人事 lines, else 未分部门 — one click on the row puts it
+// right, and the choice sticks in the 名册 from then on.
 async function PayrollTab({
   pm,
   thisMonth,
@@ -369,47 +361,26 @@ async function PayrollTab({
 }) {
   const month = isPayrollMonth(pm ?? '') ? (pm as string) : thisMonth
 
-  const [rules, base, sheet, hrRecords, payrollMonths, hrMonths, users, extra] =
-    await Promise.all([
-      getPayrollRules(),
-      getPayrollBase(),
-      getPayrollSheet(month),
-      getHrMonth(month),
-      getPayrollMonths(),
-      getHrMonths(),
-      getActiveUsers(),
-      getHrRoster(),
-    ])
-
-  const slips = sheet.paid
-    ? sheet.paid.slips
-    : buildPayslips(
-        base,
-        summarizeAttendance(hrRecords),
-        sheet.lines,
-        rules,
-        month,
-      )
-
-  const onPayroll = new Set(slips.map((s) => s.name))
-  const offRoster = [...new Set([...users.map((u) => u.name), ...extra])]
-    .filter((n) => !onPayroll.has(n))
-    .sort((a, b) => a.localeCompare(b, 'zh'))
+  const [view, payrollMonths, hrMonths] = await Promise.all([
+    loadPayroll(month),
+    getPayrollMonths(),
+    getHrMonths(),
+  ])
 
   return (
     <PayrollBoard
       month={month}
       months={[...new Set([...payrollMonths, ...hrMonths, thisMonth])]}
-      rules={rules}
-      slips={slips}
-      offRoster={offRoster}
+      rules={view.rules}
+      slips={view.slips}
+      offRoster={view.offRoster}
       paid={
-        sheet.paid
+        view.paid
           ? {
-              at: sheet.paid.at,
-              by: sheet.paid.by,
-              total: sheet.paid.total,
-              count: sheet.paid.slips.length,
+              at: view.paid.at,
+              by: view.paid.by,
+              total: view.paid.total,
+              count: view.paid.slips.length,
             }
           : null
       }

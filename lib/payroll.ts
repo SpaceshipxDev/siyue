@@ -1,11 +1,16 @@
 // 财务 / 工资核算 (payroll) domain logic.
 //
-// The shop pays a 月薪 and rests 月休4天. Everything else in a month's pay is
-// a consequence of that one sentence:
+// Everybody rests 月休4天; how long a day is depends on which 部门 you're in —
+// 商务 10 小时, 车间 11, 操机 12, 人事/采购 8. So a month's pay is a
+// consequence of two numbers, the shop-wide 月休 and the 部门's 每天工时:
 //
-//   应出勤天数 = 当月天数 − 月休天数          (8月 31 天 − 4 = 27 天)
-//   应出勤工时 = 应出勤天数 × 每天工时         (27 × 8 = 216 小时)
-//   时薪       = 月薪 ÷ 应出勤工时             (¥6000 ÷ 216 = ¥27.8)
+//   应出勤天数 = 当月天数 − 月休天数            (8月 31 天 − 4 = 27 天)
+//   应出勤工时 = 应出勤天数 × 本部门每天工时     (27 × 11 = 297 小时)
+//   时薪       = 月薪 ÷ 应出勤工时               (¥6000 ÷ 297 = ¥20.2)
+//
+// The 部门 is therefore part of a person's pay, not a label: the same 月薪 in
+// 操机 and in 商务 buys different hours, and every deduction is priced off the
+// 时薪 that falls out of it.
 //
 // From there the 人事 log (lib/hr.ts) — which is already the shop's 考勤 book —
 // is the only other input: 事假/病假/工伤/旷工 come in hours, 迟到/违纪/质量
@@ -21,17 +26,58 @@
 // /finance page (server), the 发放 write path and the client board all compute
 // the same number.
 
+import { STAGES } from './data'
 import type { HrRecord } from './data'
+
+// === 部门 ===
+//
+// The shop's org chart is its 工段 list plus the two office desks that aren't
+// one: 商务 (which is what every office account reads as, see hrDeptOf) and
+// 人事, which sits in the office but keeps office hours of its own. Derived
+// from STAGES rather than a hand-copied literal — the 喷漆丝印 split showed
+// how a parallel stage list silently drifts.
+export const DEPARTMENTS = ['商务', '人事', ...STAGES] as const
+
+export const NO_DEPARTMENT = '未分部门'
+
+export function isDepartment(x: unknown): x is string {
+  return typeof x === 'string' && (DEPARTMENTS as readonly string[]).includes(x)
+}
+
+// 每天工时 per 部门 — the boss's own list. 商务 10, 工程/编程/手工/打磨/喷漆
+// 11, 操机 12, 人事/采购 8. The stages he didn't name (检验/表处/丝印/质量/
+// 出货) are shop floor too and start at 11 alongside their neighbours; every
+// one of them is editable on the 工资 page, so a default is a starting point,
+// never a claim.
+export const DEFAULT_HOURS_BY_DEPT: Record<string, number> = {
+  商务: 10,
+  人事: 8,
+  工程: 11,
+  采购: 8,
+  编程: 11,
+  操机: 12,
+  检验: 11,
+  手工: 11,
+  打磨: 11,
+  表处: 11,
+  喷漆: 11,
+  丝印: 11,
+  质量: 11,
+  出货: 11,
+}
+
+// Somebody whose 部门 nobody has said yet works the commonest day in the shop.
+export const FALLBACK_HOURS = 11
 
 // === 制度 ===
 //
-// The shop's rulebook, six numbers. Defaults are 月休4天 / 8 小时 and the
-// conventional split for the rest; 迟到 defaults to ¥0 because fining for it
-// is a decision, not an assumption. All six are editable on the 工资 page —
-// the sentence at the top of it IS this object.
+// The shop's rulebook: 月休 is one number for everybody, 每天工时 is one per
+// 部门, and the rest price what an absent hour costs. 迟到 defaults to ¥0
+// because fining for it is a decision, not an assumption. Every number is
+// editable on the 工资 page — the block at the top of it IS this object.
 export type PayrollRules = {
-  restDays: number // 月休天数
-  hoursPerDay: number // 每天工时
+  restDays: number // 月休天数 — 全厂一个数
+  hoursByDept: Record<string, number> // 每天工时 — 一个部门一个数
   sickPct: number // 病假扣薪比例 %（0 = 病假照发, 100 = 全扣）
   absentPct: number // 旷工扣薪比例 %（200 = 旷工一小时扣两小时）
   latePerTime: number // 迟到每次扣款, 元
@@ -40,33 +86,39 @@ export type PayrollRules = {
 
 export const DEFAULT_PAYROLL_RULES: PayrollRules = {
   restDays: 4,
-  hoursPerDay: 8,
+  hoursByDept: DEFAULT_HOURS_BY_DEPT,
   sickPct: 50,
   absentPct: 200,
   latePerTime: 0,
   otRate: 1.5,
 }
 
-// Bounds are sanity rails, not policy: they stop a slipped keystroke (80 hours
-// a day, a 500x overtime rate) from turning into a payroll run.
-const RULE_LIMITS: Record<keyof PayrollRules, [number, number]> = {
+// Bounds are sanity rails, not policy: they stop a slipped keystroke (a 500x
+// overtime rate, a 40-day month off) from turning into a payroll run.
+const RULE_LIMITS: Record<string, [number, number]> = {
   restDays: [0, 15],
-  hoursPerDay: [1, 16],
   sickPct: [0, 100],
   absentPct: [0, 300],
   latePerTime: [0, 1000],
   otRate: [1, 5],
 }
 
-export const RULE_KEYS = Object.keys(RULE_LIMITS) as (keyof PayrollRules)[]
+export type ScalarRuleKey = 'restDays' | 'sickPct' | 'absentPct' | 'latePerTime' | 'otRate'
 
-export function isRuleKey(x: unknown): x is keyof PayrollRules {
+export const RULE_KEYS = Object.keys(RULE_LIMITS) as ScalarRuleKey[]
+
+export function isRuleKey(x: unknown): x is ScalarRuleKey {
   return typeof x === 'string' && (RULE_KEYS as string[]).includes(x)
 }
 
-export function isValidRuleValue(key: keyof PayrollRules, v: unknown): boolean {
+export function isValidRuleValue(key: ScalarRuleKey, v: unknown): boolean {
   const [lo, hi] = RULE_LIMITS[key]
   return typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi
+}
+
+// A day is at least an hour and at most sixteen — past that it's a typo.
+export function isValidDeptHours(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 1 && v <= 16
 }
 
 // A stored rulebook that's missing a key (written before the key existed, or
@@ -76,11 +128,25 @@ export function normalizeRules(raw: unknown): PayrollRules {
     string,
     unknown
   >
-  const out = { ...DEFAULT_PAYROLL_RULES }
+  const out: PayrollRules = {
+    ...DEFAULT_PAYROLL_RULES,
+    hoursByDept: { ...DEFAULT_HOURS_BY_DEPT },
+  }
   for (const k of RULE_KEYS) {
     if (isValidRuleValue(k, o[k])) out[k] = o[k] as number
   }
+  const h = o.hoursByDept
+  if (typeof h === 'object' && h !== null) {
+    for (const [dept, v] of Object.entries(h as Record<string, unknown>)) {
+      if (isValidDeptHours(v)) out.hoursByDept[dept] = v
+    }
+  }
   return out
+}
+
+export function hoursForDept(rules: PayrollRules, dept?: string): number {
+  const h = dept ? rules.hoursByDept[dept] : undefined
+  return isValidDeptHours(h) ? h : FALLBACK_HOURS
 }
 
 // === 考勤汇总 ===
@@ -162,7 +228,9 @@ export function isPayrollMonth(x: unknown): x is string {
 // on screen adds up, which is the only way it settles an argument.
 export type Payslip = {
   name: string
+  dept: string // 部门 — 决定这个人一天算几个小时
   monthlyCny: number // 月薪
+  hoursPerDay: number // 本部门每天工时
   standardDays: number // 应出勤天数
   standardHours: number // 应出勤工时
   hourlyCny: number // 时薪（未取整, 展示用一位小数）
@@ -192,6 +260,7 @@ export function standardDaysOf(month: string, rules: PayrollRules): number {
 
 export function computePayslip(
   name: string,
+  dept: string,
   monthlyCny: number,
   attendance: Attendance,
   line: PayrollLine,
@@ -199,7 +268,8 @@ export function computePayslip(
   month: string,
 ): Payslip {
   const standardDays = standardDaysOf(month, rules)
-  const standardHours = standardDays * rules.hoursPerDay
+  const hoursPerDay = hoursForDept(rules, dept)
+  const standardHours = standardDays * hoursPerDay
   const hourlyCny = monthlyCny / standardHours
   const otHours = line.otHours ?? 0
   const adjustCny = Math.round(line.adjustCny ?? 0)
@@ -226,7 +296,9 @@ export function computePayslip(
 
   return {
     name,
+    dept,
     monthlyCny,
+    hoursPerDay,
     standardDays,
     standardHours,
     hourlyCny,
@@ -245,28 +317,56 @@ export function computePayslip(
   }
 }
 
+// 名册的一行：月薪 + 部门。部门决定一天算几个小时，所以它跟月薪一样是工资的
+// 一部分，不是个标签。
+export type PayrollPerson = {
+  monthlyCny: number
+  dept: string
+}
+
 // The month's run: one 工资条 per person who has a 月薪. Somebody with no 月薪
-// yet isn't on payroll — typing their 月薪 is what puts them on it.
+// yet isn't on payroll — typing their 月薪 is what puts them on it. Sorted by
+// 部门 then name, so the sheet reads the way the floor is laid out.
 export function buildPayslips(
-  base: Record<string, number>,
+  base: Record<string, PayrollPerson>,
   attendance: Record<string, Attendance>,
   lines: Record<string, PayrollLine>,
   rules: PayrollRules,
   month: string,
 ): Payslip[] {
   return Object.entries(base)
-    .filter(([, m]) => m > 0)
-    .map(([name, m]) =>
+    .filter(([, p]) => p.monthlyCny > 0)
+    .map(([name, p]) =>
       computePayslip(
         name,
-        m,
+        p.dept,
+        p.monthlyCny,
         attendance[name] ?? EMPTY_ATTENDANCE,
         lines[name] ?? {},
         rules,
         month,
       ),
     )
-    .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+    .sort((a, b) =>
+      a.dept !== b.dept
+        ? deptOrder(a.dept) - deptOrder(b.dept)
+        : a.name.localeCompare(b.name, 'zh'),
+    )
+}
+
+// 商务 first, then the floor in stage order, unknowns last — DEPARTMENTS' own
+// order, which is STAGES' order.
+function deptOrder(dept: string): number {
+  const i = (DEPARTMENTS as readonly string[]).indexOf(dept)
+  return i === -1 ? DEPARTMENTS.length : i
+}
+
+// Which 部门 actually have somebody on the payroll — the 每天工时 strip only
+// shows these, so it starts at three or four numbers instead of fourteen.
+export function deptsInUse(slips: Payslip[]): string[] {
+  return [...new Set(slips.map((s) => s.dept))].sort(
+    (a, b) => deptOrder(a) - deptOrder(b),
+  )
 }
 
 export function payrollTotal(slips: Payslip[]): number {
@@ -283,8 +383,10 @@ export function monthLabel(month: string): string {
 // on purpose, it's where people sign.
 export const PAYROLL_EXPORT_HEADERS = [
   '姓名',
+  '部门',
   '月薪',
   '应出勤天',
+  '每天工时',
   '应出勤工时',
   '事假h',
   '病假h',
@@ -305,7 +407,7 @@ export const PAYROLL_EXPORT_HEADERS = [
 ] as const
 
 export const PAYROLL_EXPORT_COL_WIDTHS = [
-  10, 10, 10, 12, 8, 8, 8, 8, 8, 8, 10, 9, 9, 9, 9, 9, 9, 11, 18, 12,
+  10, 9, 10, 10, 10, 12, 8, 8, 8, 8, 8, 8, 10, 9, 9, 9, 9, 9, 9, 11, 18, 12,
 ]
 
 export function buildPayrollExportAoa(
@@ -315,8 +417,10 @@ export function buildPayrollExportAoa(
   for (const p of slips) {
     aoa.push([
       p.name,
+      p.dept,
       p.monthlyCny,
       p.standardDays,
+      p.hoursPerDay,
       p.standardHours,
       p.attendance.leaveHours,
       p.attendance.sickHours,
@@ -336,27 +440,10 @@ export function buildPayrollExportAoa(
       '',
     ])
   }
-  aoa.push([
-    '合计',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    payrollTotal(slips),
-    '',
-    '',
-  ])
+  // 合计 sits under 实发; everything else in the row is blank.
+  const totalRow: (string | number)[] = PAYROLL_EXPORT_HEADERS.map(() => '')
+  totalRow[0] = '合计'
+  totalRow[PAYROLL_EXPORT_HEADERS.indexOf('实发')] = payrollTotal(slips)
+  aoa.push(totalRow)
   return aoa
 }

@@ -1,13 +1,23 @@
 import 'server-only'
 import { supabase, STORAGE_BUCKET } from './supabase'
+import { hrDeptOf } from './auth'
+import { getActiveUsers } from './db'
+import { getHrMonth, getHrRoster } from './hr'
 import {
+  buildPayslips,
   normalizeRules,
+  summarizeAttendance,
   isValidAdjust,
+  isValidDeptHours,
   isValidMonthlyCny,
   isValidOtHours,
+  FALLBACK_HOURS,
+  NO_DEPARTMENT,
   type PayrollLine,
+  type PayrollPerson,
   type PayrollRules,
   type Payslip,
+  type ScalarRuleKey,
 } from './payroll'
 
 /*
@@ -18,8 +28,9 @@ import {
  * stale DB. Payroll is one small object per month for one shop; a JSON file
  * per month IS the query.
  *
- *   payroll/rules.json     the 制度 — 月休天数 / 每天工时 / 扣薪比例 / 加班倍率
- *   payroll/base.json      { 姓名: 月薪 } — the standing roster
+ *   payroll/rules.json     the 制度 — 月休天数 / 各部门每天工时 / 扣薪比例 /
+ *                          加班倍率
+ *   payroll/base.json      { 姓名: {月薪, 部门} } — the standing roster
  *   payroll/<YYYY-MM>.json { lines: { 姓名: {加班,奖罚,备注} }, paid? }
  *
  * 发放 freezes the run: the 工资条 as computed at that moment, plus the ids of
@@ -75,7 +86,7 @@ export async function getPayrollRules(): Promise<PayrollRules> {
 }
 
 export async function setPayrollRule(
-  key: keyof PayrollRules,
+  key: ScalarRuleKey,
   value: number,
 ): Promise<void> {
   await withPayrollLock(async () => {
@@ -85,34 +96,85 @@ export async function setPayrollRule(
   })
 }
 
+// 一个部门一天算几个小时 — 商务 10, 车间 11, 操机 12, 人事/采购 8.
+export async function setPayrollDeptHours(
+  dept: string,
+  hours: number,
+): Promise<void> {
+  await withPayrollLock(async () => {
+    const rules = normalizeRules(await readJson(RULES_KEY))
+    rules.hoursByDept = { ...rules.hoursByDept, [dept]: hours }
+    await writeJson(RULES_KEY, rules)
+  })
+}
+
 // === 月薪名册 ===
 
-function normalizeBase(raw: unknown): Record<string, number> {
+// Rows written before 部门 was part of pay carry a bare 月薪 number. They read
+// as 未分部门 — visible on the sheet, priced at the shop's commonest day, and
+// one click from being put right.
+function normalizeBase(raw: unknown): Record<string, PayrollPerson> {
   const o = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<
     string,
     unknown
   >
-  const out: Record<string, number> = {}
+  const out: Record<string, PayrollPerson> = {}
   for (const [name, v] of Object.entries(o)) {
-    if (name.trim() && isValidMonthlyCny(v) && v > 0) out[name] = v
+    if (!name.trim()) continue
+    if (isValidMonthlyCny(v) && v > 0) {
+      out[name] = { monthlyCny: v, dept: NO_DEPARTMENT }
+      continue
+    }
+    if (typeof v !== 'object' || v === null) continue
+    const p = v as Record<string, unknown>
+    if (!isValidMonthlyCny(p.monthlyCny) || p.monthlyCny <= 0) continue
+    out[name] = {
+      monthlyCny: p.monthlyCny,
+      dept:
+        typeof p.dept === 'string' && p.dept.trim() ? p.dept : NO_DEPARTMENT,
+    }
   }
   return out
 }
 
-export async function getPayrollBase(): Promise<Record<string, number>> {
+export async function getPayrollBase(): Promise<Record<string, PayrollPerson>> {
   return normalizeBase(await readJson(BASE_KEY))
 }
 
 // 0 (or a cleared field) takes the person OFF payroll — one number is the whole
-// employee lifecycle here, and a name with no 月薪 simply isn't paid.
+// employee lifecycle here, and a name with no 月薪 simply isn't paid. 部门 comes
+// along because it's what prices the hours; an existing person keeps theirs.
 export async function setPayrollBase(
   name: string,
   monthlyCny: number,
+  dept: string,
 ): Promise<void> {
   await withPayrollLock(async () => {
     const base = normalizeBase(await readJson(BASE_KEY))
-    if (monthlyCny > 0) base[name] = monthlyCny
-    else delete base[name]
+    if (monthlyCny > 0) {
+      // An existing 部门 wins, except when it's the placeholder — then the
+      // caller's guess is better than nothing and gets written down for good.
+      const had = base[name]?.dept
+      base[name] = {
+        monthlyCny,
+        dept: had && had !== NO_DEPARTMENT ? had : dept,
+      }
+    } else delete base[name]
+    await writeJson(BASE_KEY, base)
+  })
+}
+
+// 换部门 — the person's day gets longer or shorter, so every number on their
+// row re-derives. Only meaningful for somebody already on payroll.
+export async function setPayrollDept(
+  name: string,
+  dept: string,
+): Promise<void> {
+  await withPayrollLock(async () => {
+    const base = normalizeBase(await readJson(BASE_KEY))
+    const row = base[name]
+    if (!row) return
+    base[name] = { ...row, dept }
     await writeJson(BASE_KEY, base)
   })
 }
@@ -150,11 +212,21 @@ function normalizeSheet(raw: unknown): PayrollSheet {
     if (typeof l.note === 'string' && l.note.trim()) line.note = l.note
     lines[name] = line
   }
-  const paid =
-    typeof o.paid === 'object' && o.paid !== null
-      ? (o.paid as PayrollPaid)
-      : undefined
-  return paid ? { lines, paid } : { lines }
+  if (typeof o.paid !== 'object' || o.paid === null) return { lines }
+  // 工资条 frozen before 部门 was part of pay carry neither — they read as
+  // 未分部门 at the shop's commonest day, which is what they were paid at.
+  const p = o.paid as PayrollPaid
+  const paid: PayrollPaid = {
+    ...p,
+    slips: (Array.isArray(p.slips) ? p.slips : []).map((s) => ({
+      ...s,
+      dept: s.dept || NO_DEPARTMENT,
+      hoursPerDay: isValidDeptHours(s.hoursPerDay)
+        ? s.hoursPerDay
+        : FALLBACK_HOURS,
+    })),
+  }
+  return { lines, paid }
 }
 
 export async function getPayrollSheet(month: string): Promise<PayrollSheet> {
@@ -216,6 +288,61 @@ export async function clearPayrollPaid(month: string): Promise<string[]> {
     await writeJson(monthKey(month), sheet)
     return ids
   })
+}
+
+// === 一个月的完整读法 ===
+//
+// One place computes a month's payroll — the 工资 page and the 工资表导出 both
+// call this, so an exported sheet can never say something different from the
+// screen it was exported from.
+//
+// 部门 is guessed for anybody the 名册 hasn't been told about: an account's own
+// 工段 (商务 for the office), else the 部门 stamped on their 人事 lines. The
+// guess is only ever a starting value — the moment somebody picks a 部门 on the
+// row it's written into the 名册 and stops being guessed.
+export type PayrollView = {
+  rules: PayrollRules
+  slips: Payslip[]
+  /** 名册里还没定月薪的人, 带上猜出来的部门。 */
+  offRoster: { name: string; dept: string }[]
+  paid: PayrollPaid | null
+}
+
+export async function loadPayroll(month: string): Promise<PayrollView> {
+  const [rules, base, sheet, hrRecords, users, extraNames] = await Promise.all([
+    getPayrollRules(),
+    getPayrollBase(),
+    getPayrollSheet(month),
+    getHrMonth(month),
+    getActiveUsers(),
+    getHrRoster(),
+  ])
+
+  const guessDept = (name: string): string => {
+    const account = users.find((u) => u.name === name)
+    if (account) return hrDeptOf(account)
+    return (
+      hrRecords.find((r) => r.name === name && r.dept)?.dept ?? NO_DEPARTMENT
+    )
+  }
+
+  const resolved: Record<string, PayrollPerson> = {}
+  for (const [name, p] of Object.entries(base)) {
+    resolved[name] = p.dept === NO_DEPARTMENT ? { ...p, dept: guessDept(name) } : p
+  }
+
+  // A paid-out month renders what was handed over, not a fresh computation.
+  const slips = sheet.paid
+    ? sheet.paid.slips
+    : buildPayslips(resolved, summarizeAttendance(hrRecords), sheet.lines, rules, month)
+
+  const onPayroll = new Set(slips.map((s) => s.name))
+  const offRoster = [...new Set([...users.map((u) => u.name), ...extraNames])]
+    .filter((n) => !onPayroll.has(n))
+    .sort((a, b) => a.localeCompare(b, 'zh'))
+    .map((name) => ({ name, dept: guessDept(name) }))
+
+  return { rules, slips, offRoster, paid: sheet.paid ?? null }
 }
 
 // Which months have a sheet — drives the period picker, same idea as

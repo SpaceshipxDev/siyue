@@ -8,8 +8,12 @@ import { showToast } from '@/app/_toast'
 import { EditableText } from '@/app/_editable'
 import { formatCny } from '@/lib/data'
 import {
+  deptsInUse,
+  hoursForDept,
   monthLabel,
   payrollTotal,
+  DEPARTMENTS,
+  NO_DEPARTMENT,
   type PayrollRules,
   type Payslip,
 } from '@/lib/payroll'
@@ -35,13 +39,15 @@ export type PayrollBoardProps = {
   months: string[]
   rules: PayrollRules
   slips: Payslip[]
-  /** 名册里还没定月薪的人 — 填上月薪就上工资表。 */
-  offRoster: string[]
+  /** 名册里还没定月薪的人 — 填上月薪就上工资表。部门是猜出来的起手值。 */
+  offRoster: { name: string; dept: string }[]
   paid: { at: string; by: string; total: number; count: number } | null
 }
 
 const COLS =
-  'grid-cols-[minmax(0,1fr)_92px] md:grid-cols-[minmax(0,1fr)_84px_50px_50px_50px_44px_58px_74px_96px]'
+  'grid-cols-[minmax(0,1fr)_92px] md:grid-cols-[minmax(0,1fr)_76px_84px_50px_50px_50px_44px_58px_74px_96px]'
+
+const DEPT_OPTIONS = [...DEPARTMENTS, NO_DEPARTMENT]
 
 export function PayrollBoard({
   month,
@@ -57,6 +63,11 @@ export function PayrollBoard({
   // 未定月薪 is setup, not daily reading — it opens itself the first time
   // (nobody on payroll yet) and stays folded away after that.
   const [showOff, setShowOff] = useState(slips.length === 0)
+  // 每天工时 normally lists only the 部门 that have somebody in them; the whole
+  // org chart is one click away, and shows itself while the sheet is empty.
+  const [allDepts, setAllDepts] = useState(slips.length === 0)
+  const inUse = deptsInUse(slips)
+  const hoursDepts = allDepts || inUse.length === 0 ? DEPT_OPTIONS : inUse
 
   const locked = paid !== null
   const total = paid ? paid.total : payrollTotal(slips)
@@ -185,23 +196,54 @@ export function PayrollBoard({
         </div>
       </div>
 
-      {/* 制度 — the sentence every number on this page is computed from. */}
-      <div className="mb-6 flex flex-wrap items-center gap-x-1 gap-y-2 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 text-[12.5px] text-[var(--color-ink-3)]">
-        <span className="mr-2 font-medium text-[var(--color-ink-2)]">制度</span>
-        <Rule label="月休" unit="天" value={rules.restDays} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'restDays', value: v })} />
-        <Sep />
-        <Rule label="每天" unit="小时" value={rules.hoursPerDay} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'hoursPerDay', value: v })} />
-        <Sep />
-        <Rule label="病假扣" unit="%" value={rules.sickPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'sickPct', value: v })} />
-        <Sep />
-        <Rule label="旷工扣" unit="%" value={rules.absentPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'absentPct', value: v })} />
-        <Sep />
-        <Rule label="迟到每次扣" unit="元" value={rules.latePerTime} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'latePerTime', value: v })} />
-        <Sep />
-        <Rule label="加班" unit="倍" value={rules.otRate} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'otRate', value: v })} />
-        <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-          事假全扣 · 工伤不扣 · 违纪和质量异常自己定奖罚
-        </span>
+      {/* 制度 — 全厂一条月休, 一个部门一个工时, 剩下的是缺勤怎么算钱。 */}
+      <div className="mb-6 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 text-[12.5px] text-[var(--color-ink-3)]">
+        <div className="flex flex-wrap items-center gap-x-1 gap-y-2">
+          <span className="mr-2 w-[52px] shrink-0 font-medium text-[var(--color-ink-2)]">
+            制度
+          </span>
+          <Rule label="月休" unit="天" value={rules.restDays} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'restDays', value: v })} />
+          <Sep />
+          <Rule label="病假扣" unit="%" value={rules.sickPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'sickPct', value: v })} />
+          <Sep />
+          <Rule label="旷工扣" unit="%" value={rules.absentPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'absentPct', value: v })} />
+          <Sep />
+          <Rule label="迟到每次扣" unit="元" value={rules.latePerTime} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'latePerTime', value: v })} />
+          <Sep />
+          <Rule label="加班" unit="倍" value={rules.otRate} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'otRate', value: v })} />
+          <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
+            事假全扣 · 工伤不扣 · 违纪和质量异常自己定奖罚
+          </span>
+        </div>
+
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-1 gap-y-2 border-t border-[var(--color-border)] pt-2.5">
+          <span className="mr-2 w-[52px] shrink-0 font-medium text-[var(--color-ink-2)]">
+            每天工时
+          </span>
+          {hoursDepts.map((d, i) => (
+            <span key={d} className="inline-flex items-baseline">
+              {i > 0 && <Sep />}
+              <span className="text-[var(--color-ink-2)]">{d}</span>
+              <Rule
+                label=""
+                unit=""
+                value={hoursForDept(rules, d)}
+                locked={locked}
+                onSave={(v) =>
+                  save({ kind: 'setPayrollDeptHours', dept: d, hours: v })
+                }
+              />
+            </span>
+          ))}
+          <Sep />
+          <button
+            type="button"
+            onClick={() => setAllDepts(!allDepts)}
+            className="text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-ink-2)]"
+          >
+            {allDepts ? '只看在册部门' : '全部部门'}
+          </button>
+        </div>
       </div>
 
       {/* 工资表 */}
@@ -210,6 +252,7 @@ export function PayrollBoard({
           className={`hidden ${COLS} items-center gap-2 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid`}
         >
           <span className="label">姓名</span>
+          <span className="label">部门</span>
           <span className="label text-right">月薪</span>
           <span className="label text-center">事假</span>
           <span className="label text-center">病假</span>
@@ -256,12 +299,24 @@ export function PayrollBoard({
                 )}
               </button>
 
+              <Dept
+                value={s.dept}
+                locked={locked}
+                onSave={(d) =>
+                  save({ kind: 'setPayrollDept', name: s.name, dept: d })
+                }
+              />
               <Num
                 className="hidden md:block"
                 value={s.monthlyCny}
                 locked={locked}
                 onSave={(v) =>
-                  save({ kind: 'setPayrollBase', name: s.name, monthlyCny: v })
+                  save({
+                    kind: 'setPayrollBase',
+                    name: s.name,
+                    monthlyCny: v,
+                    dept: s.dept,
+                  })
                 }
               />
               <Att value={s.attendance.leaveHours} unit="h" />
@@ -329,13 +384,16 @@ export function PayrollBoard({
                 {showOff ? '收起' : '填月薪就上表'}
               </span>
             </button>
-            {showOff && offRoster.map((name) => (
+            {showOff && offRoster.map((p) => (
               <div
-                key={name}
+                key={p.name}
                 className={`grid ${COLS} items-center gap-2 border-b border-[var(--color-border)] px-4 py-2 last:border-b-0 md:px-5`}
               >
                 <span className="truncate text-[14px] text-[var(--color-ink-3)]">
-                  {name}
+                  {p.name}
+                </span>
+                <span className="mono hidden truncate text-[12px] text-[var(--color-ink-4)] md:block">
+                  {p.dept}
                 </span>
                 <Num
                   className="hidden md:block"
@@ -343,7 +401,12 @@ export function PayrollBoard({
                   locked={locked}
                   placeholder="填月薪"
                   onSave={(v) =>
-                    save({ kind: 'setPayrollBase', name, monthlyCny: v })
+                    save({
+                      kind: 'setPayrollBase',
+                      name: p.name,
+                      monthlyCny: v,
+                      dept: p.dept,
+                    })
                   }
                 />
               </div>
@@ -385,9 +448,8 @@ function Slip({ slip: s }: { slip: Payslip }) {
     <div className="border-t border-[var(--color-border)] bg-[#faf8f2] px-4 py-3 md:px-5">
       <div className="mx-auto max-w-[520px]">
         <p className="mono mb-2 text-[12px] text-[var(--color-ink-3)] tabular-nums">
-          月薪 {formatCny(s.monthlyCny)} ÷ 应出勤 {s.standardDays} 天 ÷{' '}
-          {num(s.standardHours / s.standardDays)} 小时 = 时薪 ¥
-          {s.hourlyCny.toFixed(1)}
+          {s.dept} · 月薪 {formatCny(s.monthlyCny)} ÷ 应出勤 {s.standardDays} 天
+          ÷ 每天 {num(s.hoursPerDay)} 小时 = 时薪 ¥{s.hourlyCny.toFixed(1)}
         </p>
         <div className="flex items-baseline justify-between border-b border-[var(--color-border)] py-1.5">
           <span className="text-[13px] text-[var(--color-ink-2)]">月薪</span>
@@ -436,6 +498,51 @@ function Slip({ slip: s }: { slip: Payslip }) {
         </p>
       </div>
     </div>
+  )
+}
+
+// 部门格 — 换一个部门, 这个人一天的工时就变了, 整行跟着重算。A plain native
+// select: fourteen options, one tap, and it works the same on the office PC and
+// on a phone. Invisible at rest like every other inline field on the board.
+function Dept({
+  value,
+  onSave,
+  locked,
+}: {
+  value: string
+  onSave: (dept: string) => Promise<void>
+  locked: boolean
+}) {
+  const [pending, setPending] = useState(false)
+  if (locked) {
+    return (
+      <span className="mono hidden truncate text-[12px] text-[var(--color-ink-2)] md:block">
+        {value}
+      </span>
+    )
+  }
+  return (
+    <select
+      value={value}
+      disabled={pending}
+      onChange={async (e) => {
+        setPending(true)
+        try {
+          await onSave(e.target.value)
+        } finally {
+          setPending(false)
+        }
+      }}
+      className={`mono hidden w-full cursor-pointer appearance-none rounded-[2px] border-0 bg-transparent px-1 -mx-1 py-0.5 text-[12px] text-[var(--color-ink-2)] outline-none transition-[background-color,box-shadow] duration-150 hover:bg-[var(--color-active-bg)] hover:shadow-[inset_0_-1px_0_var(--color-border-strong)] focus:bg-[var(--color-active-bg)] focus:shadow-[inset_0_-1px_0_var(--color-ink)] md:block ${
+        pending ? 'opacity-60' : ''
+      } ${value === NO_DEPARTMENT ? 'text-[var(--color-ink-4)]' : ''}`}
+    >
+      {DEPT_OPTIONS.map((d) => (
+        <option key={d} value={d}>
+          {d}
+        </option>
+      ))}
+    </select>
   )
 }
 

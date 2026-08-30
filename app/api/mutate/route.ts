@@ -131,29 +131,29 @@ import {
 import {
   addHrRecord,
   deleteHrRecord as deleteHrRecordRow,
-  getHrMonth,
   isValidHrInput,
 } from '@/lib/hr'
 import {
-  buildPayslips,
+  isDepartment,
   isPayrollMonth,
   isRuleKey,
   isValidAdjust,
+  isValidDeptHours,
   isValidMonthlyCny,
   isValidOtHours,
   isValidRuleValue,
   monthLabel as payrollMonthLabel,
   payrollTotal,
-  summarizeAttendance,
+  NO_DEPARTMENT,
   type PayrollLine,
 } from '@/lib/payroll'
 import {
   clearPayrollPaid,
-  getPayrollBase,
-  getPayrollRules,
-  getPayrollSheet,
+  loadPayroll,
   markPayrollPaid,
   setPayrollBase,
+  setPayrollDept,
+  setPayrollDeptHours,
   setPayrollLine,
   setPayrollRule,
 } from '@/lib/payroll-store'
@@ -2066,15 +2066,48 @@ async function dispatch(
       return Response.json(ok())
     }
 
+    // 每天工时 — one number per 部门 (商务 10, 车间 11, 操机 12, 人事/采购 8).
+    case 'setPayrollDeptHours': {
+      const dept = body.dept
+      const hours = body.hours
+      if (!isString(dept) || (!isDepartment(dept) && dept !== NO_DEPARTMENT))
+        return err('bad setPayrollDeptHours args')
+      if (!isValidDeptHours(hours)) return err('一天只能是 1 到 16 小时')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      await setPayrollDeptHours(dept, hours)
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
     case 'setPayrollBase': {
       const name = body.name
       const monthlyCny = body.monthlyCny
+      const dept = body.dept
       if (!isString(name) || !name.trim())
         return err('bad setPayrollBase args')
       if (!isValidMonthlyCny(monthlyCny)) return err('月薪这个数不对')
       const u = await requireUser()
       if (!canSeeExpenses(u)) return err('forbidden', 403)
-      await setPayrollBase(name.trim(), monthlyCny)
+      await setPayrollBase(
+        name.trim(),
+        monthlyCny,
+        isDepartment(dept) ? dept : NO_DEPARTMENT,
+      )
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    case 'setPayrollDept': {
+      const name = body.name
+      const dept = body.dept
+      if (!isString(name) || !name.trim())
+        return err('bad setPayrollDept args')
+      if (!isDepartment(dept) && dept !== NO_DEPARTMENT)
+        return err('没有这个部门')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      await setPayrollDept(name.trim(), dept as string)
       revalidatePath('/finance')
       return Response.json(ok())
     }
@@ -2121,21 +2154,10 @@ async function dispatch(
       const u = await requireUser()
       if (!canSeeExpenses(u)) return err('forbidden', 403)
 
-      const sheet = await getPayrollSheet(month)
-      if (sheet.paid) return err('这个月已经发过了')
-
-      const [rules, base, hr] = await Promise.all([
-        getPayrollRules(),
-        getPayrollBase(),
-        getHrMonth(month),
-      ])
-      const slips = buildPayslips(
-        base,
-        summarizeAttendance(hr),
-        sheet.lines,
-        rules,
-        month,
-      )
+      // Same read the 工资 tab renders from — the amount paid is always the
+      // amount on screen, 部门工时 and all.
+      const { slips, paid: already } = await loadPayroll(month)
+      if (already) return err('这个月已经发过了')
       if (slips.length === 0) return err('这个月还没有人定工资')
       if (slips.some((s) => s.netCny < 0))
         return err('有人实发是负数，先用奖罚调平再发放')
