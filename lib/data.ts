@@ -563,6 +563,11 @@ export type HrRecord = {
   hours?: number // 时长, in hours — 事假/病假/工伤/旷工 only
   note?: string
   by?: string // 记录人
+  // 部门 — the 工段 this person belongs to (商务 for office staff). Stamped by
+  // the server at filing time from the person's own account, falling back to
+  // the filer's department for people with no login. It's what scopes a 工段
+  // manager to his own people: he files and reads his 部门 and nothing else.
+  dept?: string
   createdAt: string
 }
 

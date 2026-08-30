@@ -34,6 +34,7 @@ export function HrBoard({
   months,
   roster,
   canDelete,
+  scope,
   today,
 }: {
   records: HrRecord[]
@@ -41,6 +42,8 @@ export function HrBoard({
   months: string[]
   roster: string[]
   canDelete: boolean
+  /** null = 看全部; otherwise the one 部门 this reader is scoped to. */
+  scope: string | null
   today: string
 }) {
   const router = useRouter()
@@ -84,6 +87,7 @@ export function HrBoard({
       .map(([person, list]) => ({
         name: person,
         list,
+        dept: list.find((r) => r.dept)?.dept,
         cells: HR_TYPES.map((t) => {
           const of = list.filter((r) => r.type === t)
           if (of.length === 0) return ''
@@ -171,6 +175,12 @@ export function HrBoard({
 
   return (
     <div className="mx-auto max-w-4xl">
+      {scope !== null && (
+        <p className="mb-3 text-[12.5px] text-[var(--color-ink-3)]">
+          你看到的是<span className="text-[var(--color-ink)]">{scope}</span>
+          的人，记的也只能是{scope}的人。
+        </p>
+      )}
       {/* 记一笔 — everything on one line, filed with one tap. */}
       <div className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-4 md:px-5">
         <div className="flex flex-wrap items-center gap-2.5">
@@ -331,6 +341,11 @@ export function HrBoard({
               >
                 <span className="truncate text-[14.5px] font-medium tracking-tight text-[var(--color-ink)]">
                   {r.name}
+                  {scope === null && r.dept && (
+                    <span className="ml-2 text-[11.5px] font-normal text-[var(--color-ink-3)]">
+                      {r.dept}
+                    </span>
+                  )}
                 </span>
                 {r.cells.map((c, i) => (
                   <span

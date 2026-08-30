@@ -26,6 +26,7 @@ import {
   deleteProcurement,
   deleteProcurementProduct,
   dismissProcurementNeed,
+  getActiveUsers,
   deleteComponent,
   deleteOutsourceBlock,
   deletePartPhoto,
@@ -118,6 +119,8 @@ import {
   canSeeMoney,
   canUseNotes,
   currentUser,
+  canSeeAllHr,
+  hrDeptOf,
   requireCommerce,
   requireHrUser,
   requireOutsourceManager,
@@ -1846,7 +1849,23 @@ async function dispatch(
       const input = body.input
       if (!isValidHrInput(input)) return err('bad addHrRecord args')
       const u = await requireHrUser()
-      const row = await addHrRecord(input, u.name, new Date().toISOString())
+      // 部门 comes from the person being filed on — their own 工段 is the team
+      // this line belongs to. Somebody with no login (roster-only name) falls
+      // back to the filer's 部门, which is the only team he could be on.
+      const roster = await getActiveUsers()
+      const target = roster.find((x) => x.name === input.name.trim())
+      const dept = target ? hrDeptOf(target) : hrDeptOf(u)
+      // A filer without the whole-factory view may only file on his own 部门 —
+      // otherwise he could write a line he then isn't allowed to read.
+      if (!canSeeAllHr(u) && dept !== hrDeptOf(u)) {
+        return err(`${input.name.trim()} 不是${hrDeptOf(u)}的人`, 403)
+      }
+      const row = await addHrRecord(
+        input,
+        u.name,
+        dept,
+        new Date().toISOString(),
+      )
       revalidatePath('/hr')
       return Response.json(ok({ record: row }))
     }

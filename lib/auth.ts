@@ -83,12 +83,40 @@ export function canGai(u: AuthUser): boolean {
   return u.canGai || isAdminUser(u.id)
 }
 
-// 人事 — 请假 / 迟到 / 旷工 / 违纪 / 重大质量异常 per person. Office-side only:
-// these lines decide pay and discipline, so the floor neither writes them nor
-// reads them, not even about itself. Same gate as 工单编辑 — whoever runs the
-// orders runs the roster.
-export function canUseHr(s: Scope): boolean {
-  return s.role === 'commerce'
+// ─── 人事 (请假 / 迟到 / 旷工 / 违纪 / 重大质量异常) ────────────────────────
+//
+// Three tiers, because the three questions are different:
+//
+//   填报 + 看本部门 — everyone who runs people. A 工段长 has to be able to
+//     write down that his own man came in late, and to read his own 部门's
+//     month; he must NOT be able to read another 工段's, because that is
+//     somebody else's pay and somebody else's discipline.
+//   看全部        — 商务 (the office runs payroll) and 采购站. The whole
+//     factory in one table is a management view, not a working one.
+//   改 / 删       — named people only, see canDeleteHrRecord. A wrong line
+//     gets corrected by filing the right one; a deleted 违纪 leaves no trace
+//     it ever happened.
+//
+// 部门 is the 工段 (商务 for office accounts) — this shop has no other notion
+// of one, and the 工段 IS the team a person answers to.
+export function hrDeptOf(s: Scope): string {
+  return s.role === 'commerce' ? '商务' : (s.defaultStage ?? '未分部门')
+}
+
+// Anyone signed in may file — scoped to their own 部门 by hrDeptOf, so the
+// blast radius of a floor account is its own team. Widen-then-scope rather
+// than a per-person allowlist: the shop's managers are not enumerable in the
+// user table (half the floor shares a station account), and a 工段长 who
+// can't file is a 工段长 who keeps using paper.
+export function canUseHr(_s: Scope): boolean {
+  void _s
+  return true
+}
+
+// 看全部 — every 部门 in one table. 商务 covers 老板 + 商务于海伟 + 人事;
+// 采购站 is named because 采购 runs as production but sits in the office.
+export function canSeeAllHr(s: Scope): boolean {
+  return s.role === 'commerce' || s.defaultStage === '采购'
 }
 
 export async function requireHrUser(): Promise<AuthUser> {
@@ -107,7 +135,7 @@ const HR_DELETER_USER_IDS = new Set<string>([
 ])
 
 export function canDeleteHrRecord(u: AuthUser): boolean {
-  return canUseHr(u) && HR_DELETER_USER_IDS.has(u.id)
+  return HR_DELETER_USER_IDS.has(u.id)
 }
 
 // Page guard for the 支出/月度 finance tabs. Non-finance commerce users land

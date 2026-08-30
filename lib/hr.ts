@@ -181,6 +181,9 @@ export type NewHrRecordInput = {
   note?: string
 }
 
+// 部门 is decided server-side, never sent by the client — it's what scopes who
+// may read the line, so it can't be something the browser gets to claim.
+
 export function isValidHrInput(x: unknown): x is NewHrRecordInput {
   if (typeof x !== 'object' || x === null) return false
   const o = x as Record<string, unknown>
@@ -201,6 +204,7 @@ export function isValidHrInput(x: unknown): x is NewHrRecordInput {
 export async function addHrRecord(
   input: NewHrRecordInput,
   by: string,
+  dept: string,
   nowIso: string,
 ): Promise<HrRecord> {
   const row: HrRecord = {
@@ -213,6 +217,7 @@ export async function addHrRecord(
     hours: hrHasHours(input.type) ? input.hours : undefined,
     note: input.note?.trim() || undefined,
     by,
+    dept,
     createdAt: nowIso,
   }
   // The 月 a record belongs to is the month it HAPPENED in, not the month it

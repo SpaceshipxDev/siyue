@@ -72,6 +72,9 @@ function tabsForRole(
         // 财务 (订单账) — same per-person grant pattern as 报工: only 工程
         // users on the canSeeOrderLedger allowlist (于海伟) carry the tab.
         ...(canSeeFinance ? [{ key: '财务' as TabKey, label: '财务', href: '/finance' }] : []),
+        // 人事 — every account carries it now; the page itself scopes what
+        // you see to your own 部门 (canSeeAllHr / hrDeptOf).
+        { key: '人事', label: '人事', href: '/hr' },
         { key: '外协', label: '外协', href: '/station/outsource' },
         ...stageTabs('工程'),
         { key: '退货', label: '退货', href: '/returns' },
@@ -90,6 +93,7 @@ function tabsForRole(
       { key: '工单', label: '全部', href: '/' },
       ...stageTabs(),
       { key: '采购', label: '采购', href: '/procurement' },
+      { key: '人事', label: '人事', href: '/hr' },
     ]
   }
   return [
@@ -103,8 +107,8 @@ function tabsForRole(
     { key: '采购', label: '采购', href: '/procurement' },
     { key: '报工', label: '报工', href: '/report' },
     { key: '财务', label: '财务', href: '/finance' },
-    // 人事 — 商务-only, no per-person grant: these lines decide pay and
-    // discipline, so the floor never carries the tab (canUseHr).
+    // 人事 — everyone files, but only 商务 + 采购站 read the whole factory;
+    // every other account is scoped to its own 部门 (canSeeAllHr / hrDeptOf).
     { key: '人事', label: '人事', href: '/hr' },
     { key: '外协', label: '外协', href: '/station/outsource' },
     ...stageTabs(),
