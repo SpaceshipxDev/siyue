@@ -67,14 +67,26 @@ export function canSeeMoney(s: Scope): boolean {
   return s.role === 'commerce'
 }
 
-// 支出台账 + 月度现金流 — the boss and designated finance users only. Payroll
-// rows carry per-person salaries, so this is deliberately narrower than
-// canSeeMoney (which every 商务 holds). The 老板 bootstrap account qualifies
-// unconditionally so a half-applied migration can never lock the boss out of
-// his own books.
+// 支出台账 / 工资 / 月度现金流 — the boss, designated finance users, and a
+// per-person allowlist. These pages carry every person's pay, so this is
+// deliberately narrower than canSeeMoney (which every 商务 holds).
+//
+// The allowlist is the same shape as REPORT_VIEWER_USER_IDS and
+// ORDER_LEDGER_VIEWER_USER_IDS below, and exists for the same reason: 于海伟
+// runs the shop's people (he's the only account that may delete a 人事 line,
+// see HR_DELETER_USER_IDS) and 工资 is his to settle, but he signs in on a
+// 工程 production account whose role would otherwise stop at the 订单 book.
+// A grant by name, not by role — 工资 is not something a whole 工段 gets.
+const EXPENSE_VIEWER_USER_IDS = new Set<string>([
+  'u-mose92lt-a0cutz', // 于海伟 — 生产号 (工程)
+  'u-ms45yjq9-2kbdi1', // 于海伟 — 商务号
+])
+
+// The 老板 bootstrap account qualifies unconditionally so a half-applied
+// migration can never lock the boss out of his own books.
 export function canSeeExpenses(u: AuthUser): boolean {
-  if (u.role !== 'commerce') return false
-  return u.isFinance || isAdminUser(u.id)
+  if (isAdminUser(u.id) || EXPENSE_VIEWER_USER_IDS.has(u.id)) return true
+  return u.role === 'commerce' && u.isFinance
 }
 
 // 改一下 — the self-serve mirror + 上线. Granted by the boss per person in 管理员工;
@@ -138,10 +150,12 @@ export function canDeleteHrRecord(u: AuthUser): boolean {
   return HR_DELETER_USER_IDS.has(u.id)
 }
 
-// Page guard for the 支出/月度 finance tabs. Non-finance commerce users land
-// back on the 应收 tab rather than an error page.
+// Page/export guard for the 支出/工资/月度 finance tabs. The grant is
+// canSeeExpenses itself — role is not a second gate, or an allowlisted
+// production account would be stopped here after being let through there.
+// Anyone short of it lands back on the 订单 tab rather than an error page.
 export async function requireFinance(): Promise<AuthUser> {
-  const u = await requireCommerce()
+  const u = await requireUser()
   if (!canSeeExpenses(u)) redirect('/finance')
   return u
 }
@@ -474,14 +488,21 @@ export function canSeeReport(u: AuthUser): boolean {
 // 财务·订单 viewers: every 商务, plus a per-person allowlist. Same shape as
 // REPORT_VIEWER_USER_IDS and for the same reason — the grant is by name, not
 // by stage (于海伟 sees the order money book; the rest of 工程 does not). A
-// production grantee sees ONLY the 订单 tab on /finance — 记账/看钱 stay
-// commerce-wide and 支出/月度 stay canSeeExpenses; the page enforces both.
+// production grantee sees the 订单 tab on /finance — 记账/看钱 stay
+// commerce-wide and 支出/工资/月度 go by canSeeExpenses (which a production
+// account can hold by name); the page enforces both separately.
 const ORDER_LEDGER_VIEWER_USER_IDS = new Set<string>([
   'u-mose92lt-a0cutz', // 于海伟 (production / 工程) — his 商务号 qualifies via role
 ])
 
 export function canSeeOrderLedger(u: AuthUser): boolean {
-  return u.role === 'commerce' || ORDER_LEDGER_VIEWER_USER_IDS.has(u.id)
+  // canSeeExpenses implies this one: /finance's door is the 订单 grant, and
+  // somebody trusted with every person's pay must not be stopped at it.
+  return (
+    u.role === 'commerce' ||
+    ORDER_LEDGER_VIEWER_USER_IDS.has(u.id) ||
+    canSeeExpenses(u)
+  )
 }
 
 // Page guard for /finance now that it is no longer commerce-only: 商务 in

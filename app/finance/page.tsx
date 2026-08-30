@@ -84,9 +84,11 @@ export default async function FinancePage({
     params.tab === 'money'
       ? (params.tab as FinanceTab)
       : 'orders'
-  // Deep link to a tab beyond the user's grant → land on 订单. A production
-  // grantee (于海伟) holds ONLY the order ledger; 记账/看钱 stay commerce-wide.
-  if (tab !== 'orders' && !isCommerce) redirect('/finance')
+  // Deep link to a tab beyond the user's grant → land on 订单. Two separate
+  // grants, checked separately: 记账/看钱 are commerce-wide, while 支出/工资/
+  // 月度 go by canSeeExpenses — which a production account can hold by name
+  // (于海伟 settles payroll from his 工程 login).
+  if ((tab === 'ar' || tab === 'money') && !isCommerce) redirect('/finance')
   if (
     (tab === 'expense' || tab === 'payroll' || tab === 'month') &&
     !showExpenses
