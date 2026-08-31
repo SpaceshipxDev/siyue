@@ -55,6 +55,7 @@ type CommitPayload = {
   jobNo?: unknown
   customer?: unknown
   product?: unknown
+  engineer?: unknown
   amountCny?: unknown
   dueDate?: unknown
   notes?: unknown
@@ -160,6 +161,8 @@ export async function POST(request: NextRequest) {
       jobNo,
       customer: asText(payload.customer, 200),
       product: asText(payload.product, 200) || '—',
+      // 客户工程师 — 清单里认出来的那一列, 跟 AI 那条路填的是同一个字段。
+      engineer: asOptText(payload.engineer, 100),
       amountCny: asMoney(payload.amountCny),
       dueDate,
       notes: asOptText(payload.notes),

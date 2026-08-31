@@ -19,6 +19,39 @@ type JobNoConflict = {
   status: JobStatus
 }
 
+// 客户工程师 didn't come out of the drawing pack, but this customer has an
+// order in the system already — so the person they dealt with last time is one
+// tap away instead of a trip through old orders. Never fills itself: they DO
+// change people, and the one time they did is exactly when a silent auto-fill
+// would put the wrong name on the order.
+export function EngineerHint({
+  jobId,
+  name,
+}: {
+  jobId: string
+  name: string
+}) {
+  const router = useRouter()
+  const [pending, start] = useTransition()
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={() =>
+        start(async () => {
+          await mutate({ kind: 'updateJob', jobId, patch: { engineer: name } })
+          router.refresh()
+        })
+      }
+      className="mt-1.5 text-[11.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] disabled:opacity-50"
+    >
+      这家上次是{' '}
+      <span className="font-medium text-[var(--color-ink-2)]">{name}</span>
+      <span className="text-[var(--color-ink-4)]"> · 点一下填上</span>
+    </button>
+  )
+}
+
 // Two-step deliberate confirm:
 //   1. Optionally click "→ 发往工段" to expose the station chips, then tap the
 //      target station (it highlights — this is just a *selection*, not a

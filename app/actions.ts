@@ -328,14 +328,23 @@ export async function confirmJobAction(
 ): Promise<ConfirmJobResult> {
   // 工程 head can confirm imports they ran, same as commerce.
   const user = await requirePartRouteEditor()
-  // 越侬商务 is required to enter the board. An order with nobody's name on
-  // it is one nobody answers for when the floor, the customer or the 账 comes
-  // asking three months later — and the moment of import is the only moment
-  // anyone still remembers whose order it was. Checked server-side because
-  // the field is edited inline and could be blanked after the page rendered.
+  // Three names have to be on an order before it enters the board: 谁家的
+  // (客户), 对面找谁 (客户工程师), 我们这边谁负责 (越侬商务). An order missing
+  // any of them is one nobody can chase when the floor, the customer or the 账
+  // comes asking three months later — and the moment of import is the only
+  // moment anyone still remembers. Checked server-side because all three are
+  // edited inline and could be blanked after the page rendered.
   const draft = await getJob(jobId)
-  if (draft && !(draft.yuenongBusiness ?? '').trim()) {
-    return { ok: false, error: `请先填写「${BRAND.commerceLabel}」再确认导入` }
+  const required: [string, string | undefined][] = draft
+    ? [
+        ['客户', draft.customer],
+        ['客户工程师', draft.engineer],
+        [BRAND.commerceLabel, draft.yuenongBusiness],
+      ]
+    : []
+  const missing = required.find(([, v]) => !(v ?? '').trim())
+  if (missing) {
+    return { ok: false, error: `请先填写「${missing[0]}」再确认导入` }
   }
   if (startAt) {
     await markJobStartedAt(jobId, startAt, user.name)

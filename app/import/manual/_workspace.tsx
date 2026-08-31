@@ -61,6 +61,7 @@ function colLetter(c: number): string {
 type MetaDraft = {
   customer: string
   product: string
+  engineer: string
   jobNo: string
   amount: string
   dueDate: string
@@ -70,6 +71,12 @@ type MetaDraft = {
 const META_PATTERNS: [RegExp, keyof MetaDraft][] = [
   [/^(客户|客户名称|客户名|委托单位|委托方|公司名称|甲方|需方)$/, 'customer'],
   [/^(产品|产品名称|项目|项目名称|机种)$/, 'product'],
+  // 客户工程师 — 厂里叫"工程师", 单据上也常写成"联系人 / 对接人 / 跟单",
+  // 是同一个人。跟 AI 那条路抽的是同一个字段 (lib/gemini.ts)。
+  [
+    /^(客户工程师|工程师|项目工程师|对接工程师|联系人|客户联系人|对接人|项目负责人|跟单|跟单员)$/,
+    'engineer',
+  ],
   [/^(工号|单号|订单号|订单编号|工单号|合同号|合同编号)$/, 'jobNo'],
   [/^(交期|交货期|交货日期|纳期|交货时间)$/, 'dueDate'],
   [/^(总价|总金额|合计金额|含税总价|总计)$/, 'amount'],
@@ -219,6 +226,7 @@ type Loaded = {
 const emptyMeta: MetaDraft = {
   customer: '',
   product: '',
+  engineer: '',
   jobNo: '',
   amount: '',
   dueDate: '',
@@ -253,6 +261,7 @@ export function ManualImportWorkspace() {
         ...base,
         customer: base.customer || detected.customer || '',
         product: base.product || detected.product || '',
+        engineer: base.engineer || detected.engineer || '',
         jobNo: base.jobNo || detected.jobNo || fileStem || '',
         amount: base.amount || detected.amount || '',
         dueDate: base.dueDate || detected.dueDate || '',
@@ -451,6 +460,7 @@ export function ManualImportWorkspace() {
           jobNo: meta.jobNo.trim(),
           customer: meta.customer.trim(),
           product: meta.product.trim(),
+          engineer: meta.engineer.trim() || undefined,
           amountCny: parseMoney(meta.amount),
           dueDate: meta.dueDate,
           notes: meta.notes.trim() || undefined,
@@ -583,6 +593,17 @@ export function ManualImportWorkspace() {
               value={meta.product}
               onChange={(e) => setMeta({ ...meta, product: e.target.value })}
               placeholder="产品"
+              className="w-full bg-transparent text-[14px] text-[var(--color-ink)] placeholder:text-[var(--color-ink-4)] border-b border-transparent hover:border-[var(--color-border)] focus:border-[var(--color-ink)] outline-none pb-0.5"
+            />
+          </div>
+          {/* 客户工程师 — 清单里有这一列就自动认出来填好, 没有就在审核页补;
+              确认导入前必须有名字。 */}
+          <div className="col-span-1 md:col-span-2">
+            <p className="label mb-1.5">客户工程师</p>
+            <input
+              value={meta.engineer}
+              onChange={(e) => setMeta({ ...meta, engineer: e.target.value })}
+              placeholder="对接人"
               className="w-full bg-transparent text-[14px] text-[var(--color-ink)] placeholder:text-[var(--color-ink-4)] border-b border-transparent hover:border-[var(--color-border)] focus:border-[var(--color-ink)] outline-none pb-0.5"
             />
           </div>

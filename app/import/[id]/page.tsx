@@ -3,6 +3,7 @@ import { BRAND } from '@/lib/brand'
 import {
   findJobNoConflict,
   getJob,
+  getLastEngineerForCustomer,
   getSelfMadeLoadOn,
   parseJobNoConflictError,
   SELF_MADE_DAILY_LIMIT_CNY,
@@ -40,6 +41,7 @@ import {
   AddComponentButton,
   ConfirmImportButton,
   DeleteComponentButton,
+  EngineerHint,
   ImportJobNoField,
   InsertComponentButton,
 } from '@/app/_import_actions'
@@ -88,6 +90,11 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
   const rawConflict = await findJobNoConflict(job.jobNo, job.id)
   const jobNoConflict = rawConflict?.status === 'ready' ? rawConflict : null
 
+  // 客户工程师 is required to confirm, and the drawing pack often doesn't name
+  // one — so offer this customer's last one as a single tap instead of leaving
+  // the operator to go dig through old orders.
+  const lastEngineer = await getLastEngineerForCustomer(job.customer, job.id)
+
   // 当日自制负荷 — what today has already promised the machines, plus what
   // this draft would add. Over the day's limit the shop can't make it all on
   // time, so the answer is a later 交期 or a 外协 vendor; the warning is
@@ -130,15 +137,21 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
         </div>
 
         <div className="mb-8 grid grid-cols-2 md:grid-cols-12 gap-4 md:gap-8 border-b border-[var(--color-border)] pb-8">
+          {/* 客户 + 客户工程师 — 一组：这单是谁家的，对面找谁。两项都是确认导入
+              的前提（confirmJobAction 服务端拦），因为三个月后要打电话、要对账、
+              要寄东西的时候，没人记得当初是谁下的单。AI 从图纸包里抽到什么就先
+              填在这儿，抽不到的，下面一行给出这家上次的工程师，点一下就是。 */}
           <div className="col-span-2 md:col-span-3">
-            <p className="label mb-1">客户</p>
+            <p className="label mb-1">
+              客户<span className="text-[var(--color-overdue)]"> ·</span>
+            </p>
             <JobText
               jobId={job.id}
               field="customer"
               value={job.customer}
               multiline
               className="text-[24px] font-semibold tracking-tight text-[var(--color-ink)]"
-              placeholder="客户"
+              placeholder="必填"
             />
             <div className="mt-1">
               <JobText
@@ -149,6 +162,23 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
                 placeholder="产品"
               />
             </div>
+            <div className="mt-2.5 flex items-baseline gap-2">
+              <span className="label shrink-0">
+                客户工程师<span className="text-[var(--color-overdue)]"> ·</span>
+              </span>
+              <div className="min-w-0 flex-1">
+                <JobShippingText
+                  jobId={job.id}
+                  field="engineer"
+                  value={job.engineer}
+                  className="text-[14px] text-[var(--color-ink)]"
+                  placeholder="必填"
+                />
+              </div>
+            </div>
+            {lastEngineer && !(job.engineer ?? '').trim() ? (
+              <EngineerHint jobId={job.id} name={lastEngineer} />
+            ) : null}
           </div>
           <div className="col-span-1 md:col-span-2">
             <p className="label mb-2">工号</p>

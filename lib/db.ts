@@ -5607,6 +5607,30 @@ export async function findJobNoConflict(
   return findJobNoConflictByQuery(jobNo, excludeJobId)
 }
 
+// 这家客户上次的对接工程师. A customer is dealt with by the same person order
+// after order, so "上次是谁" is almost always the answer for this one too —
+// offered as a one-tap fill on the import review page when the drawing pack
+// named nobody and the AI had nothing to extract. Never written by itself:
+// somebody has to tap it, because the exception (they changed people) is
+// exactly the case a silent auto-fill would get wrong.
+export async function getLastEngineerForCustomer(
+  customer: string,
+  excludeJobId: string,
+): Promise<string | null> {
+  const name = customer.trim()
+  if (!name) return null
+  const { data, error } = await supabase
+    .from('jobs')
+    .select('engineer')
+    .eq('customer', name)
+    .neq('id', excludeJobId)
+    .not('engineer', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+  if (error || !data || data.length === 0) return null
+  return ((data[0].engineer as string | null) ?? '').trim() || null
+}
+
 // Sentinel format used as the thrown Error.message so it round-trips through
 // markJobFailed → parse_error → ParsingPoller and through server-action
 // rejections. Keep the prefix + pipe layout stable; clients pattern-match it.
