@@ -324,6 +324,48 @@ export type PayrollPerson = {
   dept: string
 }
 
+// === 调薪记录 ===
+//
+// 调薪不是另外要填的一张表。工资表上把一个人的月薪从 6000 改成 6500，这一改
+// 本身就是一次调薪，系统当场记下来——所以记录和实发工资永远对得上，没有第二
+// 个地方要维护，也不会出现"记了但没改"或"改了但没记"。
+//
+// 第一次给一个人定月薪不记：那是建档，不是调整（否则头一天配置名册就会刷出
+// 几十条假调薪）。清空月薪、把人移出名册记一条，因为那是停发。
+//
+// 原因是事后补的：改数字的时候不打断人问为什么，来这页补一句就行。
+export type SalaryChange = {
+  id: string
+  name: string
+  dept: string
+  fromCny: number // 调整前月薪
+  toCny: number // 调整后月薪；0 = 移出名册
+  date: string // YYYY-MM-DD — 调整当天
+  by: string // 操作人
+  reason?: string
+  createdAt: string
+}
+
+export function salaryDelta(c: SalaryChange): number {
+  return c.toCny - c.fromCny
+}
+
+// 涨幅 %，看的是相对自己涨了多少 — 移出名册没有涨幅。
+export function salaryPct(c: SalaryChange): number | null {
+  if (c.fromCny <= 0 || c.toCny <= 0) return null
+  return ((c.toCny - c.fromCny) / c.fromCny) * 100
+}
+
+export function matchesSalaryChange(c: SalaryChange, q: string): boolean {
+  const needle = q.trim().toLowerCase()
+  if (!needle) return true
+  return [c.name, c.dept, c.reason, c.by]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+    .includes(needle)
+}
+
 // The month's run: one 工资条 per person who has a 月薪. Somebody with no 月薪
 // yet isn't on payroll — typing their 月薪 is what puts them on it. Sorted by
 // 部门 then name, so the sheet reads the way the floor is laid out.

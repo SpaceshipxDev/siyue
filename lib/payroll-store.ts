@@ -17,6 +17,7 @@ import {
   type PayrollPerson,
   type PayrollRules,
   type Payslip,
+  type SalaryChange,
   type ScalarRuleKey,
 } from './payroll'
 
@@ -31,6 +32,8 @@ import {
  *   payroll/rules.json     the 制度 — 月休天数 / 各部门每天工时 / 扣薪比例 /
  *                          加班倍率
  *   payroll/base.json      { 姓名: {月薪, 部门} } — the standing roster
+ *   payroll/changes.json   调薪记录 — every move of a 月薪, filed by the edit
+ *                          that made it
  *   payroll/<YYYY-MM>.json { lines: { 姓名: {加班,奖罚,备注} }, paid? }
  *
  * 发放 freezes the run: the 工资条 as computed at that moment, plus the ids of
@@ -52,6 +55,7 @@ function withPayrollLock<T>(fn: () => Promise<T>): Promise<T> {
 
 const RULES_KEY = 'payroll/rules.json'
 const BASE_KEY = 'payroll/base.json'
+const CHANGES_KEY = 'payroll/changes.json'
 
 function monthKey(month: string): string {
   return `payroll/${month.replace(/[^0-9-]/g, '')}.json`
@@ -144,23 +148,117 @@ export async function getPayrollBase(): Promise<Record<string, PayrollPerson>> {
 // 0 (or a cleared field) takes the person OFF payroll — one number is the whole
 // employee lifecycle here, and a name with no 月薪 simply isn't paid. 部门 comes
 // along because it's what prices the hours; an existing person keeps theirs.
+//
+// A real change to somebody's 月薪 files a 调薪记录 in the same write: the
+// change and its record can't come apart, because they're one operation.
 export async function setPayrollBase(
   name: string,
   monthlyCny: number,
   dept: string,
+  by: string,
+  date: string,
 ): Promise<void> {
   await withPayrollLock(async () => {
     const base = normalizeBase(await readJson(BASE_KEY))
+    const before = base[name]
     if (monthlyCny > 0) {
       // An existing 部门 wins, except when it's the placeholder — then the
       // caller's guess is better than nothing and gets written down for good.
-      const had = base[name]?.dept
+      const had = before?.dept
       base[name] = {
         monthlyCny,
         dept: had && had !== NO_DEPARTMENT ? had : dept,
       }
     } else delete base[name]
     await writeJson(BASE_KEY, base)
+
+    // 建档 (from nothing to a first 月薪) is not an adjustment; a real move
+    // between two amounts is, and so is being taken off payroll.
+    const from = before?.monthlyCny ?? 0
+    if (from === monthlyCny) return
+    if (from === 0) return
+    await appendChange({
+      id: crypto.randomUUID(),
+      name,
+      dept: base[name]?.dept ?? before?.dept ?? dept,
+      fromCny: from,
+      toCny: monthlyCny,
+      date,
+      by,
+      createdAt: new Date().toISOString(),
+    })
+  })
+}
+
+// === 调薪记录 ===
+//
+// Append-only-ish: rows are born from 工资表 edits (see setPayrollBase), never
+// typed. What CAN be edited afterwards is the 原因 — the reason is what a
+// record is for, and asking for it mid-edit would turn one keystroke into a
+// dialog. A row filed by a slipped keystroke can be deleted; only the three
+// people who can see payroll at all ever reach this list.
+
+function normalizeChanges(raw: unknown): SalaryChange[] {
+  if (!Array.isArray(raw)) return []
+  const out: SalaryChange[] = []
+  for (const v of raw as unknown[]) {
+    if (typeof v !== 'object' || v === null) continue
+    const c = v as Record<string, unknown>
+    if (typeof c.id !== 'string' || typeof c.name !== 'string') continue
+    if (!isValidMonthlyCny(c.fromCny) || !isValidMonthlyCny(c.toCny)) continue
+    out.push({
+      id: c.id,
+      name: c.name,
+      dept: typeof c.dept === 'string' && c.dept ? c.dept : NO_DEPARTMENT,
+      fromCny: c.fromCny,
+      toCny: c.toCny,
+      date: typeof c.date === 'string' ? c.date : '',
+      by: typeof c.by === 'string' ? c.by : '',
+      reason:
+        typeof c.reason === 'string' && c.reason.trim() ? c.reason : undefined,
+      createdAt: typeof c.createdAt === 'string' ? c.createdAt : '',
+    })
+  }
+  return out
+}
+
+// Newest first — a 调薪 list reads like a diary. Lock-free: it's a read.
+export async function getSalaryChanges(): Promise<SalaryChange[]> {
+  return normalizeChanges(await readJson(CHANGES_KEY)).sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1
+    return a.createdAt < b.createdAt ? 1 : -1
+  })
+}
+
+// Runs INSIDE the caller's lock — never takes one of its own, or the chain
+// would wait on itself.
+async function appendChange(c: SalaryChange): Promise<void> {
+  const rows = normalizeChanges(await readJson(CHANGES_KEY))
+  rows.push(c)
+  await writeJson(CHANGES_KEY, rows)
+}
+
+export async function setSalaryChangeReason(
+  id: string,
+  reason: string,
+): Promise<void> {
+  await withPayrollLock(async () => {
+    const rows = normalizeChanges(await readJson(CHANGES_KEY))
+    const row = rows.find((r) => r.id === id)
+    if (!row) return
+    row.reason = reason.trim() || undefined
+    await writeJson(CHANGES_KEY, rows)
+  })
+}
+
+export async function deleteSalaryChange(id: string): Promise<void> {
+  await withPayrollLock(async () => {
+    const rows = normalizeChanges(await readJson(CHANGES_KEY))
+    if (!rows.some((r) => r.id === id)) return
+    await writeJson(
+      CHANGES_KEY,
+      rows.filter((r) => r.id !== id),
+    )
   })
 }
 

@@ -10,7 +10,11 @@ import { getExpenses, getFenqiData, getOrderLedgerRows } from '@/lib/db'
 import { getVouchersForExpenses } from '@/lib/voucher-file'
 import { getHrMonths } from '@/lib/hr'
 import { isPayrollMonth } from '@/lib/payroll'
-import { getPayrollMonths, loadPayroll } from '@/lib/payroll-store'
+import {
+  getPayrollMonths,
+  getSalaryChanges,
+  loadPayroll,
+} from '@/lib/payroll-store'
 import { today } from '@/lib/today'
 import { formatCny } from '@/lib/data'
 import {
@@ -32,6 +36,7 @@ import { ExpenseLedger } from './_expense_ledger'
 import { MonthlyCashflow } from './_monthly'
 import { OrderLedger } from './_orders'
 import { PayrollBoard } from './_payroll'
+import { RaiseLedger } from './_raises'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,7 +61,14 @@ const PAGE_SIZE = 25
 // per-person payroll, so they're gated to the boss + designated finance users
 // (users.is_finance).
 
-type FinanceTab = 'orders' | 'ar' | 'money' | 'expense' | 'payroll' | 'month'
+type FinanceTab =
+  | 'orders'
+  | 'ar'
+  | 'money'
+  | 'expense'
+  | 'payroll'
+  | 'raise'
+  | 'month'
 
 export default async function FinancePage({
   searchParams,
@@ -80,6 +92,7 @@ export default async function FinancePage({
     params.tab === 'ar' ||
     params.tab === 'expense' ||
     params.tab === 'payroll' ||
+    params.tab === 'raise' ||
     params.tab === 'month' ||
     params.tab === 'money'
       ? (params.tab as FinanceTab)
@@ -90,7 +103,10 @@ export default async function FinancePage({
   // (于海伟 settles payroll from his 工程 login).
   if ((tab === 'ar' || tab === 'money') && !isCommerce) redirect('/finance')
   if (
-    (tab === 'expense' || tab === 'payroll' || tab === 'month') &&
+    (tab === 'expense' ||
+      tab === 'payroll' ||
+      tab === 'raise' ||
+      tab === 'month') &&
     !showExpenses
   )
     redirect('/finance')
@@ -110,7 +126,9 @@ export default async function FinancePage({
             ? '支出台账'
             : tab === 'payroll'
               ? '工资'
-              : '月度现金流'
+              : tab === 'raise'
+                ? '调薪记录'
+                : '月度现金流'
 
   return (
     <div className="flex-1 flex flex-col">
@@ -142,6 +160,7 @@ export default async function FinancePage({
           <ExpenseTab params={params} month={month} monthLabel={monthLabel} userName={user.name} />
         )}
         {tab === 'payroll' && <PayrollTab pm={params.pm} thisMonth={month} />}
+        {tab === 'raise' && <RaiseTab year={todayStr.slice(0, 4)} />}
         {tab === 'month' && <MonthlyCashflow m={params.m} todayStr={todayStr} />}
       </main>
     </div>
@@ -172,6 +191,7 @@ function FinanceTabs({
       ? ([
           { key: 'expense', href: '/finance?tab=expense', label: '支出' },
           { key: 'payroll', href: '/finance?tab=payroll', label: '工资' },
+          { key: 'raise', href: '/finance?tab=raise', label: '调薪' },
           { key: 'month', href: '/finance?tab=month', label: '月度' },
         ] as { key: FinanceTab; href: string; label: string }[])
       : []),
@@ -388,6 +408,16 @@ async function PayrollTab({
       }
     />
   )
+}
+
+// === 调薪 — 月薪动过的每一次，谁改的、什么时候、为什么 ===
+//
+// Rows are never typed: they're filed by the 工资表 edit that moved the 月薪
+// (see setPayrollBase), so this list and what people actually get paid can't
+// drift apart. Same gate as 工资/支出 — 老板, 财务, 于海伟.
+async function RaiseTab({ year }: { year: string }) {
+  const changes = await getSalaryChanges()
+  return <RaiseLedger changes={changes} year={year} />
 }
 
 function Stat({

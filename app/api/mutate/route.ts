@@ -149,6 +149,7 @@ import {
 } from '@/lib/payroll'
 import {
   clearPayrollPaid,
+  deleteSalaryChange,
   loadPayroll,
   markPayrollPaid,
   setPayrollBase,
@@ -156,6 +157,7 @@ import {
   setPayrollDeptHours,
   setPayrollLine,
   setPayrollRule,
+  setSalaryChangeReason,
 } from '@/lib/payroll-store'
 import { today } from '@/lib/today'
 import { logStageAction } from '@/lib/access-log'
@@ -2089,11 +2091,39 @@ async function dispatch(
       if (!isValidMonthlyCny(monthlyCny)) return err('月薪这个数不对')
       const u = await requireUser()
       if (!canSeeExpenses(u)) return err('forbidden', 403)
+      // A real move between two 月薪 files a 调薪记录 in the same write.
       await setPayrollBase(
         name.trim(),
         monthlyCny,
         isDepartment(dept) ? dept : NO_DEPARTMENT,
+        u.name,
+        today(),
       )
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    // 调薪记录 — rows are born from the 工资表 edit above, never typed. What's
+    // writable here is the 原因 (asked for after the fact, not mid-keystroke)
+    // and deleting a line filed by a slip.
+    case 'setSalaryChangeReason': {
+      const changeId = body.changeId
+      const reason = body.reason
+      if (!isString(changeId) || !isString(reason))
+        return err('bad setSalaryChangeReason args')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      await setSalaryChangeReason(changeId, reason)
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    case 'deleteSalaryChange': {
+      const changeId = body.changeId
+      if (!isString(changeId)) return err('bad deleteSalaryChange args')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      await deleteSalaryChange(changeId)
       revalidatePath('/finance')
       return Response.json(ok())
     }
