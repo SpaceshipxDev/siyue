@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
 import { EditableText } from '@/app/_editable'
+import { SearchSelect } from '@/app/_search_select'
 import { formatCny } from '@/lib/data'
 import {
   matchesSalaryChange,
@@ -25,16 +26,71 @@ import {
 
 export function RaiseLedger({
   changes,
+  people,
   year,
+  today,
 }: {
   changes: SalaryChange[]
+  /** 可以调薪的人 + 他现在的月薪 — 选了人就把原月薪带出来。 */
+  people: { name: string; monthlyCny: number }[]
   /** 'YYYY' — the year the totals summarise. */
   year: string
+  today: string
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const [q, setQ] = useState('')
   const [armDelete, setArmDelete] = useState<string | null>(null)
+
+  // 记一笔
+  const [name, setName] = useState('')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [reason, setReason] = useState('')
+  const [date, setDate] = useState(today)
+  const [error, setError] = useState<string | null>(null)
+
+  const fromN = parseMoney(from)
+  const toN = parseMoney(to)
+  const delta = fromN !== null && toN !== null ? toN - fromN : null
+
+  // Picking somebody fills in what they're on now — the 原月薪 is a fact the
+  // system already holds, and retyping a fact is how they stop matching. It
+  // stays editable so an old raise can be entered after the fact.
+  function pick(n: string) {
+    setName(n)
+    const p = people.find((x) => x.name === n)
+    setFrom(p && p.monthlyCny > 0 ? String(p.monthlyCny) : '')
+    setError(null)
+  }
+
+  function file() {
+    if (!name.trim()) return setError('先选一个人')
+    if (fromN === null) return setError('填一下原月薪')
+    if (toN === null) return setError('填一下调后月薪')
+    if (fromN === toN) return setError('调前调后一样')
+    setError(null)
+    start(async () => {
+      try {
+        await mutate({
+          kind: 'addSalaryChange',
+          name: name.trim(),
+          fromCny: fromN,
+          toCny: toN,
+          date,
+          reason: reason.trim() || undefined,
+        })
+        setName('')
+        setFrom('')
+        setTo('')
+        setReason('')
+        setDate(today)
+        router.refresh()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '记不上')
+      }
+    })
+  }
 
   const rows = useMemo(
     () => changes.filter((c) => matchesSalaryChange(c, q)),
@@ -80,6 +136,92 @@ export function RaiseLedger({
           tone={stats.delta > 0 ? 'up' : stats.delta < 0 ? 'down' : undefined}
         />
         <Stat label="全部记录" value={`${changes.length} 条`} sub="工资表改一次月薪自动记一条" />
+      </div>
+
+      {/* 记一笔 — 选人, 原月薪自动带出, 填调后多少和为什么。 */}
+      <div className="mb-4 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-4 md:px-5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="w-[150px]">
+            <SearchSelect
+              options={people.map((p) => ({ id: p.name, label: p.name }))}
+              value={name}
+              onChange={pick}
+              placeholder="谁"
+              searchPlaceholder="选人或直接输入姓名…"
+              createLabel="员工"
+              onCreate={pick}
+              triggerLabel={
+                name && !people.some((p) => p.name === name) ? name : undefined
+              }
+              triggerClass="w-full"
+            />
+          </div>
+
+          <span className="text-[12.5px] text-[var(--color-ink-3)]">原</span>
+          <input
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            placeholder="原月薪"
+            inputMode="decimal"
+            onKeyDown={(e) => e.key === 'Enter' && file()}
+            className="mono h-9 w-[92px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-right text-[12.5px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
+          />
+          <span className="text-[13px] text-[var(--color-ink-4)]">→</span>
+          <input
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            placeholder="调后月薪"
+            inputMode="decimal"
+            onKeyDown={(e) => e.key === 'Enter' && file()}
+            className="mono h-9 w-[92px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-right text-[12.5px] font-semibold text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
+          />
+          <span
+            className={`mono min-w-[60px] shrink-0 text-[12.5px] font-semibold tabular-nums ${
+              delta === null || delta === 0
+                ? 'text-[var(--color-ink-4)]'
+                : delta > 0
+                  ? 'text-[var(--color-success)]'
+                  : 'text-[var(--color-overdue)]'
+            }`}
+          >
+            {delta === null || delta === 0
+              ? ''
+              : `${delta > 0 ? '+' : '−'}${formatCny(Math.abs(delta))}`}
+          </span>
+
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="原因 · 为什么调"
+            onKeyDown={(e) => e.key === 'Enter' && file()}
+            className="h-9 min-w-[160px] flex-1 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
+          />
+
+          {/* 调薪当天 — 记下就生效, 所以没有未来的日子可填。 */}
+          <input
+            type="date"
+            value={date}
+            max={today}
+            onChange={(e) => setDate(e.target.value || today)}
+            className="mono h-9 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-border-strong)]"
+          />
+
+          <button
+            type="button"
+            onClick={file}
+            disabled={pending}
+            className="h-9 shrink-0 rounded-[2px] bg-[var(--color-ink)] px-4 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
+          >
+            记下
+          </button>
+        </div>
+        {error ? (
+          <p className="mt-2 text-[12px] text-[var(--color-overdue)]">{error}</p>
+        ) : (
+          <p className="mt-2 text-[12px] text-[var(--color-ink-4)]">
+            记下的同时，工资表上这个人的月薪就改成调后的数了。
+          </p>
+        )}
       </div>
 
       <div className="mb-4">
@@ -201,10 +343,19 @@ export function RaiseLedger({
       </div>
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
-        这里不用手工记：在工资表上改谁的月薪，就自动落一条。原因可以随时补。
+        两头都通：在这里记一笔会改工资表的月薪；直接在工资表上改月薪，这里也会
+        自动落一条（原因空着，回头点着补一句）。
       </p>
     </div>
   )
+}
+
+// 6000 / ¥6,000 / 6000元 都当 6000。空的算没填。
+function parseMoney(raw: string): number | null {
+  const t = raw.trim().replace(/[¥,，元\s]/g, '')
+  if (!t) return null
+  const n = Number(t)
+  return Number.isFinite(n) && n >= 0 && n <= 200000 ? n : null
 }
 
 function Stat({

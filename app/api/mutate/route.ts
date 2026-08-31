@@ -152,6 +152,7 @@ import {
   deleteSalaryChange,
   loadPayroll,
   markPayrollPaid,
+  recordSalaryChange,
   setPayrollBase,
   setPayrollDept,
   setPayrollDeptHours,
@@ -2103,9 +2104,40 @@ async function dispatch(
       return Response.json(ok())
     }
 
-    // 调薪记录 — rows are born from the 工资表 edit above, never typed. What's
-    // writable here is the 原因 (asked for after the fact, not mid-keystroke)
-    // and deleting a line filed by a slip.
+    // 调薪 — filed either way round: editing a 月薪 on the 工资表 files the
+    // record (above), or the 调薪 form files the record AND moves the 月薪.
+    // One act, so the two can't drift apart.
+    case 'addSalaryChange': {
+      const name = body.name
+      const fromCny = body.fromCny
+      const toCny = body.toCny
+      const date = body.date
+      const reason = body.reason
+      if (!isString(name) || !name.trim()) return err('先选一个人')
+      if (!isValidMonthlyCny(fromCny) || !isValidMonthlyCny(toCny))
+        return err('月薪这个数不对')
+      if (fromCny === toCny) return err('调前调后一样，没什么好记的')
+      if (!isString(date) || !/^\d{4}-\d{2}-\d{2}$/.test(date))
+        return err('bad addSalaryChange args')
+      if (reason !== undefined && !isString(reason))
+        return err('bad addSalaryChange args')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      // 部门 only matters for somebody the 名册 doesn't have yet — it comes
+      // from their own account, same as a 人事 line does.
+      const roster = await getActiveUsers()
+      const account = roster.find((x) => x.name === name.trim())
+      await recordSalaryChange(
+        { name: name.trim(), fromCny, toCny, date, reason },
+        u.name,
+        account ? hrDeptOf(account) : NO_DEPARTMENT,
+      )
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    // 原因 stays editable after the fact — a line filed from the 工资表 has
+    // none until somebody writes one. A line filed by a slip can be deleted.
     case 'setSalaryChangeReason': {
       const changeId = body.changeId
       const reason = body.reason

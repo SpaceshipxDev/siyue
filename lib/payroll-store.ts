@@ -238,6 +238,69 @@ async function appendChange(c: SalaryChange): Promise<void> {
   await writeJson(CHANGES_KEY, rows)
 }
 
+// 在调薪栏直接填一笔 — 选人, 原月薪, 调后多少, 为什么.
+//
+// It is the SAME act as editing the 月薪 on the 工资表, just entered from the
+// other end and with the reason in hand: the 名册 moves to 调后月薪 and the
+// record is filed, in one locked write, so the two can never disagree. 原月薪
+// is what the typist saw (prefilled from the 名册, editable so an old raise
+// can be entered after the fact) — only 调后 decides what the person is paid.
+export async function recordSalaryChange(
+  input: {
+    name: string
+    fromCny: number
+    toCny: number
+    date: string
+    reason?: string
+  },
+  by: string,
+  fallbackDept: string,
+): Promise<void> {
+  await withPayrollLock(async () => {
+    const base = normalizeBase(await readJson(BASE_KEY))
+    const had = base[input.name]
+    const dept =
+      had?.dept && had.dept !== NO_DEPARTMENT ? had.dept : fallbackDept
+    if (input.toCny > 0) base[input.name] = { monthlyCny: input.toCny, dept }
+    else delete base[input.name]
+    await writeJson(BASE_KEY, base)
+    await appendChange({
+      id: crypto.randomUUID(),
+      name: input.name,
+      dept,
+      fromCny: input.fromCny,
+      toCny: input.toCny,
+      date: input.date,
+      by,
+      reason: input.reason?.trim() || undefined,
+      createdAt: new Date().toISOString(),
+    })
+  })
+}
+
+// 谁可以被调薪, 和他现在的月薪 — the picker's options plus the 原月薪 it
+// prefills. Everybody the shop knows about: the 工资名册 first, then system
+// accounts and every name 人事 was told to remember (half the floor has no
+// login), so a raise can be filed for somebody before payroll ever has been.
+export async function getSalaryPeople(): Promise<
+  { name: string; monthlyCny: number }[]
+> {
+  const [base, users, extraNames] = await Promise.all([
+    getPayrollBase(),
+    getActiveUsers(),
+    getHrRoster(),
+  ])
+  return [
+    ...new Set([
+      ...Object.keys(base),
+      ...users.map((u) => u.name),
+      ...extraNames,
+    ]),
+  ]
+    .sort((a, b) => a.localeCompare(b, 'zh'))
+    .map((name) => ({ name, monthlyCny: base[name]?.monthlyCny ?? 0 }))
+}
+
 export async function setSalaryChangeReason(
   id: string,
   reason: string,

@@ -13,6 +13,7 @@ import { isPayrollMonth } from '@/lib/payroll'
 import {
   getPayrollMonths,
   getSalaryChanges,
+  getSalaryPeople,
   loadPayroll,
 } from '@/lib/payroll-store'
 import { today } from '@/lib/today'
@@ -160,7 +161,7 @@ export default async function FinancePage({
           <ExpenseTab params={params} month={month} monthLabel={monthLabel} userName={user.name} />
         )}
         {tab === 'payroll' && <PayrollTab pm={params.pm} thisMonth={month} />}
-        {tab === 'raise' && <RaiseTab year={todayStr.slice(0, 4)} />}
+        {tab === 'raise' && <RaiseTab todayStr={todayStr} />}
         {tab === 'month' && <MonthlyCashflow m={params.m} todayStr={todayStr} />}
       </main>
     </div>
@@ -415,9 +416,19 @@ async function PayrollTab({
 // Rows are never typed: they're filed by the 工资表 edit that moved the 月薪
 // (see setPayrollBase), so this list and what people actually get paid can't
 // drift apart. Same gate as 工资/支出 — 老板, 财务, 于海伟.
-async function RaiseTab({ year }: { year: string }) {
-  const changes = await getSalaryChanges()
-  return <RaiseLedger changes={changes} year={year} />
+async function RaiseTab({ todayStr }: { todayStr: string }) {
+  const [changes, people] = await Promise.all([
+    getSalaryChanges(),
+    getSalaryPeople(),
+  ])
+  return (
+    <RaiseLedger
+      changes={changes}
+      people={people}
+      year={todayStr.slice(0, 4)}
+      today={todayStr}
+    />
+  )
 }
 
 function Stat({
