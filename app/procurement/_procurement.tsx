@@ -256,6 +256,52 @@ export function ProcurementBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [procurements, tab, query])
 
+  // 待审批 reads by 订单, not by line — the same shape 需求 already has above.
+  // 请购 is filed a whole order at a time (one 工号, several 物料 on one form),
+  // so an approver who sees them as N loose rows has to find the same 工号
+  // three times and answer the same question three times. One 工号 is one
+  // block here: everything that order asked for, its 项数 and its ¥ on the
+  // header, and 全批 clears the block in one tap. Anything bought without a
+  // 工号 (刀具, 耗材) collects into a single block at the bottom.
+  //
+  // Order inside a block is the queue's own (oldest 请购 first); blocks
+  // themselves lead with their oldest line, so the order that has been waiting
+  // longest is on top.
+  const requestGroups = useMemo(() => {
+    if (tab !== 'requested') return []
+    const byJob = new Map<string, Procurement[]>()
+    for (const p of rows) {
+      const key = p.jobId ?? (p.jobNo?.trim() ? `no:${p.jobNo.trim()}` : '')
+      const l = byJob.get(key) ?? []
+      l.push(p)
+      byJob.set(key, l)
+    }
+    const groups = [...byJob.entries()].map(([key, list]) => ({
+      key: key || '__none__',
+      jobId: list[0].jobId,
+      jobNo: list[0].jobNo,
+      product: list[0].jobId
+        ? jobOptions.find((j) => j.id === list[0].jobId)?.product
+        : undefined,
+      rows: list,
+      sum: list.reduce((s, p) => s + (procurementTotalCny(p) ?? 0), 0),
+      reqDate: list.reduce(
+        (min, p) => {
+          const d = p.reqDate ?? p.orderDate
+          return d < min ? d : min
+        },
+        '9999-99-99',
+      ),
+    }))
+    groups.sort((a, b) => {
+      const an = !a.jobNo
+      const bn = !b.jobNo
+      if (an !== bn) return an ? 1 : -1
+      return a.reqDate < b.reqDate ? -1 : 1
+    })
+    return groups
+  }, [rows, tab, jobOptions])
+
   // 已领料 months (by 领料 date), newest first — browsed one month at a time.
   const ledgerMonths = useMemo(() => {
     const s = new Set<string>()
@@ -463,6 +509,33 @@ export function ProcurementBoard({
               <p className="px-5 py-10 text-center text-[13px] text-[var(--color-ink-3)]">
                 {query ? '没有匹配的记录' : TAB_EMPTY[tab]}
               </p>
+            ) : tab === 'requested' ? (
+              /* 待审批 — 一个工号一张单, 单头能一次批完整单。 */
+              requestGroups.map((g) => (
+                <div
+                  key={g.key}
+                  className="border-b border-[var(--color-border)] last:border-b-0"
+                >
+                  <ReqJobHead g={g} canApprove={canApprove} />
+                  {g.rows.map((p) => (
+                    <Row
+                      key={p.id}
+                      p={p}
+                      today={today}
+                      dim={false}
+                      open={openId === p.id}
+                      onToggle={() => setOpenId(openId === p.id ? null : p.id)}
+                      canApprove={canApprove}
+                      jobOptions={jobOptions}
+                      roster={roster}
+                      pastPicks={(
+                        picksByParent.get(p.parentId ?? p.id) ?? []
+                      ).filter((x) => x.id !== p.id)}
+                      onEdit={() => setModal({ kind: 'edit', row: p })}
+                    />
+                  ))}
+                </div>
+              ))
             ) : (
               shown.map((p) => (
                 <Row
@@ -565,6 +638,98 @@ function NeedJobHead({
       >
         {n.dueDate ? relDay(n.dueDate, today) : '无交期'}
       </span>
+    </div>
+  )
+}
+
+// 待审批 block header — one 订单's whole request in one line: 工号, 产品, how
+// many 物料 it asked for and what they add up to. 全批 answers the order the
+// way it was filed, in one tap; anything that needs a closer look (or a 驳回,
+// which needs a reason of its own) is still one click down on its own row.
+type ReqGroup = {
+  key: string
+  jobId?: string
+  jobNo?: string
+  product?: string
+  rows: Procurement[]
+  sum: number
+  reqDate: string
+}
+
+function ReqJobHead({
+  g,
+  canApprove,
+}: {
+  g: ReqGroup
+  canApprove: boolean
+}) {
+  const router = useRouter()
+  const [pending, start] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  // One line at a time so a failure halfway through leaves the rest of the
+  // order still 待审批 rather than half-written — refresh and tap again picks
+  // up exactly where it stopped.
+  function approveAll() {
+    setError(null)
+    start(async () => {
+      try {
+        for (const p of g.rows) {
+          await mutate({
+            kind: 'updateProcurement',
+            procurementId: p.id,
+            patch: { status: 'approved' },
+          })
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '批不上')
+      }
+      router.refresh()
+    })
+  }
+
+  return (
+    <div className="flex items-baseline gap-2.5 border-b border-[var(--color-border)] bg-[#f5f3ed] px-4 py-2 md:px-5">
+      {g.jobNo ? (
+        g.jobId ? (
+          <Link
+            href={`/jobs/${g.jobId}`}
+            className="mono shrink-0 text-[13px] font-semibold text-[var(--color-ink)] hover:underline"
+          >
+            {g.jobNo}
+          </Link>
+        ) : (
+          <span className="mono shrink-0 text-[13px] font-semibold text-[var(--color-ink)]">
+            {g.jobNo}
+          </span>
+        )
+      ) : (
+        <span className="shrink-0 text-[13px] font-medium text-[var(--color-ink-3)]">
+          无工号
+        </span>
+      )}
+      <span className="truncate text-[12.5px] text-[var(--color-ink-3)]">
+        {g.product ?? ''}
+      </span>
+      {error ? (
+        <span className="ml-auto shrink-0 text-[12px] text-[var(--color-overdue)]">
+          {error}
+        </span>
+      ) : (
+        <span className="mono ml-auto shrink-0 text-[12.5px] text-[var(--color-ink-2)]">
+          {g.rows.length} 项{g.sum > 0 ? ` · ${formatCny(g.sum)}` : ''}
+        </span>
+      )}
+      {canApprove && (
+        <button
+          type="button"
+          onClick={approveAll}
+          disabled={pending}
+          className="shrink-0 rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-1 text-[12px] font-medium text-[var(--color-ink)] hover:bg-[#faf8f2] disabled:opacity-50"
+        >
+          {g.rows.length > 1 ? '全批' : '批准'}
+        </button>
+      )}
     </div>
   )
 }
