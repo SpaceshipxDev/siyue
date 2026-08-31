@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ACTIVITY_DEFAULT_STAGES,
@@ -232,13 +232,45 @@ export function WaixieTable({
     [vendors],
   )
 
-  const toggle = (id: string) =>
+  // 批量勾选 — 一个工单常常几十个子零件，一个个点太慢。两种手势，都是表格里
+  // 本来就有的那两种，不用学：
+  //
+  //   表头那个框 — 全选 / 全清。全选的是「还没送出去的」：已经在外协厂的那几
+  //     行再送一次是重送，勾上只会在送出时被拦下来，所以全选跳过它们（那几行
+  //     自己写着「在外 · 某某厂」，看得见）。整单都没送过时，它就是彻底的全选。
+  //   按住 Shift 点 — 从上一次点的那一行连到这一行，中间整片跟着这一下走。
+  //     长名字一串（05.039-1 到 -12）两下点完。
+  const selectable = useMemo(() => {
+    const free = rows.filter((r) => r.state.kind !== 'out').map((r) => r.c.id)
+    // 整单都在外的时候「全选」还得管用 — 那种情况下它就是全选。
+    return free.length > 0 ? free : rows.map((r) => r.c.id)
+  }, [rows])
+  const allPicked =
+    selectable.length > 0 && selectable.every((id) => selected.has(id))
+  const somePicked = selected.size > 0 && !allPicked
+
+  const toggleAll = () =>
+    setSelected(allPicked ? new Set() : new Set(selectable))
+
+  // Where the last tick landed — the anchor a Shift-click ranges from.
+  const anchor = useRef<number | null>(null)
+
+  const toggle = (id: string, index: number, shift: boolean) => {
     setSelected((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      const on = !next.has(id)
+      const from = shift && anchor.current !== null ? anchor.current : index
+      const [a, z] = from <= index ? [from, index] : [index, from]
+      for (let i = a; i <= z; i++) {
+        const cid = rows[i]?.c.id
+        if (!cid) continue
+        if (on) next.add(cid)
+        else next.delete(cid)
+      }
       return next
     })
+    anchor.current = index
+  }
 
   const clearBar = () => {
     setDrafting(false)
@@ -475,23 +507,40 @@ export function WaixieTable({
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-[var(--color-border)]">
-                  <th className={`${th} w-[36px]`}></th>
+                  <th className={`${th} w-[36px] text-center`}>
+                    <input
+                      type="checkbox"
+                      checked={allPicked}
+                      onChange={toggleAll}
+                      disabled={pending || rows.length === 0}
+                      title={allPicked ? '全部取消' : '全选（在外的不选）'}
+                      ref={(el) => {
+                        if (el) el.indeterminate = somePicked
+                      }}
+                      className="h-[15px] w-[15px] accent-[var(--color-ink)]"
+                    />
+                  </th>
                   <th className={`${th} w-[56px]`}>图</th>
-                  <th className={th}>零件</th>
+                  <th className={th}>
+                    零件
+                    <span className="ml-2 font-normal text-[var(--color-ink-4)]">
+                      按住 Shift 点可连选一片
+                    </span>
+                  </th>
                   <th className={`${th} text-right`}>数</th>
                   <th className={`${th} text-right`}>单价</th>
                   <th className={th}>外协状态</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ c, state }) => (
+                {rows.map(({ c, state }, i) => (
                   <PickRow
                     key={c.id}
                     c={c}
                     state={state}
                     vendors={vendors}
                     ticked={selected.has(c.id)}
-                    onTick={() => toggle(c.id)}
+                    onTick={(shift) => toggle(c.id, i, shift)}
                     qty={qtys[c.id] ?? ''}
                     setQty={(v) => setQtys((p) => ({ ...p, [c.id]: v }))}
                     price={prices[c.id] ?? ''}
@@ -983,7 +1032,8 @@ function PickRow({
   state: RowState
   vendors: Vendor[]
   ticked: boolean
-  onTick: () => void
+  /** shift = 从上一次点的那行连选到这行。 */
+  onTick: (shift: boolean) => void
   qty: string
   setQty: (v: string) => void
   price: string
@@ -1007,10 +1057,13 @@ function PickRow({
       }`}
     >
       <td className={`${td} text-center`}>
+        {/* Shift 只在 click 事件上读得到，所以勾选走 onClick；onChange 留着
+            是因为 React 的受控 checkbox 少了它会告警。 */}
         <input
           type="checkbox"
           checked={ticked}
-          onChange={onTick}
+          onClick={(e) => onTick(e.shiftKey)}
+          onChange={() => {}}
           disabled={pending}
           className="h-[15px] w-[15px] accent-[var(--color-ink)]"
         />
