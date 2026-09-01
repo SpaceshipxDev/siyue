@@ -4,14 +4,28 @@ import { useCallback, useRef, useState, useTransition } from 'react'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { withBase } from '@/lib/base-path'
 
-// 源文件 row — minimal commerce-only widget for the original Excel that
-// kicked off the job. Filename is plain text; the trailing slot is two
-// fixed-size icon buttons (download + replace). Geometry stays locked
-// regardless of state — pending, error, or empty file all swap glyphs in
-// place rather than nudging neighboring elements.
+// 源文件 row — commerce-only widget for the original Excel that kicked off
+// the job. Two things happen to this file and only two: 拿下来看 and 换一份。
+//
+// So the row says exactly that. The filename IS the download (click a
+// filename to get the file — the same thing WeChat and every mail client
+// do), which leaves ONE button in the row, and it carries a word rather than
+// a glyph: 换一份. The old row had two near-identical arrows, one up one
+// down, and you had to hover to find out which was which — a decision, every
+// single time, on a row that only ever does two things.
+//
+// Dropping a file anywhere on the row works too and always did; now it says
+// so while the row is empty, because that's the shortest path of all —
+// straight from the chat window onto the order.
+//
+// Replacing overwrites in place, so the confirmation matters: with a
+// same-named file nothing on screen would otherwise change. The button holds
+// 已换 for a beat, then goes back to 换一份.
 
-const ICON_BTN =
-  'shrink-0 inline-flex items-center justify-center h-7 w-7 rounded-[2px] transition-colors'
+// One fixed width for 换一份 / 上传 / 已换 / 重试 / spinner, so committing a
+// file never nudges the row.
+const ACT_BTN =
+  'shrink-0 inline-flex h-7 w-[62px] items-center justify-center rounded-[2px] border text-[12.5px] font-medium transition-colors disabled:opacity-60'
 
 export function SourceFileRow({
   jobId,
@@ -35,9 +49,16 @@ export function SourceFileRow({
   const effectiveUrl = override?.url ?? url
   const effectiveName = override?.name ?? fileName
 
+  // 已换 flash — a same-named replacement changes nothing on screen, so the
+  // button says it happened.
+  const [done, setDone] = useState(false)
+  const doneTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const upload = useCallback(
     (file: File) => {
       setError(null)
+      if (doneTimer.current) clearTimeout(doneTimer.current)
+      setDone(false)
       start(async () => {
         const fd = new FormData()
         fd.append('file', file)
@@ -51,6 +72,8 @@ export function SourceFileRow({
           return
         }
         setOverride({ url: data.url, name: data.fileName })
+        setDone(true)
+        doneTimer.current = setTimeout(() => setDone(false), 2200)
       })
     },
     [jobId],
@@ -82,40 +105,36 @@ export function SourceFileRow({
     >
       <span className="label shrink-0 text-[var(--color-ink-3)]">源文件</span>
 
-      <span
-        className={`mono text-[13px] flex-1 min-w-0 truncate ${
-          hasFile ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-4)]'
-        }`}
-        title={hasFile ? downloadName : '尚未保留源文件'}
-      >
-        {hasFile ? downloadName : '尚未保留源文件'}
-      </span>
-
-      {/* Download — always present, same square; live link when we have a
-          URL, dimmed glyph (with explanatory title) otherwise. */}
-      {effectiveUrl ? (
+      {/* 文件名就是下载 — 点名字拿文件, 微信和邮箱都是这样, 不用再认一个图标。 */}
+      {hasFile && effectiveUrl ? (
         <a
           href={proxiedStorageUrl(effectiveUrl)}
           download={downloadName}
           title={`下载 ${downloadName}`}
-          aria-label="下载源文件"
-          className={`${ICON_BTN} text-[var(--color-ink-2)] hover:text-[var(--color-ink)] hover:bg-[var(--color-active-bg)]`}
+          className="mono min-w-0 flex-1 truncate text-[13px] text-[var(--color-ink)] underline decoration-[var(--color-border-strong)] underline-offset-[3px] hover:decoration-[var(--color-ink)]"
         >
-          <DownloadIcon />
+          {downloadName}
         </a>
       ) : (
         <span
-          title="无可下载源文件"
-          aria-label="无可下载源文件"
-          className={`${ICON_BTN} text-[var(--color-ink-4)] cursor-not-allowed`}
+          className={`mono min-w-0 flex-1 truncate text-[13px] ${
+            hasFile ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-4)]'
+          }`}
+          title={hasFile ? downloadName : '尚未保留源文件'}
         >
-          <DownloadIcon />
+          {hasFile ? downloadName : '尚未保留源文件 · 文件拖进来就行'}
         </span>
       )}
 
-      {/* Replace — same fixed square, different glyph for idle vs pending.
-          Error surfaces as a red tint + hover tooltip rather than inline
-          text that would shove the row around. */}
+      {error && (
+        <span
+          className="shrink-0 truncate text-[12px] text-[var(--color-overdue)]"
+          title={error}
+        >
+          {error}
+        </span>
+      )}
+
       <input
         ref={inputRef}
         type="file"
@@ -131,46 +150,33 @@ export function SourceFileRow({
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={pending}
-        title={error ?? (hasFile ? '替换源文件' : '上传源文件')}
-        aria-label={hasFile ? '替换源文件' : '上传源文件'}
-        className={`${ICON_BTN} ${
-          pending
-            ? 'text-[var(--color-ink-3)]'
-            : error
-              ? 'text-[var(--color-overdue)] hover:bg-[var(--color-active-bg)]'
-              : 'text-[var(--color-ink-2)] hover:text-[var(--color-ink)] hover:bg-[var(--color-active-bg)]'
+        title={hasFile ? '换一份源文件 · 也可以直接把文件拖到这一行' : '上传源文件 · 也可以直接拖进来'}
+        className={`${ACT_BTN} ${
+          error
+            ? 'border-[var(--color-overdue)] text-[var(--color-overdue)] hover:bg-[var(--color-overdue-soft)]'
+            : done
+              ? 'border-[var(--color-success)] text-[var(--color-success)]'
+              : 'border-[var(--color-border-strong)] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]'
         }`}
       >
-        {pending ? <SpinnerIcon /> : <UploadIcon />}
+        {pending ? (
+          <SpinnerIcon />
+        ) : error ? (
+          '重试'
+        ) : done ? (
+          '已换'
+        ) : hasFile ? (
+          '换一份'
+        ) : (
+          '上传'
+        )}
       </button>
     </div>
   )
 }
 
-// Lucide-style 16px stroke icons. Inlined so we don't pull an icon dep just
-// for two glyphs — keeps the bundle quiet and the line art crisp at the
-// surrounding 13px label scale. All three icons share viewbox/stroke so
-// they read as a coherent set inside their 28px square buttons.
-
-function DownloadIcon() {
-  return (
-    <Glyph>
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </Glyph>
-  )
-}
-
-function UploadIcon() {
-  return (
-    <Glyph>
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" y1="3" x2="12" y2="15" />
-    </Glyph>
-  )
-}
+// The only glyph left. 下载 and 上传 used to be two near-identical arrows
+// here; the filename and the word 换一份 say it better than either did.
 
 function SpinnerIcon() {
   return (
@@ -187,24 +193,6 @@ function SpinnerIcon() {
       className="animate-spin"
     >
       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-    </svg>
-  )
-}
-
-function Glyph({ children }: { children: React.ReactNode }) {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {children}
     </svg>
   )
 }
