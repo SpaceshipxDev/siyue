@@ -1174,12 +1174,13 @@ export function MasterSheet({
             {/* Missed in THIS tab — but the order may well exist one tab over.
                 The jump IS the answer, so it sits right under the miss. */}
             {q && (
-              <div className="mt-3">
+              <div className="mt-4">
                 <ScopeJumpHints
                   hits={otherScopeHits}
                   active={shipFilter}
                   onJump={setShipFilter}
                   approx={remoteSearch.truncated}
+                  prominent
                 />
               </div>
             )}
@@ -1322,18 +1323,40 @@ function ScopeJumpHints({
   active,
   onJump,
   approx,
+  prominent = false,
 }: {
   hits: Record<ShipFilter, number> | null
   active: ShipFilter
   onJump: (s: ShipFilter) => void
   /** Server truncated the hit set — the counts are floors, so render n+. */
   approx?: boolean
+  /** 空结果下面的那一个 — 它就是答案本身, 所以按按钮画, 不按脚注画。 */
+  prominent?: boolean
 }) {
   if (!hits) return null
   const others = (['live', 'shipped', 'paused'] as ShipFilter[]).filter(
     (s) => s !== active && hits[s] > 0,
   )
   if (others.length === 0) return null
+  // 搜不到的时候, 这句话是这一屏唯一有用的东西 — 一行灰色脚注太容易被当成
+  // "真没有"。这里它是一个按钮: 单子在哪, 有几个, 点一下就过去。
+  if (prominent) {
+    return (
+      <span className="inline-flex flex-wrap items-center justify-center gap-2">
+        {others.map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => onJump(s)}
+            className="rounded-[2px] bg-[var(--color-ink)] px-4 py-2 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85"
+          >
+            「{SHIP_SCOPE_LABEL[s]}」里有 {hits[s]}
+            {approx ? '+' : ''} 个 · 去看看
+          </button>
+        ))}
+      </span>
+    )
+  }
   return (
     <span className="inline-flex items-baseline gap-x-4">
       {others.map((s) => (
