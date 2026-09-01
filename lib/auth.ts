@@ -406,6 +406,11 @@ export type StageScope = 'all' | readonly Stage[]
 // by canManageOutsource.)
 const COMMERCE_STAGE_SCOPE: readonly Stage[] = ['采购', '表处', '出货']
 
+// 后道三道 — 打磨 → 喷漆 → 丝印 是同一批人接着做的一条线，所以打磨账号报这
+// 三个。手工 和 表处 不在里面：手工是另一个工位，表处是外协出去做的，都不该
+// 从这个账号上报。(喷涂 = 喷漆，厂里两种叫法，系统里只有 喷漆 这一个工段。)
+const FINISHING_STAGE_SCOPE: readonly Stage[] = ['打磨', '喷漆', '丝印']
+
 const STAGE_SCOPE_BY_USER_ID: Record<string, StageScope> = {
   // — full access —
   'u-bootstrap-commerce': 'all', // 老板
@@ -443,7 +448,10 @@ const STAGE_SCOPE_BY_USER_ID: Record<string, StageScope> = {
   'u-mpdgjma9-lgyznp': ['编程', '操机'], // 编程005戴棵
   'u-mpdgjtj2-nzx055': ['编程', '操机'], // 编程006宋跃文
   'u-mpdg0tcr-beaxrv': ['手工', '打磨'], // 手工001潘健 — 299 real 打磨 taps/45d
-  'u-mpdgdq8f-fn7k40': ['打磨', '喷漆', '丝印', '手工', '表处'], // 打磨喷漆 — finishing cluster, all usage-backed
+  // 打磨喷漆 — 老板 2026-09 收紧：只报后道三道。原先还带着 手工 和 表处
+  // (45 天里确有记录)，但那是别人的工位和外协的活，从这个账号上报会把工时和
+  // 进度记到错的地方。
+  'u-mpdgdq8f-fn7k40': FINISHING_STAGE_SCOPE, // 打磨喷漆
   'u-mpdg1xc0-w221oi': ['手工', '打磨', '喷漆'], // 批量组001夏
   'u-mpdgqdy0-twnhmy': ['质量', '检验', '出货'], // 质量周中华 — de facto shipper (2,105 出货 taps/45d)
   'u-mpdgra00-srf0qm': ['质量', '检验'], // 质量倪伟群
@@ -454,10 +462,12 @@ const STAGE_SCOPE_BY_USER_ID: Record<string, StageScope> = {
 
 // Accounts created after this map was written (new hires) fall back to the
 // closest sane rule until someone adds them above: 商务 → the commercial
-// tail, 工程 → everywhere, other production → their own station only.
+// tail, 工程 → everywhere, 打磨 → the three finishing stations it works as
+// one, other production → their own station only.
 function fallbackStageScope(u: AuthUser): StageScope {
   if (u.role === 'commerce') return COMMERCE_STAGE_SCOPE
   if (u.defaultStage === '工程') return 'all'
+  if (u.defaultStage === '打磨') return FINISHING_STAGE_SCOPE
   return u.defaultStage ? [u.defaultStage] : []
 }
 
