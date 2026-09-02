@@ -485,10 +485,18 @@ input[type="number"] {
   color: var(--color-ink);
   font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
+/* 单据表格默认只画横线 — 外协单、检验报告沿用这一版。 */
 .doc table { width: 100%; border-collapse: collapse; }
 .doc th, .doc td { padding: 6px 8px; border-bottom: 1px solid #c4c1b8; text-align: left; vertical-align: top; }
 .doc td { font-size: 12px; line-height: 1.45; }
 .doc th { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #5a5851; font-weight: 500; border-bottom: 1px solid #14130f; }
+
+/* 满格线 — 横竖都有, 外框深、内线浅。只给出货单用 (table.doc-grid): 它是交
+ * 到客户手上、当场核对签收的那张纸, 只有横线的话一行里哪个数属于哪一栏全靠
+ * 眼睛往上对, 收货的人拿笔一划就串行了。 */
+.doc table.doc-grid { border: 1px solid #14130f; }
+.doc table.doc-grid th, .doc table.doc-grid td { border: 1px solid #c4c1b8; }
+.doc table.doc-grid th { border-bottom: 1px solid #14130f; }
 .doc-thumb {
   width: 48px;
   height: 48px;

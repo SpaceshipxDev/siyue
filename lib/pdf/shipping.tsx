@@ -33,6 +33,65 @@ const COL = {
 // small-caps labels, English subtitle, oversized title) for a plain black form
 // that mirrors that template: 交货单 wording, 料号 ahead of 材质, a 货品总数
 // header total, and the real ship date. Every other PDF keeps the house style.
+// 格线 — 横竖都画, 外框深、内线浅。这是一张交出去给人核对签字的纸: 只有横
+// 线的话, 一行里哪个数属于哪一栏全靠眼睛对齐, 收货的人拿笔一划就串行了。
+//
+// 竖线必须画在包住单元格的 View 上, 不能画在 Text 上 —— Text 的高度就是文
+// 字高度, 一行里名字换了三行、数量只有一行, 竖线就成了几段长短不一的短杠,
+// 比没有还难看 (试出来的)。View 会被 flex 拉伸到整行高, 线才到底。
+const GRID = StyleSheet.create({
+  headRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    borderTopWidth: 1,
+    borderTopColor: COLOR.ink,
+    borderLeftWidth: 1,
+    borderLeftColor: COLOR.ink,
+    borderBottomWidth: 1,
+    borderBottomColor: COLOR.ink,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    borderLeftWidth: 1,
+    borderLeftColor: COLOR.ink,
+    borderBottomWidth: 0.5,
+    borderBottomColor: COLOR.borderStrong,
+    minHeight: 30,
+  },
+  totalRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    borderLeftWidth: 1,
+    borderLeftColor: COLOR.ink,
+    borderTopWidth: 0.5,
+    borderTopColor: COLOR.ink,
+    borderBottomWidth: 1,
+    borderBottomColor: COLOR.ink,
+  },
+  // 每一格: 右边一条竖线 (最后一格那条就是右外框), 内容自己带 padding。
+  cell: {
+    borderRightWidth: 0.5,
+    borderRightColor: COLOR.borderStrong,
+    paddingVertical: 6,
+    justifyContent: 'flex-start',
+  },
+  headCell: {
+    borderRightWidth: 1,
+    borderRightColor: COLOR.ink,
+    paddingTop: 4,
+    paddingBottom: 6,
+    justifyContent: 'flex-end',
+  },
+  thumbCell: {
+    borderRightWidth: 0.5,
+    borderRightColor: COLOR.borderStrong,
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+})
+
 const S = StyleSheet.create({
   header: {
     borderBottomWidth: 1,
@@ -154,26 +213,40 @@ export function ShippingDocPDF({
         {shippingStarted ? (
           <>
             <View style={styles.tableWrap}>
-              <View style={styles.tableHeaderRow} fixed>
-                <Text style={[S.th, { width: COL.seq }]}>序号</Text>
-                <Text style={[S.th, { width: COL.thumb }]}>产品图片</Text>
-                <Text style={[S.th, { flex: 1 }]}>产品名称</Text>
-                <Text style={[S.th, { width: COL.partNo }]}>料号</Text>
-                <Text style={[S.th, { width: COL.material }]}>材质</Text>
-                <Text style={[S.th, { width: COL.qty, textAlign: 'right' }]}>
-                  交货数量
-                </Text>
-                <Text style={[S.th, { width: COL.notes }]}>备注</Text>
+              <View style={GRID.headRow} fixed>
+                <View style={[GRID.headCell, { width: COL.seq }]}>
+                  <Text style={S.th}>序号</Text>
+                </View>
+                <View style={[GRID.headCell, { width: COL.thumb }]}>
+                  <Text style={S.th}>产品图片</Text>
+                </View>
+                <View style={[GRID.headCell, { flex: 1 }]}>
+                  <Text style={S.th}>产品名称</Text>
+                </View>
+                <View style={[GRID.headCell, { width: COL.partNo }]}>
+                  <Text style={S.th}>料号</Text>
+                </View>
+                <View style={[GRID.headCell, { width: COL.material }]}>
+                  <Text style={S.th}>材质</Text>
+                </View>
+                <View style={[GRID.headCell, { width: COL.qty }]}>
+                  <Text style={[S.th, { textAlign: 'right' }]}>交货数量</Text>
+                </View>
+                <View style={[GRID.headCell, { width: COL.notes }]}>
+                  <Text style={S.th}>备注</Text>
+                </View>
               </View>
 
               {shippingRows.map(({ component: c, qty }, i) => {
                 const img = c.imageUrl ? images.get(c.imageUrl) : undefined
                 return (
-                  <View key={c.id} style={styles.tableRow} wrap={false}>
-                    <Text style={[styles.tdSeq, { width: COL.seq }]}>
-                      {String(i + 1).padStart(2, '0')}
-                    </Text>
-                    <View style={[styles.thumbCell, { width: COL.thumb }]}>
+                  <View key={c.id} style={GRID.row} wrap={false}>
+                    <View style={[GRID.cell, { width: COL.seq }]}>
+                      <Text style={styles.tdSeq}>
+                        {String(i + 1).padStart(2, '0')}
+                      </Text>
+                    </View>
+                    <View style={[GRID.thumbCell, { width: COL.thumb }]}>
                       {img ? (
                         // eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image, no alt prop
                         <Image style={styles.thumb} src={img.data} />
@@ -181,56 +254,54 @@ export function ShippingDocPDF({
                         <Text style={styles.thumbPlaceholder}>—</Text>
                       )}
                     </View>
-                    <Text style={[styles.td, { flex: 1, fontWeight: 500 }]}>
-                      {c.name || '—'}
-                    </Text>
+                    <View style={[GRID.cell, { flex: 1 }]}>
+                      <Text style={[styles.td, { fontWeight: 500 }]}>
+                        {c.name || '—'}
+                      </Text>
+                    </View>
                     {/* 空格子也要有个破折号 — 一张交货单上几个格子纯白, 客户
                         收货时会当成"这一项还没定", 而不是"厂里没填"。 */}
-                    <Text style={[styles.td, { width: COL.partNo }]}>
-                      {c.partNo || '—'}
-                    </Text>
-                    <Text style={[styles.td, { width: COL.material }]}>
-                      {c.material || '—'}
-                    </Text>
-                    <Text
-                      style={[styles.td, { width: COL.qty, textAlign: 'right' }]}
-                    >
-                      {qty}
-                    </Text>
-                    <Text style={[styles.td, { width: COL.notes }]}>
-                      {stripProcessMethodFromNotes(c.notes) || '—'}
-                    </Text>
+                    <View style={[GRID.cell, { width: COL.partNo }]}>
+                      <Text style={styles.td}>{c.partNo || '—'}</Text>
+                    </View>
+                    <View style={[GRID.cell, { width: COL.material }]}>
+                      <Text style={styles.td}>{c.material || '—'}</Text>
+                    </View>
+                    <View style={[GRID.cell, { width: COL.qty }]}>
+                      <Text style={[styles.td, { textAlign: 'right' }]}>
+                        {qty}
+                      </Text>
+                    </View>
+                    <View style={[GRID.cell, { width: COL.notes }]}>
+                      <Text style={styles.td}>
+                        {stripProcessMethodFromNotes(c.notes) || '—'}
+                      </Text>
+                    </View>
                   </View>
                 )
               })}
 
               {/* Totals row */}
-              <View style={styles.tableTotalRow}>
-                <Text
+              <View style={GRID.totalRow}>
+                <View
                   style={[
-                    S.th,
+                    GRID.cell,
                     {
                       width: COL.seq + COL.thumb + COL.partNo + COL.material,
                       flex: 1,
-                      textAlign: 'right',
                     },
                   ]}
                 >
-                  合计
-                </Text>
-                <Text
-                  style={[
-                    styles.td,
-                    {
-                      width: COL.qty,
-                      textAlign: 'right',
-                      fontWeight: 600,
-                    },
-                  ]}
-                >
-                  {totalShipped}
-                </Text>
-                <Text style={[styles.td, { width: COL.notes }]} />
+                  <Text style={[S.th, { textAlign: 'right' }]}>合计</Text>
+                </View>
+                <View style={[GRID.cell, { width: COL.qty }]}>
+                  <Text
+                    style={[styles.td, { textAlign: 'right', fontWeight: 600 }]}
+                  >
+                    {totalShipped}
+                  </Text>
+                </View>
+                <View style={[GRID.cell, { width: COL.notes }]} />
               </View>
             </View>
 

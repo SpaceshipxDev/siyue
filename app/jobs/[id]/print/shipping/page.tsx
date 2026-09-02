@@ -191,7 +191,8 @@ export default async function ShippingDocPage(
 
         {shippingStarted ? (
           <section className="py-4">
-            <table>
+            {/* doc-grid — 满格线, 只有出货单用。见 globals.css。 */}
+            <table className="doc-grid">
               <thead>
                 <tr>
                   <th style={{ width: 36 }}>序号</th>
