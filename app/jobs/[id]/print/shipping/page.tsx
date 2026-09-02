@@ -10,7 +10,7 @@ import {
   updateJob,
   upsertCustomerByName,
 } from '@/lib/db'
-import { requireUser } from '@/lib/auth'
+import { canEditShipment, requireUser } from '@/lib/auth'
 import { BRAND } from '@/lib/brand'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { stripProcessMethodFromNotes } from '@/lib/pdf/sanitize'
@@ -28,7 +28,7 @@ export const dynamic = 'force-dynamic'
 export default async function ShippingDocPage(
   props: PageProps<'/jobs/[id]/print/shipping'>,
 ) {
-  await requireUser()
+  const user = await requireUser()
   const { id } = await props.params
   const sp = await props.searchParams
   const shipmentId = typeof sp.shipment === 'string' ? sp.shipment : undefined
@@ -81,12 +81,18 @@ export default async function ShippingDocPage(
 
   return (
     <>
+      {/* 作废 — 只给能改出货单的人 (商务 / 出货站 / 工程头), 而且只在这一页
+          真的对着一张单的时候。开错了就是在看这张纸的时候发现的。 */}
       <PrintToolbar
         pdfHref={
           shipment
             ? `/jobs/${job.id}/print/shipping/pdf?shipment=${shipment.id}`
             : `/jobs/${job.id}/print/shipping/pdf`
         }
+        shipmentId={
+          shipment && canEditShipment(user) ? shipment.id : undefined
+        }
+        jobId={job.id}
       />
       <article className="doc">
         <header className="border-b border-[var(--color-ink)] pb-3">
