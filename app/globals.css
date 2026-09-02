@@ -493,10 +493,29 @@ input[type="number"] {
 
 /* 满格线 — 横竖都有, 外框深、内线浅。只给出货单用 (table.doc-grid): 它是交
  * 到客户手上、当场核对签收的那张纸, 只有横线的话一行里哪个数属于哪一栏全靠
- * 眼睛往上对, 收货的人拿笔一划就串行了。 */
-.doc table.doc-grid { border: 1px solid #14130f; }
-.doc table.doc-grid th, .doc table.doc-grid td { border: 1px solid #c4c1b8; }
+ * 眼睛往上对, 收货的人拿笔一划就串行了。
+ *
+ * table-layout: fixed — 列宽按表头声明的来, 内容再长也不许挤别人。配合下面
+ * 的 overflow-wrap, 一个没有空格的长料号 (PN-2026-XY-0001-A) 也会在格子里断
+ * 行, 而不是把整列撑宽、把后面几列挤出纸外。
+ *
+ * 居中: 短字段 (序号/图片/料号/材质/数量) 横竖都居中; 产品名称和备注是整句
+ * 话, 居中读起来要一行一行找头, 所以留左对齐。 */
+.doc table.doc-grid { border: 1px solid #14130f; table-layout: fixed; }
+.doc table.doc-grid th, .doc table.doc-grid td {
+  border: 1px solid #c4c1b8;
+  text-align: center;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .doc table.doc-grid th { border-bottom: 1px solid #14130f; }
+.doc table.doc-grid th:nth-child(3), .doc table.doc-grid td:nth-child(3),
+.doc table.doc-grid th:nth-child(7), .doc table.doc-grid td:nth-child(7) {
+  text-align: left;
+}
+/* 缩略图是块级元素 — 单元格居中管不到它, 得自己左右 auto。 */
+.doc table.doc-grid .doc-thumb { margin-left: auto; margin-right: auto; }
 .doc-thumb {
   width: 48px;
   height: 48px;

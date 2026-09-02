@@ -200,7 +200,7 @@ export default async function ShippingDocPage(
                   <th>产品名称</th>
                   <th style={{ width: 96 }}>料号</th>
                   <th style={{ width: 96 }}>材质</th>
-                  <th style={{ width: 80, textAlign: 'right' }}>交货数量</th>
+                  <th style={{ width: 80 }}>交货数量</th>
                   <th style={{ width: 110 }}>备注</th>
                 </tr>
               </thead>
@@ -241,9 +241,7 @@ export default async function ShippingDocPage(
                         placeholder="—"
                       />
                     </td>
-                    <td className="mono" style={{ textAlign: 'right' }}>
-                      {qty}
-                    </td>
+                    <td className="mono">{qty}</td>
                     <td className="text-[var(--color-ink-2)]">
                       {stripProcessMethodFromNotes(c.notes) || '—'}
                     </td>
@@ -253,9 +251,7 @@ export default async function ShippingDocPage(
                   <td colSpan={5} className="label" style={{ textAlign: 'right' }}>
                     合计
                   </td>
-                  <td className="mono font-semibold" style={{ textAlign: 'right' }}>
-                    {totalShipped}
-                  </td>
+                  <td className="mono font-semibold">{totalShipped}</td>
                   <td />
                 </tr>
               </tbody>

@@ -39,6 +39,10 @@ const COL = {
 // 竖线必须画在包住单元格的 View 上, 不能画在 Text 上 —— Text 的高度就是文
 // 字高度, 一行里名字换了三行、数量只有一行, 竖线就成了几段长短不一的短杠,
 // 比没有还难看 (试出来的)。View 会被 flex 拉伸到整行高, 线才到底。
+// 短字段 (序号/图片/料号/材质/数量) 居中; 产品名称和备注是整句话, 居中读起
+// 来要一行一行找头, 留左对齐。
+const CENTER = { textAlign: 'center' } as const
+
 const GRID = StyleSheet.create({
   headRow: {
     flexDirection: 'row',
@@ -69,12 +73,13 @@ const GRID = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLOR.ink,
   },
-  // 每一格: 右边一条竖线 (最后一格那条就是右外框), 内容自己带 padding。
+  // 每一格: 右边一条竖线 (最后一格那条就是右外框), 内容上下居中 —— 一行里
+  // 图片 36pt 高、数量只有一行字, 贴顶排会显得整行是歪的。
   cell: {
     borderRightWidth: 0.5,
     borderRightColor: COLOR.borderStrong,
     paddingVertical: 6,
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
   },
   headCell: {
     borderRightWidth: 1,
@@ -215,22 +220,22 @@ export function ShippingDocPDF({
             <View style={styles.tableWrap}>
               <View style={GRID.headRow} fixed>
                 <View style={[GRID.headCell, { width: COL.seq }]}>
-                  <Text style={S.th}>序号</Text>
+                  <Text style={[S.th, CENTER]}>序号</Text>
                 </View>
                 <View style={[GRID.headCell, { width: COL.thumb }]}>
-                  <Text style={S.th}>产品图片</Text>
+                  <Text style={[S.th, CENTER]}>产品图片</Text>
                 </View>
                 <View style={[GRID.headCell, { flex: 1 }]}>
                   <Text style={S.th}>产品名称</Text>
                 </View>
                 <View style={[GRID.headCell, { width: COL.partNo }]}>
-                  <Text style={S.th}>料号</Text>
+                  <Text style={[S.th, CENTER]}>料号</Text>
                 </View>
                 <View style={[GRID.headCell, { width: COL.material }]}>
-                  <Text style={S.th}>材质</Text>
+                  <Text style={[S.th, CENTER]}>材质</Text>
                 </View>
                 <View style={[GRID.headCell, { width: COL.qty }]}>
-                  <Text style={[S.th, { textAlign: 'right' }]}>交货数量</Text>
+                  <Text style={[S.th, CENTER]}>交货数量</Text>
                 </View>
                 <View style={[GRID.headCell, { width: COL.notes }]}>
                   <Text style={S.th}>备注</Text>
@@ -242,7 +247,7 @@ export function ShippingDocPDF({
                 return (
                   <View key={c.id} style={GRID.row} wrap={false}>
                     <View style={[GRID.cell, { width: COL.seq }]}>
-                      <Text style={styles.tdSeq}>
+                      <Text style={[styles.tdSeq, CENTER]}>
                         {String(i + 1).padStart(2, '0')}
                       </Text>
                     </View>
@@ -262,15 +267,15 @@ export function ShippingDocPDF({
                     {/* 空格子也要有个破折号 — 一张交货单上几个格子纯白, 客户
                         收货时会当成"这一项还没定", 而不是"厂里没填"。 */}
                     <View style={[GRID.cell, { width: COL.partNo }]}>
-                      <Text style={styles.td}>{c.partNo || '—'}</Text>
+                      <Text style={[styles.td, CENTER]}>{c.partNo || '—'}</Text>
                     </View>
                     <View style={[GRID.cell, { width: COL.material }]}>
-                      <Text style={styles.td}>{c.material || '—'}</Text>
+                      <Text style={[styles.td, CENTER]}>
+                        {c.material || '—'}
+                      </Text>
                     </View>
                     <View style={[GRID.cell, { width: COL.qty }]}>
-                      <Text style={[styles.td, { textAlign: 'right' }]}>
-                        {qty}
-                      </Text>
+                      <Text style={[styles.td, CENTER]}>{qty}</Text>
                     </View>
                     <View style={[GRID.cell, { width: COL.notes }]}>
                       <Text style={styles.td}>
@@ -295,9 +300,7 @@ export function ShippingDocPDF({
                   <Text style={[S.th, { textAlign: 'right' }]}>合计</Text>
                 </View>
                 <View style={[GRID.cell, { width: COL.qty }]}>
-                  <Text
-                    style={[styles.td, { textAlign: 'right', fontWeight: 600 }]}
-                  >
+                  <Text style={[styles.td, CENTER, { fontWeight: 600 }]}>
                     {totalShipped}
                   </Text>
                 </View>
