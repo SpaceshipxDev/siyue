@@ -195,13 +195,16 @@ export default async function ShippingDocPage(
             <table className="doc-grid">
               <thead>
                 <tr>
+                  {/* 列宽在这一行定死 (table-layout: fixed)。图片栏放大到能
+                      放下 72px 的图, 名称和备注各让出一点 —— 宽度是守恒的,
+                      图要大就得有人让。 */}
                   <th style={{ width: 36 }}>序号</th>
-                  <th style={{ width: 64 }}>产品图片</th>
+                  <th style={{ width: 100 }}>产品图片</th>
                   <th>产品名称</th>
                   <th style={{ width: 96 }}>料号</th>
                   <th style={{ width: 96 }}>材质</th>
                   <th style={{ width: 80 }}>交货数量</th>
-                  <th style={{ width: 110 }}>备注</th>
+                  <th style={{ width: 102 }}>备注</th>
                 </tr>
               </thead>
               <tbody>

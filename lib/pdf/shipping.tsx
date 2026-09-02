@@ -15,16 +15,20 @@ import { stripProcessMethodFromNotes } from './sanitize'
 
 ensureFontsRegistered()
 
-// Column widths for the shipping table — fixed flex weights so a long product
-// name doesn't push the qty column off the page.
+// Column widths for the shipping table. Every column is fixed and they add up
+// to the page's usable width (A4 595.28pt − 2×40pt padding ≈ 515), so nothing
+// is elastic and a long product name can't push the qty column off the page.
+//
+// 图片栏按 72pt 的图定 (56 图 + 边距) — 客户在收货台上核对的就是这张图, 小
+// 了看不清。宽度是守恒的, 所以名称和备注各让出一点给它。
 const COL = {
   seq: 28,
-  thumb: 56,
-  name: 120,
+  thumb: 84,
+  name: 96,
+  partNo: 90,
   material: 80,
   qty: 56,
-  partNo: 90,
-  notes: 92,
+  notes: 81,
 } as const
 
 // This document is a boundary object — it leaves our system and lands on the
@@ -39,9 +43,12 @@ const COL = {
 // 竖线必须画在包住单元格的 View 上, 不能画在 Text 上 —— Text 的高度就是文
 // 字高度, 一行里名字换了三行、数量只有一行, 竖线就成了几段长短不一的短杠,
 // 比没有还难看 (试出来的)。View 会被 flex 拉伸到整行高, 线才到底。
-// 短字段 (序号/图片/料号/材质/数量) 居中; 产品名称和备注是整句话, 居中读起
-// 来要一行一行找头, 留左对齐。
+// 除了备注, 每一栏都居中。备注是一句话, 居中的话每行开头都不在一处, 读的时
+// 候要一行一行找头。
 const CENTER = { textAlign: 'center' } as const
+
+// 缩略图本地放大 — lib/pdf/styles.ts 的 thumb 是外协单和检验报告共用的。
+const THUMB = { width: 56, height: 56 } as const
 
 const GRID = StyleSheet.create({
   headRow: {
@@ -225,8 +232,8 @@ export function ShippingDocPDF({
                 <View style={[GRID.headCell, { width: COL.thumb }]}>
                   <Text style={[S.th, CENTER]}>产品图片</Text>
                 </View>
-                <View style={[GRID.headCell, { flex: 1 }]}>
-                  <Text style={S.th}>产品名称</Text>
+                <View style={[GRID.headCell, { width: COL.name }]}>
+                  <Text style={[S.th, CENTER]}>产品名称</Text>
                 </View>
                 <View style={[GRID.headCell, { width: COL.partNo }]}>
                   <Text style={[S.th, CENTER]}>料号</Text>
@@ -254,13 +261,13 @@ export function ShippingDocPDF({
                     <View style={[GRID.thumbCell, { width: COL.thumb }]}>
                       {img ? (
                         // eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image, no alt prop
-                        <Image style={styles.thumb} src={img.data} />
+                        <Image style={[styles.thumb, THUMB]} src={img.data} />
                       ) : (
                         <Text style={styles.thumbPlaceholder}>—</Text>
                       )}
                     </View>
-                    <View style={[GRID.cell, { flex: 1 }]}>
-                      <Text style={[styles.td, { fontWeight: 500 }]}>
+                    <View style={[GRID.cell, { width: COL.name }]}>
+                      <Text style={[styles.td, CENTER, { fontWeight: 500 }]}>
                         {c.name || '—'}
                       </Text>
                     </View>
@@ -292,8 +299,12 @@ export function ShippingDocPDF({
                   style={[
                     GRID.cell,
                     {
-                      width: COL.seq + COL.thumb + COL.partNo + COL.material,
-                      flex: 1,
+                      width:
+                        COL.seq +
+                        COL.thumb +
+                        COL.name +
+                        COL.partNo +
+                        COL.material,
                     },
                   ]}
                 >
