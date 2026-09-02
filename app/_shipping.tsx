@@ -16,8 +16,19 @@ import { mutate } from '@/lib/mutate'
 // 制作出货单 — pick how many of each part ship in this batch and emit one
 // new 出货单. The dialog reads existing shipment history per part, locks
 // fully-shipped rows, and defaults the qty input to whatever's still owed.
+//
+// 一行四个数, 成列摆开: 订单 (总共要交多少) · 已交 (以前交掉的) ·
+// 未交 · 本次 (这一车拉走多少)。未交跟着本次实时减 —— 填 30, 未交立刻
+// 显示出完还欠几件, 不用自己在脑子里减一遍, 也不用等打完单再回来看。
+// 底下合计同理: 归零就是这个工单交清了。
+//
+// 打出来的出货单上只有「交货数量」, 也就是本次这一栏 —— 客户要的是
+// 这一车拉了什么, 厂里的欠数是厂里的事。
 
 type Pick = { selected: boolean; qty: number }
+
+// 零件 · 订单 · 已交 · 未交 · 本次 — 表头和每一行共用, 所以列永远对得齐。
+const COLS = 'grid-cols-[minmax(0,1fr)_34px_34px_40px_58px]'
 
 export function ShippingComposerButton({
   jobId,
@@ -145,6 +156,15 @@ export function ShippingComposer({
     return sum + (p?.selected ? p.qty : 0)
   }, 0)
 
+  // 出完这一单还欠多少 — 订单 − 已交 − 本次。这是"未交"那一列的合计, 也是做
+  // 这张单时唯一要盯的数: 它归零, 这个工单就交清了。
+  const owedAfterTotal = inRoute.reduce((sum, c) => {
+    const b = baseline.get(c.id)
+    const p = picks[c.id]
+    const take = p?.selected ? p.qty : 0
+    return sum + Math.max(0, c.qty - (b?.shipped ?? 0) - take)
+  }, 0)
+
   const toggle = (c: Component) => {
     const remaining = baseline.get(c.id)?.remaining ?? 0
     if (remaining === 0) return
@@ -262,6 +282,17 @@ export function ShippingComposer({
               该工单没有出货环节
             </p>
           ) : (
+            <>
+            {/* 四个数各占一列, 而且有列头 — 以前它们藏在行下面一行小字里, 还
+                是有条件才出现的 (发过货写"已发", 没发过写"共 N 件"), 同一个
+                位置在不同行上说的是不同的事。 */}
+            <div className={`sticky top-0 z-10 grid ${COLS} items-baseline gap-2 border-b border-[var(--color-border)] bg-[#f5f3ed] px-6 py-1.5`}>
+              <span className="label">零件</span>
+              <span className="label text-right">订单</span>
+              <span className="label text-right">已交</span>
+              <span className="label text-right">未交</span>
+              <span className="label text-right">本次</span>
+            </div>
             <ul className="divide-y divide-[var(--color-border)]">
               {inRoute.map((c) => {
                 const b = baseline.get(c.id) ?? { shipped: 0, remaining: c.qty }
@@ -270,6 +301,10 @@ export function ShippingComposer({
                 const checked = !fullyShipped && p.selected
                 const entries = componentShipmentEntries(c.id, shipments)
                 const lastEntry = entries.at(-1)
+                // 未交跟着「本次」实时减 — 填多少, 这里立刻显示出完还欠多少,
+                // 不用自己在脑子里减一遍。
+                const take = checked ? p.qty : 0
+                const owedAfter = Math.max(0, c.qty - b.shipped - take)
                 return (
                   <li
                     key={c.id}
@@ -277,9 +312,9 @@ export function ShippingComposer({
                       fullyShipped ? 'bg-[var(--color-success-soft)]' : ''
                     }`}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className={`grid ${COLS} items-center gap-2`}>
                       <label
-                        className={`flex items-center gap-3 flex-1 min-w-0 ${
+                        className={`flex min-w-0 items-center gap-2.5 ${
                           fullyShipped ? 'cursor-default' : 'cursor-pointer'
                         }`}
                       >
@@ -289,10 +324,10 @@ export function ShippingComposer({
                           onChange={() => toggle(c)}
                           disabled={pending || fullyShipped}
                           aria-label={`选择 ${c.name}`}
-                          className="h-4 w-4 accent-[var(--color-ink)] disabled:opacity-30"
+                          className="h-4 w-4 shrink-0 accent-[var(--color-ink)] disabled:opacity-30"
                         />
                         <span
-                          className={`text-[13px] truncate ${
+                          className={`truncate text-[13px] ${
                             fullyShipped
                               ? 'text-[var(--color-ink-3)] line-through decoration-[var(--color-ink-4)]'
                               : 'text-[var(--color-ink)]'
@@ -301,48 +336,58 @@ export function ShippingComposer({
                           {c.name}
                         </span>
                       </label>
-                      <div className="flex items-baseline gap-1.5 shrink-0">
+                      <span className="mono text-right text-[12.5px] tabular-nums text-[var(--color-ink-2)]">
+                        {c.qty}
+                      </span>
+                      <span
+                        className={`mono text-right text-[12.5px] tabular-nums ${
+                          b.shipped > 0
+                            ? 'text-[var(--color-ink-2)]'
+                            : 'text-[var(--color-ink-4)]'
+                        }`}
+                      >
+                        {b.shipped > 0 ? b.shipped : '·'}
+                      </span>
+                      <span
+                        className={`mono text-right text-[12.5px] font-semibold tabular-nums ${
+                          owedAfter === 0
+                            ? 'text-[var(--color-success)]'
+                            : 'text-[var(--color-ink)]'
+                        }`}
+                      >
+                        {owedAfter}
+                      </span>
+                      {fullyShipped ? (
+                        <span className="mono text-right text-[12.5px] text-[var(--color-success)]">
+                          ✓
+                        </span>
+                      ) : (
                         <input
                           type="number"
                           min={0}
                           max={b.remaining}
                           step={1}
-                          value={fullyShipped ? 0 : p.qty}
+                          value={p.qty}
                           onChange={(e) => setQty(c, Number(e.target.value))}
                           onFocus={(e) => e.target.select()}
-                          disabled={pending || fullyShipped}
+                          disabled={pending}
                           aria-label={`${c.name} 本次数量`}
-                          className="w-14 mono text-[13px] text-right border-b border-[var(--color-border)] bg-transparent py-1 focus:outline-none focus:border-[var(--color-ink)] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none disabled:opacity-30"
+                          className="mono w-full border-b border-[var(--color-border)] bg-transparent py-1 text-right text-[13px] tabular-nums focus:border-[var(--color-ink)] focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none disabled:opacity-30"
                         />
-                        <span className="label text-[var(--color-ink-3)] mono">
-                          / {b.remaining}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="mt-1 ml-7 flex items-baseline gap-3 text-[11px]">
-                      {fullyShipped ? (
-                        <span className="mono text-[var(--color-success)]">
-                          ✓ 已全部出货 {c.qty}/{c.qty}
-                        </span>
-                      ) : b.shipped > 0 ? (
-                        <span className="mono text-[var(--color-warning)]">
-                          已发 {b.shipped}
-                        </span>
-                      ) : (
-                        <span className="mono text-[var(--color-ink-3)]">
-                          共 {c.qty} 件
-                        </span>
                       )}
-                      {lastEntry ? (
-                        <span className="mono text-[var(--color-ink-4)] truncate">
+                    </div>
+                    {lastEntry ? (
+                      <div className="mt-1 ml-7 text-[11px]">
+                        <span className="mono truncate text-[var(--color-ink-4)]">
                           上次 {formatShipmentTimestamp(lastEntry.createdAt)} ×{lastEntry.qty}
                         </span>
-                      ) : null}
-                    </div>
+                      </div>
+                    ) : null}
                   </li>
                 )
               })}
             </ul>
+            </>
           )}
         </div>
 
@@ -353,8 +398,17 @@ export function ShippingComposer({
         )}
 
         <footer className="px-6 py-4 border-t border-[var(--color-border)] flex items-center justify-between gap-4">
-          <span className="label text-[var(--color-ink-3)] mono">
+          <span className="label mono text-[var(--color-ink-3)]">
             本次 {batchQty} 件 · {selectedCount} 种零件
+            <span
+              className={`ml-2 ${
+                owedAfterTotal === 0
+                  ? 'text-[var(--color-success)]'
+                  : 'text-[var(--color-ink-2)]'
+              }`}
+            >
+              · {owedAfterTotal === 0 ? '出完就交清了' : `出后仍欠 ${owedAfterTotal} 件`}
+            </span>
           </span>
           <div className="flex items-center gap-2">
             <button
