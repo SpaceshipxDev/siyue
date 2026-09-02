@@ -38,6 +38,7 @@ import { MonthlyCashflow } from './_monthly'
 import { OrderLedger } from './_orders'
 import { PayrollBoard } from './_payroll'
 import { RaiseLedger } from './_raises'
+import { ShipStats } from './_ship_stats'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,6 +54,8 @@ const PAGE_SIZE = 25
 //                            出货 automatically.
 //   看钱 (tab=money)         the boss's read — 4 plain-speak totals + the
 //                            per-customer 谁压着钱 wall. Same derived rows.
+//   出货 (tab=ship)          这个月出了多少货 · 按商务 / 按出货日期两种切法,
+//                            金额与记账表同源
 //   支出 (tab=expense)       money out — the boss's 7 manual categories
 //   工资 (tab=payroll)       一人一行的月度工资表 — 考勤读自人事, 月休4天的
 //                            制度写在页头, 发放一键记进支出台账
@@ -66,6 +69,7 @@ type FinanceTab =
   | 'orders'
   | 'ar'
   | 'money'
+  | 'ship'
   | 'expense'
   | 'payroll'
   | 'raise'
@@ -82,6 +86,7 @@ export default async function FinancePage({
     page?: string
     m?: string
     pm?: string
+    sm?: string
   }>
 }) {
   const user = await requireOrderLedgerViewer()
@@ -91,6 +96,7 @@ export default async function FinancePage({
 
   const tab: FinanceTab =
     params.tab === 'ar' ||
+    params.tab === 'ship' ||
     params.tab === 'expense' ||
     params.tab === 'payroll' ||
     params.tab === 'raise' ||
@@ -123,7 +129,9 @@ export default async function FinancePage({
         ? '分期账'
         : tab === 'money'
           ? '看钱'
-          : tab === 'expense'
+          : tab === 'ship'
+            ? '出货统计'
+            : tab === 'expense'
             ? '支出台账'
             : tab === 'payroll'
               ? '工资'
@@ -160,6 +168,7 @@ export default async function FinancePage({
         {tab === 'expense' && (
           <ExpenseTab params={params} month={month} monthLabel={monthLabel} userName={user.name} />
         )}
+        {tab === 'ship' && <ShipStats sm={params.sm} todayStr={todayStr} />}
         {tab === 'payroll' && <PayrollTab pm={params.pm} thisMonth={month} />}
         {tab === 'raise' && <RaiseTab todayStr={todayStr} />}
         {tab === 'month' && <MonthlyCashflow m={params.m} todayStr={todayStr} />}
@@ -182,6 +191,9 @@ function FinanceTabs({
 }) {
   const tabs: { key: FinanceTab; href: string; label: string }[] = [
     { key: 'orders', href: '/finance', label: '订单' },
+    // 出货统计 is the 订单额 this page already shows, sliced by day and by
+    // owner — so it rides with 订单 rather than behind the commerce-only wall.
+    { key: 'ship', href: '/finance?tab=ship', label: '出货' },
     ...(isCommerce
       ? ([
           { key: 'ar', href: '/finance?tab=ar', label: '记账' },

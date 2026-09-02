@@ -110,3 +110,13 @@ export function shiftDate(date: string, gran: Granularity, delta: number): strin
       : new Date(Date.UTC(y, m - 1, d + delta * (gran === 'week' ? 7 : 1)))
   return next.toISOString().slice(0, 10)
 }
+
+// A stored UTC ISO instant → the 'YYYY-MM-DD' it fell on in the factory's
+// day. 出货 timestamps are UTC; slicing them raw puts anything shipped after
+// 16:00 Beijing on the previous date, which is exactly the kind of off-by-one
+// nobody catches until the month's totals don't add up.
+export function shanghaiDay(iso: string): string {
+  const t = Date.parse(iso)
+  if (!Number.isFinite(t)) return ''
+  return new Date(t + SH_OFFSET_MS).toISOString().slice(0, 10)
+}

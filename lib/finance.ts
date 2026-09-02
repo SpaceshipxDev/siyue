@@ -26,7 +26,10 @@ export type FinanceRow = {
   jobNo: string
   customer: string // 客户名称
   product: string
-  salesperson?: string // 商务
+  salesperson?: string // 商务 — 建单人 (记账表沿用的那一列)
+  // 越侬商务 — 这单归谁, 导入时必填。出货统计按它算业绩; 老单没填的退回
+  // salesperson (建单人), 因为那是当时唯一留下的名字。
+  yuenongBusiness?: string
   qty: number // 数量 — total units across the shipment's parts
   partNos: string // 物料号 — distinct part numbers in the shipment, joined
   // Auto 金额: Σ(shipped qty × part unit price) for this shipment, with a
@@ -323,3 +326,94 @@ export function buildExportAoa(
 export const EXPORT_COL_WIDTHS = [
   10, 16, 10, 12, 8, 10, 14, 12, 18, 10, 12, 12, 12, 12, 12,
 ]
+
+// === 出货统计 ===
+//
+// 这个月出了多少货, 哪天出的, 谁出的 — 三个问题, 一份数据。
+//
+// 出货 rows already carry everything it needs (出货日期, 金额, 越侬商务), so
+// nothing here is entered a second time: 出一单货, 统计自己就变了。
+//
+// 金额 is effectiveAmount — 财务改过的数字优先, 没改过就按零件单价 × 出货数
+// 算出来的。一单没有价可算的 (没填单价、也没人手工补) 记在 count 里但不进
+// 金额, 因为把它当 0 元会让"这个月出了多少钱"这个数字变成假的; 页面把这种
+// 单子的条数单独说出来。
+
+export type ShipStat = {
+  key: string // 日期 'YYYY-MM-DD' 或 商务姓名
+  count: number // 单数
+  amountCny: number // 金额合计
+  unpriced: number // 其中没有金额的单数
+}
+
+export type ShipTotals = {
+  count: number
+  amountCny: number
+  unpriced: number
+}
+
+/**
+ * 出货 rows whose 出货日 (factory-local) starts with `period` — 'YYYY-MM' for a
+ * month, 'YYYY' for the year to date.
+ */
+export function shipmentsInPeriod(
+  rows: FinanceRow[],
+  period: string,
+  dayOf: (iso: string) => string,
+): FinanceRow[] {
+  return rows.filter((r) => dayOf(r.shipDate).startsWith(period))
+}
+
+export function shipTotals(rows: FinanceRow[]): ShipTotals {
+  let amountCny = 0
+  let unpriced = 0
+  for (const r of rows) {
+    const a = effectiveAmount(r)
+    if (typeof a === 'number') amountCny += a
+    else unpriced += 1
+  }
+  return { count: rows.length, amountCny, unpriced }
+}
+
+function groupShipments(
+  rows: FinanceRow[],
+  keyOf: (r: FinanceRow) => string,
+): ShipStat[] {
+  const by = new Map<string, ShipStat>()
+  for (const r of rows) {
+    const key = keyOf(r)
+    const g = by.get(key) ?? { key, count: 0, amountCny: 0, unpriced: 0 }
+    g.count += 1
+    const a = effectiveAmount(r)
+    if (typeof a === 'number') g.amountCny += a
+    else g.unpriced += 1
+    by.set(key, g)
+  }
+  return [...by.values()]
+}
+
+/** 按出货日期 — 早到晚, 一天一行。 */
+export function shipStatsByDay(
+  rows: FinanceRow[],
+  dayOf: (iso: string) => string,
+): ShipStat[] {
+  return groupShipments(rows, (r) => dayOf(r.shipDate)).sort((a, b) =>
+    a.key < b.key ? -1 : 1,
+  )
+}
+
+// 这单归谁: 越侬商务 first — that's the name the order was confirmed under.
+// Older orders predate the field and only ever carried 建单人, so they fall
+// back to it rather than piling up under 未分配.
+export function shipSalesperson(r: FinanceRow): string {
+  return (r.yuenongBusiness ?? '').trim() || (r.salesperson ?? '').trim() || '未分配'
+}
+
+/** 按商务 — 金额高的在上, 那是这张表要回答的问题。 */
+export function shipStatsBySalesperson(rows: FinanceRow[]): ShipStat[] {
+  return groupShipments(rows, shipSalesperson).sort((a, b) =>
+    a.amountCny !== b.amountCny
+      ? b.amountCny - a.amountCny
+      : a.key.localeCompare(b.key, 'zh'),
+  )
+}

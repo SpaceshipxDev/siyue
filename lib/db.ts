@@ -3251,6 +3251,7 @@ export async function getFinanceRows(): Promise<FinanceRow[]> {
       customer: job?.customer ?? '',
       product: job?.product ?? '',
       salesperson: job?.createdBy ?? s.createdBy,
+      yuenongBusiness: job?.yuenongBusiness,
       qty,
       partNos: Array.from(partNoSet).join(', '),
       computedAmountCny,
