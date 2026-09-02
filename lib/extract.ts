@@ -4,7 +4,7 @@ import { parseWorkbook } from './xlsx'
 import { extractWorkbookImages, annotateSheetWithImages } from './xlsx-images'
 import { extractJobFromXlsx } from './gemini'
 import { fillParsedJob, setPartImageUrlDirect, type NewJobInput } from './db'
-import { uploadComponentImage } from './component-image'
+import { uploadComponentImageWithRetry } from './component-image'
 
 /*
  * End-to-end import pipeline:
@@ -45,6 +45,13 @@ export async function runExtraction(args: {
 
   const tParse = Date.now()
   const wb = parseWorkbook(buf, fileName)
+  // Both of these are synchronous and CPU-heavy (sheet decode, then zip +
+  // image decode), and this process serves the whole factory on one thread —
+  // back to back they hold the event loop for the length of both, which is
+  // what the floor feels as 上传时系统卡住. Yielding between them doesn't
+  // make either faster, but it lets everyone else's requests through in the
+  // gap instead of queueing behind the pair.
+  await new Promise((r) => setImmediate(r))
   const { anchors, images } = extractWorkbookImages(buf)
   const sheets = wb.sheets.map((s) => ({
     name: s.name,
@@ -129,6 +136,8 @@ export async function runExtraction(args: {
   const tImages = Date.now()
   let uploaded = 0
   let failed = 0
+  // 图上传成功了, 但那一行零件已经不在 — 记下来, 别混进 failed。
+  let dropped = 0
   for (let i = 0; i < pendingUploads.length; i += IMAGE_UPLOAD_CONCURRENCY) {
     const chunk = pendingUploads.slice(i, i + IMAGE_UPLOAD_CONCURRENCY)
     await Promise.all(
@@ -137,7 +146,7 @@ export async function runExtraction(args: {
         if (!img) return
         const componentId = `p${partIndexes[0] + 1}`
         try {
-          const imageUrl = await uploadComponentImage({
+          const imageUrl = await uploadComponentImageWithRetry({
             jobId,
             componentId,
             bytes: img.bytes,
@@ -146,12 +155,18 @@ export async function runExtraction(args: {
             skipStaleCheck: true,
           })
           for (const partIndex of partIndexes) {
-            await setPartImageUrlDirect(`${jobId}:p${partIndex + 1}`, imageUrl)
+            // A miss means the 零件行 was deleted while its photo uploaded —
+            // count it as dropped rather than reporting a clean success.
+            const hit = await setPartImageUrlDirect(
+              `${jobId}:p${partIndex + 1}`,
+              imageUrl,
+            )
+            if (hit) uploaded += 1
+            else dropped += 1
           }
-          uploaded += partIndexes.length
         } catch (err) {
           failed += partIndexes.length
-          console.error('[extract] image upload failed', {
+          console.error('[extract] image upload failed after retries', {
             jobId,
             componentId,
             imageRef,
@@ -167,6 +182,7 @@ export async function runExtraction(args: {
     fileName,
     uploaded,
     failed,
+    dropped,
     ms: Date.now() - tImages,
     totalMs: Date.now() - t0,
   })

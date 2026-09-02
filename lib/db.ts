@@ -5162,16 +5162,23 @@ export async function setComponentImage(
 // to back; routing each through loadSnapshot() (9 selectAll's) would add
 // minutes of pointless table scans. The caller already knows the partId
 // because fillParsedJob assigns them deterministically as `${jobId}:p${i+1}`.
-// A no-op `update` is acceptable if the part was deleted in the meantime.
+// Returns whether a part row actually took the URL. Matching nothing is not
+// an error here — it quietly affects zero rows — and during an import that's
+// a real case: the draft is editable the moment the parts land, so somebody
+// can delete a 零件行 while its photo is still uploading behind them. A
+// silent "success" there is how a picture goes missing with a clean log, so
+// callers that care can now count it.
 export async function setPartImageUrlDirect(
   partId: string,
   imageUrl: string | null,
-): Promise<void> {
-  const { error } = await supabase
+): Promise<boolean> {
+  const { data, error } = await supabase
     .from('parts')
     .update({ image_url: imageUrl })
     .eq('id', partId)
+    .select('id')
   if (error) throw error
+  return (data ?? []).length > 0
 }
 
 export async function appendComponent(jobId: string): Promise<string | undefined> {

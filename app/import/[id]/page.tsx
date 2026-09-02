@@ -117,10 +117,24 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
       />
 
       <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-6 flex items-center justify-between gap-4">
           <BackButton fallback="/" />
-          <span className="label text-[var(--color-ink-3)]">
+          {/* 已配图 — 缺图时说出来。上传时偶尔会有图没跟上来 (存储抖动, 或者
+              这张图本来就不在表里), 而一个只是颜色淡一点的数字, 人是不会注意
+              到的 —— 直到零件到了车间才发现没图。 */}
+          <span
+            className={`label shrink-0 ${
+              withImage < job.components.length
+                ? 'text-[var(--color-warning)]'
+                : 'text-[var(--color-ink-3)]'
+            }`}
+          >
             {withImage}/{job.components.length} 已配图
+            {withImage < job.components.length && (
+              <span className="ml-2 font-normal text-[var(--color-ink-3)]">
+                差 {job.components.length - withImage} 张 · 点下面的图框补
+              </span>
+            )}
           </span>
         </div>
 

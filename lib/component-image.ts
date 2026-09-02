@@ -88,3 +88,31 @@ export async function uploadComponentImage(input: UploadComponentImageInput): Pr
   // swap so <img> picks up the new bytes.
   return proxiedKeyUrl(key)
 }
+
+// 导入时的图片上传 — 带退避重试。
+//
+// 一次上传失败就让那个零件永远缺图, 是"上传完发现图丢了"的主要来源: 一本
+// 带上百张图的工作簿会在几秒内向 Supabase 打上百个连接, 偶发的连接重置和限
+// 流几乎必然出现, 而内地到香港这条链路本来就抖。立刻重试对限流没用 (对面还
+// 在限), 所以退避着重来 —— 跟 lib/mutate.ts 对付同一条链路用的是同一招。
+//
+// 只给导入用: 手工上传单张图时人正看着屏幕, 失败让他自己再点一次比等三轮更
+// 快, 也更清楚发生了什么。
+const IMAGE_RETRY_DELAYS_MS = [400, 1200, 3000] as const
+
+export async function uploadComponentImageWithRetry(
+  input: UploadComponentImageInput,
+): Promise<string> {
+  let last: unknown
+  for (let i = 0; i <= IMAGE_RETRY_DELAYS_MS.length; i++) {
+    if (i > 0) {
+      await new Promise((r) => setTimeout(r, IMAGE_RETRY_DELAYS_MS[i - 1]))
+    }
+    try {
+      return await uploadComponentImage(input)
+    } catch (err) {
+      last = err
+    }
+  }
+  throw last instanceof Error ? last : new Error(String(last))
+}

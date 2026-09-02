@@ -11,7 +11,10 @@ import {
 import { canEditProductionFields, currentUser } from '@/lib/auth'
 import { uploadSourceFile } from '@/lib/source-file'
 import { extractWorkbookImages } from '@/lib/xlsx-images'
-import { uploadComponentImage, MAX_IMAGE_BYTES } from '@/lib/component-image'
+import {
+  uploadComponentImageWithRetry,
+  MAX_IMAGE_BYTES,
+} from '@/lib/component-image'
 import { today } from '@/lib/today'
 import { errMessage } from '@/lib/err'
 
@@ -236,31 +239,28 @@ export async function POST(request: NextRequest) {
         await Promise.all(
           chunk.map(async ({ partIndexes, bytes, mime, name }) => {
             const componentId = `p${partIndexes[0] + 1}`
-            // One retry — a transient storage hiccup shouldn't cost a 图纸
-            // the user already delivered inside the workbook.
-            for (let attempt = 0; attempt < 2; attempt++) {
-              try {
-                const imageUrl = await uploadComponentImage({
-                  jobId: job.id,
-                  componentId,
-                  bytes,
-                  mime,
-                  fallbackName: name,
-                  skipStaleCheck: true,
-                })
-                for (const partIndex of partIndexes) {
-                  await setPartImageUrlDirect(`${job.id}:p${partIndex + 1}`, imageUrl)
-                }
-                return
-              } catch (err) {
-                if (attempt === 1) {
-                  console.error('[qingdan/commit] image upload failed', {
-                    jobId: job.id,
-                    componentId,
-                    err: errMessage(err),
-                  })
-                }
+            // 退避重试 — a transient storage hiccup shouldn't cost a 图纸 the
+            // user already delivered inside the workbook. Same helper the AI
+            // import path uses, so both routes drop pictures at the same
+            // (much lower) rate.
+            try {
+              const imageUrl = await uploadComponentImageWithRetry({
+                jobId: job.id,
+                componentId,
+                bytes,
+                mime,
+                fallbackName: name,
+                skipStaleCheck: true,
+              })
+              for (const partIndex of partIndexes) {
+                await setPartImageUrlDirect(`${job.id}:p${partIndex + 1}`, imageUrl)
               }
+            } catch (err) {
+              console.error('[qingdan/commit] image upload failed after retries', {
+                jobId: job.id,
+                componentId,
+                err: errMessage(err),
+              })
             }
           }),
         )
