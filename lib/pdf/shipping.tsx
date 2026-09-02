@@ -182,13 +182,15 @@ export function ShippingDocPDF({
                       )}
                     </View>
                     <Text style={[styles.td, { flex: 1, fontWeight: 500 }]}>
-                      {c.name}
+                      {c.name || '—'}
                     </Text>
+                    {/* 空格子也要有个破折号 — 一张交货单上几个格子纯白, 客户
+                        收货时会当成"这一项还没定", 而不是"厂里没填"。 */}
                     <Text style={[styles.td, { width: COL.partNo }]}>
-                      {c.partNo ?? ''}
+                      {c.partNo || '—'}
                     </Text>
                     <Text style={[styles.td, { width: COL.material }]}>
-                      {c.material ?? '—'}
+                      {c.material || '—'}
                     </Text>
                     <Text
                       style={[styles.td, { width: COL.qty, textAlign: 'right' }]}
@@ -196,7 +198,7 @@ export function ShippingDocPDF({
                       {qty}
                     </Text>
                     <Text style={[styles.td, { width: COL.notes }]}>
-                      {stripProcessMethodFromNotes(c.notes)}
+                      {stripProcessMethodFromNotes(c.notes) || '—'}
                     </Text>
                   </View>
                 )

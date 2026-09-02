@@ -221,7 +221,7 @@ export default async function ShippingDocPage(
                         <span className="text-[var(--color-ink-4)]">—</span>
                       )}
                     </td>
-                    <td className="font-medium">{c.name}</td>
+                    <td className="font-medium">{c.name || '—'}</td>
                     <td className="mono text-[var(--color-ink-2)]">
                       <ComponentText
                         jobId={job.id}
@@ -231,11 +231,21 @@ export default async function ShippingDocPage(
                         placeholder="—"
                       />
                     </td>
-                    <td className="text-[var(--color-ink-2)]">{c.material ?? '—'}</td>
+                    <td className="text-[var(--color-ink-2)]">
+                      <ComponentText
+                        jobId={job.id}
+                        componentId={c.id}
+                        field="material"
+                        value={c.material}
+                        placeholder="—"
+                      />
+                    </td>
                     <td className="mono" style={{ textAlign: 'right' }}>
                       {qty}
                     </td>
-                    <td className="text-[var(--color-ink-2)]">{stripProcessMethodFromNotes(c.notes)}</td>
+                    <td className="text-[var(--color-ink-2)]">
+                      {stripProcessMethodFromNotes(c.notes) || '—'}
+                    </td>
                   </tr>
                 ))}
                 <tr>
