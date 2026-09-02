@@ -4642,6 +4642,197 @@ export async function prepareShipping(
   })
 }
 
+// 出货单开错了 — 改数量 / 整单删掉.
+//
+// 一张出货单不只是一条记录: prepareShipping 同时把 出货 工段推到 进行中 或
+// 已完成。所以撤销不能只删行, 得把工段状态按剩下的单子重算一遍, 否则零件在
+// 看板上还挂着"已出货", 数字却回去了。
+//
+// 有一件事故意不回退: 整单出完时 出货 会级联把上游没点的工段一起标完成
+// (cascadeBackFinish), 还会关掉未结的外协行。删一张出货单不会把那些倒回去
+// —— 东西确实做完过, 而且无从分辨哪些是级联标的、哪些本来就是工段自己点的。
+// 界面上把这点说清楚, 比悄悄猜要好。
+async function resyncShippingStages(
+  jobId: string,
+  actor: string,
+): Promise<void> {
+  const snap = await loadJobSnapshot(jobId)
+  const parts = snap.idx.partsByJob.get(jobId) ?? []
+  const cumulative = new Map<string, number>()
+  for (const s of snap.idx.shipmentsByJob.get(jobId) ?? []) {
+    for (const sp of snap.idx.shipmentPartsByShipment.get(s.id) ?? []) {
+      cumulative.set(sp.partId, (cumulative.get(sp.partId) ?? 0) + sp.qty)
+    }
+  }
+  const now = new Date().toISOString()
+  const date = todayMMDD()
+  const updates: PartStageRow[] = []
+  for (const part of parts) {
+    const row = snap.idx.stageByPartStage.get(stageKey(part.id, '出货'))
+    if (!row) continue
+    const shipped = cumulative.get(part.id) ?? 0
+    const max = Math.max(0, Math.floor(part.qty))
+    if (shipped <= 0) {
+      // 一件都没发了 — 回到未开始。
+      if (row.status === 'pending' && row.doneQty === undefined) continue
+      updates.push({
+        ...row,
+        status: 'pending',
+        startedAt: undefined,
+        completedAt: undefined,
+        finishedAt: undefined,
+        by: undefined,
+        doneQty: undefined,
+      })
+    } else if (max > 0 && shipped >= max) {
+      if (row.status === 'done' && row.doneQty === undefined) continue
+      updates.push({
+        ...row,
+        status: 'done',
+        startedAt: row.startedAt ?? now,
+        completedAt: row.completedAt ?? date,
+        finishedAt: row.finishedAt ?? now,
+        by: row.by ?? actor,
+        doneQty: undefined,
+      })
+    } else {
+      if (row.status === 'in_progress' && row.doneQty === shipped) continue
+      updates.push({
+        ...row,
+        status: 'in_progress',
+        startedAt: row.startedAt ?? now,
+        completedAt: undefined,
+        finishedAt: undefined,
+        by: row.by ?? actor,
+        doneQty: shipped,
+      })
+    }
+  }
+  if (updates.length > 0) await upsertStages(updates)
+}
+
+export async function deleteShipment(
+  shipmentId: string,
+  actor: string,
+): Promise<void> {
+  return withWriteLock(async () => {
+    const found = await supabase
+      .from('shipments')
+      .select('id, job_id')
+      .eq('id', shipmentId)
+      .maybeSingle()
+    if (found.error) throw found.error
+    if (!found.data) return
+    const jobId = found.data.job_id as string
+
+    // 已经开过票或收过款的单不让删 — 记账那边是拿这张出货单当凭据的, 单没
+    // 了, 发票和回款就成了挂不上任何东西的孤儿, 月底对不平也查不出为什么。
+    // 这种情况要先去「记账」把那笔票据处理掉。
+    const fin = await supabase
+      .from('shipment_finance')
+      .select('invoice_date, invoice_no, payment_date, payment_amount_cny')
+      .eq('shipment_id', shipmentId)
+    if (fin.error && !isMissingTableError(fin.error)) throw fin.error
+    for (const r of fin.data ?? []) {
+      const billed = r.invoice_date || r.invoice_no
+      const paid = r.payment_date || r.payment_amount_cny != null
+      if (billed || paid) {
+        throw new Error(
+          paid ? '这张单已经收过款，先去「记账」处理' : '这张单已经开过票，先去「记账」处理',
+        )
+      }
+    }
+    // 空的记账行 (财务建了但一个字没填) 跟着单一起走。
+    const delFin = await supabase
+      .from('shipment_finance')
+      .delete()
+      .eq('shipment_id', shipmentId)
+    if (delFin.error && !isMissingTableError(delFin.error)) throw delFin.error
+
+    const delParts = await supabase
+      .from('shipment_parts')
+      .delete()
+      .eq('shipment_id', shipmentId)
+    if (delParts.error) throw delParts.error
+    const delShip = await supabase
+      .from('shipments')
+      .delete()
+      .eq('id', shipmentId)
+    if (delShip.error) throw delShip.error
+    await resyncShippingStages(jobId, actor)
+  })
+}
+
+// 改一张出货单上某个零件的数量。0 = 把这个零件从单子上拿掉; 拿到一个零件都
+// 不剩时整单一起删, 免得留一张空单在记录里。
+export async function updateShipmentPartQty(
+  shipmentId: string,
+  componentId: string,
+  qty: number,
+  actor: string,
+): Promise<void> {
+  return withWriteLock(async () => {
+    const found = await supabase
+      .from('shipments')
+      .select('id, job_id')
+      .eq('id', shipmentId)
+      .maybeSingle()
+    if (found.error) throw found.error
+    if (!found.data) throw new Error('出货单不存在')
+    const jobId = found.data.job_id as string
+
+    const snap = await loadJobSnapshot(jobId)
+    const partId = findPartIdInSnap(snap, jobId, componentId)
+    if (!partId) throw new Error('零件不存在')
+    const part = snap.idx.partById.get(partId)
+    if (!part) throw new Error('零件不存在')
+
+    const next = Math.max(0, Math.floor(Number(qty) || 0))
+    // 别的单子上这个零件已经发掉的量 — 改完不能让总数超过订单数。
+    let elsewhere = 0
+    for (const s of snap.idx.shipmentsByJob.get(jobId) ?? []) {
+      if (s.id === shipmentId) continue
+      for (const sp of snap.idx.shipmentPartsByShipment.get(s.id) ?? []) {
+        if (sp.partId === partId) elsewhere += sp.qty
+      }
+    }
+    const headroom = Math.max(0, Math.floor(part.qty) - elsewhere)
+    if (next > headroom) {
+      throw new Error(`${part.name} 最多只能填 ${headroom}`)
+    }
+
+    if (next === 0) {
+      const del = await supabase
+        .from('shipment_parts')
+        .delete()
+        .eq('shipment_id', shipmentId)
+        .eq('part_id', partId)
+      if (del.error) throw del.error
+      // 一个零件都不剩的空单没有意义 — 整张跟着走。
+      const left = await supabase
+        .from('shipment_parts')
+        .select('part_id')
+        .eq('shipment_id', shipmentId)
+      if (left.error) throw left.error
+      if ((left.data ?? []).length === 0) {
+        const delShip = await supabase
+          .from('shipments')
+          .delete()
+          .eq('id', shipmentId)
+        if (delShip.error) throw delShip.error
+      }
+    } else {
+      const up = await supabase
+        .from('shipment_parts')
+        .update({ qty: next })
+        .eq('shipment_id', shipmentId)
+        .eq('part_id', partId)
+      if (up.error) throw up.error
+    }
+    await resyncShippingStages(jobId, actor)
+  })
+}
+
 export async function undoStage(
   jobId: string,
   componentId: string,

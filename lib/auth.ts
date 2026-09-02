@@ -175,6 +175,18 @@ export function canSeeCustomerData(s: Scope): boolean {
   return s.role === 'commerce' || s.defaultStage === '出货'
 }
 
+// 改 / 删一张已开的出货单. The people who make them plus the 工程 head:
+// a delivery note gets typed wrong at the loading dock, and whoever is holding
+// the parts is the one who notices. Making them wait for somebody else to undo
+// it is how a wrong 已交数量 survives to month-end reconciliation.
+//
+// A shipment that has been invoiced or paid against refuses to delete
+// regardless of who asks (see deleteShipment) — that's an accounting fact, not
+// a permission.
+export function canEditShipment(s: Scope): boolean {
+  return canSeeCustomerData(s) || canEditPartRoute(s)
+}
+
 // Outsource management — creating shipments, receiving parts back, printing
 // 外协单. 商务 owns this end-to-end; 工程 head also runs it because in many
 // shops the same person who plans the routing is the one who hands off

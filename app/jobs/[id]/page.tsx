@@ -32,6 +32,7 @@ import {
   canDeletePartRow,
   canEditPartRoute,
   canEditProductionFields,
+  canEditShipment,
   canDeleteOrder,
   canExportProductionOrder,
   canManageOutsource,
@@ -346,6 +347,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               jobId={job.id}
               components={job.components}
               shipments={job.shipments}
+              canEdit={canEditShipment(user)}
             />
             <DeleteOrderButton
               jobId={job.id}

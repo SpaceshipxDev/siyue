@@ -40,6 +40,8 @@ import {
   recordMutationResponse,
   markJobAsDraft,
   prepareShipping,
+  deleteShipment,
+  updateShipmentPartQty,
   setBlockMembersReturnedQty,
   setBlockMemberUnitPrice,
   setBlockMemberQty,
@@ -115,6 +117,7 @@ import {
   canEditHrRecord,
   canDeletePartRow,
   canManageOutsource,
+  canEditShipment,
   canSeeExpenses,
   canSeeFactoryPulse,
   canSeeMoney,
@@ -1641,6 +1644,37 @@ async function dispatch(
     }
 
     // === 财务 / 应收账款 (开票 + 回款) ===
+    // 出货单开错了 — 改数量 / 整单删。和"制作出货单"同一批人 (商务 + 出货
+    // 站): 单子是在装车口打错的, 拿着货的人当场就看出来了。
+    case 'updateShipmentPartQty': {
+      const shipmentId = body.shipmentId
+      const componentId = body.componentId
+      const qty = body.qty
+      if (!isString(shipmentId) || !isString(componentId))
+        return err('bad updateShipmentPartQty args')
+      if (typeof qty !== 'number' || !Number.isFinite(qty) || qty < 0)
+        return err('数量不对')
+      const u = await requireUser()
+      if (!canEditShipment(u)) return err('无权修改出货单', 403)
+      try {
+        await updateShipmentPartQty(shipmentId, componentId, qty, u.name)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '改不上')
+      }
+      revalidatePath('/')
+      return Response.json(ok())
+    }
+
+    case 'deleteShipment': {
+      const shipmentId = body.shipmentId
+      if (!isString(shipmentId)) return err('bad deleteShipment args')
+      const u = await requireUser()
+      if (!canEditShipment(u)) return err('无权删除出货单', 403)
+      await deleteShipment(shipmentId, u.name)
+      revalidatePath('/')
+      return Response.json(ok())
+    }
+
     case 'updateShipmentFinance': {
       const shipmentId = body.shipmentId
       const patch = body.patch

@@ -1,7 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { withBase } from '@/lib/base-path'
+import { mutate } from '@/lib/mutate'
+import { EditableText } from '@/app/_editable'
 import {
   formatShipmentTimestamp,
   type Component,
@@ -13,15 +16,26 @@ import {
 // it, how many parts left in that batch, and a deep-link straight into that
 // exact batch's printable 出货单 / PDF (?shipment=<id>). The headline always
 // shows X / Y — total parts shipped over the order's total part count.
+//
+// 单子开错了也是在这里改: 展开一张单能看到它发了哪几个零件、各几件, 数量当
+// 场改, 整张作废就删掉。改动会连着把 出货 工段的进度倒回去 —— 数量退了、看
+// 板上还挂着"已出货"是最坏的一种错。
+//
+// 有一件事不会跟着倒回去: 整单出完时系统会顺手把上游没点的工段一起标完成,
+// 删单不会把那些取消 (东西确实做完过, 而且分不清哪些是顺手标的)。下面写了
+// 这一句, 免得有人以为删单就等于什么都没发生过。
 
 export function ShipmentHistoryButton({
   jobId,
   components,
   shipments,
+  canEdit = false,
 }: {
   jobId: string
   components: Component[]
   shipments: Shipment[]
+  /** 改数量 / 删整单 — 商务和出货站, 见 lib/auth canEditShipment。 */
+  canEdit?: boolean
 }) {
   const [open, setOpen] = useState(false)
   return (
@@ -39,6 +53,7 @@ export function ShipmentHistoryButton({
           jobId={jobId}
           components={components}
           shipments={shipments}
+          canEdit={canEdit}
           onClose={() => setOpen(false)}
         />
       )}
@@ -50,13 +65,54 @@ function ShipmentHistoryDialog({
   jobId,
   components,
   shipments,
+  canEdit,
   onClose,
 }: {
   jobId: string
   components: Component[]
   shipments: Shipment[]
+  canEdit: boolean
   onClose: () => void
 }) {
+  const router = useRouter()
+  const [pending, start] = useTransition()
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [armDelete, setArmDelete] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const byId = useMemo(
+    () => new Map(components.map((c) => [c.id, c])),
+    [components],
+  )
+
+  function removeShipment(shipmentId: string) {
+    setError(null)
+    start(async () => {
+      try {
+        await mutate({ kind: 'deleteShipment', shipmentId })
+        setArmDelete(null)
+        setOpenId(null)
+        router.refresh()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '删不掉')
+      }
+    })
+  }
+
+  async function setQty(shipmentId: string, componentId: string, qty: number) {
+    setError(null)
+    try {
+      await mutate({
+        kind: 'updateShipmentPartQty',
+        shipmentId,
+        componentId,
+        qty,
+      })
+      router.refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '改不上')
+      throw e
+    }
+  }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -74,6 +130,7 @@ function ShipmentHistoryDialog({
         docNo: s.docNo,
         createdAt: s.createdAt,
         createdBy: s.createdBy,
+        parts: s.parts,
         qty: s.parts.reduce((a, p) => a + p.qty, 0),
       }))
       .sort((a, b) =>
@@ -145,6 +202,12 @@ function ShipmentHistoryDialog({
           </div>
         </header>
 
+        {error && (
+          <p className="px-7 pt-3 text-[12px] text-[var(--color-overdue)]">
+            {error}
+          </p>
+        )}
+
         {/* Ledger */}
         <div className="flex-1 overflow-y-auto px-4 py-4">
           {rows.length === 0 ? (
@@ -159,13 +222,11 @@ function ShipmentHistoryDialog({
           ) : (
             <ul className="flex flex-col gap-2">
               {rows.map((r, i) => (
-                <li key={r.id}>
-                  <a
-                    href={withBase(`/jobs/${jobId}/print/shipping?shipment=${r.id}`)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group flex items-center gap-3 px-3.5 py-3 rounded-[2px] border border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:bg-[#faf9f5] transition-colors"
-                  >
+                <li
+                  key={r.id}
+                  className="rounded-[2px] border border-[var(--color-border)]"
+                >
+                  <div className="flex items-center gap-3 px-3.5 py-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="mono text-[13px] text-[var(--color-ink)]">
@@ -195,14 +256,109 @@ function ShipmentHistoryDialog({
                         件
                       </span>
                     </span>
-                    <span className="shrink-0 flex items-center gap-1 text-[11px] text-[var(--color-ink-3)] group-hover:text-[var(--color-ink)] transition-colors">
+                    <a
+                      href={withBase(
+                        `/jobs/${jobId}/print/shipping?shipment=${r.id}`,
+                      )}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 flex items-center gap-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
+                    >
                       出货单
                       <OpenIcon />
-                    </span>
-                  </a>
+                    </a>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setArmDelete(null)
+                          setError(null)
+                          setOpenId(openId === r.id ? null : r.id)
+                        }}
+                        className="shrink-0 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
+                      >
+                        {openId === r.id ? '收起' : '改'}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 开错了 — 这一单发了哪几个零件、各几件, 就地改; 整张作废
+                      就删。数量填 0 等于把这个零件从单子上拿掉。 */}
+                  {canEdit && openId === r.id && (
+                    <div className="border-t border-[var(--color-border)] bg-[#faf9f5] px-3.5 py-2.5">
+                      {r.parts.map((sp) => {
+                        const c = byId.get(sp.componentId)
+                        return (
+                          <div
+                            key={sp.componentId}
+                            className="flex items-baseline gap-3 border-b border-[var(--color-border)] py-1.5 last:border-b-0"
+                          >
+                            <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--color-ink)]">
+                              {c?.name ?? sp.componentId}
+                            </span>
+                            <span className="mono w-[44px] shrink-0">
+                              <EditableText
+                                mono
+                                align="right"
+                                value={String(sp.qty)}
+                                className="text-[12.5px] tabular-nums"
+                                onSave={async (next) => {
+                                  const n = Number(next.trim())
+                                  if (!Number.isFinite(n) || n < 0)
+                                    throw new Error('数量要填数字')
+                                  await setQty(r.id, sp.componentId, Math.floor(n))
+                                }}
+                              />
+                            </span>
+                            <span className="mono shrink-0 text-[11.5px] text-[var(--color-ink-4)] tabular-nums">
+                              / {c?.qty ?? '—'}
+                            </span>
+                          </div>
+                        )
+                      })}
+                      <div className="mt-2.5 flex items-center gap-3">
+                        <span className="text-[11px] text-[var(--color-ink-4)]">
+                          数量填 0 = 把这个零件从单上拿掉
+                        </span>
+                        {armDelete === r.id ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => removeShipment(r.id)}
+                              disabled={pending}
+                              className="ml-auto text-[11.5px] font-medium text-[var(--color-overdue)] hover:underline disabled:opacity-50"
+                            >
+                              确认删掉整张单
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setArmDelete(null)}
+                              className="text-[11.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+                            >
+                              取消
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setArmDelete(r.id)}
+                            className="ml-auto text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+                          >
+                            删掉整张单
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
+          )}
+          {canEdit && rows.length > 0 && (
+            <p className="mt-3 px-1 text-[11px] leading-relaxed text-[var(--color-ink-4)]">
+              改数量或删单会把「出货」工段的进度一起退回去。整单出完时被顺手
+              标完成的上游工段不会取消——东西确实做过。
+            </p>
           )}
         </div>
       </div>
