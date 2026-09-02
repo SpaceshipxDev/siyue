@@ -417,3 +417,73 @@ export function shipStatsBySalesperson(rows: FinanceRow[]): ShipStat[] {
       : a.key.localeCompare(b.key, 'zh'),
   )
 }
+
+// === 外协费用统计 ===
+//
+// 口径跟「月度」那一行完全一样, 一个字都没另算:
+//   金额 — 单头的总价; 加急单没有单头价, 退回按件小计 (blockLineTotalsSum)
+//   记账日 — 回件结算日 (blockClosedAt): 整单全部回厂那天。发出去还没回的
+//     不算成本, 因为那笔钱还没结。
+// 两页说的钱必须是同一个数, 否则月底对账时人会不知道信哪个。
+//
+// 还在外面没回的单子另算一块 (还没结的钱), 不混进当月成本 — 它回答的是另
+// 一个问题: 现在有多少钱压在外协厂手里。
+
+export type OutsourceStatRow = {
+  /** 单头总价, 没有就按件小计; 两个都没有算 0 并计进 unpriced。 */
+  amountCny: number
+  /** 回件结算日 'YYYY-MM-DD' / 'MM-DD'; 未回厂为 undefined。 */
+  closedAt?: string
+  vendorName: string
+  priced: boolean
+}
+
+export type VendorStat = {
+  key: string // 供应商名
+  count: number
+  amountCny: number
+  unpriced: number
+}
+
+export function outsourceStatsByVendor(rows: OutsourceStatRow[]): VendorStat[] {
+  const by = new Map<string, VendorStat>()
+  for (const r of rows) {
+    const g = by.get(r.vendorName) ?? {
+      key: r.vendorName,
+      count: 0,
+      amountCny: 0,
+      unpriced: 0,
+    }
+    g.count += 1
+    g.amountCny += r.amountCny
+    if (!r.priced) g.unpriced += 1
+    by.set(r.vendorName, g)
+  }
+  return [...by.values()].sort((a, b) =>
+    a.amountCny !== b.amountCny
+      ? b.amountCny - a.amountCny
+      : a.key.localeCompare(b.key, 'zh'),
+  )
+}
+
+export function outsourceTotals(rows: OutsourceStatRow[]): {
+  count: number
+  amountCny: number
+  unpriced: number
+} {
+  let amountCny = 0
+  let unpriced = 0
+  for (const r of rows) {
+    amountCny += r.amountCny
+    if (!r.priced) unpriced += 1
+  }
+  return { count: rows.length, amountCny, unpriced }
+}
+
+// 结算日可能是 'YYYY-MM-DD' 也可能是工段完成时留下的 'MM-DD' —— 后者没有年,
+// 所以按 MM 比, 跟「月度」页同一个将就法。
+export function closedInMonth(closedAt: string, month: string): boolean {
+  const parts = closedAt.split('-')
+  const mm = parts.length === 3 ? parts[1] : parts.length === 2 ? parts[0] : ''
+  return mm === month
+}
