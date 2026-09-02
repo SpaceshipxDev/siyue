@@ -2,6 +2,7 @@ import { TopBar } from '@/app/_ui'
 import {
   requireHrUser,
   canDeleteHrRecord,
+  canEditHrRecord,
   canSeeAllHr,
   canSeeReport,
   canSeeOrderLedger,
@@ -85,6 +86,7 @@ export default async function HrPage({
           months={months}
           roster={roster}
           canDelete={canDeleteHrRecord(user)}
+          canEdit={canEditHrRecord(user)}
           scope={seeAll ? null : myDept}
           today={now}
         />

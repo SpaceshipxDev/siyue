@@ -4,6 +4,8 @@ import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
 import { SearchSelect } from '@/app/_search_select'
+import { EditableText } from '@/app/_editable'
+import { showToast } from '@/app/_toast'
 import { HR_TYPES, hrHasHours } from '@/lib/data'
 import type { HrRecord, HrType } from '@/lib/data'
 
@@ -34,6 +36,7 @@ export function HrBoard({
   months,
   roster,
   canDelete,
+  canEdit,
   scope,
   today,
 }: {
@@ -42,6 +45,8 @@ export function HrBoard({
   months: string[]
   roster: string[]
   canDelete: boolean
+  /** 改一条已记下的线 — 同一档权限, 见 lib/auth HR_EDITOR_USER_IDS。 */
+  canEdit: boolean
   /** null = 看全部; otherwise the one 部门 this reader is scoped to. */
   scope: string | null
   today: string
@@ -152,6 +157,28 @@ export function HrBoard({
       } catch (e) {
         setError(e instanceof Error ? e.message : '记不上')
       }
+    })
+  }
+
+  // 改一条 — 类型 / 时长 / 说明 原地改, 不用删了重记 (重记会把 记录人 换成
+  // 改的人, 而错的通常只是手滑点错了一个字段)。日期不能改: 它决定这条线归哪
+  // 个月。
+  async function patchRecord(r: HrRecord, patch: Record<string, unknown>) {
+    await mutate({
+      kind: 'updateHrRecord',
+      month: r.date.slice(0, 7),
+      recordId: r.id,
+      patch,
+    })
+    router.refresh()
+  }
+
+  // 换类型走的是原生 select, 它自己不会报错 — 换成一个要时长的类型而这条线
+  // 没有时长时服务端会拒, 得把话说出来 (受控的 select 会自己弹回原值)。
+  function changeType(r: HrRecord, type: string) {
+    patchRecord(r, { type }).catch((e) => {
+      showToast(e instanceof Error ? e.message : '改不上', 'warning')
+      router.refresh()
     })
   }
 
@@ -385,23 +412,70 @@ export function HrBoard({
                       <span className="mono shrink-0 text-[12.5px] text-[var(--color-ink-2)]">
                         {rec.date.slice(5)}
                       </span>
-                      <span
-                        className={`shrink-0 text-[12.5px] font-medium ${
-                          HEAVY.has(rec.type)
-                            ? 'text-[var(--color-overdue)]'
-                            : 'text-[var(--color-ink)]'
-                        }`}
-                      >
-                        {rec.type}
-                      </span>
-                      {rec.hours ? (
+                      {canEdit ? (
+                        <select
+                          value={rec.type}
+                          onChange={(e) => changeType(rec, e.target.value)}
+                          className={`shrink-0 cursor-pointer appearance-none rounded-[2px] border-0 bg-transparent px-1 -mx-1 py-0.5 text-[12.5px] font-medium outline-none transition-colors hover:bg-[var(--color-active-bg)] focus:bg-[var(--color-active-bg)] ${
+                            HEAVY.has(rec.type)
+                              ? 'text-[var(--color-overdue)]'
+                              : 'text-[var(--color-ink)]'
+                          }`}
+                        >
+                          {HR_TYPES.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span
+                          className={`shrink-0 text-[12.5px] font-medium ${
+                            HEAVY.has(rec.type)
+                              ? 'text-[var(--color-overdue)]'
+                              : 'text-[var(--color-ink)]'
+                          }`}
+                        >
+                          {rec.type}
+                        </span>
+                      )}
+                      {canEdit && hrHasHours(rec.type) ? (
+                        <span className="mono flex shrink-0 items-baseline text-[12.5px] text-[var(--color-ink-2)]">
+                          <span className="w-[38px]">
+                            <EditableText
+                              mono
+                              align="right"
+                              value={rec.hours ? trimNum(rec.hours) : ''}
+                              placeholder="时长"
+                              className="text-[12.5px]"
+                              onSave={async (next) => {
+                                const n = parseHours(next)
+                                if (n === null) throw new Error('时长要填数字')
+                                await patchRecord(rec, { hours: n })
+                              }}
+                            />
+                          </span>
+                          h
+                        </span>
+                      ) : rec.hours ? (
                         <span className="mono shrink-0 text-[12.5px] text-[var(--color-ink-2)]">
                           {trimNum(rec.hours)}h
                         </span>
                       ) : null}
-                      <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--color-ink-2)]">
-                        {rec.note}
-                      </span>
+                      {canEdit ? (
+                        <span className="min-w-0 flex-1">
+                          <EditableText
+                            value={rec.note}
+                            placeholder="补一句说明…"
+                            className="text-[12.5px] text-[var(--color-ink-2)]"
+                            onSave={(next) => patchRecord(rec, { note: next })}
+                          />
+                        </span>
+                      ) : (
+                        <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--color-ink-2)]">
+                          {rec.note}
+                        </span>
+                      )}
                       <span className="shrink-0 text-[11.5px] text-[var(--color-ink-4)]">
                         {rec.by}
                       </span>

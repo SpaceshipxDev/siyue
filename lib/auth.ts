@@ -73,8 +73,8 @@ export function canSeeMoney(s: Scope): boolean {
 //
 // The allowlist is the same shape as REPORT_VIEWER_USER_IDS and
 // ORDER_LEDGER_VIEWER_USER_IDS below, and exists for the same reason: 于海伟
-// runs the shop's people (he's the only account that may delete a 人事 line,
-// see HR_DELETER_USER_IDS) and 工资 is his to settle, but he signs in on a
+// runs the shop's people (he's the only account that may edit or delete a
+// 人事 line, see HR_EDITOR_USER_IDS) and 工资 is his to settle, but he signs in on a
 // 工程 production account whose role would otherwise stop at the 订单 book.
 // A grant by name, not by role — 工资 is not something a whole 工段 gets.
 const EXPENSE_VIEWER_USER_IDS = new Set<string>([
@@ -105,9 +105,8 @@ export function canGai(u: AuthUser): boolean {
 //     somebody else's pay and somebody else's discipline.
 //   看全部        — 商务 (the office runs payroll) and 采购站. The whole
 //     factory in one table is a management view, not a working one.
-//   改 / 删       — named people only, see canDeleteHrRecord. A wrong line
-//     gets corrected by filing the right one; a deleted 违纪 leaves no trace
-//     it ever happened.
+//   改 / 删       — named people only, see HR_EDITOR_USER_IDS. A slip gets
+//     corrected in place; a deleted 违纪 leaves no trace it ever happened.
 //
 // 部门 is the 工段 (商务 for office accounts) — this shop has no other notion
 // of one, and the 工段 IS the team a person answers to.
@@ -137,17 +136,27 @@ export async function requireHrUser(): Promise<AuthUser> {
   return u
 }
 
-// Who can DELETE a 人事 record. Strictly narrower than writing one: a wrong
-// line is visible and can be corrected by filing the right one, but a deleted
-// 违纪 leaves no trace that it ever happened — and these lines are what pay
-// and discipline get argued from. Named people only, same as 零件行删除 and
-// 订单删除.
-const HR_DELETER_USER_IDS = new Set<string>([
+// Who can 改 or 删 a 人事 record — the third tier described above, and one
+// list for both because they answer the same question: who is trusted to
+// reach back into a line that pay and discipline get argued from. Filing a
+// line stays open to everybody; going back and altering one does not. Named
+// people only, same as 零件行删除 and 订单删除.
+//
+// 改 exists because the common mistake is a slip, not a lie: 事假 tapped when
+// it was 病假, 8 typed when it was 4. Before this the only fix was 删 + 重记,
+// which meant the correction needed the heavier of the two permissions and
+// silently moved the line's 记录人 to whoever fixed it.
+const HR_EDITOR_USER_IDS = new Set<string>([
   'u-ms45yjq9-2kbdi1', // 商务于海伟
+  'u-mose92lt-a0cutz', // 于海伟 — 工程号, 同一个人的另一个登录
 ])
 
 export function canDeleteHrRecord(u: AuthUser): boolean {
-  return HR_DELETER_USER_IDS.has(u.id)
+  return HR_EDITOR_USER_IDS.has(u.id)
+}
+
+export function canEditHrRecord(u: AuthUser): boolean {
+  return HR_EDITOR_USER_IDS.has(u.id)
 }
 
 // Page/export guard for the 支出/工资/月度 finance tabs. The grant is

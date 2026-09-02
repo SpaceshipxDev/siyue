@@ -112,6 +112,7 @@ import {
   canClickStage,
   canCreatePartRow,
   canDeleteHrRecord,
+  canEditHrRecord,
   canDeletePartRow,
   canManageOutsource,
   canSeeExpenses,
@@ -132,6 +133,8 @@ import {
   addHrRecord,
   deleteHrRecord as deleteHrRecordRow,
   isValidHrInput,
+  isValidHrPatch,
+  updateHrRecord,
 } from '@/lib/hr'
 import {
   isDepartment,
@@ -1896,6 +1899,26 @@ async function dispatch(
       )
       revalidatePath('/hr')
       return Response.json(ok({ record: row }))
+    }
+
+    // 改一条人事记录 — 类型 / 时长 / 说明。日期不能改: 它决定这条线归哪个月,
+    // 改日期等于把它搬到另一个文件里, 那种情况删了重记更干净。
+    case 'updateHrRecord': {
+      const month = body.month
+      const recordId = body.recordId
+      const patch = body.patch
+      if (!isString(month) || !isString(recordId))
+        return err('bad updateHrRecord args')
+      if (!isValidHrPatch(patch)) return err('bad updateHrRecord args')
+      const u = await requireHrUser()
+      if (!canEditHrRecord(u)) return err('无权修改人事记录', 403)
+      try {
+        await updateHrRecord(month, recordId, patch)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '改不上')
+      }
+      revalidatePath('/hr')
+      return Response.json(ok())
     }
 
     case 'deleteHrRecord': {

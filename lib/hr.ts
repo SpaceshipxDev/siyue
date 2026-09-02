@@ -246,3 +246,56 @@ export async function deleteHrRecord(
     )
   })
 }
+
+export type HrRecordPatch = {
+  type?: HrType
+  hours?: number | null // null = 清掉时长
+  note?: string | null
+}
+
+export function isValidHrPatch(x: unknown): x is HrRecordPatch {
+  if (typeof x !== 'object' || x === null) return false
+  const o = x as Record<string, unknown>
+  if (o.type !== undefined && !isHrType(o.type)) return false
+  if (o.note !== undefined && o.note !== null && typeof o.note !== 'string')
+    return false
+  if (o.hours !== undefined && o.hours !== null) {
+    if (typeof o.hours !== 'number' || !Number.isFinite(o.hours)) return false
+    if (o.hours <= 0 || o.hours > 999) return false
+  }
+  return true
+}
+
+// 改一条已经记下的线。The common mistake is a slip — 事假 tapped when it was
+// 病假, 8 typed when it was 4 — and before this the only fix was 删了重记,
+// which loses who originally filed it and needs the heavier permission.
+//
+// 日期 is deliberately NOT editable: the day a record happened is what decides
+// which month's shard it lives in, so changing it would mean moving the line
+// between files. A line filed against the wrong day is rare and stays a
+// 删 + 重记.
+//
+// Switching to a kind that carries no 时长 drops the hours rather than leaving
+// an orphan number nothing adds up; switching INTO one without giving hours is
+// refused, because 事假 with no length is a line payroll can't use.
+export async function updateHrRecord(
+  month: string,
+  recordId: string,
+  patch: HrRecordPatch,
+): Promise<void> {
+  await withHrLock(async () => {
+    const rows = await readShard(month)
+    const row = rows.find((r) => r.id === recordId)
+    if (!row) return
+    const nextType = patch.type ?? row.type
+    let nextHours = patch.hours === undefined ? row.hours : (patch.hours ?? undefined)
+    if (!hrHasHours(nextType)) nextHours = undefined
+    else if (nextHours === undefined) {
+      throw new Error(`${nextType}要填时长`)
+    }
+    row.type = nextType
+    row.hours = nextHours
+    if (patch.note !== undefined) row.note = patch.note?.trim() || undefined
+    await writeShard(month, rows)
+  })
+}
