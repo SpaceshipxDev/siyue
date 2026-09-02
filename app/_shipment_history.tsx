@@ -267,19 +267,52 @@ function ShipmentHistoryDialog({
                       出货单
                       <OpenIcon />
                     </a>
-                    {canEdit && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setArmDelete(null)
-                          setError(null)
-                          setOpenId(openId === r.id ? null : r.id)
-                        }}
-                        className="shrink-0 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
-                      >
-                        {openId === r.id ? '收起' : '改'}
-                      </button>
-                    )}
+                    {/* 改 和 删 都摆在行上 — 开错一张单最想做的两件事, 不该
+                        要先展开才找得到。 */}
+                    {canEdit &&
+                      (armDelete === r.id ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => removeShipment(r.id)}
+                            disabled={pending}
+                            className="shrink-0 text-[11px] font-medium text-[var(--color-overdue)] hover:underline disabled:opacity-50"
+                          >
+                            确认删整单
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setArmDelete(null)}
+                            className="shrink-0 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+                          >
+                            取消
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setArmDelete(null)
+                              setError(null)
+                              setOpenId(openId === r.id ? null : r.id)
+                            }}
+                            className="shrink-0 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] transition-colors"
+                          >
+                            {openId === r.id ? '收起' : '改'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setError(null)
+                              setArmDelete(r.id)
+                            }}
+                            className="shrink-0 text-[11px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)] transition-colors"
+                          >
+                            删
+                          </button>
+                        </>
+                      ))}
                   </div>
 
                   {/* 开错了 — 这一单发了哪几个零件、各几件, 就地改; 整张作废
@@ -313,41 +346,24 @@ function ShipmentHistoryDialog({
                             <span className="mono shrink-0 text-[11.5px] text-[var(--color-ink-4)] tabular-nums">
                               / {c?.qty ?? '—'}
                             </span>
+                            {/* 删这一行 — 等同把数量改成 0, 但不用让人自己想
+                                到这一层。这一单最后一行删掉时整张单跟着走。 */}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setQty(r.id, sp.componentId, 0).catch(() => {})
+                              }
+                              disabled={pending}
+                              className="shrink-0 text-[11px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)] disabled:opacity-50"
+                            >
+                              删
+                            </button>
                           </div>
                         )
                       })}
-                      <div className="mt-2.5 flex items-center gap-3">
-                        <span className="text-[11px] text-[var(--color-ink-4)]">
-                          数量填 0 = 把这个零件从单上拿掉
-                        </span>
-                        {armDelete === r.id ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => removeShipment(r.id)}
-                              disabled={pending}
-                              className="ml-auto text-[11.5px] font-medium text-[var(--color-overdue)] hover:underline disabled:opacity-50"
-                            >
-                              确认删掉整张单
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setArmDelete(null)}
-                              className="text-[11.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
-                            >
-                              取消
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setArmDelete(r.id)}
-                            className="ml-auto text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
-                          >
-                            删掉整张单
-                          </button>
-                        )}
-                      </div>
+                      <p className="mt-2 text-[11px] text-[var(--color-ink-4)]">
+                        删掉最后一行，整张单一起没。
+                      </p>
                     </div>
                   )}
                 </li>
