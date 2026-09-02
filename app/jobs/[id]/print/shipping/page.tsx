@@ -226,6 +226,9 @@ export default async function ShippingDocPage(
                       )}
                     </td>
                     <td className="font-medium">{c.name || '—'}</td>
+                    {/* multiline — 料号和材质是可编辑格, 不加这个就渲染成单
+                        行 <input>, 长料号在框里横向滚动, 永远不会换行。加了
+                        之后是会自动长高的文本框, 跟旁边的纯文本一样折行。 */}
                     <td className="mono text-[var(--color-ink-2)]">
                       <ComponentText
                         jobId={job.id}
@@ -233,6 +236,7 @@ export default async function ShippingDocPage(
                         field="partNo"
                         value={c.partNo}
                         placeholder="—"
+                        multiline
                       />
                     </td>
                     <td className="text-[var(--color-ink-2)]">
@@ -242,6 +246,7 @@ export default async function ShippingDocPage(
                         field="material"
                         value={c.material}
                         placeholder="—"
+                        multiline
                       />
                     </td>
                     <td className="mono">{qty}</td>
