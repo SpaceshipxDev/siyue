@@ -515,6 +515,12 @@ input[type="number"] {
 .doc table.doc-grid th:nth-child(7), .doc table.doc-grid td:nth-child(7) {
   text-align: left;
 }
+/* 料号 / 材质 是能点着改的格子, 渲染出来是 input / textarea —— 表单元素不
+ * 继承单元格的 text-align, 会各自靠左, 于是一行里有的居中有的靠左。inherit
+ * 让它们跟着所在的那一列走: 居中的列居中, 备注列靠左。 */
+.doc table.doc-grid input,
+.doc table.doc-grid textarea { text-align: inherit; }
+
 /* 缩略图是块级元素 — 单元格居中管不到它, 得自己左右 auto。出货单这一栏放大
  * 了, 图跟着放大: 客户核对时看的就是这张图。 */
 .doc table.doc-grid .doc-thumb {
