@@ -4287,18 +4287,24 @@ export async function finishStage(
 // status forced to in_progress (clicking a verdict IS the inspection — no
 // separate ▶ start), red tag painted from the verdict fields. The inspector
 // can re-verdict any number of times; the last click wins.
+// 判定挂在哪一道: 检验 是加工完的过程检, 质量 是出货前的成品检。两道问的是
+// 同一个问题 (这批能不能走), 记的是同一组东西 (判定 + 不良原因 + 责任人), 所
+// 以共用这一套 —— 差别只在 stage 这一个参数。
+export type VerdictStage = '检验' | '质量'
+
 export async function setInspectionVerdict(
   jobId: string,
   componentId: string,
   verdict: Verdict,
   actor: string,
+  stage: VerdictStage = '检验',
 ): Promise<void> {
   await withWriteLock(async () => {
     const snap = await loadJobSnapshot(jobId)
     const partId = findPartIdInSnap(snap, jobId, componentId)
     if (!partId) return
-    const row = snap.idx.stageByPartStage.get(stageKey(partId, '检验'))
-    if (!row) return // 检验 not in this part's route — no-op
+    const row = snap.idx.stageByPartStage.get(stageKey(partId, stage))
+    if (!row) return // 这道不在这个零件的工艺路线上 — no-op
     const now = new Date().toISOString()
     if (verdict === 'OK') {
       const date = todayMMDD()
@@ -4314,7 +4320,7 @@ export async function setInspectionVerdict(
         verdictAt: now,
         verdictBy: actor,
       }
-      const cascaded = cascadeBackFinish(snap, partId, '检验', date, now, actor)
+      const cascaded = cascadeBackFinish(snap, partId, stage, date, now, actor)
       await upsertStages([main, ...cascaded])
       return
     }
@@ -4343,12 +4349,13 @@ export async function setInspectionVerdictDetail(
   jobId: string,
   componentId: string,
   detail: { reason?: string | null; owner?: string | null; note?: string | null },
+  stage: VerdictStage = '检验',
 ): Promise<void> {
   await withWriteLock(async () => {
     const snap = await loadJobSnapshot(jobId)
     const partId = findPartIdInSnap(snap, jobId, componentId)
     if (!partId) return
-    const row = snap.idx.stageByPartStage.get(stageKey(partId, '检验'))
+    const row = snap.idx.stageByPartStage.get(stageKey(partId, stage))
     if (!row) return
     const update: AnyRow = {}
     if (detail.reason !== undefined)
@@ -4363,6 +4370,83 @@ export async function setInspectionVerdictDetail(
       .update(update)
       .eq('id', row.id)
     if (error && !isMissingColumnError(error)) throw error
+  })
+}
+
+// === 不良记录 ===
+//
+// 全厂所有判成 重做 / 返修 / 外修 的零件, 检验 (过程检) 和 质量 (出货前的成
+// 品检) 两道一起。这张表不是新记的东西 —— 检验员按下那个判定的时候就已经写
+// 在零件上了, 这里只是把它们从几百张工单里收拢成一张能读、能导的表。
+//
+// OK 的不进来: 一张不良记录表列出合格品, 等于让人自己去里面找不良。
+export type DefectRow = {
+  partId: string
+  at?: string // 判定时间 ISO
+  stage: string // 检验 / 质量
+  verdict: string // 重做 / 返修 / 外修
+  jobId: string
+  jobNo: string
+  customer: string
+  partName: string
+  reason?: string // 不良原因
+  owner?: string // 责任人
+  by?: string // 判定人
+}
+
+export async function getDefectRows(): Promise<DefectRow[]> {
+  await ensureSeeded()
+  const { data, error } = await supabase
+    .from('part_stages')
+    .select(
+      'part_id, stage, verdict, verdict_at, verdict_by, verdict_reason, verdict_owner',
+    )
+    .in('stage', ['检验', '质量'])
+    .in('verdict', BLOCKING_VERDICTS as string[])
+  if (error) {
+    // 判定明细是 migration 0052 加的列 — 库还没升级时读不出来, 那就当没有
+    // 不良记录, 页面照常打开。
+    if (isMissingColumnError(error) || isMissingTableError(error)) return []
+    throw error
+  }
+  const rows = (data ?? []) as AnyRow[]
+  if (rows.length === 0) return []
+
+  const partIds = [...new Set(rows.map((r) => r.part_id as string))]
+  const partRows = await selectAllIn('parts', 'id', partIds)
+  const partById = new Map<string, AnyRow>()
+  for (const p of partRows) partById.set(p.id as string, p)
+
+  const jobIds = [
+    ...new Set(partRows.map((p) => p.job_id as string).filter(Boolean)),
+  ]
+  const jobRows = await selectAllIn('jobs', 'id', jobIds)
+  const jobById = new Map<string, AnyRow>()
+  for (const j of jobRows) jobById.set(j.id as string, j)
+
+  const out: DefectRow[] = []
+  for (const r of rows) {
+    const part = partById.get(r.part_id as string)
+    if (!part) continue
+    const job = jobById.get(part.job_id as string)
+    out.push({
+      partId: r.part_id as string,
+      at: (r.verdict_at as string | null) ?? undefined,
+      stage: (r.stage as string) ?? '',
+      verdict: (r.verdict as string) ?? '',
+      jobId: (part.job_id as string) ?? '',
+      jobNo: (job?.job_no as string | null) ?? '',
+      customer: (job?.customer as string | null) ?? '',
+      partName: (part.name as string | null) ?? '',
+      reason: (r.verdict_reason as string | null) ?? undefined,
+      owner: (r.verdict_owner as string | null) ?? undefined,
+      by: (r.verdict_by as string | null) ?? undefined,
+    })
+  }
+  // 新的在前 — 没有判定时间的 (0052 之前留下的) 排最后。
+  return out.sort((a, b) => {
+    if (!a.at !== !b.at) return a.at ? -1 : 1
+    return (a.at ?? '') < (b.at ?? '') ? 1 : -1
   })
 }
 

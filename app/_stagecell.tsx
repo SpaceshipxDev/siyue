@@ -126,7 +126,10 @@ export function EffectiveStageCell({
   // 检验 swaps the ▶/⏸/✓ pair for the verdict cell (重做/返修/外修/OK +
   // 检验照片). Read-only viewers still get the cell — the modal opens in
   // view mode so any station can SEE the verdict and photos.
-  if (stage === '检验') {
+  // 质量 走同一个格子 — 它是出货前的成品检, 问的是同一个问题 (这批能不能
+  // 走), 要记的也是同一组东西 (判定 · 不良原因 · 责任人 · 照片)。以前它只是
+  // 一个普通的 ▶/✓ 格, 成品检出的不良没地方写。
+  if (stage === '检验' || stage === '质量') {
     return (
       <InspectionCell
         jobId={jobId}
@@ -136,6 +139,7 @@ export function EffectiveStageCell({
         canStart={canStartStage(component, stage)}
         photos={component.inspectionPhotos}
         readOnly={!interactive}
+        stage={stage}
       />
     )
   }

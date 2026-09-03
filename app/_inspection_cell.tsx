@@ -32,6 +32,7 @@ export function InspectionCell({
   canStart,
   photos,
   readOnly = false,
+  stage = '检验',
 }: {
   jobId: string
   componentId: string
@@ -40,6 +41,8 @@ export function InspectionCell({
   canStart: boolean
   photos?: PartPhoto[]
   readOnly?: boolean
+  /** 判定挂在哪一道 — 检验 (过程检) 或 质量 (出货前的成品检)。 */
+  stage?: '检验' | '质量'
 }) {
   const [open, setOpen] = useState(false)
   const [pending, start] = useTransition()
@@ -47,7 +50,7 @@ export function InspectionCell({
   const [error, setError] = useState(false)
   // 报工范围 guard — the modal stays openable for LOOKING (verdict + photos);
   // only the verdict/undo writes check scope.
-  const guard = useStageGuard('检验')
+  const guard = useStageGuard(stage)
 
   // Same prev-prop sentinel as StageCellButton: hold the optimistic value
   // until the server-pushed prop catches up, killing the one-frame flicker.
@@ -95,7 +98,7 @@ export function InspectionCell({
     start(async () => {
       try {
         if (verdict !== state.verdict) {
-          await mutate({ kind: 'setInspectionVerdict', jobId, componentId, verdict })
+          await mutate({ kind: 'setInspectionVerdict', jobId, componentId, verdict, stage })
         }
         // Detail rides its own targeted write. Only send the fields this verdict
         // owns — OK never touches 不良原因, a hold never touches 备注 — so the two
@@ -113,7 +116,13 @@ export function InspectionCell({
             patch.owner = detail.owner ?? null
         }
         if (Object.keys(patch).length > 0) {
-          await mutate({ kind: 'setInspectionVerdictDetail', jobId, componentId, ...patch })
+          await mutate({
+            kind: 'setInspectionVerdictDetail',
+            jobId,
+            componentId,
+            stage,
+            ...patch,
+          })
         }
       } catch (e) {
         setOptimistic(null)
@@ -129,7 +138,7 @@ export function InspectionCell({
     setOpen(false)
     start(async () => {
       try {
-        await mutate({ kind: 'undoStage', jobId, componentId, stage: '检验' })
+        await mutate({ kind: 'undoStage', jobId, componentId, stage })
       } catch (e) {
         setOptimistic(null)
         if (!guard.denyIfScopeError(e)) setError(true)

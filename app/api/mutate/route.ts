@@ -980,15 +980,19 @@ async function dispatch(
     // 检验 verdict — the inspector's four buttons (重做/返修/外修/OK). OK
     // finishes the stage like a normal ✓; the rest hold the part at 检验
     // with a red tag. Clicking a verdict IS the inspection — no prior ▶.
+    // 判定这一道可以是 检验 (过程检) 或 质量 (出货前的成品检) — 同一套判定和
+    // 不良原因, 差别只在挂在哪一道上。报工范围也按那一道查, 质量站的人不会因
+    // 此拿到检验站的权限。
     case 'setInspectionVerdict': {
       const jobId = body.jobId
       const componentId = body.componentId
       const verdict = body.verdict
+      const stage = body.stage === '质量' ? '质量' : '检验'
       if (!isString(jobId) || !isString(componentId) || !isVerdict(verdict))
         return err('bad setInspectionVerdict args')
-      const u = await requireOwnStage('检验')
-      await setInspectionVerdict(jobId, componentId, verdict, u.name)
-      revalidateStage(jobId, '检验')
+      const u = await requireOwnStage(stage)
+      await setInspectionVerdict(jobId, componentId, verdict, u.name, stage)
+      revalidateStage(jobId, stage)
       return Response.json(ok())
     }
 
@@ -1009,13 +1013,19 @@ async function dispatch(
         return err('bad owner')
       if (note !== undefined && note !== null && !isString(note))
         return err('bad note')
-      await requireOwnStage('检验')
-      await setInspectionVerdictDetail(jobId, componentId, {
-        reason: reason as string | null | undefined,
-        owner: owner as string | null | undefined,
-        note: note as string | null | undefined,
-      })
-      revalidateStage(jobId, '检验')
+      const dStage = body.stage === '质量' ? '质量' : '检验'
+      await requireOwnStage(dStage)
+      await setInspectionVerdictDetail(
+        jobId,
+        componentId,
+        {
+          reason: reason as string | null | undefined,
+          owner: owner as string | null | undefined,
+          note: note as string | null | undefined,
+        },
+        dStage,
+      )
+      revalidateStage(jobId, dStage)
       return Response.json(ok())
     }
 
