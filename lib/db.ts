@@ -4941,6 +4941,43 @@ export async function undoStage(
   })
 }
 
+// ▶ 点错了 — 把一道从「进行中」退回「未开始」。
+//
+// 跟撤销「已完成」是两件事, 所以是两个函数、两档权限: 点错开始是当场发现的
+// (点到隔壁那一行了), 撤掉它什么记录都没损失 —— 这道本来就还没做完, 也没有
+// 完成时间和经手人可言。所以谁能点这道就能撤这道。
+//
+// 有完成数量的不给撤: 那说明已经做出东西来了 (打磨报了 3/10), 那不是点错,
+// 要退得先把数量清掉 —— 否则一个手滑就把三个人的活抹了。
+export async function undoStageStart(
+  jobId: string,
+  componentId: string,
+  stage: Stage,
+): Promise<'ok' | 'not_started' | 'has_qty'> {
+  return withWriteLock(async () => {
+    const snap = await loadJobSnapshot(jobId)
+    const partId = findPartIdInSnap(snap, jobId, componentId)
+    if (!partId) return 'not_started'
+    const row = snap.idx.stageByPartStage.get(stageKey(partId, stage))
+    if (!row) return 'not_started'
+    if (row.status !== 'in_progress') return 'not_started'
+    if (typeof row.doneQty === 'number' && row.doneQty > 0) return 'has_qty'
+    await upsertStages([
+      {
+        ...row,
+        status: 'pending',
+        startedAt: undefined,
+        startedBy: undefined,
+        completedAt: undefined,
+        finishedAt: undefined,
+        by: undefined,
+        doneQty: undefined,
+      },
+    ])
+    return 'ok'
+  })
+}
+
 export async function assignToStage(
   jobId: string,
   componentId: string,

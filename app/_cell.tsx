@@ -7,7 +7,7 @@ import { Pause, stageTimeHint } from './_ui'
 import { mutate } from '@/lib/mutate'
 import { RowTimer } from './_row_timer'
 import { QtyEditor } from './_qty_editor'
-import { useStageGuard } from './_stage_scope'
+import { useCanUndoDone, useStageGuard } from './_stage_scope'
 
 // Stage button writes go through /api/mutate (~30-byte JSON) instead of
 // server actions. Server-action responses inline the current page's RSC,
@@ -62,6 +62,7 @@ export function StageCellButton({
     }
   }
 
+  const canUndoDone = useCanUndoDone()
   const display = optimistic ?? state
   const padding = size === 'lg' ? 'py-3' : 'py-2'
 
@@ -86,6 +87,22 @@ export function StageCellButton({
     start(async () => {
       try {
         await mutate({ kind: 'finishStage', jobId, componentId, stage })
+      } catch (e) {
+        setOptimistic(null)
+        if (!guard.denyIfScopeError(e)) setError(true)
+      }
+    })
+  }
+
+  // ▶ 点错了 — 退回未开始。跟撤销「已完成」是两件事: 这一道本来就还没做完,
+  // 撤掉不损失任何记录, 所以谁能点这道就能撤。
+  const onUndoStart = () => {
+    if (!guard.check()) return
+    setError(false)
+    setOptimistic({ status: 'pending' })
+    start(async () => {
+      try {
+        await mutate({ kind: 'undoStageStart', jobId, componentId, stage })
       } catch (e) {
         setOptimistic(null)
         if (!guard.denyIfScopeError(e)) setError(true)
@@ -173,7 +190,7 @@ export function StageCellButton({
     const doneSoFar = display.doneQty ?? 0
     return (
       <div
-        className={`relative flex h-full w-full flex-col ${
+        className={`group/cell relative flex h-full w-full flex-col ${
           error ? 'bg-[var(--color-overdue-soft)]' : 'bg-[var(--color-warning-soft)]'
         } ${pending ? 'opacity-60' : ''}`}
       >
@@ -206,6 +223,23 @@ export function StageCellButton({
             className="flex w-full items-center justify-center pb-1.5 mono text-[10px] tracking-wider text-[var(--color-warning)]/80 hover:text-[var(--color-warning)] hover:underline underline-offset-[3px] decoration-dotted focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:cursor-not-allowed"
           >
             {doneSoFar}/{componentQty}
+          </button>
+        ) : null}
+        {/* 右上角的 ✕ — 刚才那下 ▶ 点到隔壁行了, 就地退回未开始。悬停才显
+            形, 平时不跟"完成"抢地方; 已经报了数量的不给撤 (那不是点错)。 */}
+        {!error && !doneSoFar ? (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={(e) => {
+              e.stopPropagation()
+              onUndoStart()
+            }}
+            aria-label={`${stage} · 撤销开始`}
+            title="点错了 · 退回未开始"
+            className="absolute right-0 top-0 px-1 text-[10px] leading-none text-[var(--color-warning)]/60 transition-opacity hover:text-[var(--color-overdue)] focus:opacity-100 focus:outline-none md:opacity-0 md:group-hover/cell:opacity-100"
+          >
+            ✕
           </button>
         ) : null}
         {editorOpen ? (
@@ -249,11 +283,23 @@ export function StageCellButton({
   return (
     <button
       type="button"
-      disabled={pending}
+      disabled={pending || !canUndoDone}
       onClick={onUndo}
-      title={attribution ?? '点击撤销 · 退回到进行中'}
-      aria-label={`${stage} · ${error ? '失败 · 重试' : '撤销完成'}${attribution ? ` · ${attribution}` : ''}`}
-      className={`flex h-full w-full flex-col items-center justify-center gap-0.5 ${padding} ${optimistic?.status === 'done' ? 'animate-cell-done' : ''} ${error ? 'bg-[var(--color-overdue-soft)]' : 'hover:bg-[#f1eee4]'} focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)] disabled:opacity-60`}
+      title={
+        canUndoDone
+          ? (attribution ?? '点击撤销 · 退回到进行中')
+          : `${attribution ? `${attribution} · ` : ''}撤销已完成的报工要找 于海伟`
+      }
+      aria-label={`${stage} · ${
+        error ? '失败 · 重试' : canUndoDone ? '撤销完成' : '已完成'
+      }${attribution ? ` · ${attribution}` : ''}`}
+      className={`flex h-full w-full flex-col items-center justify-center gap-0.5 ${padding} ${optimistic?.status === 'done' ? 'animate-cell-done' : ''} ${
+        error
+          ? 'bg-[var(--color-overdue-soft)]'
+          : canUndoDone
+            ? 'hover:bg-[#f1eee4]'
+            : 'cursor-default'
+      } ${pending ? 'opacity-60' : ''} focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)]`}
     >
       {doneInner}
     </button>

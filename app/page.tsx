@@ -14,7 +14,7 @@ import {
   getOrderMoneyLightByJob,
   getStageFlowMinutes,
 } from '@/lib/db'
-import { requireUser, canDeleteJob, canSeeFactoryPulse, canSeeMoney, canSeeReport, canSeeOrderLedger, stageScopeFor } from '@/lib/auth'
+import { requireUser, canDeleteJob, canSeeFactoryPulse, canSeeMoney, canSeeReport, canSeeOrderLedger, stageScopeFor, canUndoFinishedStage } from '@/lib/auth'
 import { StageScopeProvider } from './_stage_scope'
 import { logBoardView } from '@/lib/access-log'
 import { scrubMasterRow } from '@/lib/dto'
@@ -230,7 +230,10 @@ export default async function MasterBoard(
   return (
     // 报工范围 — every stage cell below (master grid + workbench) consults
     // this; out-of-scope taps get the denial dialog instead of a write.
-    <StageScopeProvider scope={stageScopeFor(user)}>
+    <StageScopeProvider
+      scope={stageScopeFor(user)}
+      canUndoDone={canUndoFinishedStage(user)}
+    >
     <div className="flex-1 flex flex-col">
       <TopBar
         title={title}

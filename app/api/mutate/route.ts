@@ -61,6 +61,7 @@ import {
   startStage,
   undoJobStage,
   undoStage,
+  undoStageStart,
   updateComponent,
   updateCustomer,
   updateDailyFocusItem,
@@ -122,6 +123,7 @@ import {
   canSeeExpenses,
   canSeeOrderLedger,
   canSeeReport,
+  canUndoFinishedStage,
   canSeeFactoryPulse,
   canSeeMoney,
   canUseNotes,
@@ -953,14 +955,38 @@ async function dispatch(
       return Response.json(ok())
     }
 
+    // 撤销「已完成」— 名单制 (canUndoFinishedStage)。完成时间和经手人是工资、
+    // 交期、产能都在读的数, 一个人默默退掉三天前的完成没人会发现。
+    //
+    // 检验 / 质量 不在此列: 那两道的 ✓ 是判定 (OK), 撤判定属于质量流程, 检验
+    // 员判错了必须当场能改。
     case 'undoStage': {
       const jobId = body.jobId
       const componentId = body.componentId
       const stage = body.stage
       if (!isString(jobId) || !isString(componentId) || !isStage(stage))
         return err('bad undoStage args')
-      await requireOwnStage(stage)
+      const u = await requireOwnStage(stage)
+      const isVerdictStage = stage === '检验' || stage === '质量'
+      if (!isVerdictStage && !canUndoFinishedStage(u)) {
+        return err('撤销已完成的报工要找 于海伟', 403)
+      }
       await undoStage(jobId, componentId, stage)
+      revalidateStage(jobId, stage)
+      return Response.json(ok())
+    }
+
+    // ▶ 点错了 — 从「进行中」退回「未开始」。谁能点这道就能撤这道: 点错是当
+    // 场发现的, 而这道本来就还没做完, 撤掉什么记录都不损失。
+    case 'undoStageStart': {
+      const jobId = body.jobId
+      const componentId = body.componentId
+      const stage = body.stage
+      if (!isString(jobId) || !isString(componentId) || !isStage(stage))
+        return err('bad undoStageStart args')
+      await requireOwnStage(stage)
+      const r = await undoStageStart(jobId, componentId, stage)
+      if (r === 'has_qty') return err('已经报了数量，先把数量清零再撤')
       revalidateStage(jobId, stage)
       return Response.json(ok())
     }

@@ -23,12 +23,23 @@ type StageScopeValue = 'all' | readonly Stage[]
 type Ctx = {
   scope: StageScopeValue
   deny: (stage: Stage) => void
+  /** 能不能把一道「已完成」退回去 — 名单制, 见 lib/auth canUndoFinishedStage。 */
+  canUndoDone: boolean
 }
 
 // Default is fail-open ('all'): a cell rendered outside any provider behaves
 // exactly as before this feature — the server still rejects out-of-scope
 // writes, they just surface as the generic 失败 cell state.
-const StageScopeContext = createContext<Ctx>({ scope: 'all', deny: () => {} })
+const StageScopeContext = createContext<Ctx>({
+  scope: 'all',
+  deny: () => {},
+  canUndoDone: true,
+})
+
+/** 撤销「已完成」的权限 — 服务端会再查一次, 这层只是别让人白点。 */
+export function useCanUndoDone(): boolean {
+  return useContext(StageScopeContext).canUndoDone
+}
 
 /** Pure read — used by the workbench to keep foreign stations read-only. */
 export function useCanClickStage(stage: Stage): boolean {
@@ -68,14 +79,20 @@ export function useStageGuard(stage: Stage): {
 
 export function StageScopeProvider({
   scope,
+  canUndoDone = true,
   children,
 }: {
   scope: StageScopeValue
+  /** 撤销「已完成」 — 默认放行, 服务端才是真的边界。 */
+  canUndoDone?: boolean
   children: ReactNode
 }) {
   const [denied, setDenied] = useState<Stage | null>(null)
   const deny = useCallback((s: Stage) => setDenied(s), [])
-  const value = useMemo(() => ({ scope, deny }), [scope, deny])
+  const value = useMemo(
+    () => ({ scope, deny, canUndoDone }),
+    [scope, deny, canUndoDone],
+  )
   return (
     <StageScopeContext.Provider value={value}>
       {children}

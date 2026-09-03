@@ -420,6 +420,23 @@ export function canDeleteOrder(u: AuthUser): boolean {
   return ORDER_DELETER_USER_IDS.has(u.id)
 }
 
+// 撤销一个已经报完的工序 — 名单制, 跟 零件行删除 / 订单删除 同一个道理。
+//
+// 开始点错了当场撤是一回事 (谁能点这道就能撤自己刚点下去的 ▶, 见
+// undoStageStart); 把一道"已完成"退回去是另一回事 —— 完成时间和经手人是工资、
+// 交期、产能全都在读的数, 一个人默默退掉三天前的完成, 没人会发现。
+//
+// 检验 / 质量 那两道不在此列: 那里的 ✓ 是判定 (OK), 撤销判定属于质量流程,
+// 检验员判错了必须能当场改, 见 /api/mutate 的 undoStage。
+const STAGE_UNDO_USER_IDS = new Set<string>([
+  'u-ms45yjq9-2kbdi1', // 商务于海伟
+  'u-mose92lt-a0cutz', // 于海伟 — 工程号
+])
+
+export function canUndoFinishedStage(u: AuthUser): boolean {
+  return STAGE_UNDO_USER_IDS.has(u.id) || isAdminUser(u.id)
+}
+
 // ─── 报工 工段范围 (which stage cells a user may CLICK) ──────────────────────
 //
 // The boss reads money out of stage progress now, so a tap on someone else's
