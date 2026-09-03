@@ -159,6 +159,24 @@ export function canEditHrRecord(u: AuthUser): boolean {
   return HR_EDITOR_USER_IDS.has(u.id)
 }
 
+// ─── 住宿登记 (谁住哪一间) ──────────────────────────────────────────────
+//
+// 宿舍是人事采购在管的 — 谁搬进来、谁换了房间, 她当天就知道, 所以填的是她
+// (老板永远算一个)。看的人比填的人多一档: 老板、财务、于海伟 —— 住宿是记在
+// 人头上的成本, 跟工资一起读才有意义, 所以直接沿用 canSeeExpenses 那一档,
+// 不另开一个名单去维护。
+const DORM_EDITOR_USER_IDS = new Set<string>([
+  'u-mqoj62uq-olmh4c', // 采购人事
+])
+
+export function canEditDorm(u: AuthUser): boolean {
+  return DORM_EDITOR_USER_IDS.has(u.id) || isAdminUser(u.id)
+}
+
+export function canSeeDorm(u: AuthUser): boolean {
+  return canEditDorm(u) || canSeeExpenses(u)
+}
+
 // Page/export guard for the 支出/工资/月度 finance tabs. The grant is
 // canSeeExpenses itself — role is not a second gate, or an allowlisted
 // production account would be stopped here after being let through there.

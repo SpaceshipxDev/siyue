@@ -1,5 +1,8 @@
+import Link from 'next/link'
 import { TopBar } from '@/app/_ui'
 import {
+  canEditDorm,
+  canSeeDorm,
   requireHrUser,
   canDeleteHrRecord,
   canEditHrRecord,
@@ -11,6 +14,8 @@ import {
 import { getActiveUsers } from '@/lib/db'
 import { getHrMonth, getHrMonths, getHrRoster, getHrYear } from '@/lib/hr'
 import { today } from '@/lib/today'
+import { getDormEntries } from '@/lib/dorm'
+import { DormBoard } from './_dorm'
 import { HrBoard } from './_hr'
 
 export const dynamic = 'force-dynamic'
@@ -24,7 +29,7 @@ export const dynamic = 'force-dynamic'
 export default async function HrPage({
   searchParams,
 }: {
-  searchParams: Promise<{ p?: string }>
+  searchParams: Promise<{ p?: string; v?: string }>
 }) {
   const user = await requireHrUser()
   const sp = await searchParams
@@ -32,16 +37,23 @@ export default async function HrPage({
 
   // 'YYYY-MM' reads a month, 'YYYY' reads a year. Anything else falls back to
   // the month we're in, which is what somebody arriving from the nav wants.
+  // 住宿登记 — 人事的第二张表, 归同一个模块但另一批人在看 (canSeeDorm)。
+  // 没这个权限的人连切换都看不到, 页面就还是原来那一张考勤表。
+  const seeDorm = canSeeDorm(user)
+  const view = sp.v === 'dorm' && seeDorm ? 'dorm' : 'hr'
+
   const raw = (sp.p ?? '').trim()
   const period = /^\d{4}(-\d{2})?$/.test(raw) ? raw : now.slice(0, 7)
   const isYear = period.length === 4
 
-  const [allRecords, months, users, extraNames] = await Promise.all([
-    isYear ? getHrYear(period) : getHrMonth(period),
-    getHrMonths(),
-    getActiveUsers(),
-    getHrRoster(),
-  ])
+  const [allRecords, months, users, extraNames, dormEntries] =
+    await Promise.all([
+      isYear ? getHrYear(period) : getHrMonth(period),
+      getHrMonths(),
+      getActiveUsers(),
+      getHrRoster(),
+      seeDorm ? getDormEntries() : Promise.resolve([]),
+    ])
 
   // 看全部 vs 看本部门. Scoped here, on the server, so a 工段长's page never
   // holds another team's lines in the first place — there is nothing to leak
@@ -80,17 +92,59 @@ export default async function HrPage({
         canSeeFinance={canSeeOrderLedger(user)}
       />
       <main className="px-4 md:px-10 py-8">
-        <HrBoard
-          records={records}
-          period={period}
-          months={months}
-          roster={roster}
-          canDelete={canDeleteHrRecord(user)}
-          canEdit={canEditHrRecord(user)}
-          scope={seeAll ? null : myDept}
-          today={now}
-        />
+        {seeDorm && (
+          <div className="mx-auto mb-5 flex max-w-4xl items-baseline gap-x-6">
+            <ViewTab href="/hr" label="考勤" active={view === 'hr'} />
+            <ViewTab href="/hr?v=dorm" label="住宿" active={view === 'dorm'} />
+          </div>
+        )}
+        {view === 'dorm' ? (
+          <DormBoard
+            entries={dormEntries}
+            roster={roster}
+            deptOf={Object.fromEntries(
+              users.map((u) => [u.name, hrDeptOf(u)]),
+            )}
+            canEdit={canEditDorm(user)}
+          />
+        ) : (
+          <HrBoard
+            records={records}
+            period={period}
+            months={months}
+            roster={roster}
+            canDelete={canDeleteHrRecord(user)}
+            canEdit={canEditHrRecord(user)}
+            scope={seeAll ? null : myDept}
+            today={now}
+          />
+        )}
       </main>
     </div>
+  )
+}
+
+// 考勤 / 住宿 — same underline-active idiom the 财务 sub-tabs use. Server-
+// rendered links so the gate stays on the server.
+function ViewTab({
+  href,
+  label,
+  active,
+}: {
+  href: string
+  label: string
+  active: boolean
+}) {
+  return (
+    <Link
+      href={href}
+      className={`border-b pb-1 text-[15px] tracking-tight transition-colors ${
+        active
+          ? 'border-[var(--color-ink)] font-semibold text-[var(--color-ink)]'
+          : 'border-transparent font-medium text-[var(--color-ink-3)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-ink-2)]'
+      }`}
+    >
+      {label}
+    </Link>
   )
 }

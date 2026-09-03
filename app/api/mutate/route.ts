@@ -114,6 +114,7 @@ import {
   canClickStage,
   canCreatePartRow,
   canDeleteHrRecord,
+  canEditDorm,
   canEditHrRecord,
   canDeletePartRow,
   canManageOutsource,
@@ -132,6 +133,11 @@ import {
   requireUser,
   type AuthUser,
 } from '@/lib/auth'
+import {
+  addDormEntry,
+  deleteDormEntry,
+  updateDormEntry,
+} from '@/lib/dorm'
 import {
   addHrRecord,
   deleteHrRecord as deleteHrRecordRow,
@@ -2158,6 +2164,61 @@ async function dispatch(
         today(),
       )
       revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    // 住宿登记 — 谁住哪一间。填的是人事采购 (宿舍归她管), 见 canEditDorm。
+    case 'addDormEntry': {
+      const name = body.name
+      const dept = body.dept
+      const room = body.room
+      const note = body.note
+      if (!isString(name) || !name.trim()) return err('先填姓名')
+      if (!isString(dept) || !isString(room))
+        return err('bad addDormEntry args')
+      if (note !== undefined && !isString(note))
+        return err('bad addDormEntry args')
+      const u = await requireUser()
+      if (!canEditDorm(u)) return err('无权登记住宿', 403)
+      await addDormEntry(
+        { name, dept, room, note },
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath('/hr')
+      return Response.json(ok())
+    }
+
+    case 'updateDormEntry': {
+      const entryId = body.entryId
+      const patch = body.patch
+      if (!isString(entryId)) return err('bad updateDormEntry args')
+      if (typeof patch !== 'object' || patch === null)
+        return err('bad updateDormEntry args')
+      const p = patch as Record<string, unknown>
+      for (const k of ['name', 'dept', 'room', 'note']) {
+        if (p[k] !== undefined && !isString(p[k]))
+          return err('bad updateDormEntry args')
+      }
+      const u = await requireUser()
+      if (!canEditDorm(u)) return err('无权修改住宿登记', 403)
+      await updateDormEntry(
+        entryId,
+        p as { name?: string; dept?: string; room?: string; note?: string },
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath('/hr')
+      return Response.json(ok())
+    }
+
+    case 'deleteDormEntry': {
+      const entryId = body.entryId
+      if (!isString(entryId)) return err('bad deleteDormEntry args')
+      const u = await requireUser()
+      if (!canEditDorm(u)) return err('无权删除住宿登记', 403)
+      await deleteDormEntry(entryId)
+      revalidatePath('/hr')
       return Response.json(ok())
     }
 
