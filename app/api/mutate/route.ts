@@ -121,6 +121,7 @@ import {
   canEditShipment,
   canSeeExpenses,
   canSeeOrderLedger,
+  canSeeReport,
   canSeeFactoryPulse,
   canSeeMoney,
   canUseNotes,
@@ -134,6 +135,11 @@ import {
   requireUser,
   type AuthUser,
 } from '@/lib/auth'
+import {
+  addComplaint,
+  deleteComplaint,
+  updateComplaint,
+} from '@/lib/complaints'
 import {
   isRateList,
   isScalarRateKey,
@@ -2182,6 +2188,75 @@ async function dispatch(
         today(),
       )
       revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    // 客诉异常 — 客户反馈回来的质量问题。跟「质量异常」不同, 这个系统无从
+    // 知道, 只能商务落笔; 权限跟报工同一档 (canSeeReport)。
+    case 'addComplaint': {
+      const input = body.input
+      if (typeof input !== 'object' || input === null)
+        return err('bad addComplaint args')
+      const i = input as Record<string, unknown>
+      if (!isString(i.customer) || !i.customer.trim()) return err('先填客户')
+      if (!isString(i.reason) || !i.reason.trim()) return err('填一下不良原因')
+      if (!isString(i.date) || !/^\d{4}-\d{2}-\d{2}$/.test(i.date))
+        return err('bad addComplaint args')
+      for (const k of ['handling', 'owner']) {
+        if (i[k] !== undefined && !isString(i[k]))
+          return err('bad addComplaint args')
+      }
+      if (i.jobNo !== undefined && !isString(i.jobNo))
+        return err('bad addComplaint args')
+      const u = await requireUser()
+      if (!canSeeReport(u)) return err('无权记录客诉', 403)
+      await addComplaint(
+        {
+          date: i.date,
+          customer: i.customer,
+          jobNo: isString(i.jobNo) ? i.jobNo : undefined,
+          qty: typeof i.qty === 'number' ? i.qty : 0,
+          reason: i.reason,
+          handling: isString(i.handling) ? i.handling : '',
+          owner: isString(i.owner) ? i.owner : '',
+          lossCny: typeof i.lossCny === 'number' ? i.lossCny : 0,
+        },
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'updateComplaint': {
+      const complaintId = body.complaintId
+      const patch = body.patch
+      if (!isString(complaintId)) return err('bad updateComplaint args')
+      if (typeof patch !== 'object' || patch === null)
+        return err('bad updateComplaint args')
+      const p = patch as Record<string, unknown>
+      for (const k of ['date', 'customer', 'jobNo', 'reason', 'handling', 'owner']) {
+        if (p[k] !== undefined && !isString(p[k]))
+          return err('bad updateComplaint args')
+      }
+      for (const k of ['qty', 'lossCny']) {
+        if (p[k] !== undefined && typeof p[k] !== 'number')
+          return err('数量或金额不对')
+      }
+      const u = await requireUser()
+      if (!canSeeReport(u)) return err('无权修改客诉', 403)
+      await updateComplaint(complaintId, p)
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'deleteComplaint': {
+      const complaintId = body.complaintId
+      if (!isString(complaintId)) return err('bad deleteComplaint args')
+      const u = await requireUser()
+      if (!canSeeReport(u)) return err('无权删除客诉', 403)
+      await deleteComplaint(complaintId)
+      revalidatePath('/quality')
       return Response.json(ok())
     }
 

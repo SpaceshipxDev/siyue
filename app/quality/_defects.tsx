@@ -4,8 +4,8 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { DefectRow } from '@/lib/db'
 
-// 不良记录 — 全厂判成 重做 / 返修 / 外修 的零件, 检验 (过程检) 和 质量 (出货
-// 前的成品检) 两道一起。
+// 质量异常 — 全厂判成 重做 / 返修 / 外修 的零件, 检验 (过程检) 和 质量 (出货
+// 前的成品检) 两道一起。厂里自己检出来的那一半。
 //
 // 一条都不是在这里录的: 检验员按下判定、写下不良原因的那一刻就记在零件上了,
 // 这页只是把它们从几百张工单里收拢起来。所以它永远和车间看到的一致, 也没有
@@ -58,7 +58,7 @@ export function DefectsBoard({
     return { check, quality, kinds: [...kinds.entries()] }
   }, [monthRows])
 
-  const exportHref = `/report/defects/export?m=${year}-${month}${
+  const exportHref = `/quality/export?m=${year}-${month}${
     q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ''
   }`
 
@@ -70,7 +70,7 @@ export function DefectsBoard({
             {monthRows.length}
           </p>
           <p className="label mt-2.5">
-            {Number(month)}月不良
+            {Number(month)}月异常
           </p>
           <p className="mt-1 text-[12px] tabular-nums text-[var(--color-ink-3)]">
             检验 {stats.check} · 成品检 {stats.quality}
@@ -131,7 +131,7 @@ export function DefectsBoard({
 
         {monthRows.length === 0 ? (
           <p className="px-5 py-12 text-center text-[13px] text-[var(--color-ink-3)]">
-            {q ? '没有匹配的记录' : '这个月没有不良记录'}
+            {q ? '没有匹配的记录' : '这个月没有质量异常'}
           </p>
         ) : (
           monthRows.map((r, i) => (

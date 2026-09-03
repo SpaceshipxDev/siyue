@@ -52,6 +52,11 @@ function tabsForRole(
       label: s,
       href: `/?stage=${encodeURIComponent(s)}`,
     }))
+  // 办公室点「质量」想看的是质量数据 (异常 + 客诉), 车间点它想看的是自己工段
+  // 的队列 —— 同一个字, 两件事。所以只把 商务 / 工程头 那一份指到质量模块,
+  // 质量站的账号照旧进工段看板 (那一页上也留了回工段看板的链接)。
+  const officeQuality = (tabs: Tab[]): Tab[] =>
+    tabs.map((t) => (t.key === '质量' ? { ...t, href: '/quality' } : t))
   if (role === 'production') {
     if (defaultStage === '工程') {
       // 工程 head's home tab IS bare / (their holistic master view), not
@@ -84,7 +89,7 @@ function tabsForRole(
         // you see to your own 部门 (canSeeAllHr / hrDeptOf).
         { key: '人事', label: '人事', href: '/hr' },
         { key: '外协', label: '外协', href: '/station/outsource' },
-        ...stageTabs('工程'),
+        ...officeQuality(stageTabs('工程')),
         { key: '退货', label: '退货', href: '/returns' },
       ]
     }
@@ -121,7 +126,7 @@ function tabsForRole(
     // every other account is scoped to its own 部门 (canSeeAllHr / hrDeptOf).
     { key: '人事', label: '人事', href: '/hr' },
     { key: '外协', label: '外协', href: '/station/outsource' },
-    ...stageTabs(),
+    ...officeQuality(stageTabs()),
     { key: '退货', label: '退货', href: '/returns' },
   ]
 }
