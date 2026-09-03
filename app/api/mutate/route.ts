@@ -120,6 +120,7 @@ import {
   canManageOutsource,
   canEditShipment,
   canSeeExpenses,
+  canSeeOrderLedger,
   canSeeFactoryPulse,
   canSeeMoney,
   canUseNotes,
@@ -133,6 +134,13 @@ import {
   requireUser,
   type AuthUser,
 } from '@/lib/auth'
+import {
+  isRateList,
+  isScalarRateKey,
+  setQuoteRateItem,
+  setQuoteScalar,
+} from '@/lib/quote-store'
+import { isValidRate } from '@/lib/quote'
 import {
   addDormEntry,
   deleteDormEntry,
@@ -2164,6 +2172,44 @@ async function dispatch(
         today(),
       )
       revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    // 报价模板 — 那一套费率 (机时费 / 毛利率 / 材料单价 / 表面处理单价 /
+    // 喷涂 / 丝印)。能看订单金额的人就是报价的人, 所以门槛跟订单账一档。
+    case 'setQuoteScalar': {
+      const key = body.key
+      const value = body.value
+      if (!isScalarRateKey(key)) return err('bad setQuoteScalar args')
+      if (!isValidRate(value)) return err('这个数不对')
+      const u = await requireUser()
+      if (!canSeeOrderLedger(u)) return err('forbidden', 403)
+      await setQuoteScalar(key, value as number)
+      revalidatePath('/quote')
+      return Response.json(ok())
+    }
+
+    case 'setQuoteRateItem': {
+      const list = body.list
+      const index = body.index
+      const name = body.name
+      const price = body.price
+      if (!isRateList(list) || typeof index !== 'number')
+        return err('bad setQuoteRateItem args')
+      const u = await requireUser()
+      if (!canSeeOrderLedger(u)) return err('forbidden', 403)
+      // 名字清空 = 删这一行。
+      if (name === null || (isString(name) && !name.trim())) {
+        await setQuoteRateItem(list, index, null)
+      } else {
+        if (!isString(name)) return err('bad setQuoteRateItem args')
+        if (!isValidRate(price)) return err('单价不对')
+        await setQuoteRateItem(list, index, {
+          name: name.trim(),
+          price: price as number,
+        })
+      }
+      revalidatePath('/quote')
       return Response.json(ok())
     }
 

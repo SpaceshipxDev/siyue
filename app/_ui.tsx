@@ -16,6 +16,7 @@ export type TabKey =
   | '采购'
   | '报工'
   | '财务'
+  | '报价'
   | '人事'
   | '工单'
   | (typeof STAGES)[number]
@@ -71,7 +72,14 @@ function tabsForRole(
         ...(canSeeReport ? [{ key: '报工' as TabKey, label: '报工', href: '/report' }] : []),
         // 财务 (订单账) — same per-person grant pattern as 报工: only 工程
         // users on the canSeeOrderLedger allowlist (于海伟) carry the tab.
-        ...(canSeeFinance ? [{ key: '财务' as TabKey, label: '财务', href: '/finance' }] : []),
+        ...(canSeeFinance
+          ? [
+              // 报价 — 接单之前的活, 门槛跟订单账同一档 (canSeeOrderLedger):
+              // 报价里含成本和毛利, 不是车间该看的东西。
+              { key: '报价' as TabKey, label: '报价', href: '/quote' },
+              { key: '财务' as TabKey, label: '财务', href: '/finance' },
+            ]
+          : []),
         // 人事 — every account carries it now; the page itself scopes what
         // you see to your own 部门 (canSeeAllHr / hrDeptOf).
         { key: '人事', label: '人事', href: '/hr' },
@@ -106,6 +114,8 @@ function tabsForRole(
     { key: '交接', label: '交接', href: '/handover' },
     { key: '采购', label: '采购', href: '/procurement' },
     { key: '报工', label: '报工', href: '/report' },
+    // 报价 — 接单之前, 排在财务前面: 报价 → 接单 → 记账。
+    { key: '报价', label: '报价', href: '/quote' },
     { key: '财务', label: '财务', href: '/finance' },
     // 人事 — everyone files, but only 商务 + 采购站 read the whole factory;
     // every other account is scoped to its own 部门 (canSeeAllHr / hrDeptOf).
