@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { JOB_TYPE_LABEL, STAGES } from '@/lib/data'
 import { BRAND } from '@/lib/brand'
-import { rowRollupStage, type MasterRow } from '@/lib/master'
+import { rowRollupStage, rowStuckStage, type MasterRow } from '@/lib/master'
 
 // 导出 — downloads the CURRENT filtered view as .xlsx, mirroring the finance
 // export's contract: "export" means "export what's on screen". The caller
@@ -87,6 +87,9 @@ export function ExportExcelButton({
         ...(showMoney ? ['金额', '外发', '毛利'] : []),
         '交期',
         '出货日期',
+        // 滞留工序 — 最前面那一道还没做完的工段。后面每一列是每一道的进度,
+        // 这一列是"所以这张单卡在哪", 一个词。
+        '滞留工序',
         ...STAGES,
         '备注',
       ]
@@ -102,6 +105,7 @@ export function ExportExcelButton({
           : []),
         r.effectiveDueDate,
         shipDateText(r),
+        rowStuckStage(r) ?? '',
         ...STAGES.map((s) => stageCellText(r, s)),
         r.notes ?? '',
       ])
@@ -113,6 +117,7 @@ export function ExportExcelButton({
         if (h === BRAND.commerceLabel) return { wch: 12 }
         if (h === '备注') return { wch: 28 }
         if (h === '交期' || h === '出货日期') return { wch: 12 }
+        if (h === '滞留工序') return { wch: 10 }
         return { wch: 9 }
       })
       const wb = XLSX.utils.book_new()

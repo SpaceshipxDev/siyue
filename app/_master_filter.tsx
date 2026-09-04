@@ -29,6 +29,7 @@ import {
   rowMatchesProductionQuery,
   rowMostRecentFinishedAt,
   rowRollupStage,
+  rowStuckStage,
   rowStageCounts,
   rowTimerAtStage,
   type MasterRow,
@@ -841,7 +842,7 @@ export function MasterSheet({
       ? Math.max(0, rowVirtualizer.getTotalSize() - lastVirtualEnd)
       : 0
   // +金额 (left) and +收款 (right) are both commerce-only money columns.
-  const colSpan = 5 + STAGES.length + (showMoney ? 2 : 0)
+  const colSpan = 6 + STAGES.length + (showMoney ? 2 : 0)
 
   return (
     <>
@@ -956,6 +957,8 @@ export function MasterSheet({
             <col style={{ width: 56 }} />
             <col style={{ width: 230 }} />
             <col style={{ width: 140 }} />
+            {/* 滞留 — 最前面还没做完的那一道。见 lib/master rowStuckStage。 */}
+            <col style={{ width: 76 }} />
             <col style={{ width: 220 }} />
             {showMoney && <col style={{ width: 120 }} />}
             {STAGES.map((s) => {
@@ -990,6 +993,7 @@ export function MasterSheet({
               <th className="px-3 py-3 text-center label whitespace-nowrap">#</th>
               <th className="px-4 py-3 label whitespace-nowrap">工号</th>
               <th className="px-4 py-3 label whitespace-nowrap">交期</th>
+              <th className="px-4 py-3 label whitespace-nowrap">滞留</th>
               <th className="px-4 py-3 label whitespace-nowrap">
                 {isProduction ? `产品 / ${BRAND.commerceLabel}` : '客户 / 工程师'}
               </th>
@@ -1633,6 +1637,8 @@ function JobRow({
   onProductChange: (next: boolean) => void
   onPauseChange: (next: boolean, reason?: string) => void
 }) {
+  // 滞留工序 — 最前面那一道还没做完的工段 (lib/master rowStuckStage)。
+  const stuckStage = rowStuckStage(row)
   // Timer chip: only for the viewer's own station column, and only when this
   // row is "mine" there (in_progress here, or pending with all priors done).
   // Every stage cell is an action button now (see the STAGES.map below), but
@@ -1757,6 +1763,17 @@ function JobRow({
           daysOff={days}
           secondaryDate={row.secondaryDueDate}
         />
+      </td>
+      {/* 滞留 — 一句话回答"这张单卡在哪": 最前面那一道还没做完的工段。几十
+          个零件里只要有一个还停在手工, 这里就是 手工。整单做完了留一个 —。 */}
+      <td className="px-4 py-3">
+        {stuckStage ? (
+          <span className="text-[13px] font-medium tracking-tight text-[var(--color-ink)] whitespace-nowrap">
+            {stuckStage}
+          </span>
+        ) : (
+          <span className="text-[13px] text-[var(--color-ink-4)]">—</span>
+        )}
       </td>
       <td className="px-4 py-3">
         <div className="flex flex-col leading-tight">

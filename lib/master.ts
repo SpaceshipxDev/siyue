@@ -184,6 +184,25 @@ export type RowRollup = {
   outsourcedOpen: number
 }
 
+/**
+ * 滞留工序 — 这张工单现在卡在哪一道。
+ *
+ * 一张工单几十个零件, 各自走到不同的地方。真正决定这张单还要多久的不是走得
+ * 最快的那个, 是走得最慢的那个 —— 所以从 工程 往 出货 数, 第一道"还没全做
+ * 完"的工段就是它的滞留工序。12 号零件还停在手工, 别的都过了打磨, 这张单的
+ * 滞留就是 手工。
+ *
+ * 整张单都做完了 (已出货) 就没有滞留, 返回 undefined。
+ */
+export function rowStuckStage(row: MasterRow): Stage | undefined {
+  for (const s of STAGES) {
+    const r = rowRollupStage(row, s)
+    if (r.kind === 'na' || r.kind === 'done') continue
+    return s
+  }
+  return undefined
+}
+
 /** Replaces lib/data.ts#rollupStage for MasterRow. */
 export function rowRollupStage(row: MasterRow, stage: Stage): RowRollup {
   const cell = row.cells[stage]
