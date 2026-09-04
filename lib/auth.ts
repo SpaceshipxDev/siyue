@@ -159,6 +159,24 @@ export function canEditHrRecord(u: AuthUser): boolean {
   return HR_EDITOR_USER_IDS.has(u.id)
 }
 
+// ─── 工单导出 (看板右上角那个「导出」) ──────────────────────────────────
+//
+// 看板谁都看得见, 那是干活要用的; 导出是另一件事 —— 一次把屏幕上这一批工单
+// 连着客户、交期、金额和每一道的进度整张带下来, 存成一个 .xlsx。文件一旦离
+// 开这个系统就不再受它管了 (发到微信里、拷进 U 盘里), 所以带走这个动作是名
+// 单制: 老板 + 于海伟 (他的商务号和工程号是同一个人)。
+//
+// 单张工单的「导出生产单」不在此列 —— 那是给车间的工艺流转单, 不带客户也不
+// 带价格, 门槛照旧 (canExportProductionOrder: 商务 + 工程)。
+const JOB_EXPORT_USER_IDS = new Set<string>([
+  'u-ms45yjq9-2kbdi1', // 商务于海伟
+  'u-mose92lt-a0cutz', // 于海伟 — 工程号, 同一个人的另一个登录
+])
+
+export function canExportJobs(u: AuthUser): boolean {
+  return JOB_EXPORT_USER_IDS.has(u.id) || isAdminUser(u.id)
+}
+
 // ─── 质量 (客诉异常 / 质量异常 / 制程不良) ──────────────────────────────
 //
 // 两档, 跟人事一个道理 —— 报和改不是一回事:

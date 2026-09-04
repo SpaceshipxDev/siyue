@@ -318,6 +318,7 @@ export function MasterSheet({
   pendingShipped,
   shippedFailed,
   onRetryShipped,
+  canExport = false,
 }: {
   rows: MasterRow[]
   role: Role
@@ -338,6 +339,11 @@ export function MasterSheet({
   shippedFailed?: boolean
   /** Re-runs the whole board load (both phases). */
   onRetryShipped?: () => void
+  /**
+   * 导出 — 名单制 (lib/auth canExportJobs): 老板 + 于海伟。看板谁都看得见,
+   * 把整批工单连着客户和金额存成一个文件带出厂是另一件事。
+   */
+  canExport?: boolean
 }) {
   // Scope persisted filter state per view context so the commerce overview,
   // /?stage=工程, and any station-filtered overview each remember their own
@@ -929,12 +935,15 @@ export function MasterSheet({
           </span>
           {/* 导出 — downloads exactly the rows the table is showing (search +
               date + 在产/已出货 + column status filters all applied). Sits
-              beside the count so "导出 N 个" reads as one unit. */}
-          <ExportExcelButton
-            rows={[...topRows, ...upstreamRows, ...doneRows]}
-            showMoney={showMoney}
-            showCustomer={!isProduction}
-          />
+              beside the count so "导出 N 个" reads as one unit. 名单制, 见
+              lib/auth canExportJobs. */}
+          {canExport && (
+            <ExportExcelButton
+              rows={[...topRows, ...upstreamRows, ...doneRows]}
+              showMoney={showMoney}
+              showCustomer={!isProduction}
+            />
+          )}
         </span>
       </div>
 

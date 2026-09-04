@@ -253,6 +253,8 @@ export function MasterSheetLoader(props: {
   role: Role
   defaultStage?: Stage
   stageFilter?: Stage
+  /** 导出 — 名单制, 见 lib/auth canExportJobs。 */
+  canExport?: boolean
 }) {
   const { state, reload } = useMasterRows()
   if (state.status === 'loading') return <BoardSkeleton />

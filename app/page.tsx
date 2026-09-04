@@ -14,7 +14,7 @@ import {
   getOrderMoneyLightByJob,
   getStageFlowMinutes,
 } from '@/lib/db'
-import { requireUser, canDeleteJob, canSeeFactoryPulse, canSeeMoney, canSeeReport, canSeeOrderLedger, stageScopeFor, canUndoFinishedStage } from '@/lib/auth'
+import { requireUser, canDeleteJob, canExportJobs, canSeeFactoryPulse, canSeeMoney, canSeeReport, canSeeOrderLedger, stageScopeFor, canUndoFinishedStage } from '@/lib/auth'
 import { StageScopeProvider } from './_stage_scope'
 import { logBoardView } from '@/lib/access-log'
 import { scrubMasterRow } from '@/lib/dto'
@@ -341,6 +341,7 @@ export default async function MasterBoard(
             role={user.role}
             defaultStage={user.defaultStage}
             stageFilter={stageFilter}
+            canExport={canExportJobs(user)}
           />
         ) : (
           <StationWorkbenchLoader
