@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { mutate } from '@/lib/mutate'
 import { SearchSelect } from '@/app/_search_select'
 import { EditableText } from '@/app/_editable'
@@ -332,6 +333,14 @@ export function HrBoard({
             {isYear ? `${year} 全年` : monthLabel(period)} · {rows.length} 人 ·{' '}
             {records.length} 条
           </span>
+          {/* 导出的就是屏幕上这一批 — 同一个月/年, 同一个部门范围。 */}
+          <Link
+            href={`/hr/export?p=${encodeURIComponent(period)}`}
+            prefetch={false}
+            className="ml-auto rounded-[2px] border border-[var(--color-border)] px-3 py-1 text-[12.5px] font-medium text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)]"
+          >
+            导出
+          </Link>
         </div>
 
         <div className="hidden grid-cols-[minmax(0,1fr)_repeat(7,52px)_58px_46px] items-center gap-2 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">

@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
 import { EditableText } from '@/app/_editable'
@@ -163,6 +164,14 @@ export function DormBoard({
           <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
             住宿 {entries.length} 人 · {rooms} 间
           </span>
+          {/* 导出的就是屏幕上这一张表。 */}
+          <Link
+            href="/hr/export?v=dorm"
+            prefetch={false}
+            className="ml-auto rounded-[2px] border border-[var(--color-border)] px-3 py-1 text-[12.5px] font-medium text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)]"
+          >
+            导出
+          </Link>
         </div>
 
         <div
