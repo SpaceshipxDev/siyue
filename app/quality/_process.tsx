@@ -23,7 +23,7 @@ const MONTHS = [
 ]
 
 const COLS =
-  'grid-cols-[64px_100px_52px_minmax(0,1.1fr)_minmax(0,1fr)_72px_72px_minmax(0,1.2fr)_28px]'
+  'grid-cols-[64px_120px_52px_minmax(0,1.1fr)_minmax(0,1fr)_72px_72px_minmax(0,1.2fr)_28px]'
 
 export function ProcessBoard({
   rows,

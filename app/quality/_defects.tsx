@@ -168,7 +168,7 @@ export function DefectsBoard({
       </div>
 
       <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
-        <div className="hidden grid-cols-[68px_84px_minmax(0,0.9fr)_56px_52px_minmax(0,1.1fr)_64px_minmax(0,1.2fr)_60px] items-center gap-3 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
+        <div className="hidden grid-cols-[68px_108px_minmax(0,0.9fr)_56px_52px_minmax(0,1.1fr)_64px_minmax(0,1.2fr)_60px] items-center gap-3 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
           <span className="label">日期</span>
           <span className="label">工号</span>
           <span className="label">零件</span>
@@ -188,7 +188,7 @@ export function DefectsBoard({
           monthRows.map((r, i) => (
             <div
               key={`${r.partId}-${r.stage}-${i}`}
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 border-b border-[var(--color-border)] px-4 py-2.5 last:border-b-0 hover:bg-[#faf8f2] md:grid-cols-[68px_84px_minmax(0,0.9fr)_56px_52px_minmax(0,1.1fr)_64px_minmax(0,1.2fr)_60px] md:px-5"
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 border-b border-[var(--color-border)] px-4 py-2.5 last:border-b-0 hover:bg-[#faf8f2] md:grid-cols-[68px_108px_minmax(0,0.9fr)_56px_52px_minmax(0,1.1fr)_64px_minmax(0,1.2fr)_60px] md:px-5"
             >
               <span className="mono hidden text-[12.5px] tabular-nums text-[var(--color-ink-2)] md:block">
                 {(r.at ?? '').slice(5, 10) || '—'}
