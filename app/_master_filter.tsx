@@ -957,10 +957,11 @@ export function MasterSheet({
             <col style={{ width: 56 }} />
             <col style={{ width: 230 }} />
             <col style={{ width: 140 }} />
-            {/* 滞留 — 最前面还没做完的那一道。见 lib/master rowStuckStage。 */}
-            <col style={{ width: 76 }} />
             <col style={{ width: 220 }} />
             {showMoney && <col style={{ width: 120 }} />}
+            {/* 滞留 — 最前面还没做完的那一道, 紧挨着 工程 那一列开头。见
+                lib/master rowStuckStage。 */}
+            <col style={{ width: 76 }} />
             {STAGES.map((s) => {
               // Every stage column is the SAME width — the board is one uniform
               // surface. (The old 168px "viewer's home stage" column is gone:
@@ -993,7 +994,6 @@ export function MasterSheet({
               <th className="px-3 py-3 text-center label whitespace-nowrap">#</th>
               <th className="px-4 py-3 label whitespace-nowrap">工号</th>
               <th className="px-4 py-3 label whitespace-nowrap">交期</th>
-              <th className="px-4 py-3 label whitespace-nowrap">滞留</th>
               <th className="px-4 py-3 label whitespace-nowrap">
                 {isProduction ? `产品 / ${BRAND.commerceLabel}` : '客户 / 工程师'}
               </th>
@@ -1002,6 +1002,7 @@ export function MasterSheet({
                   金额
                 </th>
               )}
+              <th className="px-4 py-3 label whitespace-nowrap">滞留</th>
               {STAGES.map((s, si) => {
                 const isHighlighted = s === highlightStage
                 const colStatus = statusByStage[s]
@@ -1764,17 +1765,6 @@ function JobRow({
           secondaryDate={row.secondaryDueDate}
         />
       </td>
-      {/* 滞留 — 一句话回答"这张单卡在哪": 最前面那一道还没做完的工段。几十
-          个零件里只要有一个还停在手工, 这里就是 手工。整单做完了留一个 —。 */}
-      <td className="px-4 py-3">
-        {stuckStage ? (
-          <span className="text-[13px] font-medium tracking-tight text-[var(--color-ink)] whitespace-nowrap">
-            {stuckStage}
-          </span>
-        ) : (
-          <span className="text-[13px] text-[var(--color-ink-4)]">—</span>
-        )}
-      </td>
       <td className="px-4 py-3">
         <div className="flex flex-col leading-tight">
           {!isProduction && (
@@ -1845,6 +1835,17 @@ function JobRow({
           </div>
         </td>
       )}
+      {/* 滞留 — 一句话回答"这张单卡在哪": 最前面那一道还没做完的工段。几十
+          个零件里只要有一个还停在手工, 这里就是 手工。整单做完了留一个 —。 */}
+      <td className="px-4 py-3">
+        {stuckStage ? (
+          <span className="text-[13px] font-medium tracking-tight text-[var(--color-ink)] whitespace-nowrap">
+            {stuckStage}
+          </span>
+        ) : (
+          <span className="text-[13px] text-[var(--color-ink-4)]">—</span>
+        )}
+      </td>
       {STAGES.map((stage) => {
         const isHighlighted = stage === highlightStage
         const rollup = rowRollupStage(row, stage)
