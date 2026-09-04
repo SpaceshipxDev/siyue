@@ -159,6 +159,44 @@ export function canEditHrRecord(u: AuthUser): boolean {
   return HR_EDITOR_USER_IDS.has(u.id)
 }
 
+// ─── 质量 (客诉异常 / 质量异常 / 制程不良) ──────────────────────────────
+//
+// 两档, 跟人事一个道理 —— 报和改不是一回事:
+//
+//   直报 — 有账号就能进、能记。质量问题是谁碰上谁知道: 客户打电话进来的那个
+//     人、在工位上发现一批做坏了的那个人。让他等一个有权限的人来代录, 就是
+//     让这条记录不存在。所以三张表对全厂的账号都开着, 空着的格子谁都能补
+//     (处理方式 / 责任人 / 纠正预防措施 常常是几天后才定下来的)。
+//   改 / 删 — 工程 + 商务于海伟。已经填下去的东西再动, 是另一件事: 责任、
+//     损失金额、措施是拿来跟人算账和复盘的, 悄悄改一格没人看得见。
+//
+// 名单制而不是 defaultStage === '工程' —— 库里半个车间都被种在 工程 上 (见
+// 上面 零件行 那一段), 按工段写等于把改的权限发给全厂。加人减人 = 改一行。
+const QUALITY_EDITOR_USER_IDS = new Set<string>([
+  'u-ms45yjq9-2kbdi1', // 商务于海伟
+  'u-mose92lt-a0cutz', // 于海伟 — 工程号, 同一个人的另一个登录
+  'u-mose0apu-9ugtd8', // 周江华 — 工程
+  'u-mpc3rcje-6987yo', // 程江华 — 工程
+  'u-mroawaab-g84mo6', // 彭炳才 — 工程
+  'u-mose7y1k-r91xn7', // 涂明杰 — 工程
+  'u-mose8blz-dnkt24', // 工程003
+  'u-mose8mdn-c8m695', // 工程004
+  'u-mounqsw2-5g86hh', // harry 2 (dev/test account)
+])
+
+export function canEditQuality(u: AuthUser): boolean {
+  return QUALITY_EDITOR_USER_IDS.has(u.id) || isAdminUser(u.id)
+}
+
+// 导出 = 改那一档, 不是看那一档。屏幕上一次看一个月, 导出是把整张表连着客户、
+// 损失金额、责任人一起带出厂 —— 那是管理的动作, 跟"谁能动已经填下去的东西"
+// 是同一个信任。
+export async function requireQualityEditor(): Promise<AuthUser> {
+  const u = await requireUser()
+  if (canEditQuality(u)) return u
+  redirect(landingPathFor(u))
+}
+
 // ─── 住宿登记 (谁住哪一间) ──────────────────────────────────────────────
 //
 // 宿舍是人事采购在管的 — 谁搬进来、谁换了房间, 她当天就知道, 所以填的是她

@@ -1,6 +1,11 @@
 import Link from 'next/link'
 import { TopBar } from '@/app/_ui'
-import { canSeeOrderLedger, canSeeReport, requireUser } from '@/lib/auth'
+import {
+  canEditQuality,
+  canSeeOrderLedger,
+  canSeeReport,
+  requireUser,
+} from '@/lib/auth'
 import { getDefectRows } from '@/lib/db'
 import { getComplaints } from '@/lib/complaints'
 import { getProcessDefects } from '@/lib/process-defects'
@@ -25,21 +30,21 @@ export const dynamic = 'force-dynamic'
 //
 // 三张都按月看 (质量是按月复盘的), 都能按屏幕上那一批导出 Excel。
 //
-// 权限分两档。质量异常 / 客诉异常 跟报工同一档 (canSeeReport): 商务全员 +
-// 于海伟 —— 客诉里有损失金额, 不是车间该看的东西。制程不良是全厂的表: 谁发
-// 现谁记, 所以有账号的人都进得来、都填得了, 只是他进来只有这一张 (删还是留
-// 给上面那一档 —— 大家一起写的表, 少一条比多一条难发现)。
+// 权限分两档 (lib/auth 的 质量 那一段)。三张表整个模块对全厂的账号开着: 质
+// 量问题是谁碰上谁知道, 让他等一个有权限的人来代录, 就是让这条记录不存在。
+// 所以记一条、补一个还空着的格 (处理方式 / 责任人 / 措施常常是几天后才定下
+// 来的), 有账号就能做。改已经填下去的东西、删一条不是: 那一档是工程和商务于
+// 海伟 —— 责任和损失金额是拿来算账的, 悄悄改一格没人看得见。
 export default async function QualityPage({
   searchParams,
 }: {
   searchParams: Promise<{ v?: string }>
 }) {
   const user = await requireUser()
-  const full = canSeeReport(user)
+  const canEdit = canEditQuality(user)
   const sp = await searchParams
-  const view = !full
-    ? 'process'
-    : sp?.v === 'complaint'
+  const view =
+    sp?.v === 'complaint'
       ? 'complaint'
       : sp?.v === 'process'
         ? 'process'
@@ -80,27 +85,22 @@ export default async function QualityPage({
         canSeeFinance={canSeeOrderLedger(user)}
       />
       <main className="mx-auto w-full max-w-[1240px] px-4 md:px-10 py-8 md:py-12 flex-1">
-        {/* 只有一张表可看的人不需要切换 — 那一行整个不出现。 */}
         <div className="mb-7 flex items-baseline gap-x-6">
-          {full && (
-            <>
-              <ViewTab
-                href="/quality"
-                label="质量异常"
-                active={view === 'defects'}
-              />
-              <ViewTab
-                href="/quality?v=process"
-                label="制程不良"
-                active={view === 'process'}
-              />
-              <ViewTab
-                href="/quality?v=complaint"
-                label="客诉异常"
-                active={view === 'complaint'}
-              />
-            </>
-          )}
+          <ViewTab
+            href="/quality"
+            label="质量异常"
+            active={view === 'defects'}
+          />
+          <ViewTab
+            href="/quality?v=process"
+            label="制程不良"
+            active={view === 'process'}
+          />
+          <ViewTab
+            href="/quality?v=complaint"
+            label="客诉异常"
+            active={view === 'complaint'}
+          />
           <Link
             href="/?stage=质量"
             className="ml-auto text-[12px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
@@ -113,20 +113,20 @@ export default async function QualityPage({
             rows={complaints}
             todayStr={todayStr}
             customers={customers}
-            canEdit
+            canEdit={canEdit}
           />
         ) : view === 'process' ? (
           <ProcessBoard
             rows={processDefects}
             todayStr={todayStr}
-            canEdit
-            canDelete={full}
+            canEdit={canEdit}
           />
         ) : (
           <DefectsBoard
             rows={defects}
             actions={defectActions}
             todayStr={todayStr}
+            canEdit={canEdit}
           />
         )}
       </main>

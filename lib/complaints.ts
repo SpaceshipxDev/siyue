@@ -158,14 +158,28 @@ export async function addComplaint(
   })
 }
 
+// fillBlanksOnly = 直报那一档 (全厂账号): 空着的格子可以补 —— 处理方式、责
+// 任人、损失金额、措施本来就是几天后才定下来的; 已经填过的东西不给动, 那是
+// 工程 / 商务于海伟 那一档的事 (lib/auth canEditQuality)。
 export async function updateComplaint(
   id: string,
   patch: ComplaintPatch,
+  opts?: { fillBlanksOnly?: boolean },
 ): Promise<void> {
   await withLock(async () => {
     const rows = await read()
     const row = rows.find((r) => r.id === id)
     if (!row) return
+    if (opts?.fillBlanksOnly) {
+      const filled = (k: keyof ComplaintPatch): boolean => {
+        const v = row[k as keyof typeof row]
+        return typeof v === 'number' ? v > 0 : !!v
+      }
+      for (const k of Object.keys(patch) as (keyof ComplaintPatch)[]) {
+        if (patch[k] === undefined) continue
+        if (filled(k)) throw new Error('这一格填过了 — 要改找工程或于海伟')
+      }
+    }
     if (patch.date !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(patch.date))
       row.date = patch.date
     if (patch.customer !== undefined) row.customer = patch.customer.trim()

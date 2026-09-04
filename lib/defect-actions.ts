@@ -82,16 +82,22 @@ export async function getDefectActions(): Promise<Record<string, string>> {
 }
 
 // 空字符串 = 清掉这一条, 不留空壳。
+//
+// fillBlanksOnly — 直报那一档 (全厂账号): 还没定措施的可以填上去, 已经写下
+// 的不给动 (lib/auth canEditQuality)。
 export async function setDefectAction(
   partId: string,
   stage: string,
   action: string,
   by: string,
   nowIso: string,
+  opts?: { fillBlanksOnly?: boolean },
 ): Promise<void> {
   await withLock(async () => {
     const map = await read()
     const key = defectActionKey(partId, stage)
+    if (opts?.fillBlanksOnly && map[key]?.action)
+      throw new Error('措施填过了 — 要改找工程或于海伟')
     const text = action.trim()
     if (!text) {
       if (!(key in map)) return

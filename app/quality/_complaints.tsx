@@ -40,6 +40,10 @@ export function ComplaintsBoard({
   todayStr: string
   /** 历史客户名 — 输入时的建议, 免得同一家写出三种写法。 */
   customers: string[]
+  /**
+   * 改已经填下去的东西 / 删一条 — 工程 + 商务于海伟。
+   * 记一条、补一个还空着的格, 有账号的人都可以, 不看这个。
+   */
   canEdit: boolean
 }) {
   const router = useRouter()
@@ -160,89 +164,87 @@ export function ComplaintsBoard({
 
   return (
     <div>
-      {canEdit && (
-        <div className="mb-5 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-4 md:px-5">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <input
-              type="date"
-              value={date}
-              max={todayStr}
-              onChange={(e) => setDate(e.target.value || todayStr)}
-              className={`mono ${inp}`}
-            />
-            <input
-              value={customer}
-              onChange={(e) => setCustomer(e.target.value)}
-              placeholder="客户"
-              list="complaint-customers"
-              className={`${inp} w-[150px]`}
-            />
-            <datalist id="complaint-customers">
-              {customers.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-            <input
-              value={jobNo}
-              onChange={(e) => setJobNo(e.target.value)}
-              placeholder="工号 · 可空"
-              className={`mono ${inp} w-[110px]`}
-            />
-            <input
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              placeholder="不良数"
-              inputMode="numeric"
-              className={`mono ${inp} w-[76px] text-right`}
-            />
-            <input
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="不良原因"
-              className={`${inp} min-w-[140px] flex-1`}
-            />
-            <input
-              value={handling}
-              onChange={(e) => setHandling(e.target.value)}
-              placeholder="处理方式"
-              className={`${inp} min-w-[120px] flex-1`}
-            />
-            <input
-              value={owner}
-              onChange={(e) => setOwner(e.target.value)}
-              placeholder="责任人"
-              className={`${inp} w-[92px]`}
-            />
-            <input
-              value={action}
-              onChange={(e) => setAction(e.target.value)}
-              placeholder="纠正预防措施 · 可后补"
-              className={`${inp} min-w-[160px] flex-1`}
-            />
-            <input
-              value={loss}
-              onChange={(e) => setLoss(e.target.value)}
-              placeholder="损失¥"
-              inputMode="decimal"
-              onKeyDown={(e) => e.key === 'Enter' && add()}
-              className={`mono ${inp} w-[92px] text-right`}
-            />
-            <button
-              type="button"
-              onClick={add}
-              disabled={pending}
-              className="h-9 shrink-0 rounded-[2px] bg-[var(--color-ink)] px-4 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
-            >
-              记下
-            </button>
-          </div>
-          {error && (
-            <p className="mt-2 text-[12px] text-[var(--color-overdue)]">
-              {error}
-            </p>
-          )}
+      <div className="mb-5 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-4 md:px-5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <input
+            type="date"
+            value={date}
+            max={todayStr}
+            onChange={(e) => setDate(e.target.value || todayStr)}
+            className={`mono ${inp}`}
+          />
+          <input
+            value={customer}
+            onChange={(e) => setCustomer(e.target.value)}
+            placeholder="客户"
+            list="complaint-customers"
+            className={`${inp} w-[150px]`}
+          />
+          <datalist id="complaint-customers">
+            {customers.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+          <input
+            value={jobNo}
+            onChange={(e) => setJobNo(e.target.value)}
+            placeholder="工号 · 可空"
+            className={`mono ${inp} w-[110px]`}
+          />
+          <input
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+            placeholder="不良数"
+            inputMode="numeric"
+            className={`mono ${inp} w-[76px] text-right`}
+          />
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="不良原因"
+            className={`${inp} min-w-[140px] flex-1`}
+          />
+          <input
+            value={handling}
+            onChange={(e) => setHandling(e.target.value)}
+            placeholder="处理方式"
+            className={`${inp} min-w-[120px] flex-1`}
+          />
+          <input
+            value={owner}
+            onChange={(e) => setOwner(e.target.value)}
+            placeholder="责任人"
+            className={`${inp} w-[92px]`}
+          />
+          <input
+            value={action}
+            onChange={(e) => setAction(e.target.value)}
+            placeholder="纠正预防措施 · 可后补"
+            className={`${inp} min-w-[160px] flex-1`}
+          />
+          <input
+            value={loss}
+            onChange={(e) => setLoss(e.target.value)}
+            placeholder="损失¥"
+            inputMode="decimal"
+            onKeyDown={(e) => e.key === 'Enter' && add()}
+            className={`mono ${inp} w-[92px] text-right`}
+          />
+          <button
+            type="button"
+            onClick={add}
+            disabled={pending}
+            className="h-9 shrink-0 rounded-[2px] bg-[var(--color-ink)] px-4 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
+          >
+            记下
+          </button>
         </div>
-      )}
+        {error && (
+          <p className="mt-2 text-[12px] text-[var(--color-overdue)]">
+            {error}
+          </p>
+        )}
+      </div>
 
       <div className="mb-6 flex flex-wrap items-end gap-x-10 gap-y-4">
         <div>
@@ -335,47 +337,47 @@ export function ComplaintsBoard({
                 {r.date.slice(5)}
               </span>
               <Cell
-                canEdit={canEdit}
+                canEdit={canEdit || !r.customer}
                 value={r.customer}
                 strong
                 onSave={(v) => patch(r.id, { customer: v })}
               />
               <Cell
-                canEdit={canEdit}
+                canEdit={canEdit || !r.jobNo}
                 mono
                 value={r.jobNo}
                 onSave={(v) => patch(r.id, { jobNo: v })}
               />
               <NumCell
-                canEdit={canEdit}
+                canEdit={canEdit || r.qty === 0}
                 value={r.qty}
                 onSave={(v) => patch(r.id, { qty: v })}
               />
               <Cell
-                canEdit={canEdit}
+                canEdit={canEdit || !r.reason}
                 value={r.reason}
                 onSave={(v) => patch(r.id, { reason: v })}
               />
               <Cell
-                canEdit={canEdit}
+                canEdit={canEdit || !r.handling}
                 value={r.handling}
                 placeholder="待处理…"
                 onSave={(v) => patch(r.id, { handling: v })}
               />
               <Cell
-                canEdit={canEdit}
+                canEdit={canEdit || !r.owner}
                 value={r.owner}
                 placeholder="待定"
                 onSave={(v) => patch(r.id, { owner: v })}
               />
               <Cell
-                canEdit={canEdit}
+                canEdit={canEdit || !r.action}
                 value={r.action}
                 placeholder="待定措施…"
                 onSave={(v) => patch(r.id, { action: v })}
               />
               <NumCell
-                canEdit={canEdit}
+                canEdit={canEdit || r.lossCny === 0}
                 value={r.lossCny}
                 money
                 onSave={(v) => patch(r.id, { lossCny: v })}
@@ -408,7 +410,8 @@ export function ComplaintsBoard({
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
         客诉是拖着办的——先记下客户说坏了几个，处理方式、损失金额和纠正预防措施
-        定下来再回来补，每一格都能点着改。导出的就是屏幕上这一批。
+        定下来再回来补，还空着的格谁都填得上；填过的要改，找工程或于海伟。导出
+        的就是屏幕上这一批。
       </p>
     </div>
   )

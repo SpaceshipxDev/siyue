@@ -13,9 +13,9 @@ import type { ProcessDefect } from '@/lib/process-defects'
 // 隔壁「质量异常」是检验员按下判定就有的那份账, 这张是账之后的事: 哪张工单、
 // 坏了几个、为什么、怎么处理、谁直接做坏的、谁间接有责任、以后怎么不再犯。
 //
-// 一行录入, 之后每一格都能点着改 —— 责任和措施是开会定下来的, 通常比不良本
-// 身晚几天。所以顶上数的是"还没定措施"的条数: 记下来只是账, 措施定下来才算
-// 闭环。
+// 一行录入, 之后还空着的格谁都能补 —— 责任和措施是开会定下来的, 通常比不良
+// 本身晚几天; 填过的要改是工程和商务于海伟那一档。所以顶上数的是"还没定措施"
+// 的条数: 记下来只是账, 措施定下来才算闭环。
 
 const MONTHS = [
   '01', '02', '03', '04', '05', '06',
@@ -29,14 +29,14 @@ export function ProcessBoard({
   rows,
   todayStr,
   canEdit,
-  canDelete,
 }: {
   rows: ProcessDefect[]
   todayStr: string
-  /** 记一条、改一格 — 有账号的人都可以。 */
+  /**
+   * 改已经填下去的东西 / 删一条 — 工程 + 商务于海伟。
+   * 记一条、补一个还空着的格, 有账号的人都可以, 不看这个。
+   */
   canEdit: boolean
-  /** 删一条 — 留给商务/于海伟那一档: 大家一起写的表, 少一条比多一条难发现。 */
-  canDelete: boolean
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
@@ -143,76 +143,74 @@ export function ProcessBoard({
 
   return (
     <div>
-      {canEdit && (
-        <div className="mb-5 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-4 md:px-5">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <input
-              type="date"
-              value={date}
-              max={todayStr}
-              onChange={(e) => setDate(e.target.value || todayStr)}
-              className={`mono ${inp}`}
-            />
-            <input
-              value={jobNo}
-              onChange={(e) => setJobNo(e.target.value)}
-              placeholder="工单号"
-              className={`mono ${inp} w-[120px]`}
-            />
-            <input
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              placeholder="不良数"
-              inputMode="numeric"
-              className={`mono ${inp} w-[76px] text-right`}
-            />
-            <input
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="不良原因"
-              className={`${inp} min-w-[140px] flex-1`}
-            />
-            <input
-              value={handling}
-              onChange={(e) => setHandling(e.target.value)}
-              placeholder="处理方式"
-              className={`${inp} min-w-[120px] flex-1`}
-            />
-            <input
-              value={owner}
-              onChange={(e) => setOwner(e.target.value)}
-              placeholder="直接责任人"
-              className={`${inp} w-[104px]`}
-            />
-            <input
-              value={coOwner}
-              onChange={(e) => setCoOwner(e.target.value)}
-              placeholder="间接责任人"
-              className={`${inp} w-[104px]`}
-            />
-            <input
-              value={action}
-              onChange={(e) => setAction(e.target.value)}
-              placeholder="纠正预防措施 · 可后补"
-              onKeyDown={(e) => e.key === 'Enter' && add()}
-              className={`${inp} min-w-[160px] flex-1`}
-            />
-            <button
-              type="button"
-              onClick={add}
-              disabled={pending}
-              className="h-9 shrink-0 rounded-[2px] bg-[var(--color-ink)] px-4 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
-            >
-              记下
-            </button>
-          </div>
-          {error && (
-            <p className="mt-2 text-[12px] text-[var(--color-overdue)]">
-              {error}
-            </p>
-          )}
+      <div className="mb-5 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-4 md:px-5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <input
+            type="date"
+            value={date}
+            max={todayStr}
+            onChange={(e) => setDate(e.target.value || todayStr)}
+            className={`mono ${inp}`}
+          />
+          <input
+            value={jobNo}
+            onChange={(e) => setJobNo(e.target.value)}
+            placeholder="工单号"
+            className={`mono ${inp} w-[120px]`}
+          />
+          <input
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+            placeholder="不良数"
+            inputMode="numeric"
+            className={`mono ${inp} w-[76px] text-right`}
+          />
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="不良原因"
+            className={`${inp} min-w-[140px] flex-1`}
+          />
+          <input
+            value={handling}
+            onChange={(e) => setHandling(e.target.value)}
+            placeholder="处理方式"
+            className={`${inp} min-w-[120px] flex-1`}
+          />
+          <input
+            value={owner}
+            onChange={(e) => setOwner(e.target.value)}
+            placeholder="直接责任人"
+            className={`${inp} w-[104px]`}
+          />
+          <input
+            value={coOwner}
+            onChange={(e) => setCoOwner(e.target.value)}
+            placeholder="间接责任人"
+            className={`${inp} w-[104px]`}
+          />
+          <input
+            value={action}
+            onChange={(e) => setAction(e.target.value)}
+            placeholder="纠正预防措施 · 可后补"
+            onKeyDown={(e) => e.key === 'Enter' && add()}
+            className={`${inp} min-w-[160px] flex-1`}
+          />
+          <button
+            type="button"
+            onClick={add}
+            disabled={pending}
+            className="h-9 shrink-0 rounded-[2px] bg-[var(--color-ink)] px-4 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
+          >
+            记下
+          </button>
         </div>
-      )}
+        {error && (
+          <p className="mt-2 text-[12px] text-[var(--color-overdue)]">
+            {error}
+          </p>
+        )}
+      </div>
 
       <div className="mb-6 flex flex-wrap items-end gap-x-10 gap-y-4">
         <div>
@@ -299,48 +297,48 @@ export function ProcessBoard({
                 {r.date.slice(5)}
               </span>
               <Cell
-                canEdit={canEdit}
+                canEdit={canEdit || !r.jobNo}
                 mono
                 strong
                 value={r.jobNo}
                 onSave={(v) => patch(r.id, { jobNo: v })}
               />
               <NumCell
-                canEdit={canEdit}
+                canEdit={canEdit || r.qty === 0}
                 value={r.qty}
                 onSave={(v) => patch(r.id, { qty: v })}
               />
               <Cell
-                canEdit={canEdit}
+                canEdit={canEdit || !r.reason}
                 value={r.reason}
                 onSave={(v) => patch(r.id, { reason: v })}
               />
               <Cell
-                canEdit={canEdit}
+                canEdit={canEdit || !r.handling}
                 value={r.handling}
                 placeholder="待处理…"
                 onSave={(v) => patch(r.id, { handling: v })}
               />
               <Cell
-                canEdit={canEdit}
+                canEdit={canEdit || !r.owner}
                 value={r.owner}
                 placeholder="待定"
                 onSave={(v) => patch(r.id, { owner: v })}
               />
               <Cell
-                canEdit={canEdit}
+                canEdit={canEdit || !r.coOwner}
                 value={r.coOwner}
                 placeholder="—"
                 onSave={(v) => patch(r.id, { coOwner: v })}
               />
               <Cell
-                canEdit={canEdit}
+                canEdit={canEdit || !r.action}
                 value={r.action}
                 placeholder="待定措施…"
                 onSave={(v) => patch(r.id, { action: v })}
               />
               <span className="text-right">
-                {canDelete &&
+                {canEdit &&
                   (armDelete === r.id ? (
                     <button
                       type="button"
@@ -366,8 +364,9 @@ export function ProcessBoard({
       </div>
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
-        先把不良记下来，责任人和纠正预防措施定了再回来补——每一格都能点着改。
-        顶上的「待定措施」就是还没闭环的条数。导出的就是屏幕上这一批。
+        先把不良记下来，责任人和纠正预防措施定了再回来补——还空着的格谁都填得
+        上，填过的要改找工程或于海伟。顶上的「待定措施」就是还没闭环的条数。
+        导出的就是屏幕上这一批。
       </p>
     </div>
   )

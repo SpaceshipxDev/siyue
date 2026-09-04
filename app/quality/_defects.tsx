@@ -16,8 +16,8 @@ import type { DefectRow } from '@/lib/db'
 //
 // 只有最后一列是在这里写的: 纠正预防措施。"以后怎么不再犯"不是检验员在工位
 // 上按得出来的, 是事后开会定的 —— 判定还是判定, 措施单独存 (lib/defect-
-// actions), 点着那一格就能补。所以顶上还数着"待定措施": 记下来只是账, 措施
-// 定下来才算闭环。
+// actions)。还没定的那一格谁都填得上, 改已经写下的是工程和商务于海伟那一档。
+// 所以顶上还数着"待定措施": 记下来只是账, 措施定下来才算闭环。
 //
 // 按月看, 因为质量是按月复盘的; 上面几个数回答"这个月坏了多少、坏在哪一道、
 // 还有几条没定措施"。导出的就是屏幕上这一批。
@@ -31,11 +31,14 @@ export function DefectsBoard({
   rows,
   actions,
   todayStr,
+  canEdit,
 }: {
   rows: DefectRow[]
   /** 纠正预防措施 — 按 零件::环节 挂回那条异常上。 */
   actions: Record<string, string>
   todayStr: string
+  /** 改已经写下的措施 — 工程 + 商务于海伟。还空着的, 有账号就填得上。 */
+  canEdit: boolean
 }) {
   const router = useRouter()
   const year = todayStr.slice(0, 4)
@@ -211,13 +214,19 @@ export function DefectsBoard({
               <span className="hidden truncate text-[12.5px] text-[var(--color-ink-2)] md:block">
                 {r.owner || '—'}
               </span>
-              <span className="hidden md:block">
-                <EditableText
-                  value={actions[`${r.partId}::${r.stage}`]}
-                  placeholder="待定措施…"
-                  className="text-[12.5px] text-[var(--color-ink-2)]"
-                  onSave={(v) => saveAction(r, v)}
-                />
+              <span className="hidden truncate md:block">
+                {canEdit || !actions[`${r.partId}::${r.stage}`] ? (
+                  <EditableText
+                    value={actions[`${r.partId}::${r.stage}`]}
+                    placeholder="待定措施…"
+                    className="text-[12.5px] text-[var(--color-ink-2)]"
+                    onSave={(v) => saveAction(r, v)}
+                  />
+                ) : (
+                  <span className="truncate text-[12.5px] text-[var(--color-ink-2)]">
+                    {actions[`${r.partId}::${r.stage}`]}
+                  </span>
+                )}
               </span>
               <span className="hidden truncate text-right text-[12px] text-[var(--color-ink-3)] md:block">
                 {r.by || '—'}
@@ -229,8 +238,8 @@ export function DefectsBoard({
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
         判定和不良原因是检验员在工单上按下去的那一刻记的，这里只是汇总——改要回
-        零件上改。「成品检」是出货前的质量那一道。纠正预防措施是在这里填的，点
-        那一格就能写，定下来再补也行。
+        零件上改。「成品检」是出货前的质量那一道。纠正预防措施是在这里填的，还
+        空着的点一下就能写；写过的要改，找工程或于海伟。
       </p>
     </div>
   )

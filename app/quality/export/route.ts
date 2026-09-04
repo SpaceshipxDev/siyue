@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import * as XLSX from 'xlsx'
-import { requireReportViewer, requireUser } from '@/lib/auth'
+import { requireQualityEditor } from '@/lib/auth'
 import { getDefectRows } from '@/lib/db'
 import { getComplaints } from '@/lib/complaints'
 import { getProcessDefects } from '@/lib/process-defects'
@@ -59,12 +59,9 @@ const COMPLAINT_WIDTHS = [12, 22, 16, 10, 30, 24, 12, 34, 12, 12]
 
 export async function GET(request: NextRequest): Promise<Response> {
   const sp = request.nextUrl.searchParams
-  // 制程不良是全厂的表 — 看得到就导得走; 另外两张跟报工同一档。
-  if (sp.get('v') === 'process') {
-    await requireUser()
-  } else {
-    await requireReportViewer()
-  }
+  // 三张表全厂都记得了、看得见, 但导出跟改是同一档 — 工程 + 商务于海伟
+  // (lib/auth 的 质量 那一段)。
+  await requireQualityEditor()
   const month = /^\d{4}-\d{2}$/.test(sp.get('m') ?? '')
     ? (sp.get('m') as string)
     : today().slice(0, 7)

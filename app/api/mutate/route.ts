@@ -122,7 +122,7 @@ import {
   canEditShipment,
   canSeeExpenses,
   canSeeOrderLedger,
-  canSeeReport,
+  canEditQuality,
   canUndoFinishedStage,
   canSeeFactoryPulse,
   canSeeMoney,
@@ -2224,7 +2224,8 @@ async function dispatch(
     }
 
     // 客诉异常 — 客户反馈回来的质量问题。跟「质量异常」不同, 这个系统无从
-    // 知道, 只能商务落笔; 权限跟报工同一档 (canSeeReport)。
+    // 知道, 只能人落笔。直报是全厂的 (谁接到客户电话谁记), 改和删是
+    // 工程 / 商务于海伟 那一档 —— 见 lib/auth 的 质量 那一段。
     case 'addComplaint': {
       const input = body.input
       if (typeof input !== 'object' || input === null)
@@ -2241,7 +2242,6 @@ async function dispatch(
       if (i.jobNo !== undefined && !isString(i.jobNo))
         return err('bad addComplaint args')
       const u = await requireUser()
-      if (!canSeeReport(u)) return err('无权记录客诉', 403)
       await addComplaint(
         {
           date: i.date,
@@ -2285,8 +2285,9 @@ async function dispatch(
           return err('数量或金额不对')
       }
       const u = await requireUser()
-      if (!canSeeReport(u)) return err('无权修改客诉', 403)
-      await updateComplaint(complaintId, p)
+      await updateComplaint(complaintId, p, {
+        fillBlanksOnly: !canEditQuality(u),
+      })
       revalidatePath('/quality')
       return Response.json(ok())
     }
@@ -2295,14 +2296,15 @@ async function dispatch(
       const complaintId = body.complaintId
       if (!isString(complaintId)) return err('bad deleteComplaint args')
       const u = await requireUser()
-      if (!canSeeReport(u)) return err('无权删除客诉', 403)
+      if (!canEditQuality(u)) return err('删客诉要找工程或于海伟', 403)
       await deleteComplaint(complaintId)
       revalidatePath('/quality')
       return Response.json(ok())
     }
 
     // 质量异常的纠正预防措施 — 判定本身还是检验员按出来的, 谁也改不了; 这
-    // 里补的是"以后怎么不再犯", 开会定了才有。跟看这张表同一档权限。
+    // 里补的是"以后怎么不再犯", 开会定了才有。空的谁都填得上, 改已经写下的
+    // 是 工程 / 商务于海伟 那一档。
     case 'setDefectAction': {
       const { partId, stage, action } = body
       if (!isString(partId) || !isString(stage) || !isString(action))
@@ -2310,22 +2312,21 @@ async function dispatch(
       if (stage !== '检验' && stage !== '质量')
         return err('bad setDefectAction args')
       const u = await requireUser()
-      if (!canSeeReport(u)) return err('无权填措施', 403)
       await setDefectAction(
         partId,
         stage,
         action,
         u.name,
         new Date().toISOString(),
+        { fillBlanksOnly: !canEditQuality(u) },
       )
       revalidatePath('/quality')
       return Response.json(ok())
     }
 
     // 制程不良记录 — 生产过程中出的不良, 连着直接/间接责任人和纠正预防措施。
-    // 谁发现谁记: 记一条、改一格, 有账号的人都可以 (requireUser 就是门槛)。
-    // 删一条不是 —— 那一档留给商务/于海伟, 大家一起写的表, 少一条比多一条难
-    // 发现。
+    // 谁发现谁记: 记一条、补一个还空着的格, 有账号的人都可以。改已经填下去的
+    // 东西、删一条不是 —— 那一档留给工程和商务于海伟。
     case 'addProcessDefect': {
       const input = body.input
       if (typeof input !== 'object' || input === null)
@@ -2379,8 +2380,10 @@ async function dispatch(
       }
       if (p.qty !== undefined && typeof p.qty !== 'number')
         return err('数量不对')
-      await requireUser()
-      await updateProcessDefect(defectId, p)
+      const u = await requireUser()
+      await updateProcessDefect(defectId, p, {
+        fillBlanksOnly: !canEditQuality(u),
+      })
       revalidatePath('/quality')
       return Response.json(ok())
     }
@@ -2389,7 +2392,7 @@ async function dispatch(
       const defectId = body.defectId
       if (!isString(defectId)) return err('bad deleteProcessDefect args')
       const u = await requireUser()
-      if (!canSeeReport(u)) return err('无权删除制程不良', 403)
+      if (!canEditQuality(u)) return err('删记录要找工程或于海伟', 403)
       await deleteProcessDefect(defectId)
       revalidatePath('/quality')
       return Response.json(ok())

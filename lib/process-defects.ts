@@ -149,14 +149,27 @@ export async function addProcessDefect(
   })
 }
 
+// fillBlanksOnly — 见 lib/complaints 的同一段: 直报那一档只补空格, 改已经填
+// 下去的东西是 工程 / 商务于海伟 那一档 (lib/auth canEditQuality)。
 export async function updateProcessDefect(
   id: string,
   patch: ProcessDefectPatch,
+  opts?: { fillBlanksOnly?: boolean },
 ): Promise<void> {
   await withLock(async () => {
     const rows = await read()
     const row = rows.find((r) => r.id === id)
     if (!row) return
+    if (opts?.fillBlanksOnly) {
+      const filled = (k: keyof ProcessDefectPatch): boolean => {
+        const v = row[k as keyof typeof row]
+        return typeof v === 'number' ? v > 0 : !!v
+      }
+      for (const k of Object.keys(patch) as (keyof ProcessDefectPatch)[]) {
+        if (patch[k] === undefined) continue
+        if (filled(k)) throw new Error('这一格填过了 — 要改找工程或于海伟')
+      }
+    }
     if (patch.date !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(patch.date))
       row.date = patch.date
     if (patch.jobNo !== undefined) row.jobNo = patch.jobNo.trim()
