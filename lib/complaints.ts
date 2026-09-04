@@ -8,9 +8,9 @@ import { supabase, STORAGE_BUCKET } from './supabase'
  * 成品检), 一条都不用手录, 检验员按下判定就有了; 客诉是客户打电话过来的, 系
  * 统无从知道, 只能商务落笔。
  *
- * 一条客诉要回答六件事: 谁家的、坏了几个、为什么坏、怎么处理的、谁的责任、
- * 赔了多少钱。最后那个数是这张表存在的理由 —— 质量问题只有换算成钱, 才谈得
- * 上跟谁算账、值不值得改。
+ * 一条客诉要回答七件事: 谁家的、坏了几个、为什么坏、怎么处理的、谁的责任、
+ * 赔了多少钱、以后怎么不再犯。那个钱数是这张表存在的理由 —— 质量问题只有换
+ * 算成钱, 才谈得上跟谁算账、值不值得改; 而措施定下来, 这条客诉才算完。
  *
  * Table-free, 跟 人事 / 工资 / 住宿 一个路子: 没有 migration 要人去应用。一
  * 个厂一年几十条客诉, 一个 JSON 绰绰有余。
@@ -34,6 +34,7 @@ export type Complaint = {
   reason: string // 不良原因
   handling: string // 处理方式
   owner: string // 责任人
+  action: string // 纠正预防措施
   lossCny: number // 损失金额
   by?: string // 记录人
   createdAt: string
@@ -47,6 +48,7 @@ export type ComplaintPatch = {
   reason?: string
   handling?: string
   owner?: string
+  action?: string
   lossCny?: number
 }
 
@@ -80,6 +82,7 @@ function normalize(raw: unknown): Complaint[] {
       reason: str(r.reason),
       handling: str(r.handling),
       owner: str(r.owner),
+      action: str(r.action),
       lossCny: money(r.lossCny),
       by: str(r.by) || undefined,
       createdAt: str(r.createdAt),
@@ -126,6 +129,7 @@ export type NewComplaint = {
   reason: string
   handling: string
   owner: string
+  action: string
   lossCny: number
 }
 
@@ -145,6 +149,7 @@ export async function addComplaint(
       reason: input.reason.trim(),
       handling: input.handling.trim(),
       owner: input.owner.trim(),
+      action: input.action.trim(),
       lossCny: money(input.lossCny),
       by,
       createdAt: nowIso,
@@ -169,6 +174,7 @@ export async function updateComplaint(
     if (patch.reason !== undefined) row.reason = patch.reason.trim()
     if (patch.handling !== undefined) row.handling = patch.handling.trim()
     if (patch.owner !== undefined) row.owner = patch.owner.trim()
+    if (patch.action !== undefined) row.action = patch.action.trim()
     if (patch.lossCny !== undefined) row.lossCny = money(patch.lossCny)
     await write(rows)
   })

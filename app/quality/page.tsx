@@ -4,6 +4,7 @@ import { canSeeOrderLedger, canSeeReport, requireUser } from '@/lib/auth'
 import { getDefectRows } from '@/lib/db'
 import { getComplaints } from '@/lib/complaints'
 import { getProcessDefects } from '@/lib/process-defects'
+import { getDefectActions } from '@/lib/defect-actions'
 import { today } from '@/lib/today'
 import { DefectsBoard } from './_defects'
 import { ComplaintsBoard } from './_complaints'
@@ -17,7 +18,8 @@ export const dynamic = 'force-dynamic'
 //     直接责任人、间接责任人、纠正预防措施 —— 工单上装不下的那一半。
 //   质量异常 — 厂里自己检出来的 (检验 + 出货前的成品检)。一条都不用录: 检验
 //     员在工单上按下判定、写下不良原因的那一刻就有了, 这里只是从几百张工单里
-//     收拢起来。
+//     收拢起来; 只有纠正预防措施是在这一页填的 —— 那是开会定的, 不是检验员在
+//     工位上按得出来的。
 //   客诉异常 — 客户反馈回来的。系统无从知道, 只能商务落笔; 带损失金额, 因为
 //     质量问题只有换算成钱才谈得上跟谁算账。
 //
@@ -45,11 +47,15 @@ export default async function QualityPage({
   const todayStr = today()
 
   // 只读切到的那一张 — 另一张要扫的表不小, 没人看的时候不去扫。
-  const [defects, complaints, processDefects] = await Promise.all([
-    view === 'defects' ? getDefectRows() : Promise.resolve([]),
-    view === 'complaint' ? getComplaints() : Promise.resolve([]),
-    view === 'process' ? getProcessDefects() : Promise.resolve([]),
-  ])
+  const [defects, defectActions, complaints, processDefects] =
+    await Promise.all([
+      view === 'defects' ? getDefectRows() : Promise.resolve([]),
+      view === 'defects'
+        ? getDefectActions()
+        : Promise.resolve({} as Record<string, string>),
+      view === 'complaint' ? getComplaints() : Promise.resolve([]),
+      view === 'process' ? getProcessDefects() : Promise.resolve([]),
+    ])
 
   const customers = [
     ...new Set(complaints.map((c) => c.customer).filter(Boolean)),
@@ -117,7 +123,11 @@ export default async function QualityPage({
             canDelete={full}
           />
         ) : (
-          <DefectsBoard rows={defects} todayStr={todayStr} />
+          <DefectsBoard
+            rows={defects}
+            actions={defectActions}
+            todayStr={todayStr}
+          />
         )}
       </main>
     </div>

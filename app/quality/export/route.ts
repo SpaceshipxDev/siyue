@@ -4,12 +4,13 @@ import { requireReportViewer, requireUser } from '@/lib/auth'
 import { getDefectRows } from '@/lib/db'
 import { getComplaints } from '@/lib/complaints'
 import { getProcessDefects } from '@/lib/process-defects'
+import { getDefectActions } from '@/lib/defect-actions'
 import { today } from '@/lib/today'
 
 // 质量异常 / 制程不良 / 客诉 → .xlsx. 导的就是屏幕上那一批 (同一个月份 + 同一个搜索
 // 词), 所以"导出"永远等于"我现在看到的这些"。
 //
-//   ?v=defects  质量异常 — 厂里自己检出来的 (检验 + 成品检)
+//   ?v=defects  质量异常 — 厂里自己检出来的 (检验 + 成品检), 带纠正预防措施
 //   ?v=process  制程不良 — 质量落笔的那一份, 带责任人和纠正预防措施
 //   ?v=complaint 客诉 — 客户反馈回来的, 带损失金额
 export const runtime = 'nodejs'
@@ -24,9 +25,10 @@ const DEFECT_HEADERS = [
   '判定',
   '不良原因',
   '责任人',
+  '纠正预防措施',
   '判定人',
 ]
-const DEFECT_WIDTHS = [12, 16, 20, 24, 10, 8, 30, 12, 12]
+const DEFECT_WIDTHS = [12, 16, 20, 24, 10, 8, 30, 12, 34, 12]
 
 const PROCESS_HEADERS = [
   '日期',
@@ -49,10 +51,11 @@ const COMPLAINT_HEADERS = [
   '不良原因',
   '处理方式',
   '责任人',
+  '纠正预防措施',
   '损失金额',
   '记录人',
 ]
-const COMPLAINT_WIDTHS = [12, 22, 16, 10, 30, 24, 12, 12, 12]
+const COMPLAINT_WIDTHS = [12, 22, 16, 10, 30, 24, 12, 34, 12, 12]
 
 export async function GET(request: NextRequest): Promise<Response> {
   const sp = request.nextUrl.searchParams
@@ -120,7 +123,15 @@ export async function GET(request: NextRequest): Promise<Response> {
       .filter((r) =>
         !q
           ? true
-          : [r.customer, r.jobNo, r.reason, r.handling, r.owner, r.by]
+          : [
+              r.customer,
+              r.jobNo,
+              r.reason,
+              r.handling,
+              r.owner,
+              r.action,
+              r.by,
+            ]
               .filter(Boolean)
               .join(' ')
               .toLowerCase()
@@ -136,6 +147,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         r.reason,
         r.handling,
         r.owner,
+        r.action,
         r.lossCny,
         r.by ?? '',
       ])
@@ -155,12 +167,21 @@ export async function GET(request: NextRequest): Promise<Response> {
     base = `客诉异常_${month}`
     file = `complaints_${month}.xlsx`
   } else {
+    const actions = await getDefectActions()
     const rows = (await getDefectRows())
       .filter((r) => (r.at ?? '').slice(0, 7) === month)
       .filter((r) =>
         !q
           ? true
-          : [r.jobNo, r.customer, r.partName, r.reason, r.owner, r.by]
+          : [
+              r.jobNo,
+              r.customer,
+              r.partName,
+              r.reason,
+              r.owner,
+              r.by,
+              actions[`${r.partId}::${r.stage}`],
+            ]
               .filter(Boolean)
               .join(' ')
               .toLowerCase()
@@ -177,6 +198,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         r.verdict,
         r.reason ?? '',
         r.owner ?? '',
+        actions[`${r.partId}::${r.stage}`] ?? '',
         r.by ?? '',
       ])
     }

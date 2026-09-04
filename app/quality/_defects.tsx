@@ -2,6 +2,9 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { mutate } from '@/lib/mutate'
+import { EditableText } from '@/app/_editable'
 import type { DefectRow } from '@/lib/db'
 
 // 质量异常 — 全厂判成 重做 / 返修 / 外修 的零件, 检验 (过程检) 和 质量 (出货
@@ -11,8 +14,13 @@ import type { DefectRow } from '@/lib/db'
 // 这页只是把它们从几百张工单里收拢起来。所以它永远和车间看到的一致, 也没有
 // 第二个地方要维护。
 //
-// 按月看, 因为质量是按月复盘的; 上面四个数回答"这个月坏了多少、坏在哪一道"。
-// 导出的就是屏幕上这一批。
+// 只有最后一列是在这里写的: 纠正预防措施。"以后怎么不再犯"不是检验员在工位
+// 上按得出来的, 是事后开会定的 —— 判定还是判定, 措施单独存 (lib/defect-
+// actions), 点着那一格就能补。所以顶上还数着"待定措施": 记下来只是账, 措施
+// 定下来才算闭环。
+//
+// 按月看, 因为质量是按月复盘的; 上面几个数回答"这个月坏了多少、坏在哪一道、
+// 还有几条没定措施"。导出的就是屏幕上这一批。
 
 const MONTHS = [
   '01', '02', '03', '04', '05', '06',
@@ -21,11 +29,15 @@ const MONTHS = [
 
 export function DefectsBoard({
   rows,
+  actions,
   todayStr,
 }: {
   rows: DefectRow[]
+  /** 纠正预防措施 — 按 零件::环节 挂回那条异常上。 */
+  actions: Record<string, string>
   todayStr: string
 }) {
+  const router = useRouter()
   const year = todayStr.slice(0, 4)
   const [month, setMonth] = useState<string>(todayStr.slice(5, 7))
   const [q, setQ] = useState('')
@@ -38,25 +50,45 @@ export function DefectsBoard({
       .filter((r) =>
         !needle
           ? true
-          : [r.jobNo, r.customer, r.partName, r.reason, r.owner, r.by]
+          : [
+              r.jobNo,
+              r.customer,
+              r.partName,
+              r.reason,
+              r.owner,
+              r.by,
+              actions[`${r.partId}::${r.stage}`],
+            ]
               .filter(Boolean)
               .join(' ')
               .toLowerCase()
               .includes(needle),
       )
-  }, [rows, year, month, q])
+  }, [rows, actions, year, month, q])
 
   const stats = useMemo(() => {
     let check = 0
     let quality = 0
+    let open = 0
     const kinds = new Map<string, number>()
     for (const r of monthRows) {
       if (r.stage === '质量') quality += 1
       else check += 1
+      if (!actions[`${r.partId}::${r.stage}`]) open += 1
       kinds.set(r.verdict, (kinds.get(r.verdict) ?? 0) + 1)
     }
-    return { check, quality, kinds: [...kinds.entries()] }
-  }, [monthRows])
+    return { check, quality, open, kinds: [...kinds.entries()] }
+  }, [monthRows, actions])
+
+  async function saveAction(r: DefectRow, v: string) {
+    await mutate({
+      kind: 'setDefectAction',
+      partId: r.partId,
+      stage: r.stage,
+      action: v,
+    })
+    router.refresh()
+  }
 
   const exportHref = `/quality/export?m=${year}-${month}${
     q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ''
@@ -84,11 +116,23 @@ export function DefectsBoard({
             <p className="label mt-2.5">{k}</p>
           </div>
         ))}
+        <div>
+          <p
+            className={`text-[18px] font-semibold leading-none tracking-tight tabular-nums ${
+              stats.open > 0
+                ? 'text-[var(--color-overdue)]'
+                : 'text-[var(--color-ink-3)]'
+            }`}
+          >
+            {stats.open}
+          </p>
+          <p className="label mt-2.5">待定措施</p>
+        </div>
         <div className="ml-auto flex items-center gap-2.5">
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="搜索 · 工号 / 零件 / 原因 / 责任人"
+            placeholder="搜索 · 工号 / 零件 / 原因 / 措施"
             className="h-9 w-[210px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
           />
           <Link
@@ -118,7 +162,7 @@ export function DefectsBoard({
       </div>
 
       <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
-        <div className="hidden grid-cols-[80px_92px_minmax(0,1fr)_64px_56px_minmax(0,1.3fr)_80px_72px] items-center gap-3 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
+        <div className="hidden grid-cols-[68px_84px_minmax(0,0.9fr)_56px_52px_minmax(0,1.1fr)_64px_minmax(0,1.2fr)_60px] items-center gap-3 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
           <span className="label">日期</span>
           <span className="label">工号</span>
           <span className="label">零件</span>
@@ -126,6 +170,7 @@ export function DefectsBoard({
           <span className="label">判定</span>
           <span className="label">不良原因</span>
           <span className="label">责任人</span>
+          <span className="label">纠正预防措施</span>
           <span className="label text-right">判定人</span>
         </div>
 
@@ -137,7 +182,7 @@ export function DefectsBoard({
           monthRows.map((r, i) => (
             <div
               key={`${r.partId}-${r.stage}-${i}`}
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b border-[var(--color-border)] px-4 py-2.5 last:border-b-0 hover:bg-[#faf8f2] md:grid-cols-[80px_92px_minmax(0,1fr)_64px_56px_minmax(0,1.3fr)_80px_72px] md:px-5"
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b border-[var(--color-border)] px-4 py-2.5 last:border-b-0 hover:bg-[#faf8f2] md:grid-cols-[68px_84px_minmax(0,0.9fr)_56px_52px_minmax(0,1.1fr)_64px_minmax(0,1.2fr)_60px] md:px-5"
             >
               <span className="mono hidden text-[12.5px] tabular-nums text-[var(--color-ink-2)] md:block">
                 {(r.at ?? '').slice(5, 10) || '—'}
@@ -166,6 +211,14 @@ export function DefectsBoard({
               <span className="hidden truncate text-[12.5px] text-[var(--color-ink-2)] md:block">
                 {r.owner || '—'}
               </span>
+              <span className="hidden md:block">
+                <EditableText
+                  value={actions[`${r.partId}::${r.stage}`]}
+                  placeholder="待定措施…"
+                  className="text-[12.5px] text-[var(--color-ink-2)]"
+                  onSave={(v) => saveAction(r, v)}
+                />
+              </span>
               <span className="hidden truncate text-right text-[12px] text-[var(--color-ink-3)] md:block">
                 {r.by || '—'}
               </span>
@@ -176,7 +229,8 @@ export function DefectsBoard({
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
         判定和不良原因是检验员在工单上按下去的那一刻记的，这里只是汇总——改要回
-        零件上改。「成品检」是出货前的质量那一道。
+        零件上改。「成品检」是出货前的质量那一道。纠正预防措施是在这里填的，点
+        那一格就能写，定下来再补也行。
       </p>
     </div>
   )

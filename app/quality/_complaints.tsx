@@ -14,9 +14,10 @@ import type { Complaint } from '@/lib/complaints'
 // 跟隔壁那张「质量异常」是两回事: 那张是厂里自己检出来的, 一条都不用录 (检
 // 验员按下判定就有了); 这张是客户打电话过来的, 系统无从知道, 只能商务落笔。
 //
-// 一条客诉回答六件事: 谁家的 · 坏了几个 · 为什么 · 怎么处理 · 谁的责任 · 赔
-// 了多少。最后那个数是这张表存在的理由 —— 质量问题只有换算成钱, 才谈得上跟
-// 谁算账、值不值得改。
+// 一条客诉回答七件事: 谁家的 · 坏了几个 · 为什么 · 怎么处理 · 谁的责任 · 赔
+// 了多少 · 以后怎么不再犯。那个钱数是这张表存在的理由 —— 质量问题只有换算成
+// 钱, 才谈得上跟谁算账、值不值得改; 而措施定下来, 这条客诉才算完, 所以顶上
+// 数着还没定措施的条数。
 //
 // 一行录入, 之后每一格都能点着改 —— 客诉是拖着办的, 今天先记下"客户说坏了
 // 20 个", 处理方式和损失金额可能一周后才定。
@@ -27,7 +28,7 @@ const MONTHS = [
 ]
 
 const COLS =
-  'grid-cols-[76px_minmax(0,1fr)_84px_56px_minmax(0,1.3fr)_minmax(0,1fr)_72px_84px_28px]'
+  'grid-cols-[64px_minmax(0,0.9fr)_84px_48px_minmax(0,1.1fr)_minmax(0,0.9fr)_64px_minmax(0,1.1fr)_80px_28px]'
 
 export function ComplaintsBoard({
   rows,
@@ -56,6 +57,7 @@ export function ComplaintsBoard({
   const [reason, setReason] = useState('')
   const [handling, setHandling] = useState('')
   const [owner, setOwner] = useState('')
+  const [action, setAction] = useState('')
   const [loss, setLoss] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -67,7 +69,15 @@ export function ComplaintsBoard({
       .filter((r) =>
         !needle
           ? true
-          : [r.customer, r.jobNo, r.reason, r.handling, r.owner, r.by]
+          : [
+              r.customer,
+              r.jobNo,
+              r.reason,
+              r.handling,
+              r.owner,
+              r.action,
+              r.by,
+            ]
               .filter(Boolean)
               .join(' ')
               .toLowerCase()
@@ -78,11 +88,13 @@ export function ComplaintsBoard({
   const stats = useMemo(() => {
     let qtySum = 0
     let lossSum = 0
+    let open = 0
     for (const r of monthRows) {
       qtySum += r.qty
       lossSum += r.lossCny
+      if (!r.action) open += 1
     }
-    return { qtySum, lossSum: Math.round(lossSum * 100) / 100 }
+    return { qtySum, lossSum: Math.round(lossSum * 100) / 100, open }
   }, [monthRows])
 
   function add() {
@@ -101,6 +113,7 @@ export function ComplaintsBoard({
             reason: reason.trim(),
             handling: handling.trim(),
             owner: owner.trim(),
+            action: action.trim(),
             lossCny: Number(loss.trim().replace(/[¥,，元]/g, '')) || 0,
           },
         })
@@ -110,6 +123,7 @@ export function ComplaintsBoard({
         setReason('')
         setHandling('')
         setOwner('')
+        setAction('')
         setLoss('')
         setDate(todayStr)
         setMonth(date.slice(5, 7))
@@ -200,6 +214,12 @@ export function ComplaintsBoard({
               className={`${inp} w-[92px]`}
             />
             <input
+              value={action}
+              onChange={(e) => setAction(e.target.value)}
+              placeholder="纠正预防措施 · 可后补"
+              className={`${inp} min-w-[160px] flex-1`}
+            />
+            <input
               value={loss}
               onChange={(e) => setLoss(e.target.value)}
               placeholder="损失¥"
@@ -239,6 +259,18 @@ export function ComplaintsBoard({
             {formatCny(stats.lossSum)}
           </p>
           <p className="label mt-2.5">损失金额</p>
+        </div>
+        <div>
+          <p
+            className={`text-[22px] font-semibold leading-none tracking-tight tabular-nums ${
+              stats.open > 0
+                ? 'text-[var(--color-overdue)]'
+                : 'text-[var(--color-ink-3)]'
+            }`}
+          >
+            {stats.open}
+          </p>
+          <p className="label mt-2.5">待定措施</p>
         </div>
         <div className="ml-auto flex items-center gap-2.5">
           <input
@@ -284,6 +316,7 @@ export function ComplaintsBoard({
           <span className="label">不良原因</span>
           <span className="label">处理方式</span>
           <span className="label">责任人</span>
+          <span className="label">纠正预防措施</span>
           <span className="label text-right">损失金额</span>
           <span />
         </div>
@@ -335,6 +368,12 @@ export function ComplaintsBoard({
                 placeholder="待定"
                 onSave={(v) => patch(r.id, { owner: v })}
               />
+              <Cell
+                canEdit={canEdit}
+                value={r.action}
+                placeholder="待定措施…"
+                onSave={(v) => patch(r.id, { action: v })}
+              />
               <NumCell
                 canEdit={canEdit}
                 value={r.lossCny}
@@ -368,8 +407,8 @@ export function ComplaintsBoard({
       </div>
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
-        客诉是拖着办的——先记下客户说坏了几个，处理方式和损失金额定下来再回来补，
-        每一格都能点着改。导出的就是屏幕上这一批。
+        客诉是拖着办的——先记下客户说坏了几个，处理方式、损失金额和纠正预防措施
+        定下来再回来补，每一格都能点着改。导出的就是屏幕上这一批。
       </p>
     </div>
   )

@@ -142,6 +142,7 @@ import {
   deleteComplaint,
   updateComplaint,
 } from '@/lib/complaints'
+import { setDefectAction } from '@/lib/defect-actions'
 import {
   addProcessDefect,
   deleteProcessDefect,
@@ -2233,7 +2234,7 @@ async function dispatch(
       if (!isString(i.reason) || !i.reason.trim()) return err('填一下不良原因')
       if (!isString(i.date) || !/^\d{4}-\d{2}-\d{2}$/.test(i.date))
         return err('bad addComplaint args')
-      for (const k of ['handling', 'owner']) {
+      for (const k of ['handling', 'owner', 'action']) {
         if (i[k] !== undefined && !isString(i[k]))
           return err('bad addComplaint args')
       }
@@ -2250,6 +2251,7 @@ async function dispatch(
           reason: i.reason,
           handling: isString(i.handling) ? i.handling : '',
           owner: isString(i.owner) ? i.owner : '',
+          action: isString(i.action) ? i.action : '',
           lossCny: typeof i.lossCny === 'number' ? i.lossCny : 0,
         },
         u.name,
@@ -2266,7 +2268,15 @@ async function dispatch(
       if (typeof patch !== 'object' || patch === null)
         return err('bad updateComplaint args')
       const p = patch as Record<string, unknown>
-      for (const k of ['date', 'customer', 'jobNo', 'reason', 'handling', 'owner']) {
+      for (const k of [
+        'date',
+        'customer',
+        'jobNo',
+        'reason',
+        'handling',
+        'owner',
+        'action',
+      ]) {
         if (p[k] !== undefined && !isString(p[k]))
           return err('bad updateComplaint args')
       }
@@ -2287,6 +2297,27 @@ async function dispatch(
       const u = await requireUser()
       if (!canSeeReport(u)) return err('无权删除客诉', 403)
       await deleteComplaint(complaintId)
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    // 质量异常的纠正预防措施 — 判定本身还是检验员按出来的, 谁也改不了; 这
+    // 里补的是"以后怎么不再犯", 开会定了才有。跟看这张表同一档权限。
+    case 'setDefectAction': {
+      const { partId, stage, action } = body
+      if (!isString(partId) || !isString(stage) || !isString(action))
+        return err('bad setDefectAction args')
+      if (stage !== '检验' && stage !== '质量')
+        return err('bad setDefectAction args')
+      const u = await requireUser()
+      if (!canSeeReport(u)) return err('无权填措施', 403)
+      await setDefectAction(
+        partId,
+        stage,
+        action,
+        u.name,
+        new Date().toISOString(),
+      )
       revalidatePath('/quality')
       return Response.json(ok())
     }
