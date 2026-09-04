@@ -391,6 +391,15 @@ export function MasterSheet({
     () => STAGES.filter((s) => statusByStage[s] && statusByStage[s] !== 'all'),
     [statusByStage],
   )
+  // 滞留 funnel — 按"这张单卡在哪一道"切。工段列回答的是每一道各自的状态,
+  // 这一个回答的是"最前面那道没做完的是谁", 一次只留一个工段的单子, 那就是
+  // 一张车间的催活清单。Persisted per view context, 跟工段列一个路子。
+  const [stuckFilter, setStuckFilter] = usePersistentState<Stage | 'all'>(
+    `${persistKey}:stuck`,
+    'all',
+  )
+  const stuckActive = stuckFilter !== 'all'
+
   // 收款 funnel (商务 overview only) — slices the board to where the cash sits.
   const [moneyFilter, setMoneyFilter] = usePersistentState<MoneyFilter>(
     `${persistKey}:money`,
@@ -641,9 +650,12 @@ export function MasterSheet({
                 (s) => rowRollupStage(r, s).kind === statusByStage[s],
               ),
             )
-      const facetScoped = onlyPendingOutsource
-        ? statusScoped.filter((r) => r.needsOutsource && !r.hasOpenOutsource)
+      const stuckScoped = stuckActive
+        ? statusScoped.filter((r) => rowStuckStage(r) === stuckFilter)
         : statusScoped
+      const facetScoped = onlyPendingOutsource
+        ? stuckScoped.filter((r) => r.needsOutsource && !r.hasOpenOutsource)
+        : stuckScoped
       const alarmScoped = onlyDrawingChange
         ? facetScoped.filter((r) => r.drawingChangeOpen)
         : facetScoped
@@ -733,6 +745,19 @@ export function MasterSheet({
     return c
   }, [dateFiltered, showMoney, treatAsOverview])
 
+  // 滞留 facet 计数 — 每一道上"卡着"的单子有几张, 数在日期范围之内 (跟工段
+  // 列的计数同一个口径)。全部 = 这个范围里所有的单子。
+  const stuckCounts = useMemo(() => {
+    const c = { all: dateFiltered.length } as Record<Stage | 'all', number>
+    for (const s of STAGES) c[s] = 0
+    if (!treatAsOverview) return c
+    for (const r of dateFiltered) {
+      const st = rowStuckStage(r)
+      if (st) c[st] += 1
+    }
+    return c
+  }, [dateFiltered, treatAsOverview])
+
   // Any column filter narrows the list — treat it like search/date so
   // pagination lifts and the count chip + 清除 affordance show.
   const statusActive = activeFilterStages.length > 0
@@ -743,7 +768,8 @@ export function MasterSheet({
     statusActive ||
     onlyPendingOutsource ||
     onlyDrawingChange ||
-    moneyActive
+    moneyActive ||
+    stuckActive
 
   type VirtualDivider = {
     kind: 'divider'
@@ -1002,7 +1028,29 @@ export function MasterSheet({
                   金额
                 </th>
               )}
-              <th className="px-4 py-3 label whitespace-nowrap">滞留</th>
+              <th
+                style={{ overflow: 'visible' }}
+                className="relative px-4 py-3 whitespace-nowrap"
+              >
+                <span className="inline-flex items-center gap-1 label">
+                  <span className={stuckActive ? 'text-[var(--color-ink)]' : undefined}>
+                    滞留
+                  </span>
+                  {treatAsOverview && (
+                    <StuckHeaderFilter
+                      value={stuckFilter}
+                      counts={stuckCounts}
+                      onChange={setStuckFilter}
+                    />
+                  )}
+                </span>
+                {stuckActive && (
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-x-3 bottom-[6px] h-[2px] rounded-[2px] bg-[var(--color-info)]"
+                  />
+                )}
+              </th>
               {STAGES.map((s, si) => {
                 const isHighlighted = s === highlightStage
                 const colStatus = statusByStage[s]
@@ -1206,6 +1254,7 @@ export function MasterSheet({
                   setDateFilter({ kind: 'all' })
                   clearStageStatuses()
                   setMoneyFilter('all')
+                  setStuckFilter('all')
                 }}
                 className="label mt-4 text-[var(--color-ink)] hover:underline underline-offset-4 decoration-[var(--color-ink-3)]"
               >
@@ -1580,6 +1629,91 @@ function MoneyHeaderFilter({
               active={value === r.key}
               onClick={() => {
                 onChange(r.key)
+                setOpen(false)
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </span>
+  )
+}
+
+// 滞留 column funnel — HeaderFilter / MoneyHeaderFilter 的第三个同胞。工段列
+// 的漏斗问的是"这一道做完没有", 这个问的是"这张单卡在哪一道": 选 手工, 板子
+// 就只剩下最前面卡在手工的那些单 —— 一张可以直接拿去催的清单。
+function StuckHeaderFilter({
+  value,
+  counts,
+  onChange,
+}: {
+  value: Stage | 'all'
+  counts: Record<Stage | 'all', number>
+  onChange: (next: Stage | 'all') => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLSpanElement>(null)
+  const active = value !== 'all'
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <span ref={ref} className="relative inline-flex">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="按滞留工序筛选"
+        title="按滞留工序筛选"
+        className={`inline-flex h-4 w-4 items-center justify-center rounded-[2px] transition-colors ${
+          active
+            ? 'text-[var(--color-info)]'
+            : open
+              ? 'text-[var(--color-ink)] bg-black/[0.06]'
+              : 'text-[var(--color-ink-4)] hover:text-[var(--color-ink-2)] hover:bg-black/[0.04]'
+        }`}
+      >
+        {active ? <FunnelIcon /> : <CaretIcon />}
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          aria-label="滞留工序"
+          className="absolute left-0 top-[calc(100%+8px)] z-40 max-h-[60vh] min-w-[148px] overflow-y-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] py-1 text-left shadow-[0_10px_34px_-12px_rgba(20,19,15,0.28)]"
+        >
+          <FilterMenuRow
+            label="全部"
+            count={counts.all}
+            active={value === 'all'}
+            onClick={() => {
+              onChange('all')
+              setOpen(false)
+            }}
+          />
+          <div className="my-1 h-px bg-[var(--color-border)]" />
+          {STAGES.map((s) => (
+            <FilterMenuRow
+              key={s}
+              label={s}
+              count={counts[s] ?? 0}
+              active={value === s}
+              onClick={() => {
+                onChange(s)
                 setOpen(false)
               }}
             />
