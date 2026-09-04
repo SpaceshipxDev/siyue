@@ -7,6 +7,7 @@ import { Pause, stageTimeHint } from './_ui'
 import { mutate } from '@/lib/mutate'
 import { RowTimer } from './_row_timer'
 import { QtyEditor } from './_qty_editor'
+import { SplitEditor } from './_split_editor'
 import { useCanUndoDone, useStageGuard } from './_stage_scope'
 
 // Stage button writes go through /api/mutate (~30-byte JSON) instead of
@@ -44,6 +45,9 @@ export function StageCellButton({
   const [optimistic, setOptimistic] = useState<StageState | null>(null)
   const [error, setError] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
+  // 分工 — 这道工序是两个人以上做的。开在这里, 因为知道"谁做了几件"的就是
+  // 站在这个格子前面的人; 记完只影响报工统计 (见 app/_split_editor)。
+  const [splitOpen, setSplitOpen] = useState(false)
   // 报工范围 guard — out-of-scope taps open the denial dialog instead of
   // writing. The server re-checks, so a stale client only ever costs a
   // round-trip, never a wrong write.
@@ -242,6 +246,31 @@ export function StageCellButton({
             ✕
           </button>
         ) : null}
+        {/* 分工 — 悬停才显形, 跟 ✕ 一个位置的语言。两个人以上做的那道工序,
+            在这里写"谁做了几件", 报工统计就按件数分。 */}
+        {!error ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (guard.check()) setSplitOpen(true)
+            }}
+            aria-label={`${stage} · 分工`}
+            title="两个人以上做的 · 记一下谁做了几件"
+            className="absolute left-0 top-0 px-1 text-[9px] leading-none text-[var(--color-warning)]/60 transition-opacity hover:text-[var(--color-ink)] focus:opacity-100 focus:outline-none md:opacity-0 md:group-hover/cell:opacity-100"
+          >
+            分工
+          </button>
+        ) : null}
+        {splitOpen ? (
+          <SplitEditor
+            jobId={jobId}
+            componentId={componentId}
+            componentName={componentName}
+            componentQty={componentQty}
+            stage={stage}
+            onClose={() => setSplitOpen(false)}
+          />
+        ) : null}
         {editorOpen ? (
           <QtyEditor
             stage={stage}
@@ -281,28 +310,55 @@ export function StageCellButton({
     ? `完成 ${state.by}${stageTimeHint(state.finishedAt)}`
     : undefined
   return (
-    <button
-      type="button"
-      disabled={pending || !canUndoDone}
-      onClick={onUndo}
-      title={
-        canUndoDone
-          ? (attribution ?? '点击撤销 · 退回到进行中')
-          : `${attribution ? `${attribution} · ` : ''}撤销已完成的报工要找 于海伟`
-      }
-      aria-label={`${stage} · ${
-        error ? '失败 · 重试' : canUndoDone ? '撤销完成' : '已完成'
-      }${attribution ? ` · ${attribution}` : ''}`}
-      className={`flex h-full w-full flex-col items-center justify-center gap-0.5 ${padding} ${optimistic?.status === 'done' ? 'animate-cell-done' : ''} ${
-        error
-          ? 'bg-[var(--color-overdue-soft)]'
-          : canUndoDone
-            ? 'hover:bg-[#f1eee4]'
-            : 'cursor-default'
-      } ${pending ? 'opacity-60' : ''} focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)]`}
-    >
-      {doneInner}
-    </button>
+    <div className="group/cell relative h-full w-full">
+      <button
+        type="button"
+        disabled={pending || !canUndoDone}
+        onClick={onUndo}
+        title={
+          canUndoDone
+            ? (attribution ?? '点击撤销 · 退回到进行中')
+            : `${attribution ? `${attribution} · ` : ''}撤销已完成的报工要找 于海伟`
+        }
+        aria-label={`${stage} · ${
+          error ? '失败 · 重试' : canUndoDone ? '撤销完成' : '已完成'
+        }${attribution ? ` · ${attribution}` : ''}`}
+        className={`flex h-full w-full flex-col items-center justify-center gap-0.5 ${padding} ${optimistic?.status === 'done' ? 'animate-cell-done' : ''} ${
+          error
+            ? 'bg-[var(--color-overdue-soft)]'
+            : canUndoDone
+              ? 'hover:bg-[#f1eee4]'
+              : 'cursor-default'
+        } ${pending ? 'opacity-60' : ''} focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink-3)]`}
+      >
+        {doneInner}
+      </button>
+      {/* 分工 — 做完了才想起来"这 200 件是两个人做的", 在这里补。悬停才显
+          形, 不跟 ✓ 抢地方; 补完只有报工统计变, ✓ 和完成时间不动。 */}
+      {!error ? (
+        <button
+          type="button"
+          onClick={() => {
+            if (guard.check()) setSplitOpen(true)
+          }}
+          aria-label={`${stage} · 分工`}
+          title="两个人以上做的 · 记一下谁做了几件"
+          className="absolute left-0 top-0 px-1 text-[9px] leading-none text-[var(--color-ink-4)] transition-opacity hover:text-[var(--color-ink)] focus:opacity-100 focus:outline-none md:opacity-0 md:group-hover/cell:opacity-100"
+        >
+          分工
+        </button>
+      ) : null}
+      {splitOpen ? (
+        <SplitEditor
+          jobId={jobId}
+          componentId={componentId}
+          componentName={componentName}
+          componentQty={componentQty}
+          stage={stage}
+          onClose={() => setSplitOpen(false)}
+        />
+      ) : null}
+    </div>
   )
 }
 

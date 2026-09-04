@@ -3,6 +3,7 @@ import type { Stage } from './data'
 import { STAGES } from './data'
 import { supabase } from './supabase'
 import { today, shanghaiWindow, shanghaiRangeWindow, shiftDate } from './today'
+import { getWorkSplits, workSplitKey, type WorkShare } from './work-split'
 
 // Read shapes for the /pulse (现场) surface. Hits the views from
 // migration 0019_pulse_views.sql — nothing here computes; the SQL does.
@@ -228,7 +229,146 @@ export async function getWorkerOutput(
       lastActiveTs: (row.last_active as string | null) ?? undefined,
     })
   }
+
+  // 分工 — 两个人做的那几道工序, 按报工数量摊回各自头上 (见上面那一段)。
+  // 没有分工记录时 getSplitDeltas 直接返回空, 这一段等于不存在。
+  const deltas = await getSplitDeltas(window, stage)
+  if (deltas.size > 0) {
+    const byName = new Map(out.map((r0) => [r0.actorName, r0]))
+    for (const [name, d] of deltas) {
+      let row = byName.get(name)
+      if (!row) {
+        // 只在别人名下的工序里分到活的人 — 他自己一条 ✓ 都没按过, 原来的
+        // 统计里根本没有他。
+        row = {
+          actorName: name,
+          finishes: 0,
+          starts: 0,
+          pieces: 0,
+          valueCny: 0,
+          unpriced: 0,
+        }
+        byName.set(name, row)
+        out.push(row)
+      }
+      row.finishes = Math.max(0, row.finishes + d.finishes)
+      row.pieces = Math.max(0, Math.round((row.pieces + d.pieces) * 100) / 100)
+      row.valueCny = Math.max(
+        0,
+        Math.round((row.valueCny + d.valueCny) * 100) / 100,
+      )
+    }
+    // 分完之后一件不剩、一道工序都不剩的人不该还挂在榜上 (他按的那个 ✓ 整
+    // 条给了别人)。开始过工的还留着 —— 那是他真做过的事。
+    return out
+      .filter((r0) => r0.finishes > 0 || r0.pieces > 0 || r0.starts > 0)
+      .sort((a, b) => b.finishes - a.finishes || b.valueCny - a.valueCny)
+  }
   return out
+}
+
+// ── 报工分工 (lib/work-split) ────────────────────────────────────────────
+//
+// 一道工序两个人做, 系统只认按 ✓ 的那一个 —— 件数和金额全记在他头上。分工记
+// 下来之后, 报工统计在算人头时把这一条按报工数量拆开: 记录在案的那个人退掉整
+// 条, 每个参与的人按自己的件数进来, 金额按件数比例分。
+//
+// 不动 part_stages, 也不动 worker_output 那个函数 —— 只在算完之后加一层增减,
+// 所以没分工的一条都不受影响, 板子和工单页看到的东西一个字没变。
+
+export type ActorDelta = { finishes: number; pieces: number; valueCny: number }
+
+function bumpDelta(
+  map: Map<string, ActorDelta>,
+  name: string,
+  d: Partial<ActorDelta>,
+): void {
+  const cur = map.get(name) ?? { finishes: 0, pieces: 0, valueCny: 0 }
+  cur.finishes += d.finishes ?? 0
+  cur.pieces += d.pieces ?? 0
+  cur.valueCny += d.valueCny ?? 0
+  map.set(name, cur)
+}
+
+export type SplitEvent = {
+  partId: string
+  stage: Stage
+  /** 记录在案的经手人 — 按下 ✓ 的那个账号。 */
+  actorName: string
+  partQty: number
+  valueCny: number
+  shares: WorkShare[]
+}
+
+/** 窗口里被分工的那几条完成事件, 连同它们记录在案的那个人。 */
+async function splitEventsInWindow(
+  splits: Record<string, WorkShare[]>,
+  window: { from: string; to: string },
+  stage?: Stage,
+): Promise<SplitEvent[]> {
+  const partIds = [...new Set(Object.keys(splits).map((k) => k.split('::')[0]))]
+  if (partIds.length === 0) return []
+  const rows = await fetchInChunks(partIds, async (chunk) => {
+    let q = supabase
+      .from('worker_stage_events')
+      .select('part_id, stage, actor_name, part_qty, value_cny')
+      .eq('kind', 'finished')
+      .gte('ts', window.from)
+      .lt('ts', window.to)
+      .in('part_id', chunk)
+    if (stage) q = q.eq('stage', stage)
+    const r = await q
+    if (r.error) {
+      if (isSchemaLagError(r.error)) return []
+      throw r.error
+    }
+    return (r.data ?? []) as AnyRow[]
+  })
+  const out: SplitEvent[] = []
+  for (const e of rows) {
+    const partId = e.part_id as string
+    const st = e.stage as Stage
+    const shares = splits[workSplitKey(partId, st)]
+    if (!shares || shares.length === 0) continue
+    out.push({
+      partId,
+      stage: st,
+      actorName: ((e.actor_name as string | null) ?? '—') || '—',
+      partQty: Number(e.part_qty ?? 0),
+      valueCny: Number(e.value_cny ?? 0),
+      shares,
+    })
+  }
+  return out
+}
+
+/** 每个人该加 / 该减多少 — 叠在 worker_output 的结果上。 */
+async function getSplitDeltas(
+  window: { from: string; to: string },
+  stage?: Stage,
+): Promise<Map<string, ActorDelta>> {
+  const deltas = new Map<string, ActorDelta>()
+  const splits = await getWorkSplits()
+  if (Object.keys(splits).length === 0) return deltas
+  const events = await splitEventsInWindow(splits, window, stage)
+  for (const e of events) {
+    const total = e.shares.reduce((s, sh) => s + sh.qty, 0)
+    if (total <= 0) continue
+    // 记录在案的那个人退掉整条 —— 他自己做的那一份跟着分工再进来。
+    bumpDelta(deltas, e.actorName, {
+      finishes: -1,
+      pieces: -e.partQty,
+      valueCny: -e.valueCny,
+    })
+    for (const sh of e.shares) {
+      bumpDelta(deltas, sh.name, {
+        finishes: 1,
+        pieces: sh.qty,
+        valueCny: (e.valueCny * sh.qty) / total,
+      })
+    }
+  }
+  return deltas
 }
 
 // One worker's stage events (开始 + 完成) within a window, newest first.
@@ -251,7 +391,7 @@ export async function getWorkerTimeline(opts: {
   let q = supabase
     .from('worker_stage_events')
     .select(
-      'ts, kind, stage, part_name, part_qty, value_cny, is_unpriced, job_id, job_no, customer, part_no, material, surface_treatment, image_url',
+      'ts, kind, stage, part_id, part_name, part_qty, value_cny, is_unpriced, job_id, job_no, customer, part_no, material, surface_treatment, image_url',
     )
     .eq('actor_name', opts.actorName)
     .gte('ts', opts.from)
@@ -265,26 +405,102 @@ export async function getWorkerTimeline(opts: {
     if (isSchemaLagError(r.error)) return []
     throw r.error
   }
-  const out: WorkerStageEvent[] = []
-  for (const row of (r.data ?? []) as AnyRow[]) {
-    out.push({
-      ts: row.ts as string,
-      kind: row.kind as WorkerEventKind,
-      stage: row.stage as Stage,
-      partName: (row.part_name as string | null) ?? '',
-      partQty: Number(row.part_qty ?? 0),
-      valueCny: Number(row.value_cny ?? 0),
-      unpriced: Boolean(row.is_unpriced),
-      jobId: row.job_id as string,
-      jobNo: (row.job_no as string | null) ?? '',
-      customer: (row.customer as string | null) ?? '',
-      partNo: (row.part_no as string | null) ?? undefined,
-      material: (row.material as string | null) ?? undefined,
-      surfaceTreatment: (row.surface_treatment as string | null) ?? undefined,
-      imageUrl: (row.image_url as string | null) ?? undefined,
+  const toEvent = (row: AnyRow): WorkerStageEvent & { partId?: string } => ({
+    ts: row.ts as string,
+    kind: row.kind as WorkerEventKind,
+    stage: row.stage as Stage,
+    partName: (row.part_name as string | null) ?? '',
+    partQty: Number(row.part_qty ?? 0),
+    valueCny: Number(row.value_cny ?? 0),
+    unpriced: Boolean(row.is_unpriced),
+    jobId: row.job_id as string,
+    jobNo: (row.job_no as string | null) ?? '',
+    customer: (row.customer as string | null) ?? '',
+    partNo: (row.part_no as string | null) ?? undefined,
+    material: (row.material as string | null) ?? undefined,
+    surfaceTreatment: (row.surface_treatment as string | null) ?? undefined,
+    imageUrl: (row.image_url as string | null) ?? undefined,
+    partId: (row.part_id as string | null) ?? undefined,
+  })
+  const raw = (r.data ?? []) as AnyRow[]
+  const out: WorkerStageEvent[] = raw.map(toEvent)
+
+  // 分工 — 明细要跟统计说同一句话。两个人做的那道工序: 这个人的那一条按他
+  // 自己的件数缩回去 (没他的份就整条拿掉), 记在别人名下、但有他一份的那几
+  // 条补进来。没有分工记录时这一段等于不存在。
+  const splits = await getWorkSplits()
+  if (Object.keys(splits).length === 0) return out
+
+  const shareOf = (partId: string | undefined, stage: Stage) => {
+    if (!partId) return undefined
+    const shares = splits[workSplitKey(partId, stage)]
+    if (!shares || shares.length === 0) return undefined
+    const total = shares.reduce((s, sh) => s + sh.qty, 0)
+    if (total <= 0) return undefined
+    return { shares, total }
+  }
+
+  const mine: WorkerStageEvent[] = []
+  for (const [i, ev] of out.entries()) {
+    const partId = (raw[i].part_id as string | null) ?? undefined
+    const sp = ev.kind === 'finished' ? shareOf(partId, ev.stage) : undefined
+    if (!sp) {
+      mine.push(ev)
+      continue
+    }
+    const own = sp.shares.find((x) => x.name === opts.actorName)
+    if (!own) continue // 这条整条给了别人
+    mine.push({
+      ...ev,
+      partQty: own.qty,
+      valueCny: Math.round(((ev.valueCny * own.qty) / sp.total) * 100) / 100,
     })
   }
-  return out
+
+  // 记在别人名下、但分给了这个人的那几条。
+  const otherPartIds = [
+    ...new Set(
+      Object.entries(splits)
+        .filter(([, shares]) => shares.some((x) => x.name === opts.actorName))
+        .map(([k]) => k.split('::')[0]),
+    ),
+  ]
+  if (otherPartIds.length === 0 || opts.kind === 'started') return mine
+
+  const extraRows = await fetchInChunks(otherPartIds, async (chunk) => {
+    let q2 = supabase
+      .from('worker_stage_events')
+      .select(
+        'ts, kind, stage, part_id, part_name, part_qty, value_cny, is_unpriced, job_id, job_no, customer, part_no, material, surface_treatment, image_url, actor_name',
+      )
+      .eq('kind', 'finished')
+      .neq('actor_name', opts.actorName)
+      .gte('ts', opts.from)
+      .lt('ts', opts.to)
+      .in('part_id', chunk)
+    if (opts.stage) q2 = q2.eq('stage', opts.stage)
+    const rr = await q2
+    if (rr.error) {
+      if (isSchemaLagError(rr.error)) return []
+      throw rr.error
+    }
+    return (rr.data ?? []) as AnyRow[]
+  })
+  for (const row of extraRows) {
+    const ev = toEvent(row)
+    const sp = shareOf((row.part_id as string | null) ?? undefined, ev.stage)
+    if (!sp) continue
+    const own = sp.shares.find((x) => x.name === opts.actorName)
+    if (!own) continue
+    mine.push({
+      ...ev,
+      partQty: own.qty,
+      valueCny: Math.round(((ev.valueCny * own.qty) / sp.total) * 100) / 100,
+    })
+  }
+  return mine
+    .sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0))
+    .slice(0, limit)
 }
 
 // Everyone who has ever reported work in the last `days` — the historic half
@@ -702,7 +918,7 @@ export async function getStationDetailByOrder(
     let q = supabase
       .from('worker_stage_events')
       .select(
-        'ts, actor_name, stage, part_name, part_no, part_qty, value_cny, is_unpriced, is_allocated, job_id, job_no, customer',
+        'ts, actor_name, stage, part_id, part_name, part_no, part_qty, value_cny, is_unpriced, is_allocated, job_id, job_no, customer',
       )
       .eq('kind', 'finished')
       .gte('ts', window.from)
@@ -723,8 +939,82 @@ export async function getStationDetailByOrder(
   }
   const truncated = rows.length >= CAP
 
-  const map = new Map<string, OrderDetail>()
+  // 分工 — 报表要跟统计说同一句话: 两个人做的那道工序拆成两行, 各自的件数和
+  // 按件数分下来的金额。没有分工记录时这一段等于不存在。
+  const splits = await getWorkSplits()
+  const shareOf = (e: AnyRow) => {
+    const partId = (e.part_id as string | null) ?? undefined
+    if (!partId) return undefined
+    const shares = splits[workSplitKey(partId, e.stage as Stage)]
+    if (!shares || shares.length === 0) return undefined
+    const total = shares.reduce((s, sh) => s + sh.qty, 0)
+    if (total <= 0) return undefined
+    return { shares, total }
+  }
+  if (Object.keys(splits).length > 0 && actorName) {
+    // 一个人的报表: 记在别人名下、但分给了他的那几条也要进来。
+    const otherPartIds = [
+      ...new Set(
+        Object.entries(splits)
+          .filter(([, shares]) => shares.some((x) => x.name === actorName))
+          .map(([k]) => k.split('::')[0]),
+      ),
+    ]
+    if (otherPartIds.length > 0) {
+      const extra = await fetchInChunks(otherPartIds, async (chunk) => {
+        let q2 = supabase
+          .from('worker_stage_events')
+          .select(
+            'ts, actor_name, stage, part_id, part_name, part_no, part_qty, value_cny, is_unpriced, is_allocated, job_id, job_no, customer',
+          )
+          .eq('kind', 'finished')
+          .neq('actor_name', actorName)
+          .gte('ts', window.from)
+          .lt('ts', window.to)
+          .in('part_id', chunk)
+        if (stage) q2 = q2.eq('stage', stage)
+        const rr = await q2
+        if (rr.error) {
+          if (isSchemaLagError(rr.error)) return []
+          throw rr.error
+        }
+        return (rr.data ?? []) as AnyRow[]
+      })
+      rows.push(...extra)
+    }
+  }
+
+  // 一条原始事件 → 一到多条报表行 (谁 · 几件 · 多少钱)。
+  type Line = { e: AnyRow; actor: string; qty: number; valueCny: number }
+  const lines: Line[] = []
   for (const e of rows) {
+    const own = ((e.actor_name as string | null) ?? '—') || '—'
+    const sp = shareOf(e)
+    if (!sp) {
+      if (actorName && own !== actorName) continue
+      lines.push({
+        e,
+        actor: own,
+        qty: Number(e.part_qty ?? 0),
+        valueCny: Number(e.value_cny ?? 0),
+      })
+      continue
+    }
+    const value = Number(e.value_cny ?? 0)
+    for (const sh of sp.shares) {
+      if (actorName && sh.name !== actorName) continue
+      lines.push({
+        e,
+        actor: sh.name,
+        qty: sh.qty,
+        valueCny: Math.round(((value * sh.qty) / sp.total) * 100) / 100,
+      })
+    }
+  }
+
+  const map = new Map<string, OrderDetail>()
+  for (const line of lines) {
+    const e = line.e
     const jobId = e.job_id as string
     let o = map.get(jobId)
     if (!o) {
@@ -740,15 +1030,15 @@ export async function getStationDetailByOrder(
       }
       map.set(jobId, o)
     }
-    const qty = Number(e.part_qty ?? 0)
-    const val = Number(e.value_cny ?? 0)
+    const qty = line.qty
+    const val = line.valueCny
     o.finishes += 1
     o.pieces += qty
     o.valueCny += val
     o.components.push({
       ts: e.ts as string,
       stage: e.stage as Stage,
-      actorName: ((e.actor_name as string | null) ?? '—') || '—',
+      actorName: line.actor,
       partName: (e.part_name as string | null) ?? '部件',
       partNo: (e.part_no as string | null) ?? undefined,
       qty,

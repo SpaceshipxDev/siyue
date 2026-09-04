@@ -105,6 +105,7 @@ import {
   type NewProcurementInput,
   type NewProcurementProductInput,
   type PoLinePatch,
+  resolvePartId,
   type ProcurementPatch,
   type ProcurementProductPatch,
   type ShipmentFinancePatch,
@@ -154,6 +155,7 @@ import {
   deleteStockMove,
   updateStockMove,
 } from '@/lib/warehouse'
+import { normalizeShares, setWorkSplit } from '@/lib/work-split'
 import {
   addProcessDefect,
   deleteProcessDefect,
@@ -2480,6 +2482,37 @@ async function dispatch(
       if (!canEditQuality(u)) return err('删建议要找工程或于海伟', 403)
       await deleteImprovement(improvementId)
       revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    // 报工分工 — 这道工序是两个人以上做的。系统一道工序只认一个人 (按 ✓ 的
+    // 那个), 车间半数账号还是共用的, 所以"谁做了几件"只能落笔。记完之后只有
+    // 报工统计变: 那一条按件数拆到各人头上 (lib/pulse); 判定、完成时间、板子
+    // 上的 ✓ 一个字不动。
+    //
+    // 门槛跟报这道工序本身一样 (canClickStage) —— 能在这道工序上按 ✓ 的人,
+    // 就是知道这活是谁干的那个人。
+    case 'setWorkSplit': {
+      const { jobId, componentId, stage, shares } = body
+      if (!isString(jobId) || !isString(componentId))
+        return err('bad setWorkSplit args')
+      if (!isString(stage) || !(STAGES as readonly string[]).includes(stage))
+        return err('bad setWorkSplit args')
+      const clean = normalizeShares(shares)
+      if (clean.length === 1) return err('分工要两个人以上')
+      const u = await requireUser()
+      if (!canClickStage(u, stage as Stage))
+        return err(`${stage} 不是你的工段`, 403)
+      const partId = await resolvePartId(jobId, componentId)
+      if (!partId) return err('找不到这个零件')
+      await setWorkSplit(
+        partId,
+        stage,
+        clean,
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath('/report')
       return Response.json(ok())
     }
 

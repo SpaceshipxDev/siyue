@@ -1625,6 +1625,17 @@ function findPartIdInSnap(
   return undefined
 }
 
+// 零件行 id — 报工分工 (lib/work-split) 要用它当键, 好跟 worker_stage_events
+// 的 part_id 对得上。界面上拿在手里的是 jobId + componentId, 只有这里知道它
+// 们对应哪一行。
+export async function resolvePartId(
+  jobId: string,
+  componentId: string,
+): Promise<string | undefined> {
+  const snap = await loadJobSnapshot(jobId)
+  return findPartIdInSnap(snap, jobId, componentId)
+}
+
 function partBlocksInSnap(snap: DbSnapshot, partId: string): OutsourceBlockRow[] {
   return snap.idx.blocksByPart.get(partId) ?? []
 }
