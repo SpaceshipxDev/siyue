@@ -307,6 +307,17 @@ export function StationWorkbench({
             清除 ↺
           </button>
         )}
+        {/* 制程不良记录 — 谁发现谁记, 全厂的账号都填得了。入口留在质量工段
+            看板上 (质量模块那一页上也留了回看板的链接), 车间点「质量」看到的
+            还是自己那一队活。 */}
+        {stage === '质量' && (
+          <Link
+            href="/quality?v=process"
+            className="ml-auto text-[12px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+          >
+            制程不良记录 →
+          </Link>
+        )}
       </div>
 
       <TabBar

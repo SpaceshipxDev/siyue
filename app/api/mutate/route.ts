@@ -143,6 +143,11 @@ import {
   updateComplaint,
 } from '@/lib/complaints'
 import {
+  addProcessDefect,
+  deleteProcessDefect,
+  updateProcessDefect,
+} from '@/lib/process-defects'
+import {
   isRateList,
   isScalarRateKey,
   setQuoteRateItem,
@@ -2282,6 +2287,79 @@ async function dispatch(
       const u = await requireUser()
       if (!canSeeReport(u)) return err('无权删除客诉', 403)
       await deleteComplaint(complaintId)
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    // 制程不良记录 — 生产过程中出的不良, 连着直接/间接责任人和纠正预防措施。
+    // 谁发现谁记: 记一条、改一格, 有账号的人都可以 (requireUser 就是门槛)。
+    // 删一条不是 —— 那一档留给商务/于海伟, 大家一起写的表, 少一条比多一条难
+    // 发现。
+    case 'addProcessDefect': {
+      const input = body.input
+      if (typeof input !== 'object' || input === null)
+        return err('bad addProcessDefect args')
+      const i = input as Record<string, unknown>
+      if (!isString(i.jobNo) || !i.jobNo.trim()) return err('先填工单号')
+      if (!isString(i.reason) || !i.reason.trim()) return err('填一下不良原因')
+      if (!isString(i.date) || !/^\d{4}-\d{2}-\d{2}$/.test(i.date))
+        return err('bad addProcessDefect args')
+      for (const k of ['handling', 'owner', 'coOwner', 'action']) {
+        if (i[k] !== undefined && !isString(i[k]))
+          return err('bad addProcessDefect args')
+      }
+      const u = await requireUser()
+      await addProcessDefect(
+        {
+          date: i.date,
+          jobNo: i.jobNo,
+          qty: typeof i.qty === 'number' ? i.qty : 0,
+          reason: i.reason,
+          handling: isString(i.handling) ? i.handling : '',
+          owner: isString(i.owner) ? i.owner : '',
+          coOwner: isString(i.coOwner) ? i.coOwner : '',
+          action: isString(i.action) ? i.action : '',
+        },
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'updateProcessDefect': {
+      const defectId = body.defectId
+      const patch = body.patch
+      if (!isString(defectId)) return err('bad updateProcessDefect args')
+      if (typeof patch !== 'object' || patch === null)
+        return err('bad updateProcessDefect args')
+      const p = patch as Record<string, unknown>
+      for (const k of [
+        'date',
+        'jobNo',
+        'reason',
+        'handling',
+        'owner',
+        'coOwner',
+        'action',
+      ]) {
+        if (p[k] !== undefined && !isString(p[k]))
+          return err('bad updateProcessDefect args')
+      }
+      if (p.qty !== undefined && typeof p.qty !== 'number')
+        return err('数量不对')
+      await requireUser()
+      await updateProcessDefect(defectId, p)
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'deleteProcessDefect': {
+      const defectId = body.defectId
+      if (!isString(defectId)) return err('bad deleteProcessDefect args')
+      const u = await requireUser()
+      if (!canSeeReport(u)) return err('无权删除制程不良', 403)
+      await deleteProcessDefect(defectId)
       revalidatePath('/quality')
       return Response.json(ok())
     }
