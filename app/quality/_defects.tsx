@@ -138,12 +138,15 @@ export function DefectsBoard({
             placeholder="搜索 · 工号 / 零件 / 原因 / 措施"
             className="h-9 w-[210px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
           />
-          <Link
-            href={exportHref}
-            className="rounded-[2px] border border-[var(--color-border)] px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)]"
-          >
-            导出
-          </Link>
+          {canEdit && (
+            <Link
+              href={exportHref}
+              prefetch={false}
+              className="rounded-[2px] border border-[var(--color-border)] px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)]"
+            >
+              导出
+            </Link>
+          )}
         </div>
       </div>
 

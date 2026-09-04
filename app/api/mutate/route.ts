@@ -144,6 +144,11 @@ import {
 } from '@/lib/complaints'
 import { setDefectAction } from '@/lib/defect-actions'
 import {
+  addImprovement,
+  deleteImprovement,
+  updateImprovement,
+} from '@/lib/improvements'
+import {
   addProcessDefect,
   deleteProcessDefect,
   updateProcessDefect,
@@ -2394,6 +2399,80 @@ async function dispatch(
       const u = await requireUser()
       if (!canEditQuality(u)) return err('删记录要找工程或于海伟', 403)
       await deleteProcessDefect(defectId)
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    // 改善建议 — 质量模块唯一一张不是记问题的表。提报对全厂的账号开着: 看
+    // 得见问题的是站在机床边上的那个人。改已经填下去的、删一条是工程和商务
+    // 于海伟那一档。
+    case 'addImprovement': {
+      const input = body.input
+      if (typeof input !== 'object' || input === null)
+        return err('bad addImprovement args')
+      const i = input as Record<string, unknown>
+      if (!isString(i.reporter) || !i.reporter.trim()) return err('先填提报人')
+      if (!isString(i.suggestion) || !i.suggestion.trim())
+        return err('写一下改善建议')
+      if (!isString(i.date) || !/^\d{4}-\d{2}-\d{2}$/.test(i.date))
+        return err('bad addImprovement args')
+      for (const k of ['dept', 'before', 'after', 'impact', 'note']) {
+        if (i[k] !== undefined && !isString(i[k]))
+          return err('bad addImprovement args')
+      }
+      const u = await requireUser()
+      await addImprovement(
+        {
+          date: i.date,
+          reporter: i.reporter,
+          dept: isString(i.dept) ? i.dept : '',
+          suggestion: i.suggestion,
+          before: isString(i.before) ? i.before : '',
+          after: isString(i.after) ? i.after : '',
+          impact: isString(i.impact) ? i.impact : '',
+          note: isString(i.note) ? i.note : '',
+        },
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'updateImprovement': {
+      const improvementId = body.improvementId
+      const patch = body.patch
+      if (!isString(improvementId)) return err('bad updateImprovement args')
+      if (typeof patch !== 'object' || patch === null)
+        return err('bad updateImprovement args')
+      const p = patch as Record<string, unknown>
+      for (const k of [
+        'date',
+        'reporter',
+        'dept',
+        'suggestion',
+        'before',
+        'after',
+        'impact',
+        'note',
+      ]) {
+        if (p[k] !== undefined && !isString(p[k]))
+          return err('bad updateImprovement args')
+      }
+      const u = await requireUser()
+      await updateImprovement(improvementId, p, {
+        fillBlanksOnly: !canEditQuality(u),
+      })
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'deleteImprovement': {
+      const improvementId = body.improvementId
+      if (!isString(improvementId)) return err('bad deleteImprovement args')
+      const u = await requireUser()
+      if (!canEditQuality(u)) return err('删建议要找工程或于海伟', 403)
+      await deleteImprovement(improvementId)
       revalidatePath('/quality')
       return Response.json(ok())
     }

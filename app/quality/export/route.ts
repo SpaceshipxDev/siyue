@@ -5,6 +5,7 @@ import { getDefectRows } from '@/lib/db'
 import { getComplaints } from '@/lib/complaints'
 import { getProcessDefects } from '@/lib/process-defects'
 import { getDefectActions } from '@/lib/defect-actions'
+import { getImprovements } from '@/lib/improvements'
 import { today } from '@/lib/today'
 
 // 质量异常 / 制程不良 / 客诉 → .xlsx. 导的就是屏幕上那一批 (同一个月份 + 同一个搜索
@@ -13,6 +14,7 @@ import { today } from '@/lib/today'
 //   ?v=defects  质量异常 — 厂里自己检出来的 (检验 + 成品检), 带纠正预防措施
 //   ?v=process  制程不良 — 质量落笔的那一份, 带责任人和纠正预防措施
 //   ?v=complaint 客诉 — 客户反馈回来的, 带损失金额
+//   ?v=improve  改善建议 — 谁提的, 改善前 / 改善后 / 对效率·质量·成本的影响
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
@@ -57,6 +59,19 @@ const COMPLAINT_HEADERS = [
 ]
 const COMPLAINT_WIDTHS = [12, 22, 16, 10, 30, 24, 12, 34, 12, 12]
 
+const IMPROVE_HEADERS = [
+  '日期',
+  '提报人',
+  '提报部门',
+  '改善建议',
+  '改善前',
+  '改善后',
+  '对效率·质量·成本的影响',
+  '备注',
+  '记录人',
+]
+const IMPROVE_WIDTHS = [12, 12, 12, 40, 30, 30, 34, 24, 12]
+
 export async function GET(request: NextRequest): Promise<Response> {
   const sp = request.nextUrl.searchParams
   // 三张表全厂都记得了、看得见, 但导出跟改是同一档 — 工程 + 商务于海伟
@@ -70,13 +85,52 @@ export async function GET(request: NextRequest): Promise<Response> {
   const view = sp.get('v')
   const complaints = view === 'complaint'
   const process = view === 'process'
+  const improve = view === 'improve'
   const aoa: (string | number)[][] = []
   let widths: number[]
   let sheetName: string
   let base: string
   let file: string
 
-  if (process) {
+  if (improve) {
+    const rows = (await getImprovements())
+      .filter((r) => r.date.slice(0, 7) === month)
+      .filter((r) =>
+        !q
+          ? true
+          : [
+              r.reporter,
+              r.dept,
+              r.suggestion,
+              r.before,
+              r.after,
+              r.impact,
+              r.note,
+            ]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase()
+              .includes(q),
+      )
+    aoa.push(IMPROVE_HEADERS.slice())
+    for (const r of rows) {
+      aoa.push([
+        r.date,
+        r.reporter,
+        r.dept,
+        r.suggestion,
+        r.before,
+        r.after,
+        r.impact,
+        r.note,
+        r.by ?? '',
+      ])
+    }
+    widths = IMPROVE_WIDTHS
+    sheetName = '改善建议'
+    base = `改善建议_${month}`
+    file = `improvements_${month}.xlsx`
+  } else if (process) {
     const rows = (await getProcessDefects())
       .filter((r) => r.date.slice(0, 7) === month)
       .filter((r) =>
