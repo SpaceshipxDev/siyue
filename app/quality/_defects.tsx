@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
-import { EditableText } from '@/app/_editable'
+import { EditableTextArea } from '@/app/_editable'
 import type { DefectRow } from '@/lib/db'
 
 // 质量异常 — 全厂判成 重做 / 返修 / 外修 的零件, 检验 (过程检) 和 质量 (出货
@@ -188,7 +188,7 @@ export function DefectsBoard({
           monthRows.map((r, i) => (
             <div
               key={`${r.partId}-${r.stage}-${i}`}
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b border-[var(--color-border)] px-4 py-2.5 last:border-b-0 hover:bg-[#faf8f2] md:grid-cols-[68px_84px_minmax(0,0.9fr)_56px_52px_minmax(0,1.1fr)_64px_minmax(0,1.2fr)_60px] md:px-5"
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 border-b border-[var(--color-border)] px-4 py-2.5 last:border-b-0 hover:bg-[#faf8f2] md:grid-cols-[68px_84px_minmax(0,0.9fr)_56px_52px_minmax(0,1.1fr)_64px_minmax(0,1.2fr)_60px] md:px-5"
             >
               <span className="mono hidden text-[12.5px] tabular-nums text-[var(--color-ink-2)] md:block">
                 {(r.at ?? '').slice(5, 10) || '—'}
@@ -199,7 +199,7 @@ export function DefectsBoard({
               >
                 {r.jobNo || '—'}
               </Link>
-              <span className="truncate text-[13.5px] font-medium tracking-tight text-[var(--color-ink)]">
+              <span className="break-words text-[13.5px] font-medium tracking-tight text-[var(--color-ink)]">
                 {r.partName || '—'}
                 <span className="mono ml-2 text-[11.5px] font-normal text-[var(--color-ink-4)] md:hidden">
                   {r.jobNo}
@@ -211,27 +211,27 @@ export function DefectsBoard({
               <span className="shrink-0 text-[12.5px] font-medium text-[var(--color-overdue)]">
                 {r.verdict}
               </span>
-              <span className="hidden truncate text-[12.5px] text-[var(--color-ink-2)] md:block">
+              <span className="hidden break-words text-[12.5px] text-[var(--color-ink-2)] md:block">
                 {r.reason || '—'}
               </span>
-              <span className="hidden truncate text-[12.5px] text-[var(--color-ink-2)] md:block">
+              <span className="hidden break-words text-[12.5px] text-[var(--color-ink-2)] md:block">
                 {r.owner || '—'}
               </span>
-              <span className="hidden truncate md:block">
+              <span className="hidden md:block">
                 {canEdit || !actions[`${r.partId}::${r.stage}`] ? (
-                  <EditableText
+                  <EditableTextArea
                     value={actions[`${r.partId}::${r.stage}`]}
                     placeholder="待定措施…"
                     className="text-[12.5px] text-[var(--color-ink-2)]"
                     onSave={(v) => saveAction(r, v)}
                   />
                 ) : (
-                  <span className="truncate text-[12.5px] text-[var(--color-ink-2)]">
+                  <span className="block break-words text-[12.5px] text-[var(--color-ink-2)]">
                     {actions[`${r.partId}::${r.stage}`]}
                   </span>
                 )}
               </span>
-              <span className="hidden truncate text-right text-[12px] text-[var(--color-ink-3)] md:block">
+              <span className="hidden break-words text-right text-[12px] text-[var(--color-ink-3)] md:block">
                 {r.by || '—'}
               </span>
             </div>

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
-import { EditableText } from '@/app/_editable'
+import { EditableTextArea } from '@/app/_editable'
 import type { Improvement } from '@/lib/improvements'
 
 // 改善建议 — 质量模块唯一一张不是记问题的表。
@@ -286,8 +286,8 @@ export function ImprovementsBoard({
               key={r.id}
               className="border-b border-[var(--color-border)] px-4 py-3.5 last:border-b-0 hover:bg-[#faf8f2] md:px-5"
             >
-              <div className="flex items-baseline gap-3">
-                <span className="mono shrink-0 text-[12.5px] tabular-nums text-[var(--color-ink-3)]">
+              <div className="flex items-start gap-3">
+                <span className="mono shrink-0 pt-0.5 text-[12.5px] tabular-nums text-[var(--color-ink-3)]">
                   {r.date.slice(5)}
                 </span>
                 <span className="min-w-0 flex-1">
@@ -313,7 +313,7 @@ export function ImprovementsBoard({
                     onSave={(v) => patch(r.id, { dept: v })}
                   />
                 </span>
-                <span className="w-5 shrink-0 text-right">
+                <span className="w-5 shrink-0 pt-0.5 text-right">
                   {canEdit &&
                     (armDelete === r.id ? (
                       <button
@@ -418,10 +418,13 @@ function Cell({
     ? 'text-[13.5px] font-medium tracking-tight text-[var(--color-ink)]'
     : 'text-[12.5px] text-[var(--color-ink-2)]'
   if (!canEdit) {
-    return <span className={`block truncate ${cls}`}>{value || placeholder}</span>
+    return (
+      <span className={`block break-words ${cls}`}>{value || placeholder}</span>
+    )
   }
+  // 会自己长高的多行框 —— 一条建议本来就是一段话, 写多长就显多长。
   return (
-    <EditableText
+    <EditableTextArea
       value={value}
       placeholder={placeholder}
       className={cls}

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
-import { EditableText } from '@/app/_editable'
+import { EditableText, EditableTextArea } from '@/app/_editable'
 import { formatCny } from '@/lib/data'
 import type { Complaint } from '@/lib/complaints'
 
@@ -334,7 +334,7 @@ export function ComplaintsBoard({
           monthRows.map((r) => (
             <div
               key={r.id}
-              className={`grid ${COLS} items-center gap-3 border-b border-[var(--color-border)] px-4 py-2.5 last:border-b-0 hover:bg-[#faf8f2] md:px-5`}
+              className={`grid ${COLS} items-start gap-3 border-b border-[var(--color-border)] px-4 py-2.5 last:border-b-0 hover:bg-[#faf8f2] md:px-5`}
             >
               <span className="mono text-[12.5px] tabular-nums text-[var(--color-ink-2)]">
                 {r.date.slice(5)}
@@ -442,14 +442,26 @@ function Cell({
   }`
   if (!canEdit) {
     return (
-      <span className={`${mono ? 'mono ' : ''}truncate ${cls}`}>
+      <span className={`${mono ? 'mono ' : ''}break-words ${cls}`}>
         {value || placeholder}
       </span>
     )
   }
+  // 工号 / 工单号 这种短的留在单行框里; 原因、处理方式、措施这些会写成一句
+  // 话, 用会自己长高的多行框 —— 写多长就显多长, 不再截在一格里。
+  if (mono) {
+    return (
+      <EditableText
+        mono
+        value={value}
+        placeholder={placeholder}
+        className={cls}
+        onSave={onSave}
+      />
+    )
+  }
   return (
-    <EditableText
-      mono={mono}
+    <EditableTextArea
       value={value}
       placeholder={placeholder}
       className={cls}
