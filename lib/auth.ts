@@ -159,6 +159,30 @@ export function canEditHrRecord(u: AuthUser): boolean {
   return HR_EDITOR_USER_IDS.has(u.id)
 }
 
+// ─── 仓库 (出入库记录) ──────────────────────────────────────────────────
+//
+// 跟质量一个道理, 两档: 记一笔对全厂的账号开着 —— 东西是当场进出的, 让仓管
+// 等一个有权限的人来代录, 就是让这笔账不存在。改已经记下的、删一笔是另一档:
+// 库存是这些记录加出来的, 悄悄改一笔数, 库存就跟着错, 而且看不出是哪天错的。
+//
+// 今天跟质量是同一批人, 但分开写 —— 仓库的钥匙和质量的笔不是一回事, 哪天要
+// 把仓管加进来, 改这一行就够了, 不会顺手动了质量。
+const WAREHOUSE_EDITOR_USER_IDS = new Set<string>([
+  'u-ms45yjq9-2kbdi1', // 商务于海伟
+  'u-mose92lt-a0cutz', // 于海伟 — 工程号, 同一个人的另一个登录
+  'u-mose0apu-9ugtd8', // 周江华 — 工程
+  'u-mpc3rcje-6987yo', // 程江华 — 工程
+  'u-mroawaab-g84mo6', // 彭炳才 — 工程
+  'u-mose7y1k-r91xn7', // 涂明杰 — 工程
+  'u-mose8blz-dnkt24', // 工程003
+  'u-mose8mdn-c8m695', // 工程004
+  'u-mounqsw2-5g86hh', // harry 2 (dev/test account)
+])
+
+export function canEditWarehouse(u: AuthUser): boolean {
+  return WAREHOUSE_EDITOR_USER_IDS.has(u.id) || isAdminUser(u.id)
+}
+
 // ─── 工单导出 (看板右上角那个「导出」) ──────────────────────────────────
 //
 // 看板谁都看得见, 那是干活要用的; 导出是另一件事 —— 一次把屏幕上这一批工单

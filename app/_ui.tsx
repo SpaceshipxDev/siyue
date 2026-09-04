@@ -14,6 +14,7 @@ export type TabKey =
   | '现场'
   | '交接'
   | '采购'
+  | '仓库'
   | '报工'
   | '财务'
   | '报价'
@@ -72,6 +73,8 @@ function tabsForRole(
         { key: '现场', label: '现场', href: '/pulse' },
         { key: '交接', label: '交接', href: '/handover' },
         { key: '采购', label: '采购', href: '/procurement' },
+        // 仓库 — 采购的下一步: 买回来的东西进了库、领出去, 挨着采购放。
+        { key: '仓库', label: '仓库', href: '/warehouse' },
         // 报工 shown only for explicitly-granted 工程 users (canSeeReport — e.g.
         // 于海伟); the rest of 工程 don't get it. Gate: requireReportViewer.
         ...(canSeeReport ? [{ key: '报工' as TabKey, label: '报工', href: '/report' }] : []),
@@ -106,6 +109,7 @@ function tabsForRole(
       { key: '工单', label: '全部', href: '/' },
       ...stageTabs(),
       { key: '采购', label: '采购', href: '/procurement' },
+      { key: '仓库', label: '仓库', href: '/warehouse' },
       { key: '人事', label: '人事', href: '/hr' },
     ]
   }
@@ -118,6 +122,7 @@ function tabsForRole(
     { key: '现场', label: '现场', href: '/pulse' },
     { key: '交接', label: '交接', href: '/handover' },
     { key: '采购', label: '采购', href: '/procurement' },
+    { key: '仓库', label: '仓库', href: '/warehouse' },
     { key: '报工', label: '报工', href: '/report' },
     // 报价 — 接单之前, 排在财务前面: 报价 → 接单 → 记账。
     { key: '报价', label: '报价', href: '/quote' },

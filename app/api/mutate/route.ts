@@ -123,6 +123,7 @@ import {
   canSeeExpenses,
   canSeeOrderLedger,
   canEditQuality,
+  canEditWarehouse,
   canUndoFinishedStage,
   canSeeFactoryPulse,
   canSeeMoney,
@@ -148,6 +149,11 @@ import {
   deleteImprovement,
   updateImprovement,
 } from '@/lib/improvements'
+import {
+  addStockMove,
+  deleteStockMove,
+  updateStockMove,
+} from '@/lib/warehouse'
 import {
   addProcessDefect,
   deleteProcessDefect,
@@ -2474,6 +2480,78 @@ async function dispatch(
       if (!canEditQuality(u)) return err('删建议要找工程或于海伟', 403)
       await deleteImprovement(improvementId)
       revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    // 仓库 出入库 — 库存是这张表加出来的, 没有第二个地方存"现在有多少"。
+    // 记一笔对全厂的账号开着 (东西是当场进出的); 改已经记下的、删一笔是工程
+    // 和商务于海伟那一档 —— 悄悄改一笔数, 库存就跟着错, 还看不出是哪天错的。
+    case 'addStockMove': {
+      const input = body.input
+      if (typeof input !== 'object' || input === null)
+        return err('bad addStockMove args')
+      const i = input as Record<string, unknown>
+      if (!isString(i.name) || !i.name.trim()) return err('先填物料名称')
+      if (typeof i.qty !== 'number' || !Number.isFinite(i.qty) || i.qty <= 0)
+        return err('数量要填一个大于 0 的数')
+      if (!isString(i.date) || !/^\d{4}-\d{2}-\d{2}$/.test(i.date))
+        return err('bad addStockMove args')
+      if (i.moveKind !== 'in' && i.moveKind !== 'out')
+        return err('bad addStockMove args')
+      for (const k of ['spec', 'note']) {
+        if (i[k] !== undefined && !isString(i[k]))
+          return err('bad addStockMove args')
+      }
+      const u = await requireUser()
+      await addStockMove(
+        {
+          date: i.date,
+          name: i.name,
+          spec: isString(i.spec) ? i.spec : '',
+          kind: i.moveKind,
+          qty: i.qty,
+          note: isString(i.note) ? i.note : '',
+        },
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath('/warehouse')
+      return Response.json(ok())
+    }
+
+    case 'updateStockMove': {
+      const moveId = body.moveId
+      const patch = body.patch
+      if (!isString(moveId)) return err('bad updateStockMove args')
+      if (typeof patch !== 'object' || patch === null)
+        return err('bad updateStockMove args')
+      const p = patch as Record<string, unknown>
+      for (const k of ['date', 'name', 'spec', 'note']) {
+        if (p[k] !== undefined && !isString(p[k]))
+          return err('bad updateStockMove args')
+      }
+      if (p.kind !== undefined && p.kind !== 'in' && p.kind !== 'out')
+        return err('bad updateStockMove args')
+      if (
+        p.qty !== undefined &&
+        (typeof p.qty !== 'number' || !Number.isFinite(p.qty) || p.qty <= 0)
+      )
+        return err('数量要大于 0')
+      const u = await requireUser()
+      await updateStockMove(moveId, p, {
+        fillBlanksOnly: !canEditWarehouse(u),
+      })
+      revalidatePath('/warehouse')
+      return Response.json(ok())
+    }
+
+    case 'deleteStockMove': {
+      const moveId = body.moveId
+      if (!isString(moveId)) return err('bad deleteStockMove args')
+      const u = await requireUser()
+      if (!canEditWarehouse(u)) return err('删记录要找工程或于海伟', 403)
+      await deleteStockMove(moveId)
+      revalidatePath('/warehouse')
       return Response.json(ok())
     }
 
