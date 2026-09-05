@@ -26,6 +26,7 @@
 //     server told us why and another attempt would fail the same way.
 
 import { withBase } from '@/lib/base-path'
+import { getReporterName } from '@/app/_reporter'
 
 export type MutateResult<T = undefined> =
   | (T extends undefined ? { ok: true } : { ok: true; data: T })
@@ -95,7 +96,15 @@ async function attempt<T>(
 export async function mutate<T = undefined>(
   body: Record<string, unknown> & { kind: string },
 ): Promise<MutateResult<T>> {
-  const payload = { ...body, requestId: newRequestId() }
+  // 报工人 — 这台机器上设的名字 (app/_reporter)。车间半数账号是共用的, 账号
+  // 名认不出人; 服务端只在报工那几个动作上用它, 别的一概照旧记账号名。没设
+  // 就不带这个字段。
+  const reporter = getReporterName()
+  const payload = {
+    ...body,
+    ...(reporter ? { actorName: reporter } : null),
+    requestId: newRequestId(),
+  }
   let lastTransient: TransientError | null = null
   for (let i = 0; i <= RETRY_DELAYS_MS.length; i++) {
     if (i > 0) await sleep(RETRY_DELAYS_MS[i - 1])

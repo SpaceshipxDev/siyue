@@ -6,6 +6,7 @@ import { today } from '@/lib/today'
 import type { Role } from '@/lib/auth'
 import type { OrderMoneyStatus } from '@/lib/order-money'
 import { LogoutButton } from './_logout'
+import { ReporterChip } from './_reporter'
 
 export type TabKey =
   | '商务'
@@ -191,6 +192,9 @@ export function TopBar({
         </div>
         <div className="flex items-baseline gap-3 md:gap-8 text-[var(--color-ink-2)] flex-wrap">
           {right}
+          {/* 报工人 — 一个账号两个人用的时候, 各自设一下名字, 报工统计才分得
+              开 (app/_reporter)。商务不报工, 所以只给生产账号看。 */}
+          {!isCommerce && <ReporterChip accountName={userName} />}
           <span className="label mono text-[var(--color-ink)]">{userName}</span>
           <LogoutButton name={userName} />
           <span className="label">今日 · {today()}</span>

@@ -688,6 +688,22 @@ const LOGGED_KINDS = new Set([
   'setBlockWechatSent',
 ])
 
+// 报工人 — 这一下工是谁报的。
+//
+// 车间半数账号是共用的 (塑料操机001、打磨喷漆、批量组001…): 两个人分开报同
+// 一张单的不同零件, 报出来是同一个名字, 报工统计自然分不开。账号管的是"能不
+// 能报这道工序" (requireOwnStage 照旧查账号), 管不了"是谁在报" —— 所以名字
+// 单独跟着请求走 (app/_reporter, 存在那台机器上)。
+//
+// 只有报工那几个动作用它: ▶ / ✓ / 完成数量 / 判定。别的一律记账号名。没设、
+// 或者设成空的, 就退回账号名, 跟以前一模一样。
+function reportActor(u: AuthUser, body: Record<string, unknown>): string {
+  const raw = body.actorName
+  if (typeof raw !== 'string') return u.name
+  const name = raw.trim().slice(0, 24)
+  return name || u.name
+}
+
 // Page-scoped revalidate helpers — never use `'layout'`. Each helper
 // invalidates only the surface that genuinely changed so the next nav from
 // any other browser reads fresh data, without inflating the response of
@@ -957,7 +973,7 @@ async function dispatch(
       if (!isString(jobId) || !isString(componentId) || !isStage(stage))
         return err('bad startStage args')
       const u = await requireOwnStage(stage)
-      await startStage(jobId, componentId, stage, u.name)
+      await startStage(jobId, componentId, stage, reportActor(u, body))
       revalidateStage(jobId, stage)
       return Response.json(ok())
     }
@@ -969,7 +985,7 @@ async function dispatch(
       if (!isString(jobId) || !isString(componentId) || !isStage(stage))
         return err('bad finishStage args')
       const u = await requireOwnStage(stage)
-      await finishStage(jobId, componentId, stage, u.name)
+      await finishStage(jobId, componentId, stage, reportActor(u, body))
       revalidateStage(jobId, stage)
       return Response.json(ok())
     }
@@ -1023,7 +1039,8 @@ async function dispatch(
       )
         return err('bad setStageDoneQty args')
       const u = await requireOwnStage(stage)
-      const moved = await setStageDoneQty(jobId, componentId, stage, qty, u.name)
+      const who = reportActor(u, body)
+      const moved = await setStageDoneQty(jobId, componentId, stage, qty, who)
       // 报了几件就记在谁头上 —— 工序没做完的时候没有完成事件, 这几件在报工
       // 统计里本来看不见; 两个班做同一个产品, 前一个班就这么消失了。
       // 见 lib/work-split 的 addWorkShare。
@@ -1031,7 +1048,7 @@ async function dispatch(
         await addWorkShare(
           moved.partId,
           stage,
-          u.name,
+          who,
           moved.delta,
           new Date().toISOString(),
         )
@@ -1054,7 +1071,13 @@ async function dispatch(
       if (!isString(jobId) || !isString(componentId) || !isVerdict(verdict))
         return err('bad setInspectionVerdict args')
       const u = await requireOwnStage(stage)
-      await setInspectionVerdict(jobId, componentId, verdict, u.name, stage)
+      await setInspectionVerdict(
+        jobId,
+        componentId,
+        verdict,
+        reportActor(u, body),
+        stage,
+      )
       revalidateStage(jobId, stage)
       return Response.json(ok())
     }
@@ -1147,7 +1170,7 @@ async function dispatch(
       if (!isString(jobId) || !isStage(stage))
         return err('bad startJobStage args')
       const u = await requireOwnStage(stage)
-      await startJobStage(jobId, stage, u.name)
+      await startJobStage(jobId, stage, reportActor(u, body))
       revalidateStage(jobId, stage)
       return Response.json(ok(await freshStageCounts(jobId, stage)))
     }
@@ -1158,7 +1181,7 @@ async function dispatch(
       if (!isString(jobId) || !isStage(stage))
         return err('bad finishJobStage args')
       const u = await requireOwnStage(stage)
-      await finishJobStage(jobId, stage, u.name)
+      await finishJobStage(jobId, stage, reportActor(u, body))
       revalidateStage(jobId, stage)
       return Response.json(ok(await freshStageCounts(jobId, stage)))
     }
