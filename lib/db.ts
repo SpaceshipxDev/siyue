@@ -4530,27 +4530,33 @@ export async function deletePartPhoto(
 // done_qty cleared). When 0 < qty < part.qty the row stays in_progress with
 // the count saved; when qty === 0 the row goes back to a fresh in_progress
 // (or pending if it was pending before).
+//
+// 返回值: 这一次"多报了几件" (partId + delta)。报工统计要靠它把两个班分开 ——
+// 工序没做完就没有完成事件, 这 2 件在报工里本来是不存在的 (见 lib/work-split
+// 的 addWorkShare)。只有停在 in_progress 的那一支才返回; 一次报满做完的那一支
+// 不返回, 剩余件数在完成时算给按 ✓ 的那个人。
 export async function setStageDoneQty(
   jobId: string,
   componentId: string,
   stage: Stage,
   qty: number,
   actor: string,
-): Promise<void> {
-  await withWriteLock(async () => {
+): Promise<{ partId: string; delta: number } | undefined> {
+  return withWriteLock(async () => {
     const snap = await loadJobSnapshot(jobId)
     const partId = findPartIdInSnap(snap, jobId, componentId)
-    if (!partId) return
+    if (!partId) return undefined
     const part = snap.idx.partById.get(partId)
-    if (!part) return
+    if (!part) return undefined
     const row = snap.idx.stageByPartStage.get(stageKey(partId, stage))
-    if (!row) return
+    if (!row) return undefined
     const max = Math.max(0, Math.floor(part.qty))
     const clamped = Math.max(0, Math.min(max, Math.floor(qty)))
+    const prevDone = row.status === 'done' ? max : (row.doneQty ?? 0)
     // Idempotent: setting qty to part.qty on an already-done row is a no-op.
     // Callers (e.g. the 出货单 qty cell) write through unconditionally, so we
     // short-circuit here rather than asking every caller to guard.
-    if (row.status === 'done' && clamped >= max && max > 0) return
+    if (row.status === 'done' && clamped >= max && max > 0) return undefined
     if (clamped >= max && max > 0) {
       const date = todayMMDD()
       const finishedAt = new Date().toISOString()
@@ -4569,7 +4575,7 @@ export async function setStageDoneQty(
       if (stage === '出货') {
         await closeOpenOutsourceMembersForParts(snap, [partId], today())
       }
-      return
+      return undefined
     }
     // Falling through from a 'done' row (qty < max) flips it back to
     // in_progress with the new partial. Upstream cascade rows stay done —
@@ -4588,6 +4594,8 @@ export async function setStageDoneQty(
         doneQty: clamped > 0 ? clamped : undefined,
       },
     ])
+    const delta = clamped - prevDone
+    return delta > 0 ? { partId, delta } : undefined
   })
 }
 

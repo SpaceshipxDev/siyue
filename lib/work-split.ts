@@ -32,6 +32,8 @@ const KEY = 'report/work-splits.json'
 export type WorkShare = {
   name: string // 姓名 — 车间共用账号, 所以是落笔的名字, 不是账号
   qty: number // 报工数量
+  /** 报这几件的时间 — 在制报工按这个时间落在哪一天/哪个月。 */
+  at?: string
 }
 
 type Entry = {
@@ -62,10 +64,14 @@ export function normalizeShares(raw: unknown): WorkShare[] {
     const name = str(r.name)
     const qty = qtyOf(r.qty)
     if (!name || qty <= 0) continue
-    // 同一个人写两行就并成一行 — 报工统计里一个人只该出现一次。
+    const at = str(r.at) || undefined
+    // 同一个人写两行就并成一行 — 报工统计里一个人只该出现一次。时间取最后
+    // 那一次: 一个人分几次报的, 落在最后一次报的那一天。
     const hit = out.find((o) => o.name === name)
-    if (hit) hit.qty = Math.round((hit.qty + qty) * 100) / 100
-    else out.push({ name, qty })
+    if (hit) {
+      hit.qty = Math.round((hit.qty + qty) * 100) / 100
+      if (at && (!hit.at || at > hit.at)) hit.at = at
+    } else out.push({ name, qty, at })
   }
   return out
 }
@@ -133,13 +139,53 @@ export async function setWorkSplit(
   await withLock(async () => {
     const map = await read()
     const key = workSplitKey(partId, stage)
-    const clean = normalizeShares(shares)
+    const clean = normalizeShares(shares).map((s) => ({
+      ...s,
+      at: s.at ?? nowIso,
+    }))
     if (clean.length === 0) {
       if (!(key in map)) return
       delete map[key]
     } else {
       map[key] = { shares: clean, by, at: nowIso }
     }
+    await write(map)
+  })
+}
+
+/*
+ * 报了几件 —— 自动记的那一半。
+ *
+ * 车间在工序格子里填"完成数量 2", 系统原来只把这个数存在零件行上, 不留人:
+ * 工序没做完就没有完成事件, 报工统计里根本看不见这 2 件; 等另一个班把剩下的
+ * 做完按了 ✓, 整条又全记给了那个班。两个班做同一个产品, 前一个班就这么消失
+ * 了。
+ *
+ * 所以每报一次数量, 就按"这次多报了几件"给这个人记一笔。工序做完的时候, 剩
+ * 下没人认领的那些件数还是算按 ✓ 的那个人 (lib/pulse 的 remainder)。谁都不用
+ * 多点一下, 分工自己就出来了。
+ */
+export async function addWorkShare(
+  partId: string,
+  stage: string,
+  name: string,
+  qty: number,
+  nowIso: string,
+): Promise<void> {
+  const who = name.trim()
+  const add = qtyOf(qty)
+  if (!who || add <= 0) return
+  await withLock(async () => {
+    const map = await read()
+    const key = workSplitKey(partId, stage)
+    const cur = map[key]?.shares ?? []
+    const next = [...cur]
+    const hit = next.find((s) => s.name === who)
+    if (hit) {
+      hit.qty = Math.round((hit.qty + add) * 100) / 100
+      hit.at = nowIso
+    } else next.push({ name: who, qty: add, at: nowIso })
+    map[key] = { shares: next, by: map[key]?.by ?? who, at: nowIso }
     await write(map)
   })
 }

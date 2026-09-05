@@ -180,7 +180,11 @@ export function SplitEditor({
           {filled.length === 0
             ? '空着保存 = 不分工，全记给报工的人。'
             : `合计 ${sum} 件${
-                sum !== componentQty ? ` · 和总数 ${componentQty} 对不上` : ''
+                sum < componentQty
+                  ? ` · 剩下 ${componentQty - sum} 件算给报完工的人`
+                  : sum > componentQty
+                    ? ` · 比总数 ${componentQty} 多`
+                    : ''
               }`}
         </p>
         {error && (

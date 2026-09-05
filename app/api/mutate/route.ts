@@ -155,7 +155,7 @@ import {
   deleteStockMove,
   updateStockMove,
 } from '@/lib/warehouse'
-import { normalizeShares, setWorkSplit } from '@/lib/work-split'
+import { addWorkShare, normalizeShares, setWorkSplit } from '@/lib/work-split'
 import {
   addProcessDefect,
   deleteProcessDefect,
@@ -1023,7 +1023,19 @@ async function dispatch(
       )
         return err('bad setStageDoneQty args')
       const u = await requireOwnStage(stage)
-      await setStageDoneQty(jobId, componentId, stage, qty, u.name)
+      const moved = await setStageDoneQty(jobId, componentId, stage, qty, u.name)
+      // 报了几件就记在谁头上 —— 工序没做完的时候没有完成事件, 这几件在报工
+      // 统计里本来看不见; 两个班做同一个产品, 前一个班就这么消失了。
+      // 见 lib/work-split 的 addWorkShare。
+      if (moved) {
+        await addWorkShare(
+          moved.partId,
+          stage,
+          u.name,
+          moved.delta,
+          new Date().toISOString(),
+        )
+      }
       revalidateStage(jobId, stage)
       return Response.json(ok())
     }
@@ -2499,7 +2511,6 @@ async function dispatch(
       if (!isString(stage) || !(STAGES as readonly string[]).includes(stage))
         return err('bad setWorkSplit args')
       const clean = normalizeShares(shares)
-      if (clean.length === 1) return err('分工要两个人以上')
       const u = await requireUser()
       if (!canClickStage(u, stage as Stage))
         return err(`${stage} 不是你的工段`, 403)

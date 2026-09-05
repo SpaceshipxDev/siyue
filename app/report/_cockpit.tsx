@@ -27,6 +27,8 @@ type Person = {
   pieces: number
   valueCny: number
   unpriced: number
+  /** 在制 — 这段时间报了、但那道工序还没做完的件数。工序一做完就挪进件次。 */
+  pendingPieces?: number
   lastActiveTs?: string
 }
 type StuckPart = {
@@ -186,9 +188,10 @@ export function ReportClient({
       a.finishes += p.finishes
       a.pieces += p.pieces
       a.valueCny += p.valueCny
+      a.pending += p.pendingPieces ?? 0
       return a
     },
-    { finishes: 0, pieces: 0, valueCny: 0 },
+    { finishes: 0, pieces: 0, valueCny: 0, pending: 0 },
   )
 
   const nextDisabled = to >= todayStr
@@ -202,6 +205,12 @@ export function ReportClient({
               编程 then 操机 is 2 here, and its pieces are counted once per pass
               (hence 件次). Calling either one "零件" overstated output ~2×. */}
           <Totaled label="完成工序" value={NUM.format(totals.finishes)} sub={`${NUM.format(totals.pieces)} 件次`} />
+          {/* 在制 — 报了几件, 那道工序还没做完。两个班做同一个产品时, 先做
+              的那个班本来在这一页上一个字都看不到。工序一做完, 这几件就挪
+              到左边的件次里去, 两栏各算各的。 */}
+          {totals.pending > 0 && (
+            <Totaled label="在制报工" value={`${NUM.format(totals.pending)} 件`} />
+          )}
           {showMoney && <Totaled label="经手金额（按5%）" value={formatCny(totals.valueCny)} />}
         </div>
         <div className="flex items-center gap-3">
@@ -281,7 +290,9 @@ function PeopleList({
   onToggle: (name: string) => void
 }) {
   // 经手金额（按5%）needs more than the old 120px — the （按5%）suffix wraps otherwise.
-  const cols = showMoney ? 'grid-cols-[1fr_120px_72px_150px_110px]' : 'grid-cols-[1fr_120px_72px_110px]'
+  const cols = showMoney
+    ? 'grid-cols-[1fr_120px_72px_72px_150px_110px]'
+    : 'grid-cols-[1fr_120px_72px_72px_110px]'
 
   if (error) {
     return <p className="py-16 text-center text-[13px] text-[var(--color-overdue)]">加载失败：{error}</p>
@@ -302,6 +313,7 @@ function PeopleList({
       <div className={`grid ${cols} gap-x-6 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2`}>
         <span className="label">姓名</span>
         <span className="label text-right">完成工序</span>
+        <span className="label text-right">在制</span>
         <span className="label text-right">开始</span>
         {showMoney && <span className="label text-right whitespace-nowrap">经手金额（按5%）</span>}
         <span className="label text-right">最后活动</span>
@@ -331,6 +343,9 @@ function PeopleList({
                 <span className="text-right tabular-nums">
                   <span className="text-[16px] font-semibold text-[var(--color-ink)]">{NUM.format(p.finishes)}</span>
                   <span className="ml-1.5 text-[11px] text-[var(--color-ink-3)]">· {NUM.format(p.pieces)} 件</span>
+                </span>
+                <span className="text-right text-[14px] tabular-nums text-[var(--color-warning)]">
+                  {p.pendingPieces ? NUM.format(p.pendingPieces) : '—'}
                 </span>
                 <span className="text-right text-[14px] tabular-nums text-[var(--color-ink-2)]">{NUM.format(p.starts)}</span>
                 {showMoney && (
