@@ -40,6 +40,11 @@ export function SourceFileRow({
   const [drag, setDrag] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pending, start] = useTransition()
+  // 读图片 — 拿这份源文件重新认一遍图, 补给还没有图的零件行。别的一个字不动
+  // (见 app/api/reload-images)。表格里的图有好几种存法, 换个软件导出就换一
+  // 种, 所以导入当时没认出来的, 事后能在这里再要一次。
+  const [imgPending, startImg] = useTransition()
+  const [note, setNote] = useState<string | null>(null)
   // Hold the just-uploaded file locally so the row reflects the new state
   // without a router.refresh() — refresh would re-stream the whole job
   // detail RSC, which the GFW kills for mainland users on the HK VM.
@@ -78,6 +83,38 @@ export function SourceFileRow({
     },
     [jobId],
   )
+
+  const reloadImages = useCallback(() => {
+    setError(null)
+    setNote(null)
+    startImg(async () => {
+      try {
+        const r = await fetch(withBase('/api/reload-images'), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ jobId }),
+        })
+        const data = (await r.json().catch(() => ({}))) as {
+          ok?: boolean
+          attached?: number
+          found?: number
+          message?: string
+          error?: string
+        }
+        if (!data.ok) {
+          setError(data.error || '读图失败')
+          return
+        }
+        setNote(
+          data.attached
+            ? `补了 ${data.attached} 张图 · 刷新一下`
+            : (data.message ?? '没有可补的图'),
+        )
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '读图失败')
+      }
+    })
+  }, [jobId])
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault()
@@ -126,14 +163,21 @@ export function SourceFileRow({
         </span>
       )}
 
-      {error && (
+      {error ? (
         <span
           className="shrink-0 truncate text-[12px] text-[var(--color-overdue)]"
           title={error}
         >
           {error}
         </span>
-      )}
+      ) : note ? (
+        <span
+          className="shrink-0 truncate text-[12px] text-[var(--color-ink-3)]"
+          title={note}
+        >
+          {note}
+        </span>
+      ) : null}
 
       <input
         ref={inputRef}
@@ -146,6 +190,18 @@ export function SourceFileRow({
           if (f) upload(f)
         }}
       />
+      {/* 读图片 — 只补图, 零件行的名称数量工序一个都不动。 */}
+      {hasFile && (
+        <button
+          type="button"
+          onClick={reloadImages}
+          disabled={imgPending || pending}
+          title="拿这份源文件重新认一遍图，补给还没有图的零件；别的不动"
+          className={`${ACT_BTN} border-[var(--color-border)] text-[var(--color-ink-3)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-ink)]`}
+        >
+          {imgPending ? <SpinnerIcon /> : '读图片'}
+        </button>
+      )}
       <button
         type="button"
         onClick={() => inputRef.current?.click()}

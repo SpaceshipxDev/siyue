@@ -99,7 +99,10 @@ type Rel = { id: string; type: string; target: string }
 
 function parseRels(xml: string): Rel[] {
   const rels: Rel[] = []
-  const re = /<Relationship\b[^>]*\/>/g
+  // 自闭合 `<Relationship … />` 和成对的 `<Relationship …></Relationship>`
+  // 都要认 —— 只匹配自闭合的话, 后一种写法整份关系表都读不出来, 表现就是
+  // "文件里明明有图, 系统一张也认不到"。
+  const re = /<Relationship\b[^>]*?\/?>/g
   let m: RegExpExecArray | null
   while ((m = re.exec(xml)) !== null) {
     const tag = m[0]
@@ -125,12 +128,14 @@ type Sheet = { name: string; path: string }
 function parseSheetIndex(workbookXml: string, workbookRels: Rel[]): Sheet[] {
   const byId = new Map(workbookRels.map((r) => [r.id, r]))
   const sheets: Sheet[] = []
-  const re = /<sheet\b[^>]*\/>/g
+  // 同上: 自闭合和成对写法都认。r:id 的前缀也不固定 (r / rel / 别的), 所以
+  // 认"任何前缀 + :id"; sheetId 没有冒号, 不会被误抓。
+  const re = /<sheet\b[^>]*?\/?>/g
   let m: RegExpExecArray | null
   while ((m = re.exec(workbookXml)) !== null) {
     const tag = m[0]
     const name = /\bname="([^"]+)"/.exec(tag)?.[1]
-    const rid = /\br:id="([^"]+)"/.exec(tag)?.[1]
+    const rid = /\b[A-Za-z0-9_]+:id="([^"]+)"/.exec(tag)?.[1]
     if (!name || !rid) continue
     const rel = byId.get(rid)
     if (!rel) continue
@@ -142,52 +147,70 @@ function parseSheetIndex(workbookXml: string, workbookRels: Rel[]): Sheet[] {
   return sheets
 }
 
-// WPS DISPIMG cells: each has `<c r="ADDR" ...><f>...DISPIMG("ID_xxx", 1)...</f>...</c>`.
-// We pull every `(addr, imageId)` pair the sheet declares.
+// WPS 单元格图片: 单元格里是 `_xlfn.DISPIMG("ID_xxx", 1)`。
+//
+// 不假定它一定写在 `<f>` 里紧跟着 `<c>` —— 不同版本的 WPS 会把它放在公式、
+// 内联字符串或者缓存值里。整格读进来, 里面找得到 DISPIMG 就算。
 function parseDispimgCells(sheetXml: string): { addr: string; imageId: string }[] {
   const out: { addr: string; imageId: string }[] = []
-  const re = /<c\b[^>]*\br="([A-Z]+\d+)"[^>]*>\s*<f[^>]*>([^<]*)<\/f>/g
+  const re = /<c\b[^>]*\br="([A-Z]+\d+)"[^>]*>([\s\S]*?)<\/c>/g
   let m: RegExpExecArray | null
   while ((m = re.exec(sheetXml)) !== null) {
     const addr = m[1]
-    const formula = decodeXmlEntities(m[2])
-    const idMatch = /DISPIMG\(\s*"([^"]+)"/.exec(formula)
+    const inner = decodeXmlEntities(m[2])
+    const idMatch = /DISPIMG\(\s*["']([^"']+)["']/.exec(inner)
     if (idMatch) out.push({ addr, imageId: idMatch[1] })
   }
   return out
 }
 
-// `xl/cellimages.xml`: pair each `name="ID_xxx"` with the immediately-following
-// `r:embed="rIdN"` inside the same etc:cellImage block.
+// `xl/cellimages.xml`: 把每个 `name="ID_xxx"` 跟同一块里的 `embed="rIdN"`
+// 配起来。命名空间前缀不固定 (etc: / xdr: / 没有前缀都见过), 所以只认标签
+// 名本身。
 function parseCellImagesIndex(xml: string): Map<string, string> {
   const out = new Map<string, string>()
-  const re = /<etc:cellImage\b[\s\S]*?<\/etc:cellImage>/g
+  const re = /<(?:[A-Za-z0-9_]+:)?cellImage\b[\s\S]*?<\/(?:[A-Za-z0-9_]+:)?cellImage>/g
   let m: RegExpExecArray | null
   while ((m = re.exec(xml)) !== null) {
     const block = m[0]
     const name = /\bname="(ID_[^"]+)"/.exec(block)?.[1]
-    const embed = /\br:embed="([^"]+)"/.exec(block)?.[1]
+    const embed = /\b(?:[A-Za-z0-9_]+:)?embed="([^"]+)"/.exec(block)?.[1]
     if (name && embed) out.set(name, embed)
   }
   return out
 }
 
-// Standard drawings: each `xdr:twoCellAnchor` / `xdr:oneCellAnchor` containing
-// an `<xdr:pic>` resolves to one image, anchored to the `xdr:from` cell.
+// 普通浮动图片: 每个 twoCellAnchor / oneCellAnchor 里带一张图, 锚在 from 那
+// 个单元格上。
+//
+// 命名空间前缀一概不认死 —— Excel 写 `xdr:`, WPS 和别的导出工具写 `xdr1:`、
+// 写别的前缀、甚至不写前缀。以前只认 `xdr:`, 换个工具导出的表就一张图都读不
+// 出来, 表现正是"文件里有图, 系统里零件没有图"。
+//
+// 图片本体除了 `<pic>` 也可能包在 `<graphicFrame>` 里 (WPS 的图片有时是这种
+// 结构), 所以只要这一块里有 blip 引用就算数。
 function parseDrawingAnchors(
   xml: string,
 ): { row: number; col: number; embed: string }[] {
   const out: { row: number; col: number; embed: string }[] = []
-  const re = /<xdr:(?:twoCellAnchor|oneCellAnchor)\b[\s\S]*?<\/xdr:(?:twoCellAnchor|oneCellAnchor)>/g
+  const re =
+    /<(?:[A-Za-z0-9_]+:)?(?:twoCellAnchor|oneCellAnchor)\b[\s\S]*?<\/(?:[A-Za-z0-9_]+:)?(?:twoCellAnchor|oneCellAnchor)>/g
   let m: RegExpExecArray | null
   while ((m = re.exec(xml)) !== null) {
     const block = m[0]
-    if (!/<xdr:pic\b/.test(block)) continue
-    const from = /<xdr:from>([\s\S]*?)<\/xdr:from>/.exec(block)?.[1]
+    const from = /<(?:[A-Za-z0-9_]+:)?from>([\s\S]*?)<\/(?:[A-Za-z0-9_]+:)?from>/.exec(
+      block,
+    )?.[1]
     if (!from) continue
-    const colStr = /<xdr:col>(\d+)<\/xdr:col>/.exec(from)?.[1]
-    const rowStr = /<xdr:row>(\d+)<\/xdr:row>/.exec(from)?.[1]
-    const embed = /<a:blip\b[^>]*\br:embed="([^"]+)"/.exec(block)?.[1]
+    const colStr = /<(?:[A-Za-z0-9_]+:)?col>(\d+)<\/(?:[A-Za-z0-9_]+:)?col>/.exec(
+      from,
+    )?.[1]
+    const rowStr = /<(?:[A-Za-z0-9_]+:)?row>(\d+)<\/(?:[A-Za-z0-9_]+:)?row>/.exec(
+      from,
+    )?.[1]
+    const embed = /<(?:[A-Za-z0-9_]+:)?blip\b[^>]*?\b(?:[A-Za-z0-9_]+:)?embed="([^"]+)"/.exec(
+      block,
+    )?.[1]
     if (colStr == null || rowStr == null || !embed) continue
     out.push({ row: parseInt(rowStr, 10), col: parseInt(colStr, 10), embed })
   }
@@ -293,7 +316,11 @@ export function extractWorkbookImages(buf: ArrayBuffer): WorkbookImages {
     const sheetRelsXml = text(relsPathFor(sheet.path))
     if (!sheetRelsXml) continue
     const sheetRels = parseRels(sheetRelsXml)
-    const drawingRels = sheetRels.filter((r) => r.type.endsWith('/drawing'))
+    // 类型串各家写法不完全一样, 认"结尾是 drawing"之外再兜一层: 目标文件本
+    // 身就在 drawings/ 目录下的也算 —— 关系类型写歪过, 但路径没歪过。
+    const drawingRels = sheetRels.filter(
+      (r) => r.type.endsWith('/drawing') || /(^|\/)drawings\//.test(r.target),
+    )
     for (const dr of drawingRels) {
       const drawingPath = resolveRel(dirOf(sheet.path), dr.target)
       const drawingXml = text(drawingPath)
