@@ -590,7 +590,9 @@ const STAGE_SCOPE_BY_USER_ID: Record<string, StageScope> = {
   'u-mpdgdq8f-fn7k40': FINISHING_STAGE_SCOPE, // 打磨喷漆
   'u-mpdg1xc0-w221oi': ['手工', '打磨', '喷漆'], // 批量组001夏
   'u-mpdgqdy0-twnhmy': ['质量', '检验', '出货'], // 质量周中华 — de facto shipper (2,105 出货 taps/45d)
-  'u-mpdgra00-srf0qm': ['质量', '检验'], // 质量倪伟群
+  // 质量倪伟群 — 老板 2026-09 定的四道: 检验 · 表处 · 质量 · 出货。表处是外协
+  // 出去做的那一道, 回厂由质量这边收, 所以归他报。
+  'u-mpdgra00-srf0qm': ['检验', '表处', '质量', '出货'],
   'u-mpkkcscl-9aoza0': ['质量', '检验'], // 刘敏敏
   'u-mpkkghqt-p8qrvy': ['质量', '检验'], // 李佳怡
   'u-mqoj62uq-olmh4c': ['采购'], // 采购人事
