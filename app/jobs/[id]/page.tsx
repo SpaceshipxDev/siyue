@@ -36,6 +36,7 @@ import {
   canDeleteOrder,
   canExportProductionOrder,
   canManageOutsource,
+  canRenameUploadedJob,
   canSeeCustomerData,
   canSeeMoney,
   canSeeReport,
@@ -145,6 +146,8 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // jobNo, dueDate, component name/qty/material/notes, image). Pure-floor
   // production users (焊接, 喷塑, etc.) keep the read-only view they had.
   const canEditFields = canEditProductionFields(user)
+  // 工号 — 上传之后就是全厂认这批活的凭据, 改它是名单制 (老板 + 于海伟)。
+  const canRenameJobNo = canRenameUploadedJob(user)
   // Structural rights on the 零件 sheet — deliberately narrower than editing a
   // cell, and per-person rather than per-stage (see lib/auth.ts). Adding hides
   // the +; deleting keeps the 删除 icon and swaps its action for a 权限 note.
@@ -440,7 +443,12 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           <div className="col-span-1 md:col-span-2">
             <p className="label mb-2">工号</p>
             <div className="flex items-center gap-2">
-              {canEditFields ? (
+              {/* 工号 上传之后就定死了 —— 这个号是全厂认这批活的唯一凭据,
+                  图纸、报工、质检、出货单、对账单、车间墙上那张生产单都写着
+                  它。改它是名单制 (canRenameUploadedJob: 老板 + 于海伟), 别
+                  人看到的是一行字; 服务端 lib/db updateJob 那一道同样挡着。
+                  上传之前谁都能改, 那在收件箱那一版。 */}
+              {canRenameJobNo ? (
                 <JobText
                   jobId={job.id}
                   field="jobNo"
@@ -450,7 +458,10 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                   placeholder="工号"
                 />
               ) : (
-                <p className="mono text-[15px] text-[var(--color-ink)]">
+                <p
+                  className="mono text-[15px] text-[var(--color-ink)]"
+                  title="工号上传后不能再改 — 要改找于海伟"
+                >
                   {job.jobNo}
                 </p>
               )}

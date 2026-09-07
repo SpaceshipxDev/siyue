@@ -313,7 +313,16 @@ export function JobText({
 }) {
   const save = async (v: string) => {
     const patch: JobPatch = { [field]: v }
-    await mutate({ kind: 'updateJob', jobId, patch })
+    try {
+      await mutate({ kind: 'updateJob', jobId, patch })
+    } catch (e) {
+      // 改工号撞上了别人的号 — 服务端回的是内部那串 DUP_JOBNO 记号, 翻成人话
+      // 再往上抛 (收件箱那一版也是这么做的, app/_import_actions)。
+      if (e instanceof Error && e.message.includes('DUP_JOBNO')) {
+        throw new Error('该工号已被占用，请改用其他工号')
+      }
+      throw e
+    }
   }
   if (multiline) {
     return (

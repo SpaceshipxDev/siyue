@@ -201,6 +201,24 @@ export function canExportJobs(u: AuthUser): boolean {
   return JOB_EXPORT_USER_IDS.has(u.id) || isAdminUser(u.id)
 }
 
+// ─── 已上传工单的工号 ──────────────────────────────────────────────────
+//
+// 上传之前 (收件箱那一版) 工号谁都能改 —— 收件箱就是干这个用的, AI 认错一个
+// 号, 在那儿改完再确认导入。
+//
+// 上传之后不一样: 这个号是全厂认这批活的唯一凭据, 图纸、报工、质检、出货单、
+// 对账单、车间墙上贴的那张生产单, 全写着它。改一个号, 前面记下的东西就一起
+// 指不上, 还看不出是哪天变的。所以是名单制, 跟导出、删单同一个道理: 老板 +
+// 于海伟 (他的商务号和工程号是同一个人)。别人在工单页上看到的就是一行字。
+const JOB_NO_EDITOR_USER_IDS = new Set<string>([
+  'u-ms45yjq9-2kbdi1', // 商务于海伟
+  'u-mose92lt-a0cutz', // 于海伟 — 工程号, 同一个人的另一个登录
+])
+
+export function canRenameUploadedJob(u: AuthUser): boolean {
+  return JOB_NO_EDITOR_USER_IDS.has(u.id) || isAdminUser(u.id)
+}
+
 // ─── 质量 (客诉异常 / 质量异常 / 制程不良) ──────────────────────────────
 //
 // 两档, 跟人事一个道理 —— 报和改不是一回事:

@@ -125,6 +125,7 @@ import {
   canSeeOrderLedger,
   canEditQuality,
   canEditWarehouse,
+  canRenameUploadedJob,
   canUndoFinishedStage,
   canSeeFactoryPulse,
   canSeeMoney,
@@ -754,8 +755,11 @@ async function dispatch(
       const patch = body.patch
       if (!isString(jobId) || typeof patch !== 'object' || patch === null)
         return err('bad updateJob args')
-      await requirePartRouteEditor()
-      await updateJob(jobId, patch as JobPatch)
+      const u = await requirePartRouteEditor()
+      // 已上传工单的工号 — 名单制 (老板 + 于海伟)。别的字段照旧。
+      await updateJob(jobId, patch as JobPatch, {
+        allowJobNoRename: canRenameUploadedJob(u),
+      })
       revalidateJob(jobId)
       return Response.json(ok())
     }

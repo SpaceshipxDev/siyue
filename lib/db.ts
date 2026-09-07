@@ -5239,7 +5239,13 @@ export type JobPatch = {
   drawingChangeAt?: string | null
 }
 
-export async function updateJob(jobId: string, patch: JobPatch): Promise<void> {
+export async function updateJob(
+  jobId: string,
+  patch: JobPatch,
+  // 改一个已经上传的工单的工号 — 默认不行, 名单上的人才行 (lib/auth
+  // canRenameUploadedJob: 老板 + 于海伟)。路由那一层把这个答案带进来。
+  opts?: { allowJobNoRename?: boolean },
+): Promise<void> {
   await withWriteLock(async () => {
     const update: AnyRow = {}
     if (patch.jobNo !== undefined) {
@@ -5250,12 +5256,21 @@ export async function updateJob(jobId: string, patch: JobPatch): Promise<void> {
       const next = patch.jobNo.trim()
       const { data: currentRow, error: currentErr } = await supabase
         .from('jobs')
-        .select('job_no')
+        .select('job_no, status')
         .eq('id', jobId)
         .maybeSingle()
       if (currentErr) throw currentErr
       const currentJobNo = ((currentRow?.job_no as string | null) ?? '').trim()
       if (currentRow && currentJobNo !== next) {
+        // 已经上传到看板的工单, 工号原则上就定死了 —— 图纸、报工、质检、出货
+        // 单、对账单、车间墙上那张生产单, 全都按这个号在认这批活。悄悄改一个号
+        // (或者清空), 前面记下的东西就一起指不上了, 还看不出是哪天变的。
+        //
+        // 上传之前随便改: 收件箱那一版 (status=draft) 就是用来改这个的。上传之
+        // 后要改, 是名单制的一件事 (lib/auth canRenameUploadedJob: 老板 + 于海
+        // 伟) —— 单据上的号本来就写错过, 总得有一个人能把它扳正。
+        if (currentRow.status === 'ready' && !opts?.allowJobNoRename)
+          throw new Error('这个工号已经上传了，要改找于海伟')
         const conflict = await findJobNoConflictByQuery(next, jobId)
         if (conflict) throw new Error(formatJobNoConflictError(conflict))
       }
