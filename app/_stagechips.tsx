@@ -11,10 +11,10 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  ALWAYS_ON_STAGES,
   DEFAULT_ROUTE_STAGES,
   OPT_IN_STAGES,
   STAGES,
+  isStageUntouched,
   partRoute,
   routeAfterEnabling,
   type Component,
@@ -23,10 +23,11 @@ import {
 import { mutate } from '@/lib/mutate'
 import type { SetPartRouteResult } from '@/lib/db'
 
-// 出货 is always in the route — every part eventually ships, so the row is
-// shown lit and non-interactive. Outsource-covered stages are also locked
-// (the block owns those stages, the picker can't take them out).
-const ALWAYS_ON: ReadonlySet<Stage> = new Set<Stage>(ALWAYS_ON_STAGES)
+// 出货 也是一道可以关掉的工序: 加刀、电极这种后加的分支件是厂里自己留着用的,
+// 不发给客户 —— 硬把出货挂在它头上, 它就永远停在最后一格, 整张工单看着没做完。
+// 关得掉只在它还什么都没发生之前: 已经发过货 (出货那一格开始过, 或者这个零件
+// 上过某张出货单) 就锁死, 显示"已出货"。外协覆盖的工段照旧锁着 —— 那几道归那
+// 张外协单管, 选择器动不了。
 
 type ConflictDialogState = {
   desired: Stage[]
@@ -98,6 +99,8 @@ export function StageChips({
             setConfirmState({ desired: stages, removing: result.conflicts })
           } else if (result.reason === 'outsourced_locked') {
             setError(`已外协 · ${result.stages.join('、')} 不能取消`)
+          } else if (result.reason === 'shipped_locked') {
+            setError('已出货 · 出货不能取消')
           } else if (result.reason === 'not_found') {
             // Component id couldn't be resolved against the DB snapshot — the
             // part was deleted in another tab, or the page is showing a stale
@@ -126,9 +129,13 @@ export function StageChips({
     })
   }
 
+  // 出货 发生过就摘不掉了 (服务端 setPartRoute 那一道同样挡着)。还没发生的,
+  // 跟别的工序一样点一下就开关。
+  const shippedLocked = !isStageUntouched(component, '出货')
+
   const onToggle = (stage: Stage) => {
     if (readOnly) return
-    if (ALWAYS_ON.has(stage)) return
+    if (stage === '出货' && currentRoute.has(stage) && shippedLocked) return
     if (lockedByOutsource.has(stage)) return
     let next: Set<Stage>
     if (currentRoute.has(stage)) {
@@ -184,6 +191,7 @@ export function StageChips({
           triggerRef={triggerRef}
           route={currentRoute}
           lockedByOutsource={lockedByOutsource}
+          shippedLocked={shippedLocked}
           pending={pending}
           onToggle={onToggle}
           onClose={() => setAnchor(null)}
@@ -305,6 +313,7 @@ function RoutePicker({
   triggerRef,
   route,
   lockedByOutsource,
+  shippedLocked,
   pending,
   onToggle,
   onClose,
@@ -313,6 +322,8 @@ function RoutePicker({
   triggerRef: RefObject<HTMLButtonElement | null>
   route: Set<Stage>
   lockedByOutsource: Set<Stage>
+  /** 这个零件已经发过货 —— 出货那一行锁着, 摘不掉。 */
+  shippedLocked: boolean
   pending: boolean
   onToggle: (stage: Stage) => void
   onClose: () => void
@@ -386,8 +397,8 @@ function RoutePicker({
         {STAGES.map((stage) => {
           const inRoute = route.has(stage)
           const isOutsource = lockedByOutsource.has(stage)
-          const isAlwaysOn = ALWAYS_ON.has(stage)
-          const isLocked = isAlwaysOn || isOutsource
+          const isShipped = stage === '出货' && inRoute && shippedLocked
+          const isLocked = isShipped || isOutsource
           const handledInHouse = inRoute && !isOutsource
 
           const boxCls = handledInHouse
@@ -425,7 +436,7 @@ function RoutePicker({
                 {stage}
               </span>
               <span className="label text-[10px] text-[var(--color-ink-4)]">
-                {isAlwaysOn ? '必经' : isOutsource ? '已外协' : ''}
+                {isShipped ? '已出货' : isOutsource ? '已外协' : ''}
               </span>
             </button>
           )

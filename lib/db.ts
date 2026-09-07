@@ -5840,13 +5840,17 @@ export type SetPartRouteResult =
   | { ok: true }
   | { ok: false; reason: 'needs_confirm'; conflicts: RouteConflict[] }
   | { ok: false; reason: 'outsourced_locked'; stages: Stage[] }
+  | { ok: false; reason: 'shipped_locked' }
   | { ok: false; reason: 'not_found' }
 
 // Update the set of stages a part visits. Used by the StageChips widget on
 // the import draft page (商务) and the job detail page (工程).
 //
 // Rules:
-//   • 出货 is always in the route — silently injected if missing.
+//   • 出货 是一道可以关掉的工序 —— 加刀、电极这种后加的分支件是厂里自己用的,
+//     不发给客户。但只在它还什么都没发生之前能关: 已经出了货 (出货那一格不是
+//     pending, 或者这个零件出现在任何一张出货单里) 就锁死, 回 shipped_locked。
+//     新零件的默认路线里出货照旧在 (resolvePartStages)。
 //   • Stages covered by any outsource block (open or closed) are immutable —
 //     they're owned by the block, not the chip. Attempting to remove one
 //     yields { reason: 'outsourced_locked' }.
@@ -5887,6 +5891,16 @@ export async function setPartRoute(
     const outsourcedRemovals = toRemove.filter((s) => blockedStages.has(s))
     if (outsourcedRemovals.length > 0) {
       return { ok: false, reason: 'outsourced_locked', stages: outsourcedRemovals }
+    }
+
+    // 出货 关得掉, 但只在这个零件还没发过货之前 —— 一张出货单是给客户的单据,
+    // 把它下面的零件从出货这道里摘掉, 那张单子就再也解释不清了。判断看两处:
+    // 出货那一格已经开始/完成, 或者这个零件出现在任何一张出货单上。
+    if (toRemove.includes('出货')) {
+      const shipRow = currentRows.find((r) => r.stage === '出货')
+      const started = shipRow ? shipRow.status !== 'pending' : false
+      const onDoc = snap.shipmentParts.some((sp) => sp.partId === partId)
+      if (started || onDoc) return { ok: false, reason: 'shipped_locked' }
     }
 
     // In-flight removals need explicit confirmation. We surface the conflict
@@ -6478,10 +6492,14 @@ function resolvePartStages(input: Stage[] | undefined): Stage[] {
       if ((STAGES as readonly Stage[]).includes(s)) set.add(s)
     }
   }
+  // 一个字段都没给 = 新零件, 走默认路线 (出货在里面)。给了明细就照给的来 ——
+  // 出货不再无条件塞回去: 加刀、电极这种后加的分支件是厂里自己用的, 不发给
+  // 客户, 硬塞一道出货就是让它永远停在出货那一格。已经出过货的另说, 见
+  // setPartRoute 里的 shipped_locked。
   if (set.size === 0) {
     for (const s of DEFAULT_NEW_PART_STAGES) set.add(s)
+    set.add('出货')
   }
-  set.add('出货')
   return STAGES.filter((s) => set.has(s))
 }
 

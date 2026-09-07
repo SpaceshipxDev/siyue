@@ -49,8 +49,10 @@ export const DEFAULT_ROUTE_STAGES: Stage[] = STAGES.filter(
   (s) => !OPT_IN_STAGES.includes(s),
 )
 
-// 出货 is in every part's route and can never be switched off — every part
-// eventually ships. The picker shows it lit and non-interactive.
+// 出货 在新零件的默认路线里, 而且不会被别的规则顺手删掉 (采购重置那一条会
+// 跳过它)。但它不是"永远拿不掉": 加刀、电极这种后加的分支件是厂里自己用的,
+// 不发给客户 —— 工序选择器里可以把出货关掉, 前提是这个零件还没发过货 (见
+// app/_stagechips 和 lib/db setPartRoute 的 shipped_locked)。
 export const ALWAYS_ON_STAGES: Stage[] = ['出货']
 
 // 采购-first routing. Switching 采购 ON is a statement about what the part IS —
