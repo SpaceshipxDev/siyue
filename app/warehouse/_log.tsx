@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
 import { EditableText, EditableTextArea } from '@/app/_editable'
+import { ImportPanel } from './_import'
 import type { StockMove, StockMoveKind } from '@/lib/warehouse'
 
 // 出入库记录 — 仓库的背面, 也是唯一在录的东西。
@@ -51,6 +52,8 @@ export function LogBoard({
   const [month, setMonth] = useState(todayStr.slice(5, 7))
   const [q, setQ] = useState(initialQ)
   const [armDelete, setArmDelete] = useState<string | null>(null)
+  // 原始台账导入 — 一份已经存在的账一次搬进来, 跟"记一笔"是同一件事的批量版。
+  const [importing, setImporting] = useState(false)
   const year = todayStr.slice(0, 4)
 
   // 记一笔
@@ -229,6 +232,20 @@ export function LogBoard({
         )}
       </div>
 
+      {importing && (
+        <ImportPanel
+          existing={rows}
+          todayStr={todayStr}
+          onClose={() => setImporting(false)}
+          onDone={(m, n) => {
+            setImporting(false)
+            setMonth(m)
+            showToast(`导入 ${n} 条`, 'success')
+            router.refresh()
+          }}
+        />
+      )}
+
       <div className="mb-6 flex flex-wrap items-end gap-x-10 gap-y-4">
         <div>
           <p className="text-[32px] font-semibold leading-none tracking-tight tabular-nums text-[var(--color-ink)]">
@@ -255,6 +272,15 @@ export function LogBoard({
             placeholder="搜索 · 物料 / 规格 / 备注"
             className="h-9 w-[210px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
           />
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setImporting((v) => !v)}
+              className="rounded-[2px] border border-[var(--color-border)] px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)]"
+            >
+              导入
+            </button>
+          )}
           <Link
             href={exportHref}
             prefetch={false}

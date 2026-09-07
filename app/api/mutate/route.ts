@@ -152,8 +152,10 @@ import {
 } from '@/lib/improvements'
 import {
   addStockMove,
+  addStockMoves,
   deleteStockMove,
   updateStockMove,
+  type NewStockMove,
 } from '@/lib/warehouse'
 import { addWorkShare, normalizeShares, setWorkSplit } from '@/lib/work-split'
 import {
@@ -2584,6 +2586,45 @@ async function dispatch(
       )
       revalidatePath('/warehouse')
       return Response.json(ok())
+    }
+
+    // 原始台账导入 — 一份纸上的/Excel 里的老账一次进来。认列、认日期、把
+    // 不认得的行挑出来, 都在浏览器里当着人的面做完了 (app/warehouse/_import),
+    // 到这里只剩一批已经成形的记录。门槛比"记一笔"高一档: 一次几百笔进账,
+    // 错了不是错一笔, 是整本库存都对不上。
+    case 'importStockMoves': {
+      const inputs = body.inputs
+      if (!Array.isArray(inputs) || inputs.length === 0 || inputs.length > 3000)
+        return err('bad importStockMoves args')
+      const clean: NewStockMove[] = []
+      for (const raw of inputs) {
+        if (typeof raw !== 'object' || raw === null) return err('bad importStockMoves args')
+        const i = raw as Record<string, unknown>
+        if (!isString(i.name) || !i.name.trim()) return err('有一行没有物料名称')
+        if (typeof i.qty !== 'number' || !Number.isFinite(i.qty) || i.qty <= 0)
+          return err('有一行的数量不是大于 0 的数')
+        if (!isString(i.date) || !/^\d{4}-\d{2}-\d{2}$/.test(i.date))
+          return err('有一行的日期不对')
+        if (i.moveKind !== 'in' && i.moveKind !== 'out')
+          return err('有一行分不清进还是出')
+        for (const k of ['spec', 'note']) {
+          if (i[k] !== undefined && !isString(i[k]))
+            return err('bad importStockMoves args')
+        }
+        clean.push({
+          date: i.date,
+          name: i.name,
+          spec: isString(i.spec) ? i.spec : '',
+          kind: i.moveKind,
+          qty: i.qty,
+          note: isString(i.note) ? i.note : '',
+        })
+      }
+      const u = await requireUser()
+      if (!canEditWarehouse(u)) return err('导入原始台账要找工程或于海伟', 403)
+      const count = await addStockMoves(clean, u.name, new Date().toISOString())
+      revalidatePath('/warehouse')
+      return Response.json(ok({ count }))
     }
 
     case 'updateStockMove': {
