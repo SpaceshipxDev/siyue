@@ -211,6 +211,15 @@ export type RowVM = {
   status: FenqiStatus
   invoiceNos: string[] // distinct 发票号 across active invoice events
   firstInvoiceDate?: string
+  /**
+   * Σ订单额 − 工单金额, 只在两个数对不上时才有。
+   *
+   * 这一本是按客户订单号录的钱, 工单那一头还有一个金额 (报价定的, 或者零件
+   * 单价乘数量加出来的)。一个工单一张订单是常态, 两个数就该一样。差出来通常
+   * 是: 工单金额后来改过、订单额少录了一张、或者当初录错一位数。系统不去猜
+   * 谁对, 只把差数摆在金额旁边 —— 不摆出来, 这种错要等到对账那天才发现。
+   */
+  jobGapCny?: number
 }
 
 export function buildRows(data: FenqiData, todayYmd: string): RowVM[] {
@@ -255,6 +264,15 @@ export function buildRows(data: FenqiData, todayYmd: string): RowVM[] {
     }
     const wait = amountCny - invoiced
     const unpaid = invoiced - paid
+    const jobAmount = job.jobAmountCny
+    const jobGapCny =
+      job.billable &&
+      lines.length > 0 &&
+      typeof jobAmount === 'number' &&
+      jobAmount > 0 &&
+      Math.round(amountCny) !== Math.round(jobAmount)
+        ? Math.round(amountCny - jobAmount)
+        : undefined
 
     let status: FenqiStatus
     if (!job.billable) status = 'free'
@@ -277,6 +295,7 @@ export function buildRows(data: FenqiData, todayYmd: string): RowVM[] {
       status,
       invoiceNos: Array.from(invoiceNoSet),
       firstInvoiceDate,
+      jobGapCny,
     }
   })
 }

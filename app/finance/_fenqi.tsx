@@ -590,6 +590,7 @@ function RowGroup({
             {jobNoCell}
             <Td className="text-right mono text-[13px] whitespace-nowrap">
               {formatCny(row.amountCny)}
+              <JobGap gap={row.jobGapCny} />
             </Td>
             <Td className="mono text-[13px] whitespace-nowrap text-[var(--color-ink-2)]">
               {row.firstInvoiceDate ? shipDateLabel(row.firstInvoiceDate) : '—'}
@@ -670,6 +671,7 @@ function RowGroup({
             {jobNoCell}
             <Td className="text-right mono text-[13px] whitespace-nowrap">
               {formatCny(row.amountCny)}
+              <JobGap gap={row.jobGapCny} />
             </Td>
             <Td className="text-right mono text-[13px] whitespace-nowrap text-[var(--color-ink-3)]">
               {row.invoiced > 0 ? formatCny(row.invoiced) : '—'}
@@ -776,6 +778,12 @@ function DetailPanel({
       <div className="mb-3 flex items-start justify-between gap-3">
         <p className="text-[11px] text-[var(--color-ink-3)]">
           {row.job.jobNo} · 钱挂在订单号下 — 追加一笔，句子和所有余额自动更新
+          {row.jobGapCny !== undefined && (
+            <span className="text-[var(--color-warning)]">
+              {' '}· 工单金额 {formatCny(row.job.jobAmountCny ?? 0)}，这里录的是{' '}
+              {formatCny(row.amountCny)}，差 {formatNum(Math.abs(row.jobGapCny))}
+            </span>
+          )}
         </p>
         {/* 免收 lives here now — deliberate, off the row scan path. */}
         <button
@@ -828,6 +836,24 @@ function DetailPanel({
         )}
       </div>
     </div>
+  )
+}
+
+// 两本账对不上 — 这一单按订单号录的钱, 和工单那头的金额差了多少。
+//
+// 摆在订单额下面, 一行小字, 不报警也不拦着谁: 差出来通常是工单金额后来改过、
+// 订单额少录了一张、或者当初录错一位数, 系统猜不出谁对。但它得说出来 —— 不
+// 说, 这种错要等到对账那天才被发现, 那时候货早发完了。
+function JobGap({ gap }: { gap?: number }) {
+  if (gap === undefined) return null
+  return (
+    <span
+      title="这一单录的订单额跟工单上的金额对不上 — 去工单页核一下哪个是对的"
+      className="mt-0.5 block text-[11px] font-medium text-[var(--color-warning)]"
+    >
+      与工单差 {gap > 0 ? '+' : '−'}
+      {formatNum(Math.abs(gap))}
+    </span>
   )
 }
 

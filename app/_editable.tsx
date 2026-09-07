@@ -1024,6 +1024,19 @@ export function JobMoneyPosition({
         <span className="mono text-[24px] font-semibold tracking-tight text-[var(--color-ink-2)]">
           {partsTotal > 0 ? formatCny(partsTotal) : '—'}
         </span>
+        {/* 金额跟零件加出来的数对不上时, 把差数说出来。两个数摆在一起人也未必
+            会去减 —— 而这个差就是财务对账那天要吵的那笔。金额是手填/报价定的,
+            零件合计是单价×数量加出来的, 系统不猜谁对, 只把差摆出来。 */}
+        {typeof displayAmount === 'number' &&
+          partsTotal > 0 &&
+          Math.round(partsTotal) !== displayAmount && (
+            <span
+              title="金额和零件单价加出来的数对不上 — 核一下哪个是对的"
+              className="mono text-[12px] font-medium text-[var(--color-warning)]"
+            >
+              差 {formatCny(Math.abs(Math.round(partsTotal) - displayAmount))}
+            </span>
+          )}
       </MoneyStat>
     </div>
   )
