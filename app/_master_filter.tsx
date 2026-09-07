@@ -392,13 +392,21 @@ export function MasterSheet({
     [statusByStage],
   )
   // 滞留 funnel — 按"这张单卡在哪一道"切。工段列回答的是每一道各自的状态,
-  // 这一个回答的是"最前面那道没做完的是谁", 一次只留一个工段的单子, 那就是
-  // 一张车间的催活清单。Persisted per view context, 跟工段列一个路子。
-  const [stuckFilter, setStuckFilter] = usePersistentState<Stage | 'all'>(
-    `${persistKey}:stuck`,
-    'all',
+  // 这一个回答的是"最前面那道没做完的是谁", 留下卡在选中那几道的单子, 那就是
+  // 一张车间的催活清单。
+  //
+  // 可以一次选好几道: 催活很少只催一道 —— 打磨和表处一起看、机加那几道一起
+  // 看, 才是一个人一个上午要跑的那张单子。空 = 不筛。Persisted per view
+  // context, 跟工段列一个路子 (新 key: 存的从一个工段变成了一串)。
+  const [stuckStages, setStuckStages] = usePersistentState<Stage[]>(
+    `${persistKey}:stuckStages`,
+    [],
   )
-  const stuckActive = stuckFilter !== 'all'
+  const stuckActive = stuckStages.length > 0
+  const toggleStuckStage = (s: Stage) =>
+    setStuckStages((prev) =>
+      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s],
+    )
 
   // 收款 funnel (商务 overview only) — slices the board to where the cash sits.
   const [moneyFilter, setMoneyFilter] = usePersistentState<MoneyFilter>(
@@ -651,7 +659,10 @@ export function MasterSheet({
               ),
             )
       const stuckScoped = stuckActive
-        ? statusScoped.filter((r) => rowStuckStage(r) === stuckFilter)
+        ? statusScoped.filter((r) => {
+            const st = rowStuckStage(r)
+            return st !== undefined && stuckStages.includes(st)
+          })
         : statusScoped
       const facetScoped = onlyPendingOutsource
         ? stuckScoped.filter((r) => r.needsOutsource && !r.hasOpenOutsource)
@@ -701,7 +712,7 @@ export function MasterSheet({
       upstreamRows: floatRush(upstream),
       doneRows: done,
     }
-  }, [dateFiltered, isStationView, stageFilter, q, effectiveType, activeFilterStages, statusByStage, onlyPendingOutsource, onlyDrawingChange, moneyActive, moneyFilter])
+  }, [dateFiltered, isStationView, stageFilter, q, effectiveType, activeFilterStages, statusByStage, onlyPendingOutsource, onlyDrawingChange, moneyActive, moneyFilter, stuckActive, stuckStages])
 
   // 待外协 count over the current date scope — drives the facet chip label and
   // hides the chip entirely when nothing is waiting (clean board, no chrome).
@@ -1038,9 +1049,10 @@ export function MasterSheet({
                   </span>
                   {treatAsOverview && (
                     <StuckHeaderFilter
-                      value={stuckFilter}
+                      value={stuckStages}
                       counts={stuckCounts}
-                      onChange={setStuckFilter}
+                      onToggle={toggleStuckStage}
+                      onClear={() => setStuckStages([])}
                     />
                   )}
                 </span>
@@ -1254,7 +1266,7 @@ export function MasterSheet({
                   setDateFilter({ kind: 'all' })
                   clearStageStatuses()
                   setMoneyFilter('all')
-                  setStuckFilter('all')
+                  setStuckStages([])
                 }}
                 className="label mt-4 text-[var(--color-ink)] hover:underline underline-offset-4 decoration-[var(--color-ink-3)]"
               >
@@ -1642,18 +1654,23 @@ function MoneyHeaderFilter({
 // 滞留 column funnel — HeaderFilter / MoneyHeaderFilter 的第三个同胞。工段列
 // 的漏斗问的是"这一道做完没有", 这个问的是"这张单卡在哪一道": 选 手工, 板子
 // 就只剩下最前面卡在手工的那些单 —— 一张可以直接拿去催的清单。
+//
+// 这一个是多选的 (另外两个不是): 催活很少只催一道。点一道加一道, 再点一下去
+// 掉, 菜单不关 —— 多选就得连着点。选中几道, 漏斗旁边就写几。全部 = 不筛。
 function StuckHeaderFilter({
   value,
   counts,
-  onChange,
+  onToggle,
+  onClear,
 }: {
-  value: Stage | 'all'
+  value: Stage[]
   counts: Record<Stage | 'all', number>
-  onChange: (next: Stage | 'all') => void
+  onToggle: (next: Stage) => void
+  onClear: () => void
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLSpanElement>(null)
-  const active = value !== 'all'
+  const active = value.length > 0
 
   useEffect(() => {
     if (!open) return
@@ -1690,18 +1707,25 @@ function StuckHeaderFilter({
       >
         {active ? <FunnelIcon /> : <CaretIcon />}
       </button>
+      {/* 选了几道 — 不打开菜单也看得出来。一道的时候不写数字, 那是废话。 */}
+      {value.length > 1 && (
+        <span className="mono ml-0.5 text-[10px] tabular-nums text-[var(--color-info)]">
+          {value.length}
+        </span>
+      )}
       {open && (
         <div
           role="listbox"
+          aria-multiselectable="true"
           aria-label="滞留工序"
           className="absolute left-0 top-[calc(100%+8px)] z-40 max-h-[60vh] min-w-[148px] overflow-y-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] py-1 text-left shadow-[0_10px_34px_-12px_rgba(20,19,15,0.28)]"
         >
           <FilterMenuRow
             label="全部"
             count={counts.all}
-            active={value === 'all'}
+            active={!active}
             onClick={() => {
-              onChange('all')
+              onClear()
               setOpen(false)
             }}
           />
@@ -1711,13 +1735,13 @@ function StuckHeaderFilter({
               key={s}
               label={s}
               count={counts[s] ?? 0}
-              active={value === s}
-              onClick={() => {
-                onChange(s)
-                setOpen(false)
-              }}
+              active={value.includes(s)}
+              onClick={() => onToggle(s)}
             />
           ))}
+          <p className="border-t border-[var(--color-border)] mt-1 px-3 pt-1.5 pb-0.5 text-[11px] text-[var(--color-ink-4)]">
+            可以点好几道 · 点别处收起
+          </p>
         </div>
       )}
     </span>
