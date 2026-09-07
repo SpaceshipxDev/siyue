@@ -27,10 +27,12 @@ const LOG_HEADERS = [
   '规格/型号',
   '进出',
   '数量',
+  '领料车间',
+  '领料人',
   '备注',
   '记录人',
 ]
-const LOG_WIDTHS = [12, 28, 24, 8, 10, 30, 12]
+const LOG_WIDTHS = [12, 28, 24, 8, 10, 12, 12, 30, 12]
 
 export async function GET(request: NextRequest): Promise<Response> {
   await requireUser()
@@ -53,7 +55,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       .filter((r) =>
         !q
           ? true
-          : [r.name, r.spec, r.note, r.by]
+          : [r.name, r.spec, r.dept, r.taker, r.note, r.by]
               .filter(Boolean)
               .join(' ')
               .toLowerCase()
@@ -67,6 +69,8 @@ export async function GET(request: NextRequest): Promise<Response> {
         r.spec,
         r.kind === 'in' ? '入库' : '出库',
         r.qty,
+        r.dept,
+        r.taker,
         r.note,
         r.by ?? '',
       ])

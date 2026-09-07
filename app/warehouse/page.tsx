@@ -7,6 +7,8 @@ import {
   requireUser,
 } from '@/lib/auth'
 import { getStockMoves, rollupStock } from '@/lib/warehouse'
+import { getActiveUsers } from '@/lib/db'
+import { STAGES } from '@/lib/data'
 import { today } from '@/lib/today'
 import { StockBoard } from './_stock'
 import { LogBoard } from './_log'
@@ -33,7 +35,7 @@ export default async function WarehousePage({
   const view = sp?.v === 'log' ? 'log' : 'stock'
   const todayStr = today()
 
-  const moves = await getStockMoves()
+  const [moves, users] = await Promise.all([getStockMoves(), getActiveUsers()])
   const items = rollupStock(moves)
 
   // 物料名 + 它上一次用的规格 — 录入行的建议, 同一样东西不该写出三种写法。
@@ -42,6 +44,15 @@ export default async function WarehousePage({
   for (const m of moves) {
     if (m.name && m.spec && !specByName[m.name]) specByName[m.name] = m.spec
   }
+
+  // 领料那两格的建议 —— 车间就是厂里那几道工序, 领料人就是在职的人。
+  // 已经写进记录里的照旧带上 (外协来拿料的、临时工, 名单里没有)。
+  const depts = [...new Set([...STAGES, ...moves.map((m) => m.dept)])].filter(
+    Boolean,
+  ) as string[]
+  const takers = [
+    ...new Set([...users.map((u) => u.name), ...moves.map((m) => m.taker)]),
+  ].filter(Boolean)
 
   return (
     <div className="flex-1 flex flex-col">
@@ -70,6 +81,8 @@ export default async function WarehousePage({
             todayStr={todayStr}
             names={[...new Set(names)]}
             specByName={specByName}
+            depts={depts}
+            takers={takers}
             initialQ={typeof sp?.q === 'string' ? sp.q : ''}
             canEdit={canEdit}
           />

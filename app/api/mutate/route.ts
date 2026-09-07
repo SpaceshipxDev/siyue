@@ -2567,7 +2567,7 @@ async function dispatch(
         return err('bad addStockMove args')
       if (i.moveKind !== 'in' && i.moveKind !== 'out')
         return err('bad addStockMove args')
-      for (const k of ['spec', 'note']) {
+      for (const k of ['spec', 'note', 'dept', 'taker']) {
         if (i[k] !== undefined && !isString(i[k]))
           return err('bad addStockMove args')
       }
@@ -2580,6 +2580,9 @@ async function dispatch(
           kind: i.moveKind,
           qty: i.qty,
           note: isString(i.note) ? i.note : '',
+          // 领料车间 / 领料人 — 出库才存, lib/warehouse 里再挡一道。
+          dept: isString(i.dept) ? i.dept : '',
+          taker: isString(i.taker) ? i.taker : '',
         },
         u.name,
         new Date().toISOString(),
@@ -2607,7 +2610,7 @@ async function dispatch(
           return err('有一行的日期不对')
         if (i.moveKind !== 'in' && i.moveKind !== 'out')
           return err('有一行分不清进还是出')
-        for (const k of ['spec', 'note']) {
+        for (const k of ['spec', 'note', 'dept', 'taker']) {
           if (i[k] !== undefined && !isString(i[k]))
             return err('bad importStockMoves args')
         }
@@ -2618,6 +2621,8 @@ async function dispatch(
           kind: i.moveKind,
           qty: i.qty,
           note: isString(i.note) ? i.note : '',
+          dept: isString(i.dept) ? i.dept : '',
+          taker: isString(i.taker) ? i.taker : '',
         })
       }
       const u = await requireUser()
@@ -2634,7 +2639,7 @@ async function dispatch(
       if (typeof patch !== 'object' || patch === null)
         return err('bad updateStockMove args')
       const p = patch as Record<string, unknown>
-      for (const k of ['date', 'name', 'spec', 'note']) {
+      for (const k of ['date', 'name', 'spec', 'note', 'dept', 'taker']) {
         if (p[k] !== undefined && !isString(p[k]))
           return err('bad updateStockMove args')
       }

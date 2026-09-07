@@ -13,9 +13,10 @@ import type { StockMove, StockMoveKind } from '@/lib/warehouse'
  * 当场记的长得一模一样, 库存照旧是它们加出来的。
  *
  * 它认这几列, 表头叫什么都行 (日期/时间, 物料/品名/名称, 规格/型号, 进出/
- * 收发, 数量, 备注/用途/供应商); 也认厂里最常见的那种两列台账 —— 入库数量
- * 一列、出库数量一列。找不到表头就按 导出 的顺序读: 日期 · 物料 · 规格 ·
- * 进出 · 数量 · 备注, 也就是说 导出的表改一改能原样导回来。
+ * 收发, 数量, 领料车间/部门, 领料人/领用人, 备注/用途/供应商); 也认厂里最常
+ * 见的那种两列台账 —— 入库数量一列、出库数量一列。找不到表头就按 导出 的顺
+ * 序读: 日期 · 物料 · 规格 · 进出 · 数量 · 领料车间 · 领料人 · 备注, 也就是
+ * 说 导出的表改一改能原样导回来。
  *
  * 认完先摆在人面前: 多少条能进、多少条看不懂 (为什么)、多少条跟已有的记录
  * 一模一样。一份台账最容易出的事故是导两遍, 所以重复的那些默认不进。
@@ -29,6 +30,8 @@ export type Draft = {
   spec: string
   kind: StockMoveKind
   qty: number
+  dept: string
+  taker: string
   note: string
 }
 
@@ -46,13 +49,16 @@ type Parsed = {
 // 顺序就是优先级: "入库日期" 先被日期认走, "入库数量" 先被入库那一列认走。
 const HEADERS: [keyof ColMap, RegExp][] = [
   ['date', /日期|时间/],
-  ['inQty', /^(入库|进货|进料|收入|收料)/],
-  ['outQty', /^(出库|发出|发料|领用|领料|支出)/],
+  ['taker', /领料人|领用人|领取人|经手人|领料员|签收/],
+  ['dept', /车间|部门|工段|班组|领用单位|使用部门/],
+  // 只认"入库/出库"那一列本身 —— "领料车间"也是领料开头, 不是一列数量。
+  ['inQty', /^(入库|进货|进料|收入|收料)(数量|数|量|合计|重量)?$/],
+  ['outQty', /^(出库|发出|发料|领用|领料|支出)(数量|数|量|合计|重量)?$/],
   ['qty', /数量|重量|件数|数目|台数|个数/],
   ['kind', /进出|收发|出入|方向|类型|类别|摘要/],
   ['spec', /规格|型号|材质|尺寸/],
   ['name', /物料|品名|名称|材料|货品|商品|品种/],
-  ['note', /备注|说明|用途|去向|供应商|领用人|经手|工单|批号/],
+  ['note', /备注|说明|用途|去向|供应商|经手|工单|批号/],
 ]
 
 type ColMap = {
@@ -63,11 +69,22 @@ type ColMap = {
   qty?: number
   inQty?: number
   outQty?: number
+  dept?: number
+  taker?: number
   note?: number
 }
 
 // 没有表头的表, 按 导出 的列序读。
-const POSITIONAL: (keyof ColMap)[] = ['date', 'name', 'spec', 'kind', 'qty', 'note']
+const POSITIONAL: (keyof ColMap)[] = [
+  'date',
+  'name',
+  'spec',
+  'kind',
+  'qty',
+  'dept',
+  'taker',
+  'note',
+]
 
 // 合计那几行永远不是一笔出入库。
 const FOOTER_RE =
@@ -186,6 +203,8 @@ function parseSheet(
 
     const note = cellAt(row, cols.note)
     const spec = cellAt(row, cols.spec)
+    const dept = cellAt(row, cols.dept)
+    const taker = cellAt(row, cols.taker)
 
     const push = (kind: StockMoveKind, qty: number) => {
       if (!name) return skips.push({ where: where(r), why: '没有物料名称' })
@@ -195,7 +214,17 @@ function parseSheet(
           why: dayCell ? `日期看不懂 · ${dayCell}` : '没有日期',
         })
       if (!(qty > 0)) return skips.push({ where: where(r), why: '数量不是大于 0 的数' })
-      rows.push({ date: day, name, spec, kind, qty: Math.round(qty * 100) / 100, note })
+      rows.push({
+        date: day,
+        name,
+        spec,
+        kind,
+        qty: Math.round(qty * 100) / 100,
+        // 领料车间 / 领料人只属于出库 — 进货那一笔没有人来领。
+        dept: kind === 'out' ? dept : '',
+        taker: kind === 'out' ? taker : '',
+        note,
+      })
     }
 
     // 入库一列、出库一列的台账 — 哪一边有数就是哪个方向, 两边都有就是两笔。
@@ -239,7 +268,14 @@ function tsvToSheet(text: string): Sheet {
   }
 }
 
-function keyOf(d: { date: string; name: string; spec: string; kind: string; qty: number; note: string }) {
+function keyOf(d: {
+  date: string
+  name: string
+  spec: string
+  kind: string
+  qty: number
+  note: string
+}) {
   return `${d.date}|${d.name}|${d.spec}|${d.kind}|${d.qty}|${d.note}`
 }
 
@@ -301,6 +337,19 @@ export function ImportPanel({
     return { rows: fresh, skips, dupes, needsKind }
   }, [sheets, text, fallbackKind, todayStr, existingKeys])
 
+  // 一份"领料单"整份都是出库。表里出现 领料/领用/发料 这些字, 方向那个开关
+  // 就先站在出库这一边 —— 整份记反了方向, 库存会错两倍。
+  useEffect(() => {
+    const src = sheets ?? (text.trim() ? [tsvToSheet(text)] : null)
+    if (!src) return
+    const head = src
+      .flatMap((s) => s.aoa.slice(0, 6))
+      .flat()
+      .join(' ')
+    if (/领料|领用|发料|出库/.test(head) && !/入库|进货|收料/.test(head))
+      setFallbackKind('out')
+  }, [sheets, text])
+
   // Esc 关掉 — 跟别处的浮层一个手感。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -354,6 +403,8 @@ export function ImportPanel({
             spec: d.spec,
             moveKind: d.kind,
             qty: d.qty,
+            dept: d.dept,
+            taker: d.taker,
             note: d.note,
           })),
         })
@@ -435,7 +486,8 @@ export function ImportPanel({
               }}
             />
             <p className="text-[12px] text-[var(--color-ink-3)]">
-              认这几列：日期 · 物料名称 · 规格 / 型号 · 进出 · 数量 · 备注；
+              认这几列：日期 · 物料名称 · 规格 / 型号 · 进出 · 数量 ·
+              领料车间 · 领料人 · 备注；
               入库出库分两列的老台账也认。没有表头就按这个顺序读。
             </p>
           </div>
@@ -492,18 +544,19 @@ export function ImportPanel({
 
           {preview.length > 0 && (
             <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)]">
-              <div className="grid grid-cols-[76px_minmax(0,1.1fr)_minmax(0,0.9fr)_44px_72px_minmax(0,1fr)] items-center gap-3 border-b border-[var(--color-border)] bg-[#f5f3ed] px-3 py-1.5">
+              <div className="grid grid-cols-[76px_minmax(0,1.1fr)_minmax(0,0.9fr)_44px_66px_minmax(0,0.8fr)_minmax(0,1fr)] items-center gap-3 border-b border-[var(--color-border)] bg-[#f5f3ed] px-3 py-1.5">
                 <span className="label">日期</span>
                 <span className="label">物料名称</span>
                 <span className="label">规格 / 型号</span>
                 <span className="label">进出</span>
                 <span className="label text-right">数量</span>
+                <span className="label">领料</span>
                 <span className="label">备注</span>
               </div>
               {preview.map((d, i) => (
                 <div
                   key={i}
-                  className="grid grid-cols-[76px_minmax(0,1.1fr)_minmax(0,0.9fr)_44px_72px_minmax(0,1fr)] items-start gap-3 border-b border-[var(--color-border)] px-3 py-1.5 last:border-b-0"
+                  className="grid grid-cols-[76px_minmax(0,1.1fr)_minmax(0,0.9fr)_44px_66px_minmax(0,0.8fr)_minmax(0,1fr)] items-start gap-3 border-b border-[var(--color-border)] px-3 py-1.5 last:border-b-0"
                 >
                   <span className="mono text-[12px] tabular-nums text-[var(--color-ink-2)]">
                     {d.date}
@@ -525,6 +578,11 @@ export function ImportPanel({
                   </span>
                   <span className="mono text-right text-[12px] tabular-nums text-[var(--color-ink)]">
                     {d.qty}
+                  </span>
+                  {/* 预览里 车间 · 领料人 并成一格 — 只是给人看一眼认对没有,
+                      不在这里改。 */}
+                  <span className="break-words text-[12px] text-[var(--color-ink-2)]">
+                    {[d.dept, d.taker].filter(Boolean).join(' · ') || '—'}
                   </span>
                   <span className="break-words text-[12px] text-[var(--color-ink-3)]">
                     {d.note || '—'}

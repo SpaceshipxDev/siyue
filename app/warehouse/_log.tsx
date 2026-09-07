@@ -14,6 +14,9 @@ import type { StockMove, StockMoveKind } from '@/lib/warehouse'
 // 一笔回答五件事: 哪一天 · 什么物料 · 什么规格 · 进还是出 · 多少。库存那一页
 // 是这张表加出来的, 所以这里记准了, 那边就永远是对的。
 //
+// 出库那一笔多两格: 领料车间 · 领料人 —— 料出去了要找得到人。入库是进货,
+// 没有人来领, 那两格就不出现 (谁供的货照旧写在备注里)。
+//
 // 记一笔对全厂的账号开着 —— 东西是当场进出的。改已经记下的、删一笔是工程和
 // 商务于海伟那一档: 悄悄改一笔数, 库存就跟着错, 还看不出是哪天错的。
 
@@ -23,13 +26,15 @@ const MONTHS = [
 ]
 
 const COLS =
-  'grid-cols-[64px_minmax(0,1.1fr)_minmax(0,0.9fr)_52px_80px_minmax(0,1fr)_72px_28px]'
+  'grid-cols-[60px_minmax(0,1.05fr)_minmax(0,0.85fr)_46px_66px_56px_64px_minmax(0,1fr)_60px_24px]'
 
 export function LogBoard({
   rows,
   todayStr,
   names,
   specByName,
+  depts,
+  takers,
   initialQ,
   canEdit,
 }: {
@@ -39,6 +44,10 @@ export function LogBoard({
   names: string[]
   /** 物料名 → 上一次用的规格, 选了名字自动带出来。 */
   specByName: Record<string, string>
+  /** 领料车间的建议 — 厂里那几道工序, 加上已经领过料的。 */
+  depts: string[]
+  /** 领料人的建议 — 在职的人, 加上已经来领过料的。 */
+  takers: string[]
   /** 从库存那一页点过来时带的物料名。 */
   initialQ: string
   /**
@@ -62,6 +71,8 @@ export function LogBoard({
   const [spec, setSpec] = useState('')
   const [kind, setKind] = useState<StockMoveKind>('in')
   const [qty, setQty] = useState('')
+  const [dept, setDept] = useState('')
+  const [taker, setTaker] = useState('')
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -73,7 +84,7 @@ export function LogBoard({
       .filter((r) =>
         !needle
           ? true
-          : [r.name, r.spec, r.note, r.by]
+          : [r.name, r.spec, r.dept, r.taker, r.note, r.by]
               .filter(Boolean)
               .join(' ')
               .toLowerCase()
@@ -110,11 +121,15 @@ export function LogBoard({
             moveKind: kind,
             qty: n,
             note: note.trim(),
+            dept: dept.trim(),
+            taker: taker.trim(),
           },
         })
         setName('')
         setSpec('')
         setQty('')
+        setDept('')
+        setTaker('')
         setNote('')
         setDate(todayStr)
         setMonth(date.slice(5, 7))
@@ -211,10 +226,39 @@ export function LogBoard({
             inputMode="decimal"
             className={`mono ${inp} w-[88px] text-right`}
           />
+          {/* 领料车间 · 领料人 — 只有出库才出现: 入库是进货, 没有人来领。 */}
+          {kind === 'out' && (
+            <>
+              <input
+                value={dept}
+                onChange={(e) => setDept(e.target.value)}
+                placeholder="领料车间"
+                list="warehouse-depts"
+                className={`${inp} w-[104px]`}
+              />
+              <datalist id="warehouse-depts">
+                {depts.map((d) => (
+                  <option key={d} value={d} />
+                ))}
+              </datalist>
+              <input
+                value={taker}
+                onChange={(e) => setTaker(e.target.value)}
+                placeholder="领料人"
+                list="warehouse-takers"
+                className={`${inp} w-[104px]`}
+              />
+              <datalist id="warehouse-takers">
+                {takers.map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
+            </>
+          )}
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="备注 · 领用到哪 / 谁供的货"
+            placeholder={kind === 'out' ? '备注 · 领用到哪张工单' : '备注 · 谁供的货'}
             onKeyDown={(e) => e.key === 'Enter' && add()}
             className={`${inp} min-w-[160px] flex-1`}
           />
@@ -317,6 +361,8 @@ export function LogBoard({
           <span className="label">规格 / 型号</span>
           <span className="label">进出</span>
           <span className="label text-right">数量</span>
+          <span className="label">领料车间</span>
+          <span className="label">领料人</span>
           <span className="label">备注</span>
           <span className="label">记录人</span>
           <span />
@@ -381,6 +427,28 @@ export function LogBoard({
                 out={r.kind === 'out'}
                 onSave={(v) => patch(r.id, { qty: v })}
               />
+              {/* 领料车间 · 领料人 — 出库那一笔才有; 入库是进货, 划一道杠。
+                  还空着的两格谁都能补 (料是当场领走的), 补过的要改找工程或
+                  于海伟, 跟备注一个规矩。 */}
+              {r.kind === 'out' ? (
+                <>
+                  <Cell
+                    canEdit={canEdit || !r.dept}
+                    value={r.dept}
+                    onSave={(v) => patch(r.id, { dept: v })}
+                  />
+                  <Cell
+                    canEdit={canEdit || !r.taker}
+                    value={r.taker}
+                    onSave={(v) => patch(r.id, { taker: v })}
+                  />
+                </>
+              ) : (
+                <>
+                  <span className="text-[12.5px] text-[var(--color-ink-4)]">—</span>
+                  <span className="text-[12.5px] text-[var(--color-ink-4)]">—</span>
+                </>
+              )}
               <Cell
                 canEdit={canEdit || !r.note}
                 value={r.note}
@@ -418,7 +486,8 @@ export function LogBoard({
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
         东西一进一出当场记一笔，库存那一页自己会算——谁都能记，记过的要改或删，
-        找工程或于海伟。导出的就是屏幕上这一批。
+        找工程或于海伟。出库要写清哪个车间、谁来领的，料出去了才找得到人。
+        导出的就是屏幕上这一批。
       </p>
     </div>
   )
