@@ -6,7 +6,12 @@ import {
   requireUser,
   type AuthUser,
 } from '@/lib/auth'
-import { getFinanceRows, getOutsourceBlockRows, getVendors } from '@/lib/db'
+import {
+  getCustomerStatementLines,
+  getFinanceRows,
+  getOutsourceBlockRows,
+  getVendors,
+} from '@/lib/db'
 import { shanghaiDay, today } from '@/lib/today'
 import {
   buildCustomerDuizhang,
@@ -59,7 +64,16 @@ export async function loadDuizhang(params: {
   if (kind === 'customer') {
     const rows = await getFinanceRows()
     parties = customerOptions(rows, from, to, shanghaiDay)
-    if (party) sheet = buildCustomerDuizhang(rows, party, from, to, shanghaiDay)
+    if (party) {
+      // 零件级明细 —— 只有真的选了客户才去取 (四步窄查询, 见 lib/db)。
+      const detail = await getCustomerStatementLines(
+        party,
+        from,
+        to,
+        shanghaiDay,
+      )
+      sheet = buildCustomerDuizhang(rows, party, from, to, shanghaiDay, detail)
+    }
   } else {
     const [rows, vendors] = await Promise.all([getOutsourceBlockRows(), getVendors()])
     parties = vendorOptions(rows, vendors, from, to)

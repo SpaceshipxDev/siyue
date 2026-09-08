@@ -1,5 +1,6 @@
 import { canSeeOrderLedger, canSeeReport } from '@/lib/auth'
 import { formatCny } from '@/lib/data'
+import { proxiedStorageUrl } from '@/lib/storage-url'
 import {
   dateLabel,
   monthLabel,
@@ -96,6 +97,7 @@ function Sheet({
   todayStr: string
 }) {
   const k = sheet.kind
+  const isCustomer = k === 'customer'
   return (
     <article className="doc mt-6">
       <header className="border-b border-[var(--color-ink)] pb-3">
@@ -123,20 +125,25 @@ function Sheet({
 
       {sheet.lines.length === 0 ? (
         <p className="py-16 text-center text-[13px] text-[var(--color-ink-3)]">
-          本期没有{k === 'customer' ? '出货' : '回厂的外协单'}
+          本期没有{isCustomer ? '出货' : '回厂的外协单'}
         </p>
       ) : (
         <section className="py-4">
+          {/* 客户版一行是一个物料 (带图、物料号、单价), 供应商版一行是一张
+              外协单 —— 两边核的东西不一样, 列就不一样。 */}
           <table className="doc-grid">
             <thead>
               <tr>
-                <th style={{ width: 36 }}>序号</th>
-                <th style={{ width: 78 }}>{DUIZHANG_DATE_LABEL[k]}</th>
-                <th style={{ width: 128 }}>{DUIZHANG_DOCNO_LABEL[k]}</th>
+                <th style={{ width: 30 }}>序号</th>
+                <th style={{ width: 58 }}>{DUIZHANG_DATE_LABEL[k]}</th>
+                <th style={{ width: 96 }}>{DUIZHANG_DOCNO_LABEL[k]}</th>
+                {isCustomer && <th style={{ width: 78 }}>合同号</th>}
+                {isCustomer && <th style={{ width: 56 }}>图片</th>}
+                <th style={{ width: 82 }}>{DUIZHANG_DETAIL_LABEL[k]}</th>
                 <th>{DUIZHANG_TITLE_LABEL[k]}</th>
-                <th style={{ width: 96 }}>{DUIZHANG_DETAIL_LABEL[k]}</th>
-                <th style={{ width: 56 }}>数量</th>
-                <th style={{ width: 88 }}>金额</th>
+                <th style={{ width: 44 }}>数量</th>
+                {isCustomer && <th style={{ width: 58 }}>单价</th>}
+                <th style={{ width: 72 }}>金额</th>
               </tr>
             </thead>
             <tbody>
@@ -147,19 +154,52 @@ function Sheet({
                   </td>
                   <td className="mono">{dateLabel(l.date)}</td>
                   <td className="mono">{l.docNo}</td>
+                  {isCustomer && (
+                    <td className="mono text-[var(--color-ink-2)]">
+                      {l.contractNo || '—'}
+                    </td>
+                  )}
+                  {isCustomer && (
+                    <td>
+                      {l.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={proxiedStorageUrl(l.imageUrl)}
+                          alt={l.title}
+                          className="doc-thumb"
+                        />
+                      ) : (
+                        <span className="text-[var(--color-ink-4)]">—</span>
+                      )}
+                    </td>
+                  )}
+                  <td className="mono text-[var(--color-ink-2)]">
+                    {l.detail || '—'}
+                  </td>
                   <td className="font-medium">{l.title}</td>
-                  <td className="text-[var(--color-ink-2)]">{l.detail || '—'}</td>
                   <td className="mono">{l.qty}</td>
+                  {isCustomer && (
+                    <td className="mono">
+                      {typeof l.unitPriceCny === 'number'
+                        ? formatCny(l.unitPriceCny)
+                        : '—'}
+                    </td>
+                  )}
                   <td className="mono">
                     {typeof l.amountCny === 'number' ? formatCny(l.amountCny) : '—'}
                   </td>
                 </tr>
               ))}
               <tr>
-                <td colSpan={5} className="label" style={{ textAlign: 'right' }}>
+                <td
+                  colSpan={isCustomer ? 7 : 5}
+                  className="label"
+                  style={{ textAlign: 'right' }}
+                >
                   合计
                 </td>
                 <td className="mono font-semibold">{sheet.totalQty}</td>
+                {isCustomer && <td />}
                 <td className="mono font-semibold">
                   {formatCny(sheet.totalAmountCny)}
                 </td>

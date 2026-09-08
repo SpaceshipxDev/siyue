@@ -1,6 +1,7 @@
 import { renderToBuffer } from '@react-pdf/renderer'
 import { contentDisposition } from '@/lib/content-disposition'
 import { DuizhangPDF } from '@/lib/pdf/duizhang'
+import { fetchImages } from '@/lib/pdf/images'
 import { DUIZHANG_TITLE } from '@/lib/duizhang'
 import { loadDuizhang } from '../../_load'
 
@@ -21,8 +22,14 @@ export async function GET(req: Request) {
     return new Response('请先选择对账对象', { status: 400 })
   }
 
+  // 零件图 —— 只有客户版印图。抓不到的图渲染成一个破折号, 不挡住出单。
+  const images =
+    sheet.kind === 'customer'
+      ? await fetchImages(sheet.lines.map((l) => l.imageUrl))
+      : undefined
+
   const pdf = await renderToBuffer(
-    DuizhangPDF({ sheet, preparedBy: user.name, todayStr }),
+    DuizhangPDF({ sheet, preparedBy: user.name, todayStr, images }),
   )
   const name = `${sheet.party}-${DUIZHANG_TITLE[sheet.kind]}-${sheet.from.slice(0, 7)}.pdf`
 

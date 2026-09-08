@@ -219,42 +219,73 @@ function ExportButton({ sheet }: { sheet: Duizhang }) {
     setBusy(true)
     try {
       const XLSX = await import('xlsx')
-      const head = [
-        '序号',
-        DUIZHANG_DATE_LABEL[k],
-        DUIZHANG_DOCNO_LABEL[k],
-        DUIZHANG_TITLE_LABEL[k],
-        DUIZHANG_DETAIL_LABEL[k],
-        '数量',
-        '金额',
-      ]
-      const body: (string | number)[][] = sheet.lines.map((l, i) => [
-        i + 1,
-        l.date,
-        l.docNo,
-        l.title,
-        l.detail,
-        l.qty,
-        typeof l.amountCny === 'number' ? l.amountCny : '',
-      ])
-      body.push(['合计', '', '', '', '', sheet.totalQty, sheet.totalAmountCny])
+      // 客户版多三列 (合同号 · 单价, 物料号独立成列) —— 客户核的是物料明细。
+      const isCustomer = k === 'customer'
+      const head = isCustomer
+        ? [
+            '序号',
+            DUIZHANG_DATE_LABEL[k],
+            DUIZHANG_DOCNO_LABEL[k],
+            '合同号',
+            '物料号',
+            '物料名称',
+            '数量',
+            '单价',
+            '金额',
+          ]
+        : [
+            '序号',
+            DUIZHANG_DATE_LABEL[k],
+            DUIZHANG_DOCNO_LABEL[k],
+            DUIZHANG_TITLE_LABEL[k],
+            DUIZHANG_DETAIL_LABEL[k],
+            '数量',
+            '金额',
+          ]
+      const blanks: (string | number)[] = head.map(() => '')
+      const body: (string | number)[][] = sheet.lines.map((l, i) =>
+        isCustomer
+          ? [
+              i + 1,
+              l.date,
+              l.docNo,
+              l.contractNo ?? '',
+              l.partNo ?? '',
+              l.title,
+              l.qty,
+              typeof l.unitPriceCny === 'number' ? l.unitPriceCny : '',
+              typeof l.amountCny === 'number' ? l.amountCny : '',
+            ]
+          : [
+              i + 1,
+              l.date,
+              l.docNo,
+              l.title,
+              l.detail,
+              l.qty,
+              typeof l.amountCny === 'number' ? l.amountCny : '',
+            ],
+      )
+      const totalRow: (string | number)[] = [...blanks]
+      totalRow[0] = '合计'
+      totalRow[head.indexOf('数量')] = sheet.totalQty
+      totalRow[head.indexOf('金额')] = sheet.totalAmountCny
+      body.push(totalRow)
       body.push([])
-      if (k === 'customer') {
-        body.push(['本期出货', '', '', '', '', '', sheet.totalAmountCny])
-        body.push(['本期开票', '', '', '', '', '', sheet.invoicedCny])
-        body.push(['本期回款', '', '', '', '', '', sheet.paidCny])
-        body.push(['截至今日未收', '', '', '', '', '', sheet.carryAmountCny])
+      const sum = (label: string, v: number) => {
+        const row: (string | number)[] = [...blanks]
+        row[0] = label
+        row[head.length - 1] = v
+        body.push(row)
+      }
+      if (isCustomer) {
+        sum('本期出货', sheet.totalAmountCny)
+        sum('本期开票', sheet.invoicedCny)
+        sum('本期回款', sheet.paidCny)
+        sum('截至今日未收', sheet.carryAmountCny)
       } else {
-        body.push(['本期应付', '', '', '', '', '', sheet.totalAmountCny])
-        body.push([
-          `尚在外未结 (${sheet.carryCount} 单)`,
-          '',
-          '',
-          '',
-          '',
-          '',
-          sheet.carryAmountCny,
-        ])
+        sum('本期应付', sheet.totalAmountCny)
+        sum(`尚在外未结 (${sheet.carryCount} 单)`, sheet.carryAmountCny)
       }
       const title = [
         [`${sheet.party} · ${DUIZHANG_TITLE[k]}`],
@@ -262,15 +293,15 @@ function ExportButton({ sheet }: { sheet: Duizhang }) {
         [],
       ]
       const ws = XLSX.utils.aoa_to_sheet([...title, head, ...body])
-      ws['!cols'] = [
-        { wch: 8 },
-        { wch: 12 },
-        { wch: 18 },
-        { wch: 30 },
-        { wch: 16 },
-        { wch: 8 },
-        { wch: 12 },
-      ]
+      ws['!cols'] = head.map((h) =>
+        h === '物料名称' || h === DUIZHANG_TITLE_LABEL[k]
+          ? { wch: 30 }
+          : h === '序号' || h === '数量'
+            ? { wch: 8 }
+            : h === '金额' || h === '单价'
+              ? { wch: 12 }
+              : { wch: 16 },
+      )
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, '对账单')
       XLSX.writeFile(wb, `${sheet.party}_对账单_${sheet.from.slice(0, 7)}.xlsx`)

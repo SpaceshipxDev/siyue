@@ -20,26 +20,57 @@ import {
 } from './data'
 import { effectiveAmount, outstanding, type FinanceRow } from './finance'
 
+/** 零件级明细的入参 —— 和 lib/db 的 StatementLine 同形, 这里只留用得上的几样。 */
+export type StatementLineInput = {
+  shipmentId: string
+  shipDate: string
+  componentId: string
+  jobNo: string
+  contractNo?: string
+  partNo?: string
+  partName: string
+  imageUrl?: string
+  qty: number
+  unitPriceCny?: number
+  amountCny?: number
+}
+
 export type DuizhangKind = 'customer' | 'vendor'
 
 export function isDuizhangKind(x: string | undefined): x is DuizhangKind {
   return x === 'customer' || x === 'vendor'
 }
 
-/** 单据上的一行 —— 客户看到的是一车货, 供应商看到的是一张外协单。 */
+/**
+ * 单据上的一行。
+ *
+ * 客户那半边是**一个零件一行** (不是一车一行): 客户核对账要的是"哪个物料、
+ * 几个、单价多少", 给他一车的总数他对不下去。所以这一行带着图、物料号、物
+ * 料名、单价, 以及那张单的合同号。
+ * 供应商那半边仍是一张外协单一行 —— 他核的是"哪张单多少钱"。
+ */
 export type DuizhangLine = {
   key: string
   /** 客户: 出货日期 · 供应商: 回厂日期 (结算日) */
   date: string
   /** 客户: 交货单号 (= 销售单号, 和交货单上印的一致) · 供应商: 外协单号 */
   docNo: string
-  /** 主名: 产品 / 零件 */
+  /** 主名: 物料名称 / 零件 */
   title: string
   /** 副名: 料号 / 工序 */
   detail: string
   qty: number
-  /** 未定价的单是空, 不是 0 —— 0 会被合计吃掉, 空才会被人问起。 */
+  /** 未定价的行是空, 不是 0 —— 0 会被合计吃掉, 空才会被人问起。 */
   amountCny?: number
+  // —— 以下几样只有客户对账单用到 ——
+  /** 合同号 */
+  contractNo?: string
+  /** 物料号 */
+  partNo?: string
+  /** 零件图 */
+  imageUrl?: string
+  /** 单价 */
+  unitPriceCny?: number
 }
 
 export type Duizhang = {
@@ -106,24 +137,31 @@ export function buildCustomerDuizhang(
   from: string,
   to: string,
   dayOf: (iso: string) => string,
+  /** 零件级明细 (lib/db getCustomerStatementLines)。 */
+  detail: StatementLineInput[] = [],
 ): Duizhang {
   const mine = all.filter((r) => (r.customer ?? '').trim() === party)
-  const inPeriod = mine.filter((r) => {
-    const d = dayOf(r.shipDate)
-    return d >= from && d <= to
-  })
 
-  const lines: DuizhangLine[] = inPeriod
-    .map((r) => ({
-      key: r.shipmentId,
-      date: dayOf(r.shipDate),
-      docNo: r.jobNo || r.docNo || '—',
-      title: r.product || '—',
-      detail: r.partNos || '',
-      qty: r.qty,
-      amountCny: effectiveAmount(r),
+  const lines: DuizhangLine[] = detail
+    .map((d) => ({
+      key: `${d.shipmentId}:${d.componentId}`,
+      date: dayOf(d.shipDate),
+      docNo: d.jobNo || '—',
+      title: d.partName || '—',
+      detail: d.partNo || '',
+      qty: d.qty,
+      amountCny: d.amountCny,
+      contractNo: d.contractNo,
+      partNo: d.partNo,
+      imageUrl: d.imageUrl,
+      unitPriceCny: d.unitPriceCny,
     }))
-    .sort((a, b) => a.date.localeCompare(b.date) || a.docNo.localeCompare(b.docNo))
+    .sort(
+      (a, b) =>
+        a.date.localeCompare(b.date) ||
+        a.docNo.localeCompare(b.docNo) ||
+        a.title.localeCompare(b.title, 'zh'),
+    )
 
   let totalQty = 0
   let totalAmountCny = 0
@@ -349,12 +387,12 @@ export const DUIZHANG_DATE_LABEL: Record<DuizhangKind, string> = {
 }
 
 export const DUIZHANG_TITLE_LABEL: Record<DuizhangKind, string> = {
-  customer: '产品名称',
+  customer: '物料名称',
   vendor: '零件',
 }
 
 export const DUIZHANG_DETAIL_LABEL: Record<DuizhangKind, string> = {
-  customer: '料号',
+  customer: '物料号',
   vendor: '工序',
 }
 

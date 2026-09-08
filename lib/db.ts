@@ -3133,6 +3133,116 @@ async function getMasterRowsScoped(scope: MasterRowsScope): Promise<MasterRow[]>
   return composed
 }
 
+// === 客户对账单的明细行 ===
+//
+// 对账单原来一行是"一车货" (一张出货单), 客户拿到手只看得见一个总数, 对不下
+// 去 —— 他要核的是"哪个物料、几个、单价多少"。所以这里把行下沉一层: 一个零
+// 件一行, 带上图、物料号、物料名、单价、金额和那张单的合同号。
+//
+// 取数是四步窄查询, 不碰全厂快照: 先按客户找出他的工单, 再找这段时间里这些
+// 工单的出货单, 再找这些出货单里的零件, 最后补零件本身的名字和单价。一个客
+// 户一个月的量, 每一步都是几十到几百行。
+export type StatementLine = {
+  shipmentId: string
+  shipDate: string // ISO
+  jobId: string
+  jobNo: string
+  contractNo?: string
+  componentId: string
+  partNo?: string
+  partName: string
+  imageUrl?: string
+  qty: number
+  unitPriceCny?: number
+  amountCny?: number
+}
+
+export async function getCustomerStatementLines(
+  customer: string,
+  fromYmd: string,
+  toYmd: string,
+  dayOf: (iso: string) => string,
+): Promise<StatementLine[]> {
+  const name = customer.trim()
+  if (!name) return []
+
+  // ① 这个客户的工单 (只要三列)
+  const jobsR = await supabase
+    .from('jobs')
+    .select('id, job_no, contract_no, customer')
+    .eq('customer', name)
+  if (jobsR.error) throw jobsR.error
+  const jobs = (jobsR.data ?? []) as AnyRow[]
+  if (jobs.length === 0) return []
+  const jobMeta = new Map<string, { jobNo: string; contractNo?: string }>()
+  for (const j of jobs) {
+    jobMeta.set(j.id as string, {
+      jobNo: (j.job_no as string) ?? '',
+      contractNo: (j.contract_no as string | null) ?? undefined,
+    })
+  }
+
+  // ② 这些工单的出货单, 落在期间里的
+  const shipRows = await selectAllIn('shipments', 'job_id', [...jobMeta.keys()])
+  const ships = shipRows
+    .map((r) => ({
+      id: r.id as string,
+      jobId: r.job_id as string,
+      createdAt: (r.created_at as string) ?? '',
+    }))
+    .filter((s) => {
+      const d = dayOf(s.createdAt)
+      return d >= fromYmd && d <= toYmd
+    })
+  if (ships.length === 0) return []
+  const shipById = new Map(ships.map((s) => [s.id, s]))
+
+  // ③ 这些出货单里的零件行
+  const spRows = await selectAllIn(
+    'shipment_parts',
+    'shipment_id',
+    ships.map((s) => s.id),
+  )
+  if (spRows.length === 0) return []
+
+  // ④ 零件本身 —— 名字 · 料号 · 图 · 单价
+  const partRows = await selectAllIn('parts', 'id', [
+    ...new Set(spRows.map((r) => r.part_id as string)),
+  ])
+  const partById = new Map<string, PartRow>()
+  for (const r of partRows) {
+    const p = fromPart(r)
+    partById.set(p.id, p)
+  }
+
+  const out: StatementLine[] = []
+  for (const sp of spRows) {
+    const ship = shipById.get(sp.shipment_id as string)
+    if (!ship) continue
+    const meta = jobMeta.get(ship.jobId)
+    if (!meta) continue
+    const rawPartId = sp.part_id as string
+    const part = partById.get(rawPartId)
+    const qty = Number(sp.qty ?? 0)
+    const unit = part ? partUnitPrice(part) : undefined
+    out.push({
+      shipmentId: ship.id,
+      shipDate: ship.createdAt,
+      jobId: ship.jobId,
+      jobNo: meta.jobNo,
+      contractNo: meta.contractNo,
+      componentId: rawPartId.split(':').slice(1).join(':') || rawPartId,
+      partNo: part?.partNo,
+      partName: part?.name || '—',
+      imageUrl: part?.imageUrl,
+      qty,
+      unitPriceCny: unit,
+      amountCny: unit === undefined ? undefined : Math.round(unit * qty),
+    })
+  }
+  return out
+}
+
 // === 财务 / 应收账款 ledger ===
 
 // Per-unit price for a part: explicit unit price wins, else derive from a
