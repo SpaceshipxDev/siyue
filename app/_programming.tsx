@@ -296,11 +296,11 @@ function DrawingRow({
   const kind = drawingKind(file.filename)
   const size = formatFileSize(file.filesize)
   return (
-    <div className="group flex items-baseline gap-2.5">
+    <div className="group flex items-start gap-2.5">
       <a
         href={proxiedStorageUrl(file.url)}
         download={file.filename}
-        className="min-w-0 truncate text-[13.5px] text-[var(--color-ink)] underline decoration-[var(--color-border-strong)] underline-offset-2 hover:decoration-[var(--color-ink)]"
+        className="min-w-0 break-all text-[13.5px] leading-snug text-[var(--color-ink)] underline decoration-[var(--color-border-strong)] underline-offset-2 hover:decoration-[var(--color-ink)]"
         title={`下载 ${file.filename}`}
       >
         {file.filename}
@@ -432,8 +432,8 @@ function ProgramRow({
 }) {
   const [pending, start] = useTransition()
   return (
-    <div className="group flex items-baseline gap-2.5">
-      <span className="min-w-0 flex-1 truncate text-[13.5px] text-[var(--color-ink)]">
+    <div className="group flex items-start gap-2.5">
+      <span className="min-w-0 flex-1 break-words text-[13.5px] leading-snug text-[var(--color-ink)]">
         {programLine(program)}
       </span>
       {program.note && (
@@ -566,7 +566,7 @@ function ProgramComposer({
       {!open && reusable.length > 0 && (
         <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2.5 gap-y-1 text-[12.5px]">
           <span className="text-[var(--color-ink-3)]">这个件以前编过 ·</span>
-          <span className="min-w-0 truncate text-[var(--color-ink-2)]">
+          <span className="min-w-0 break-all text-[var(--color-ink-2)]">
             {reusable.map((p) => p.no).join(' · ')}
           </span>
           <button

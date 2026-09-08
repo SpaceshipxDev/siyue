@@ -7,6 +7,11 @@ import { mutate } from '@/lib/mutate'
 import { drawingsByComponent, type DrawingFile } from '@/lib/drawing'
 import type { NcProgram } from '@/lib/nc-program'
 import { PartBlock } from '@/app/_programming'
+import {
+  ResizableHeader,
+  useColumnWidths,
+  type ColSpec,
+} from '@/app/_col_width'
 
 // 编程台 —— 一行一个要编的件, 按交期排。
 //
@@ -41,6 +46,18 @@ export type DeskRow = {
 
 type Lens = 'todo' | 'doing' | 'all'
 
+// 列。工号 / 程序号这些东西没有标准长度 (YNMX-26-4-9-094 和客户给的长料号都
+// 是一列), 所以定死多宽都会截掉谁 —— 列宽是可以拉的, 拉过的记在这台机器上。
+// 零件那一列吃剩余宽度, 不用拉。
+const COLS: ColSpec[] = [
+  { key: 'jobNo', label: '工号', width: 152, min: 90 },
+  { key: 'part', label: '零件 · 材质 · 数量', flex: true, min: 220 },
+  { key: 'drawing', label: '图纸', width: 84, min: 64 },
+  { key: 'program', label: '程序号', width: 200, min: 90 },
+  { key: 'due', label: '交期', width: 108, min: 84, align: 'right' },
+  { key: 'act', label: '', width: 96, min: 96, align: 'right' },
+]
+
 export function ProgrammingDesk({
   rows,
   drawings,
@@ -64,6 +81,8 @@ export function ProgrammingDesk({
     rows.flatMap((r) => r.programs),
   )
   const [doneIds, setDoneIds] = useState<Set<string>>(() => new Set())
+  const { rootRef, template, minWidth, startResize, resetCol, resetAll } =
+    useColumnWidths('colw:programming', COLS)
 
   const dByPart = useMemo(() => drawingsByComponent(files), [files])
   const pByPart = useMemo(() => {
@@ -167,17 +186,34 @@ export function ProgrammingDesk({
             </span>
           </button>
         ))}
-        <Link
-          href="/?stage=编程"
-          className="ml-auto text-[12px] text-[var(--color-ink-3)] underline underline-offset-2 hover:text-[var(--color-ink)]"
-        >
-          工段看板 →
-        </Link>
+        <span className="ml-auto flex items-baseline gap-4">
+          <button
+            type="button"
+            onClick={resetAll}
+            title="每一列回到默认宽度"
+            className="text-[12px] text-[var(--color-ink-3)] underline underline-offset-2 hover:text-[var(--color-ink)]"
+          >
+            列宽复位
+          </button>
+          <Link
+            href="/?stage=编程"
+            className="text-[12px] text-[var(--color-ink-3)] underline underline-offset-2 hover:text-[var(--color-ink)]"
+          >
+            工段看板 →
+          </Link>
+        </span>
       </div>
 
-      <div className="mt-5 border-y border-[var(--color-border)]">
+      <div className="mt-5 overflow-x-auto">
+        <div ref={rootRef} style={{ minWidth }}>
+          <ResizableHeader
+            cols={COLS}
+            template={template}
+            startResize={startResize}
+            resetCol={resetCol}
+          />
         {visible.length === 0 ? (
-          <p className="py-16 text-center text-[13px] text-[var(--color-ink-3)]">
+          <p className="border-b border-[var(--color-border)] py-16 text-center text-[13px] text-[var(--color-ink-3)]">
             {needle || lens !== 'all' ? '没有匹配的件' : '没有要编的件'}
           </p>
         ) : (
@@ -204,15 +240,16 @@ export function ProgrammingDesk({
                       )
                     }
                   }}
-                  className={`flex cursor-pointer items-center gap-5 px-3 py-3 transition-colors ${
+                  style={{ gridTemplateColumns: template }}
+                  className={`grid cursor-pointer items-start gap-x-4 px-3 py-3 transition-colors ${
                     expanded ? 'bg-[#f1eee4]' : 'hover:bg-[#f1eee4]'
                   }`}
                 >
-                  <span className="mono w-28 shrink-0 truncate text-[12.5px] text-[var(--color-ink-2)]">
+                  <span className="mono min-w-0 break-all text-[12.5px] leading-snug text-[var(--color-ink-2)]">
                     {r.jobNo}
                   </span>
-                  <div className="flex min-w-0 flex-1 flex-col leading-tight">
-                    <span className="truncate text-[14px] font-medium text-[var(--color-ink)]">
+                  <div className="flex min-w-0 flex-col leading-tight">
+                    <span className="break-words text-[14px] font-medium text-[var(--color-ink)]">
                       {r.name}
                       {r.partNo && (
                         <span className="mono ml-2 text-[11.5px] font-normal text-[var(--color-ink-3)]">
@@ -220,7 +257,7 @@ export function ProgrammingDesk({
                         </span>
                       )}
                     </span>
-                    <span className="mt-0.5 truncate text-[11.5px] text-[var(--color-ink-3)]">
+                    <span className="mt-0.5 break-words text-[11.5px] text-[var(--color-ink-3)]">
                       {[r.material, `${r.qty} 件`, r.process]
                         .filter(Boolean)
                         .join(' · ')}
@@ -228,7 +265,7 @@ export function ProgrammingDesk({
                   </div>
 
                   {/* 图纸 —— 没图是编不动的, 所以这一格是红的 */}
-                  <span className="w-20 shrink-0 text-[12.5px]">
+                  <span className="min-w-0 break-words text-[12.5px] leading-snug">
                     {parts.length > 0 ? (
                       <span className="text-[var(--color-ink-2)]">
                         图纸 {parts.length}
@@ -239,7 +276,7 @@ export function ProgrammingDesk({
                   </span>
 
                   {/* 程序 —— 出了就把程序号摆出来, 操机认的就是这个 */}
-                  <span className="mono w-40 shrink-0 truncate text-[12.5px]">
+                  <span className="mono min-w-0 break-all text-[12.5px] leading-snug">
                     {progs.length > 0 ? (
                       <span className="text-[var(--color-ink)]">
                         {progs.map((p) => p.no).join(' · ')}
@@ -252,7 +289,7 @@ export function ProgrammingDesk({
                   <DueCol dueDate={r.dueDate} />
 
                   <span
-                    className="w-[92px] shrink-0 text-right"
+                    className="text-right"
                     onClick={(e) => e.stopPropagation()}
                   >
                     {canReport && (
@@ -312,6 +349,7 @@ export function ProgrammingDesk({
             )
           })
         )}
+        </div>
       </div>
     </main>
   )
@@ -327,7 +365,7 @@ function DueCol({ dueDate }: { dueDate: string }) {
         ? 'text-[var(--color-warning)]'
         : 'text-[var(--color-ink)]'
   return (
-    <div className="flex w-24 shrink-0 flex-col items-end leading-tight">
+    <div className="flex min-w-0 flex-col items-end leading-tight">
       <span className={`mono text-[12.5px] ${tone}`}>{dueDate || '—'}</span>
       {dueDate && (
         <span className="label mt-0.5 text-[var(--color-ink-3)]">
