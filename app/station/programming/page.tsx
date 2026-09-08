@@ -6,7 +6,7 @@ import {
   requireUser,
   canClickStage,
 } from '@/lib/auth'
-import { getStationQueue, getJobsComponents } from '@/lib/db'
+import { getProgrammingQueue } from '@/lib/db'
 import { getDrawingFiles } from '@/lib/drawing-file'
 import { getNcPrograms } from '@/lib/nc-program-store'
 import { findReusable, reuseKey, type NcProgram } from '@/lib/nc-program'
@@ -30,18 +30,14 @@ export const dynamic = 'force-dynamic'
 export default async function ProgrammingDeskPage() {
   const user = await requireUser()
 
-  const queue = await getStationQueue('编程')
-  // 已完成的那一段不进这一页 —— 编程台是"还要编什么"的清单, 编完了它就该从
-  // 眼前消失 (要翻旧账去工段看板)。
-  const live = queue.filter((it) => it.status !== 'done')
+  // 要编的活 —— 窄查询, 不走全厂快照 (见 lib/db 的 getProgrammingQueue)。
+  const queue = await getProgrammingQueue()
 
-  const jobIds = [...new Set(live.map((it) => it.jobId))]
-  // 图纸清单是一张工单一份, 所以只读眼前这几张工单的 —— 待编的工单通常十几
-  // 张, 并行读一次就够, 不去翻全厂。
-  const [drawingLists, allPrograms, componentsByJob] = await Promise.all([
+  const jobIds = [...new Set(queue.map((it) => it.jobId))]
+  // 图纸清单是一张工单一份, 所以只读眼前这几张工单的。
+  const [drawingLists, allPrograms] = await Promise.all([
     Promise.all(jobIds.map((id) => getDrawingFiles(id))),
     getNcPrograms(),
-    getJobsComponents(jobIds),
   ])
 
   const drawings: DrawingFile[] = drawingLists.flat()
@@ -52,50 +48,32 @@ export default async function ProgrammingDeskPage() {
     const k = partRef(p.jobId, p.componentId)
     byPart.set(k, [...(byPart.get(k) ?? []), p])
   }
-  // 零件的材质 / 料号 / 图片 —— 队列里没有, 从工单的零件表补齐。编程员要读的
-  // 就是这几样。
-  const partMeta = new Map<
-    string,
-    { partNo?: string; material?: string; process?: string; surfaceTreatment?: string; imageUrl?: string }
-  >()
-  for (const [jobId, list] of componentsByJob) {
-    for (const c of list) {
-      partMeta.set(partRef(jobId, c.id), {
-        partNo: c.partNo,
-        material: c.material,
-        process: c.process,
-        surfaceTreatment: c.surfaceTreatment,
-        imageUrl: c.imageUrl,
-      })
-    }
-  }
 
-  const rows: DeskRow[] = live.map((it) => {
-    const ref = partRef(it.jobId, it.componentId)
-    const meta = partMeta.get(ref) ?? {}
-    const mine = byPart.get(ref) ?? []
+  const rows: DeskRow[] = queue.map((it) => {
+    const mine = byPart.get(partRef(it.jobId, it.componentId)) ?? []
     return {
       jobId: it.jobId,
       jobNo: it.jobNo,
       product: it.product,
       dueDate: it.dueDate,
       status: it.status,
+      upstreamReady: it.upstreamReady,
       componentId: it.componentId,
-      name: it.componentName,
+      name: it.name,
       qty: it.qty,
-      note: it.componentNote,
-      partNo: meta.partNo,
-      material: meta.material,
-      process: meta.process,
-      surfaceTreatment: meta.surfaceTreatment,
-      imageUrl: meta.imageUrl,
+      note: it.note,
+      partNo: it.partNo,
+      material: it.material,
+      process: it.process,
+      surfaceTreatment: it.surfaceTreatment,
+      imageUrl: it.imageUrl,
       programs: mine,
       reusable:
         mine.length > 0
           ? []
           : findReusable(
               allPrograms,
-              reuseKey({ name: it.componentName, partNo: meta.partNo }),
+              reuseKey({ name: it.name, partNo: it.partNo }),
               it.jobId,
             ),
     }

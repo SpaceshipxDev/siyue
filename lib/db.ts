@@ -1067,19 +1067,22 @@ async function selectAllIn(
   table: string,
   column: string,
   values: string[],
+  // 第二个窄条件 (例如 stage in ('工程','编程'))。给了就一起下推到数据库, 而
+  // 不是把整份拉回来再在内存里筛 —— part_stages 是零件数 × 工序数, 差别是几
+  // 千行和几万行。
+  also?: { column: string; values: string[] },
 ): Promise<AnyRow[]> {
   if (values.length === 0) return []
+  if (also && also.values.length === 0) return []
   const IN_CHUNK = 100
   const out: AnyRow[] = []
   for (let i = 0; i < values.length; i += IN_CHUNK) {
     const chunk = values.slice(i, i + IN_CHUNK)
     let from = 0
     while (true) {
-      const { data, error } = await supabase
-        .from(table)
-        .select('*')
-        .in(column, chunk)
-        .range(from, from + PAGE_SIZE - 1)
+      let q = supabase.from(table).select('*').in(column, chunk)
+      if (also) q = q.in(also.column, also.values)
+      const { data, error } = await q.range(from, from + PAGE_SIZE - 1)
       if (error) throw error
       const rows = (data ?? []) as AnyRow[]
       out.push(...rows)
@@ -6752,6 +6755,104 @@ export async function getStationQueue(stage: Stage): Promise<StationItem[]> {
     }
     return a.dueDate.localeCompare(b.dueDate)
   })
+  return items
+}
+
+// === 编程台的取数 ===
+//
+// 为什么不复用 getStationQueue: 它走 loadSnapshot() —— 十二张表整个拉回来,
+// 其中 part_stages 是零件数 × 工序数, 在这个厂里是几十万行。编程台每打开一
+// 次就等那一趟, 跨境链路上十几秒起步, 页面转半天出不来 —— 编程员当然说"用
+// 不了"。这里只读三样窄查询: master 视图 (哪几张单的编程没做完) · 那几张单
+// 的零件 · 那些零件的 工程/编程 两格状态。
+//
+// 还有一处口径不同: 不按"上游全做完"过滤。编程是整条流水的头, 编程员要能提
+// 前看见马上要编的活 (先把图看了、料号对了), 而不是等工程点完成的那一刻才凭
+// 空冒出来一堆。上游没就绪的照样列, 只是标一句"等工程"。
+export type ProgrammingQueueItem = {
+  jobId: string
+  jobNo: string
+  product: string
+  dueDate: string
+  componentId: string
+  name: string
+  qty: number
+  note?: string
+  partNo?: string
+  material?: string
+  process?: string
+  surfaceTreatment?: string
+  imageUrl?: string
+  status: StageStatus
+  /** 上游 (工程) 完了没。没完 = 还轮不到动手, 但可以先看图。 */
+  upstreamReady: boolean
+}
+
+export async function getProgrammingQueue(): Promise<ProgrammingQueueItem[]> {
+  const rows = await getMasterRows()
+  // 编程这一格里还有没做完的零件, 才是这一页要管的单。
+  const jobs = rows.filter((r) => {
+    if (r.status && r.status !== 'ready') return false
+    const c = r.cells['编程']
+    if (!c || c.total === 0) return false
+    return c.inHouseDone + c.outsourcedClosed < c.total
+  })
+  if (jobs.length === 0) return []
+
+  const jobIds = jobs.map((r) => r.id)
+  const componentsByJob = await getJobsComponents(jobIds)
+
+  // part_stages 只取这些零件的 工程 / 编程 两行 —— 不是整张表。
+  const partIds: string[] = []
+  for (const [jobId, list] of componentsByJob) {
+    for (const c of list) partIds.push(`${jobId}:${c.id}`)
+  }
+  const stageRows = await selectAllIn('part_stages', 'part_id', partIds, {
+    column: 'stage',
+    values: ['工程', '编程'],
+  })
+  const stateOf = new Map<string, StageStatus>()
+  for (const r of stageRows) {
+    stateOf.set(
+      `${r.part_id as string}|${r.stage as string}`,
+      (r.status as StageStatus) ?? 'pending',
+    )
+  }
+
+  const jobById = new Map(jobs.map((r) => [r.id, r]))
+  const items: ProgrammingQueueItem[] = []
+  for (const [jobId, list] of componentsByJob) {
+    const job = jobById.get(jobId)
+    if (!job) continue
+    for (const c of list) {
+      const pid = `${jobId}:${c.id}`
+      const cheng = stateOf.get(`${pid}|编程`)
+      // 路线里没有「编程」这一站的零件 (纯钣金、纯外购) 不进这一页。
+      if (!cheng) continue
+      if (cheng === 'done') continue
+      items.push({
+        jobId,
+        jobNo: job.jobNo,
+        product: job.product,
+        dueDate: job.dueDate ?? '',
+        componentId: c.id,
+        name: c.name,
+        qty: c.qty,
+        partNo: c.partNo,
+        material: c.material,
+        process: c.process,
+        surfaceTreatment: c.surfaceTreatment,
+        imageUrl: c.imageUrl,
+        status: cheng,
+        // 工程不在路线里 (少数零件) 就算已就绪 —— 它永远不会被点完成。
+        upstreamReady: (stateOf.get(`${pid}|工程`) ?? 'done') === 'done',
+      })
+    }
+  }
+  // 交期近的在前 —— 编程压一天, 后面每一站都跟着压一天。
+  items.sort(
+    (a, b) => a.dueDate.localeCompare(b.dueDate) || a.jobNo.localeCompare(b.jobNo),
+  )
   return items
 }
 

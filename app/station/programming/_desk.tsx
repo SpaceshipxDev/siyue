@@ -37,6 +37,8 @@ export type DeskRow = {
   product: string
   dueDate: string
   status: StageStatus
+  /** 上游 (工程) 完了没 —— 没完就是"可以先看图, 还轮不到报完成"。 */
+  upstreamReady: boolean
   componentId: string
   name: string
   qty: number
@@ -50,7 +52,11 @@ export type DeskRow = {
   reusable: NcProgram[]
 }
 
-type Lens = 'todo' | 'doing' | 'all'
+// 四个口子, 按"我现在能不能动手"分:
+//   能编   上游 (工程) 完了, 还没开始 —— 今天该干的就是这些
+//   在编   自己已经点过开始
+//   等上游 工程还没点完成 —— 可以先看图、先传图, 报不了完成
+type Lens = 'all' | 'ready' | 'doing' | 'waiting'
 
 // 列。工号 / 程序号这些东西没有标准长度 (YNMX-26-4-9-094 和客户给的长料号都
 // 是一列), 所以定死多宽都会截掉谁 —— 列宽是可以拉的, 拉过的记在这台机器上。
@@ -108,11 +114,13 @@ export function ProgrammingDesk({
     return rows
       .filter((r) => !doneIds.has(partRef(r.jobId, r.componentId)))
       .filter((r) =>
-        lens === 'todo'
-          ? r.status === 'pending'
+        lens === 'ready'
+          ? r.upstreamReady && r.status === 'pending'
           : lens === 'doing'
             ? r.status === 'in_progress'
-            : true,
+            : lens === 'waiting'
+              ? !r.upstreamReady
+              : true,
       )
       .filter((r) =>
         needle
@@ -132,9 +140,10 @@ export function ProgrammingDesk({
     (r) => (dByPart.get(partRef(r.jobId, r.componentId)) ?? []).length === 0,
   ).length
   const counts = {
-    todo: live.filter((r) => r.status === 'pending').length,
-    doing: live.filter((r) => r.status === 'in_progress').length,
     all: live.length,
+    ready: live.filter((r) => r.upstreamReady && r.status === 'pending').length,
+    doing: live.filter((r) => r.status === 'in_progress').length,
+    waiting: live.filter((r) => !r.upstreamReady).length,
   }
 
   return (
@@ -176,8 +185,9 @@ export function ProgrammingDesk({
         {(
           [
             ['all', '全部', counts.all],
-            ['todo', '待编', counts.todo],
+            ['ready', '能编', counts.ready],
             ['doing', '在编', counts.doing],
+            ['waiting', '等上游', counts.waiting],
           ] as [Lens, string, number][]
         ).map(([k, label, n]) => (
           <button
@@ -213,6 +223,8 @@ export function ProgrammingDesk({
           </Link>
         </span>
       </div>
+
+      <HowTo />
 
       <div className="mt-5 overflow-x-auto">
         <div ref={rootRef} style={{ minWidth }}>
@@ -279,6 +291,14 @@ export function ProgrammingDesk({
                       </span>
                     ) : (
                       <span className="text-[var(--color-overdue)]">缺图纸</span>
+                    )}
+                    {!r.upstreamReady && (
+                      <span
+                        className="mt-0.5 block text-[11px] text-[var(--color-ink-4)]"
+                        title="工程还没点完成 — 图可以先看先传, 程序也可以先出"
+                      >
+                        等工程
+                      </span>
                     )}
                   </span>
 
@@ -360,6 +380,55 @@ export function ProgrammingDesk({
   )
 }
 
+// 编程怎么走一遍 —— 默认收着。一张工作台如果需要一本说明书, 那是台子没做好;
+// 但一条新流程刚上线的头几周, 人确实要一个地方对一下顺序。所以它在这里, 收
+// 起来只占一行字, 展开是五句话, 不是一页文档。
+function HowTo() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="mt-4">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-[12px] text-[var(--color-ink-3)] underline underline-offset-2 hover:text-[var(--color-ink)]"
+      >
+        {open ? '收起流程' : '编程怎么走一遍'}
+      </button>
+      {open && (
+        <ol className="mt-2 max-w-[720px] space-y-1.5 border-l-2 border-[var(--color-border)] pl-4 text-[12.5px] leading-relaxed text-[var(--color-ink-2)]">
+          <li>
+            <b className="text-[var(--color-ink)]">① 看图看料。</b>
+            点开一行, 材质 · 数量 · 加工方式 · 表面处理都在上面, 图纸点文件名
+            就下载 (三维和二维都在)。<span className="text-[var(--color-overdue)]">缺图纸</span>
+            就找商务或工程要 —— 他们在这里也能直接传。
+          </li>
+          <li>
+            <b className="text-[var(--color-ink)]">② 看以前编过没有。</b>
+            同一个件半年前来过, 这里会写「这个件以前编过」, 点「带过来」把上回的
+            程序号 · 机床 · 刀具原样搬来, 不用重编。
+          </li>
+          <li>
+            <b className="text-[var(--color-ink)]">③ 点「开始」。</b>
+            全厂就知道这个件在你手上了。上游工程还没点完成的, 这一行写着「等工
+            程」—— 图可以先看先传, 开始会问你一句。
+          </li>
+          <li>
+            <b className="text-[var(--color-ink)]">④ 出程序单。</b>
+            刀路照旧在 UG 里做、程序照旧存共享盘; 回到这里把
+            <b> 程序号 · 机床 · 装夹 · 刀具 · 单件分钟</b> 填上。这几个字是给操
+            机看的 —— 他在机台前照着调程序、备刀, 不用再回头找你。
+          </li>
+          <li>
+            <b className="text-[var(--color-ink)]">⑤ 点「编好了」。</b>
+            这一行从台面上消失, 操机站立刻看到活来了。程序号还没填就报完成, 会
+            先问你一句。
+          </li>
+        </ol>
+      )}
+    </div>
+  )
+}
+
 function DueCol({ dueDate }: { dueDate: string }) {
   const ds: DueState = dueState(dueDate)
   const days = daysFromToday(dueDate)
@@ -426,7 +495,22 @@ function ReportButton({
       <button
         type="button"
         disabled={pending}
-        onClick={() => run('startStage')}
+        title={
+          row.upstreamReady
+            ? undefined
+            : '工程这一站还没点完成 — 现在开始会把它一起标完成'
+        }
+        onClick={() => {
+          // 系统的规矩是"我在做, 前面的就算做完了"(开始一道工序会把上游一并
+          // 标完成)。那在这里得说出来 —— 编程员替工程点完成这件事, 应该是他
+          // 知情之后按的, 不是顺手带出来的。
+          if (
+            !row.upstreamReady &&
+            !confirm('工程这一站还没点完成。现在开始, 会把工程一起标完成。确定?')
+          )
+            return
+          run('startStage')
+        }}
         className="rounded-[2px] border border-[var(--color-border-strong)] px-2.5 py-1 text-[12px] text-[var(--color-ink-2)] transition-colors hover:text-[var(--color-ink)] disabled:opacity-40"
       >
         {pending ? '…' : '开始'}
