@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useRef, useState, useTransition } from 'react'
+import { usePasteImage } from '@/app/_paste_image'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { withBase } from '@/lib/base-path'
 import { mutate } from '@/lib/mutate'
@@ -45,6 +46,7 @@ export function ContractFiles({
   canEdit?: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const zoneRef = useRef<HTMLDivElement>(null)
   const [files, setFiles] = useState<ContractFile[]>(initial)
   const [drag, setDrag] = useState(false)
   const [pending, start] = useTransition()
@@ -96,6 +98,9 @@ export function ContractFiles({
       }
     })
   }
+
+  // 合同扫描件常常就是一张微信收到的图 —— 鼠标停在这块上 Ctrl+V 直接进来。
+  usePasteImage(zoneRef, upload, canEdit)
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault()
@@ -150,6 +155,7 @@ export function ContractFiles({
       </div>
 
       <div
+        ref={zoneRef}
         onDragOver={(e) => {
           e.preventDefault()
           setDrag(true)
@@ -164,7 +170,7 @@ export function ContractFiles({
       >
         {files.length === 0 ? (
           <div className="px-4 py-8 text-center text-[13px] text-[var(--color-ink-4)]">
-            尚未上传合同 · 拖拽文件到此或点击「上传合同」
+            尚未上传合同 · 拖进来 · 点「上传合同」· 截图 Ctrl+V
           </div>
         ) : (
           <ul>

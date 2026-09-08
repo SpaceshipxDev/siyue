@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
 import { withBase } from '@/lib/base-path'
+import { usePasteImage } from '@/app/_paste_image'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { SearchSelect } from '@/app/_search_select'
 import { ProcurementExportButton } from './_export_excel'
@@ -2340,6 +2341,7 @@ function ProcurementModal({
 // looking at the row can add one; the shop notices the missing photo at the
 // moment it's needed, which is rarely the moment of 请购.
 function PhotoStrip({ procurementId }: { procurementId: string }) {
+  const zoneRef = useRef<HTMLDivElement>(null)
   const [photos, setPhotos] = useState<ProcurementPhoto[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -2363,7 +2365,7 @@ function PhotoStrip({ procurementId }: { procurementId: string }) {
     }
   }, [procurementId])
 
-  async function add(files: FileList | null) {
+  async function add(files: FileList | File[] | null) {
     if (!files || files.length === 0) return
     setBusy(true)
     setError(null)
@@ -2377,6 +2379,10 @@ function PhotoStrip({ procurementId }: { procurementId: string }) {
     }
     setBusy(false)
   }
+
+  // 鼠标停在这一块上按 Ctrl+V —— 采购的凭证多半是微信截图, 存一趟文件纯属
+  // 多余的一步。
+  usePasteImage(zoneRef, (f) => void add([f]))
 
   async function remove(photoId: string) {
     setPhotos((ps) => (ps ?? []).filter((x) => x.id !== photoId))
@@ -2407,7 +2413,7 @@ function PhotoStrip({ procurementId }: { procurementId: string }) {
   // not an empty frame on every panel the shop opens.
   if (list.length === 0) {
     return (
-      <div className="mt-2.5 flex items-center gap-3">
+      <div ref={zoneRef} className="mt-2.5 flex items-center gap-3">
         <label className="cursor-pointer text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)]">
           {busy ? '上传中…' : '＋ 加图'}
           {input}
@@ -2422,7 +2428,7 @@ function PhotoStrip({ procurementId }: { procurementId: string }) {
   }
 
   return (
-    <div className="mt-2.5 flex flex-wrap items-center gap-2">
+    <div ref={zoneRef} className="mt-2.5 flex flex-wrap items-center gap-2">
       {list.map((ph) => (
         <PhotoTile
           key={ph.id}

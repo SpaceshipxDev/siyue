@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { withBase } from '@/lib/base-path'
+import { usePasteImage } from '@/app/_paste_image'
 import type { PartPhoto, StageState, Verdict } from '@/lib/data'
 import { BLOCKING_VERDICTS, isBlockingVerdict } from '@/lib/data'
 import { mutate } from '@/lib/mutate'
@@ -589,11 +590,12 @@ function InspectionPhotos({
   readOnly: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const zoneRef = useRef<HTMLDivElement>(null)
   const [photos, setPhotos] = useState<PartPhoto[]>(initial)
   const [busy, setBusy] = useState(0)
   const [failed, setFailed] = useState(0)
 
-  const upload = async (files: FileList) => {
+  const upload = async (files: FileList | File[]) => {
     const list = Array.from(files).filter(
       (f) => f.type.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(f.name),
     )
@@ -636,6 +638,8 @@ function InspectionPhotos({
     )
   }
 
+  usePasteImage(zoneRef, (f) => void upload([f]), !readOnly)
+
   const remove = async (id: string) => {
     const prev = photos
     setPhotos((p) => p.filter((x) => x.id !== id))
@@ -659,7 +663,8 @@ function InspectionPhotos({
           <span className="ml-2 text-[var(--color-overdue)]">{failed} 上传失败</span>
         ) : null}
       </p>
-      <div className="flex flex-wrap gap-2">
+      {/* 鼠标停在照片区按 Ctrl+V —— 手机拍的、微信发来的, 截图直接贴进来。 */}
+      <div ref={zoneRef} className="flex flex-wrap gap-2">
         {photos.map((p) => (
           <div
             key={p.id}
@@ -693,6 +698,7 @@ function InspectionPhotos({
             onClick={() => inputRef.current?.click()}
             disabled={busy > 0}
             aria-label="上传检验照片"
+            title="点击上传 · 或鼠标停在照片区按 Ctrl+V 粘贴"
             className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-[2px] border border-dashed border-[var(--color-border-strong)] text-[var(--color-ink-3)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] disabled:opacity-50"
           >
             {busy > 0 ? (

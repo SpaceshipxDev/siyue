@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
+import { usePasteImage } from '@/app/_paste_image'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
@@ -104,6 +105,7 @@ function VoucherPanel({
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
+  const zoneRef = useRef<HTMLDivElement>(null)
   const [pending, start] = useTransition()
   const [busyId, setBusyId] = useState<string | null>(null)
 
@@ -154,8 +156,15 @@ function VoucherPanel({
     })
   }
 
+  // 这一小块浮层里按 Ctrl+V —— 电脑上的收据多半是截图或者网银的图, 存一趟
+  // 文件再选一遍是白走的路。
+  usePasteImage(zoneRef, upload)
+
   return (
-    <div className="absolute right-0 z-30 mt-1 w-[260px] rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-surface)] shadow-xl">
+    <div
+      ref={zoneRef}
+      className="absolute right-0 z-30 mt-1 w-[260px] rounded-[2px] border border-[var(--color-ink)] bg-[var(--color-surface)] shadow-xl"
+    >
       <div className="flex items-center gap-2 border-b border-[var(--color-border)] px-3 py-2">
         <input
           ref={cameraRef}
@@ -201,7 +210,7 @@ function VoucherPanel({
 
       {files.length === 0 ? (
         <p className="px-3 py-6 text-center text-[12px] text-[var(--color-ink-4)]">
-          还没有凭证 · 拍张收据照片
+          还没有凭证 · 拍张收据照片, 或按 Ctrl+V 粘贴
         </p>
       ) : (
         <ul className="max-h-[280px] overflow-y-auto p-2">

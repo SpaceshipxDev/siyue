@@ -128,6 +128,7 @@ import {
   canRenameUploadedJob,
   canRunReturnRework,
   canUploadDrawing,
+  canWriteCommSheet,
   canWriteNcProgram,
   canWriteReturnCause,
   canWriteReturnPlan,
@@ -159,6 +160,8 @@ import {
   updateNcProgram,
 } from '@/lib/nc-program-store'
 import { deleteDrawingFile } from '@/lib/drawing-file'
+import { saveCommSheet } from '@/lib/comm-sheet-store'
+import { isCommTopic, type CommSheet } from '@/lib/comm-sheet'
 import { reuseKey } from '@/lib/nc-program'
 import type { ReturnFlowEntry } from '@/lib/return-flow'
 import {
@@ -1765,6 +1768,45 @@ async function dispatch(
       if (isString(inputJobId)) revalidatePath(`/jobs/${inputJobId}`)
       revalidatePath('/returns')
       return Response.json(ok(result))
+    }
+
+    // 工程部沟通确认单 — 跟客户谈定的技术细节。工程/商务填, 全厂可读。
+    case 'saveCommSheet': {
+      const jobId = body.jobId
+      const patch = body.patch
+      if (!isString(jobId) || typeof patch !== 'object' || patch === null)
+        return err('bad saveCommSheet args')
+      const u = await requireUser()
+      if (!canWriteCommSheet(u)) return err('沟通确认单由工程或商务填')
+      const p = patch as Record<string, unknown>
+      let topic: Parameters<typeof saveCommSheet>[1]['topic']
+      if (p.topic !== undefined) {
+        const t = p.topic as Record<string, unknown>
+        if (
+          !isCommTopic(t.key) ||
+          (t.field !== 'ask' && t.field !== 'ours' && t.field !== 'agreed') ||
+          !isString(t.text)
+        )
+          return err('bad saveCommSheet args')
+        topic = { key: t.key, field: t.field, text: t.text }
+      }
+      const saved: CommSheet = await saveCommSheet(
+        jobId,
+        {
+          projectName: isString(p.projectName) ? p.projectName : undefined,
+          customerContact: isString(p.customerContact)
+            ? p.customerContact
+            : undefined,
+          ourContact: isString(p.ourContact) ? p.ourContact : undefined,
+          talkedAt: isString(p.talkedAt) ? p.talkedAt : undefined,
+          stage: isString(p.stage) ? p.stage : undefined,
+          topic,
+        },
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath(`/jobs/${jobId}`)
+      return Response.json(ok(saved))
     }
 
     // === 编程 ===

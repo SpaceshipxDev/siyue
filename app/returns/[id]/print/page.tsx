@@ -4,7 +4,7 @@ import { requireReturnsDesk } from '@/lib/auth'
 import { getReturnFlow } from '@/lib/return-flow-store'
 import { BRAND } from '@/lib/brand'
 import { today } from '@/lib/today'
-import { PrintButton } from '../../_print_button'
+import { PrintButton } from '@/app/_print_button'
 
 export const dynamic = 'force-dynamic'
 

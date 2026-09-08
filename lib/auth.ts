@@ -348,6 +348,15 @@ export function canEditProductionFields(s: Scope): boolean {
   return canEditPartRoute(s)
 }
 
+// ─── 工程部沟通确认单 ──────────────────────────────────────────────────
+//
+// 跟客户把技术细节谈定的那张纸。工程和商务谈, 所以他们填; 可是**全厂都要看
+// 得见** —— 喷涂那一栏写的"客户指定 RAL7016 · 膜厚 60μm", 喷漆房的人读不到
+// 的话, 谈了等于没谈。凡是"谈好了但车间不知道"的事, 最后都变成返工。
+export function canWriteCommSheet(s: Scope): boolean {
+  return s.role === 'commerce' || s.defaultStage === '工程'
+}
+
 // ─── 编程 (图纸进来, 程序出去) ──────────────────────────────────────────
 //
 // 编程员打开系统, 在这之前只看得到工序格子和一张缩略图 —— 做程序要的东西

@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useTransition } from 'react'
 import { withBase } from '@/lib/base-path'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { mutate } from '@/lib/mutate'
+import { usePasteImage } from '@/app/_paste_image'
 import { partRef } from '@/lib/data'
 import {
   drawingKind,
@@ -353,6 +354,7 @@ function DrawingDrop({
   empty: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const zoneRef = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState(false)
   // 正在传谁、传到几成 —— 一个三十兆的模型在厂里的网上要走十几秒, 期间屏幕
   // 上一个字都不动的话, 人只会以为系统死了, 然后再点一次。
@@ -405,7 +407,7 @@ function DrawingDrop({
       xhr.send(form)
     })
 
-  const send = async (files: FileList | null) => {
+  const send = async (files: FileList | File[] | null) => {
     if (busy || !files || files.length === 0) return
     setError(null)
     const list = Array.from(files)
@@ -424,8 +426,12 @@ function DrawingDrop({
     if (inputRef.current) inputRef.current.value = ''
   }
 
+  // 客户在微信上发来的图纸截图, 鼠标停在这块上 Ctrl+V 直接进来。三维模型仍
+  // 然只能选文件 —— 剪贴板里放不下一个 step。
+  usePasteImage(zoneRef, (f) => void send([f]))
+
   return (
-    <div className={empty ? '' : 'mt-1.5'}>
+    <div ref={zoneRef} className={empty ? '' : 'mt-1.5'}>
       <div
         onDragOver={(e) => {
           if (busy) return

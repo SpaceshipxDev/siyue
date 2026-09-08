@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { usePasteImage } from '@/app/_paste_image'
 import { withBase } from '@/lib/base-path'
 import { dispatchComponentImageUpdated } from './_image_uploader'
 
@@ -81,6 +82,7 @@ export function BatchPhotoUploader({
   components: ComponentLite[]
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const zoneRef = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState(false)
   const [staged, setStaged] = useState<Staged[]>([])
   const [busy, startTransition] = useTransition()
@@ -277,6 +279,10 @@ export function BatchPhotoUploader({
     return { matched, unmatched, replace }
   }, [staged])
 
+  // 一次贴一张 —— 剪贴板一次只装得下一张图, 但贴完照样进同一个待匹配队列,
+  // 跟拖进来一批是同一条路。
+  usePasteImage(zoneRef, (f) => accept([f]))
+
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setDrag(false)
@@ -286,7 +292,10 @@ export function BatchPhotoUploader({
   if (components.length === 0) return null
 
   return (
-    <div className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+    <div
+      ref={zoneRef}
+      className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]"
+    >
       <div
         onDragOver={(e) => {
           e.preventDefault()

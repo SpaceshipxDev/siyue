@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { withBase } from '@/lib/base-path'
+import { usePasteImage } from '@/app/_paste_image'
 
 // Cross-component event used by the batch photo uploader on /import/[id] to
 // tell each per-row ComponentImageUploader that its component just got a new
@@ -34,6 +35,7 @@ export function ComponentImageUploader({
   readOnly = false,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | undefined>()
@@ -98,6 +100,9 @@ export function ComponentImageUploader({
     void upload(files[0])
   }
 
+  // 鼠标停在这一格上按 Ctrl+V, 截图直接进来 —— 不用先另存为再找文件。
+  usePasteImage(boxRef, upload, !readOnly)
+
   const px = `${size}px`
 
   if (readOnly) {
@@ -138,7 +143,12 @@ export function ComponentImageUploader({
           if (e.dataTransfer.files?.[0]) void upload(e.dataTransfer.files[0])
         }}
         onClick={() => inputRef.current?.click()}
-        title={effectiveUrl ? '点击更换 / 拖拽图片' : '点击或拖拽图片上传'}
+        ref={boxRef}
+        title={
+          effectiveUrl
+            ? '点击更换 · 拖拽 · 或鼠标停在这里按 Ctrl+V 粘贴'
+            : '点击上传 · 拖拽 · 或鼠标停在这里按 Ctrl+V 粘贴'
+        }
         style={{ width: px, height: px }}
         className={`relative cursor-pointer overflow-hidden rounded-[2px] border transition-colors ${
           drag
