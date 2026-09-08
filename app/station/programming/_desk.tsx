@@ -10,6 +10,7 @@ import {
   type StageStatus,
 } from '@/lib/data'
 import { mutate } from '@/lib/mutate'
+import { withBase } from '@/lib/base-path'
 import { drawingsByPart, type DrawingFile } from '@/lib/drawing'
 import type { NcProgram } from '@/lib/nc-program'
 import { PartBlock } from '@/app/_programming'
@@ -455,13 +456,22 @@ export function ProgrammingDesk({
                         setPrograms((prev) => prev.filter((x) => x.id !== id))
                       }
                     />
-                    <p className="pb-3 text-[12px]">
+                    <p className="flex items-baseline gap-4 pb-3 text-[12px]">
                       <Link
                         href={`/jobs/${r.jobId}`}
                         className="text-[var(--color-ink-3)] underline underline-offset-2 hover:text-[var(--color-ink)]"
                       >
                         打开整张工单 →
                       </Link>
+                      {/* 交到机台边的那张纸 —— 整张工单的程序一次印全。 */}
+                      <a
+                        href={withBase(`/jobs/${r.jobId}/programs/print`)}
+                        target="_blank"
+                        rel="noopener"
+                        className="text-[var(--color-ink-3)] underline underline-offset-2 hover:text-[var(--color-ink)]"
+                      >
+                        打印这张单的程序单
+                      </a>
                     </p>
                   </div>
                 )}
@@ -517,6 +527,12 @@ function HowTo() {
           <li>
             <b className="text-[var(--color-ink)]">⑤ 点「编好了」。</b>
             操机站立刻看到活来了。程序号还没填就报完成, 会先问你一句。
+          </li>
+          <li>
+            <b className="text-[var(--color-ink)]">要交到机台边的那张纸。</b>
+            点开一行, 底下有「打印这张单的程序单」—— 整张工单的零件和程序号、
+            机床、装夹、刀具印成一张 A4, 车间照着调程序备刀。还没出程序的件也
+            会印, 格子留白给现场手写, 回头再录进系统。
           </li>
           <li>
             <b className="text-[var(--color-ink)]">怎么知道编好了没有。</b>

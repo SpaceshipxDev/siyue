@@ -85,6 +85,16 @@ export function ProgrammingTab({
         <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
           编程
         </h2>
+        {/* 出一张纸交到机台边 —— 程序单存在屏幕上只解决了"存下来", 没解决
+            "送到手上"。机台前未必有电脑, 厂里认的是纸。 */}
+        <a
+          href={withBase(`/jobs/${jobId}/programs/print`)}
+          target="_blank"
+          rel="noopener"
+          className="order-last ml-auto rounded-[2px] border border-[var(--color-border-strong)] px-3 py-1.5 text-[12px] tracking-wider text-[var(--color-ink-2)] transition-colors hover:text-[var(--color-ink)]"
+        >
+          打印程序单
+        </a>
         <p className="text-[12px] text-[var(--color-ink-2)]">
           {parts.length} 个零件
           <span className="mx-1.5 text-[var(--color-ink-4)]">·</span>
