@@ -1,3 +1,5 @@
+import { partRef } from './data'
+
 /*
  * 零件图纸 — 编程员打开系统, 要看的第一样东西。
  *
@@ -15,7 +17,9 @@
 
 export type DrawingFile = {
   id: string
-  /** 挂在哪个零件上 */
+  /** 哪张工单 —— componentId 只在工单内唯一 (p1/p2/p3), 单独拿它认不出零件。 */
+  jobId: string
+  /** 挂在哪个零件上 (配合 jobId 才是一个零件, 见 lib/data 的 partRef) */
   componentId: string
   url: string
   filename: string
@@ -87,14 +91,17 @@ export function formatFileSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function drawingsByComponent(
-  rows: DrawingFile[],
-): Map<string, DrawingFile[]> {
+/**
+ * 按零件归集。键是 partRef (工单 + 零件), 不是 componentId —— 编程台上摆的是
+ * 几十张工单的图纸, 只按 componentId 归会把每张工单的 p1 全堆到一块。
+ */
+export function drawingsByPart(rows: DrawingFile[]): Map<string, DrawingFile[]> {
   const by = new Map<string, DrawingFile[]>()
   for (const d of rows) {
-    const arr = by.get(d.componentId) ?? []
+    const k = partRef(d.jobId, d.componentId)
+    const arr = by.get(k) ?? []
     arr.push(d)
-    by.set(d.componentId, arr)
+    by.set(k, arr)
   }
   // 新传的在前 —— 图纸变更之后, 最后一版才是要照着做的那一版。
   for (const [k, arr] of by) {

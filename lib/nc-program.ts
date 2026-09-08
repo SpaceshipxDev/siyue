@@ -18,6 +18,8 @@
  * 纯类型和纯判断 ⇒ 服务端和客户端都能 import。读写在 lib/nc-program-store.ts。
  */
 
+import { partRef } from './data'
+
 export type NcProgram = {
   id: string
   jobId: string
@@ -72,14 +74,18 @@ export function sortPrograms(rows: NcProgram[]): NcProgram[] {
   )
 }
 
-export function programsByComponent(
-  rows: NcProgram[],
-): Map<string, NcProgram[]> {
+/**
+ * 按零件归集。键是 partRef (工单 + 零件), 不是 componentId —— componentId 只
+ * 在一张工单里唯一 (p1/p2/p3), 编程台上摆着几十张工单, 只按它归会把全厂每张
+ * 工单的第一个零件的程序全堆到同一行上。
+ */
+export function programsByPart(rows: NcProgram[]): Map<string, NcProgram[]> {
   const by = new Map<string, NcProgram[]>()
   for (const p of rows) {
-    const arr = by.get(p.componentId) ?? []
+    const k = partRef(p.jobId, p.componentId)
+    const arr = by.get(k) ?? []
     arr.push(p)
-    by.set(p.componentId, arr)
+    by.set(k, arr)
   }
   for (const [k, arr] of by) by.set(k, sortPrograms(arr))
   return by

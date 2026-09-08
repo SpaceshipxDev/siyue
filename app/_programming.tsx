@@ -4,15 +4,16 @@ import { useMemo, useRef, useState, useTransition } from 'react'
 import { withBase } from '@/lib/base-path'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { mutate } from '@/lib/mutate'
+import { partRef } from '@/lib/data'
 import {
   drawingKind,
-  drawingsByComponent,
+  drawingsByPart,
   formatFileSize,
   type DrawingFile,
 } from '@/lib/drawing'
 import {
   programLine,
-  programsByComponent,
+  programsByPart,
   sortPrograms,
   type NcProgram,
 } from '@/lib/nc-program'
@@ -65,11 +66,16 @@ export function ProgrammingTab({
   const [drawings, setDrawings] = useState(initialDrawings)
   const [programs, setPrograms] = useState(initialPrograms)
 
-  const dByPart = useMemo(() => drawingsByComponent(drawings), [drawings])
-  const pByPart = useMemo(() => programsByComponent(programs), [programs])
+  const dByPart = useMemo(() => drawingsByPart(drawings), [drawings])
+  const pByPart = useMemo(() => programsByPart(programs), [programs])
+  const refOf = (componentId: string) => partRef(jobId, componentId)
 
-  const noDrawing = parts.filter((p) => (dByPart.get(p.componentId) ?? []).length === 0)
-  const noProgram = parts.filter((p) => (pByPart.get(p.componentId) ?? []).length === 0)
+  const noDrawing = parts.filter(
+    (p) => (dByPart.get(refOf(p.componentId)) ?? []).length === 0,
+  )
+  const noProgram = parts.filter(
+    (p) => (pByPart.get(refOf(p.componentId)) ?? []).length === 0,
+  )
 
   return (
     <div>
@@ -109,8 +115,8 @@ export function ProgrammingTab({
             key={p.componentId}
             jobId={jobId}
             part={p}
-            drawings={dByPart.get(p.componentId) ?? []}
-            programs={pByPart.get(p.componentId) ?? []}
+            drawings={dByPart.get(refOf(p.componentId)) ?? []}
+            programs={pByPart.get(refOf(p.componentId)) ?? []}
             reusable={reuse[p.componentId] ?? []}
             canUpload={canUpload}
             canWrite={canWrite}
@@ -296,7 +302,7 @@ function DrawingRow({
   const kind = drawingKind(file.filename)
   const size = formatFileSize(file.filesize)
   return (
-    <div className="group flex items-start gap-2.5">
+    <div className="flex items-start gap-2.5">
       <a
         href={proxiedStorageUrl(file.url)}
         download={file.filename}
@@ -326,9 +332,9 @@ function DrawingRow({
               onRemoved()
             })
           }}
-          className="shrink-0 text-[11px] text-[var(--color-ink-4)] opacity-0 transition-opacity hover:text-[var(--color-overdue)] group-hover:opacity-100 disabled:opacity-40"
+          className="shrink-0 text-[11px] text-[var(--color-ink-3)] transition-colors hover:text-[var(--color-overdue)] disabled:opacity-40"
         >
-          删
+          {pending ? '删除中…' : '删'}
         </button>
       )}
     </div>
@@ -497,7 +503,7 @@ function ProgramRow({
 }) {
   const [pending, start] = useTransition()
   return (
-    <div className="group flex items-start gap-2.5">
+    <div className="flex items-start gap-2.5">
       <span className="min-w-0 flex-1 break-words text-[13.5px] leading-snug text-[var(--color-ink)]">
         {programLine(program)}
       </span>
@@ -524,9 +530,9 @@ function ProgramRow({
               onRemoved()
             })
           }}
-          className="shrink-0 text-[11px] text-[var(--color-ink-4)] opacity-0 transition-opacity hover:text-[var(--color-overdue)] group-hover:opacity-100 disabled:opacity-40"
+          className="shrink-0 text-[11px] text-[var(--color-ink-3)] transition-colors hover:text-[var(--color-overdue)] disabled:opacity-40"
         >
-          删
+          {pending ? '删除中…' : '删'}
         </button>
       )}
     </div>

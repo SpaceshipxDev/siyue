@@ -96,6 +96,17 @@ export async function addNcProgram(
 ): Promise<NcProgram> {
   return withLock(async () => {
     const rows = await read()
+    // 同一个零件上不该有两条一模一样的程序号 —— 「带过来」点重了、网络抖一下
+    // 重发了, 都会送来同一条。已经有就把原来那条还回去, 不再多记一行: 机台上
+    // 一个程序号就是一个程序, 表上出现两遍只会让人怀疑哪一条是新的。
+    const dup = rows.find(
+      (r) =>
+        r.jobId === input.jobId &&
+        r.componentId === input.componentId &&
+        r.no === str(input.no, 120),
+    )
+    if (dup) return dup
+
     const row: NcProgram = {
       id: crypto.randomUUID(),
       jobId: input.jobId,

@@ -690,6 +690,18 @@ export function isStageInRoute(component: Component, stage: Stage): boolean {
   return component.stages[stage] !== undefined
 }
 
+/**
+ * 一个零件在全厂范围内的名字。
+ *
+ * componentId 只在一张工单里唯一 —— 它就是 p1 / p2 / p3 (见 db.ts 的
+ * `${jobId}:p${n}`), 所以每一张工单都有自己的 p1。任何跨工单的表 (编程台、
+ * 以后别的工作台) 拿 componentId 当键去归集, 归到一起的就不是同一个零件, 而
+ * 是全厂所有工单的第一个零件。挂在零件上的东西 (图纸、程序单) 一律用这个。
+ */
+export function partRef(jobId: string, componentId: string): string {
+  return `${jobId}:${componentId}`
+}
+
 export type JobStatus = 'parsing' | 'draft' | 'ready' | 'failed'
 
 // 退货 — customer returns. Modeled outside STAGES on purpose; see

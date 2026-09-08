@@ -10,6 +10,7 @@ import { getStationQueue, getJobsComponents } from '@/lib/db'
 import { getDrawingFiles } from '@/lib/drawing-file'
 import { getNcPrograms } from '@/lib/nc-program-store'
 import { findReusable, reuseKey, type NcProgram } from '@/lib/nc-program'
+import { partRef } from '@/lib/data'
 import type { DrawingFile } from '@/lib/drawing'
 import { TopBar } from '@/app/_ui'
 import { ProgrammingDesk, type DeskRow } from './_desk'
@@ -44,12 +45,12 @@ export default async function ProgrammingDeskPage() {
   ])
 
   const drawings: DrawingFile[] = drawingLists.flat()
-  const programsByPart = new Map<string, NcProgram[]>()
+  // 键是 partRef (工单 + 零件)。零件编号只在一张工单里唯一 (p1/p2/p3), 这一
+  // 页摆的是几十张工单 —— 按编号归会把全厂每张工单的第一个零件混成一个。
+  const byPart = new Map<string, NcProgram[]>()
   for (const p of allPrograms) {
-    programsByPart.set(p.componentId, [
-      ...(programsByPart.get(p.componentId) ?? []),
-      p,
-    ])
+    const k = partRef(p.jobId, p.componentId)
+    byPart.set(k, [...(byPart.get(k) ?? []), p])
   }
   // 零件的材质 / 料号 / 图片 —— 队列里没有, 从工单的零件表补齐。编程员要读的
   // 就是这几样。
@@ -57,9 +58,9 @@ export default async function ProgrammingDeskPage() {
     string,
     { partNo?: string; material?: string; process?: string; surfaceTreatment?: string; imageUrl?: string }
   >()
-  for (const list of componentsByJob.values()) {
+  for (const [jobId, list] of componentsByJob) {
     for (const c of list) {
-      partMeta.set(c.id, {
+      partMeta.set(partRef(jobId, c.id), {
         partNo: c.partNo,
         material: c.material,
         process: c.process,
@@ -70,8 +71,9 @@ export default async function ProgrammingDeskPage() {
   }
 
   const rows: DeskRow[] = live.map((it) => {
-    const meta = partMeta.get(it.componentId) ?? {}
-    const mine = programsByPart.get(it.componentId) ?? []
+    const ref = partRef(it.jobId, it.componentId)
+    const meta = partMeta.get(ref) ?? {}
+    const mine = byPart.get(ref) ?? []
     return {
       jobId: it.jobId,
       jobNo: it.jobNo,

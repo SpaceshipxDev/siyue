@@ -33,9 +33,13 @@ async function readManifest(jobId: string): Promise<DrawingFile[]> {
   try {
     const arr = JSON.parse(await data.text())
     if (!Array.isArray(arr)) return []
-    return (arr as DrawingFile[]).filter(
-      (r) => r && typeof r.id === 'string' && typeof r.componentId === 'string',
-    )
+    return (arr as DrawingFile[])
+      .filter(
+        (r) => r && typeof r.id === 'string' && typeof r.componentId === 'string',
+      )
+      // jobId 是后补的字段 —— 这份清单本来就是这张工单的, 所以老记录读回来时
+      // 直接盖上, 不用迁移。
+      .map((r) => ({ ...r, jobId }))
   } catch {
     return []
   }
@@ -85,6 +89,7 @@ export async function addDrawingFile(input: {
 
   const row: DrawingFile = {
     id,
+    jobId,
     componentId: input.componentId,
     url: proxiedKeyUrl(key),
     filename: input.fileName,

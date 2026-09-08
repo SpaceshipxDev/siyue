@@ -2,9 +2,15 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
-import { daysFromToday, dueState, type DueState, type StageStatus } from '@/lib/data'
+import {
+  daysFromToday,
+  dueState,
+  partRef,
+  type DueState,
+  type StageStatus,
+} from '@/lib/data'
 import { mutate } from '@/lib/mutate'
-import { drawingsByComponent, type DrawingFile } from '@/lib/drawing'
+import { drawingsByPart, type DrawingFile } from '@/lib/drawing'
 import type { NcProgram } from '@/lib/nc-program'
 import { PartBlock } from '@/app/_programming'
 import {
@@ -84,11 +90,15 @@ export function ProgrammingDesk({
   const { rootRef, template, minWidth, startResize, resetCol, resetAll } =
     useColumnWidths('colw:programming', COLS)
 
-  const dByPart = useMemo(() => drawingsByComponent(files), [files])
+  // 归集的键是 partRef (工单 + 零件) —— 这一页上摆着几十张工单, 而零件编号
+  // 只在一张工单里唯一 (p1/p2/p3)。按编号归会把全厂每张工单的第一个零件的图
+  // 纸和程序全堆到同一行上。
+  const dByPart = useMemo(() => drawingsByPart(files), [files])
   const pByPart = useMemo(() => {
     const by = new Map<string, NcProgram[]>()
     for (const p of programs) {
-      by.set(p.componentId, [...(by.get(p.componentId) ?? []), p])
+      const k = partRef(p.jobId, p.componentId)
+      by.set(k, [...(by.get(k) ?? []), p])
     }
     return by
   }, [programs])
@@ -96,7 +106,7 @@ export function ProgrammingDesk({
   const needle = q.trim().toLowerCase()
   const visible = useMemo(() => {
     return rows
-      .filter((r) => !doneIds.has(r.componentId))
+      .filter((r) => !doneIds.has(partRef(r.jobId, r.componentId)))
       .filter((r) =>
         lens === 'todo'
           ? r.status === 'pending'
@@ -117,9 +127,9 @@ export function ProgrammingDesk({
       )
   }, [rows, doneIds, lens, needle])
 
-  const live = rows.filter((r) => !doneIds.has(r.componentId))
+  const live = rows.filter((r) => !doneIds.has(partRef(r.jobId, r.componentId)))
   const noDrawing = live.filter(
-    (r) => (dByPart.get(r.componentId) ?? []).length === 0,
+    (r) => (dByPart.get(partRef(r.jobId, r.componentId)) ?? []).length === 0,
   ).length
   const counts = {
     todo: live.filter((r) => r.status === 'pending').length,
@@ -218,26 +228,23 @@ export function ProgrammingDesk({
           </p>
         ) : (
           visible.map((r) => {
-            const parts = dByPart.get(r.componentId) ?? []
-            const progs = pByPart.get(r.componentId) ?? []
-            const expanded = open === r.componentId
+            const ref = partRef(r.jobId, r.componentId)
+            const parts = dByPart.get(ref) ?? []
+            const progs = pByPart.get(ref) ?? []
+            const expanded = open === ref
             return (
               <div
-                key={r.componentId}
+                key={ref}
                 className="border-b border-[var(--color-border)] last:border-b-0"
               >
                 <div
                   role="button"
                   tabIndex={0}
-                  onClick={() =>
-                    setOpen((cur) => (cur === r.componentId ? null : r.componentId))
-                  }
+                  onClick={() => setOpen((cur) => (cur === ref ? null : ref))}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      setOpen((cur) =>
-                        cur === r.componentId ? null : r.componentId,
-                      )
+                      setOpen((cur) => (cur === ref ? null : ref))
                     }
                   }}
                   style={{ gridTemplateColumns: template }}
@@ -296,9 +303,7 @@ export function ProgrammingDesk({
                       <ReportButton
                         row={r}
                         hasProgram={progs.length > 0}
-                        onDone={() =>
-                          setDoneIds((s) => new Set(s).add(r.componentId))
-                        }
+                        onDone={() => setDoneIds((s) => new Set(s).add(ref))}
                       />
                     )}
                   </span>
