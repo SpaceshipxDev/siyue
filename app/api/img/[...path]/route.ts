@@ -26,12 +26,15 @@ export async function GET(
     return new Response('not found', { status: 404 })
   }
 
-  const buf = await data.arrayBuffer()
-  return new Response(buf, {
+  // 流式转发, 不 arrayBuffer() —— 这条路原来只走缩略图 (几十 KB), 现在也走
+  // 零件图纸和三维模型 (几十 MB)。把整份读进内存再吐出去, 意味着一个人点一
+  // 下下载, 全厂跑的那一个 Node 进程就得先扛住那几十兆; 流式转发则是边收边
+  // 发, 内存里始终只有一小段。
+  return new Response(data.stream(), {
     status: 200,
     headers: {
       'Content-Type': data.type || 'application/octet-stream',
-      'Content-Length': String(buf.byteLength),
+      'Content-Length': String(data.size),
       // Callers append ?v=<ts> on swap, so each stable URL really is immutable.
       'Cache-Control': 'public, max-age=31536000, immutable',
     },

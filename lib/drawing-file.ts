@@ -59,10 +59,14 @@ export async function getDrawingFiles(jobId: string): Promise<DrawingFile[]> {
     .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
 }
 
+// 文件本体是浏览器传上来的 Blob, 直接转交给 storage —— 不 arrayBuffer() 再
+// Buffer.from() 转一道手。一个三十兆的三维模型那样转两次就是六十多兆常驻内
+// 存, 而全厂跑在一个 Node 进程上: 传图的那几十秒里, 车间每个人的页面都点不
+// 动。那不是"上传慢", 是上传把整台机器顶住了。
 export async function addDrawingFile(input: {
   jobId: string
   componentId: string
-  buf: ArrayBuffer
+  body: Blob
   fileName: string
   contentType: string
   uploadedBy?: string
@@ -73,7 +77,7 @@ export async function addDrawingFile(input: {
   const key = `${safeId(jobId)}/drawings/${id}.${extFor(input.fileName)}`
   const upR = await supabase.storage
     .from(STORAGE_BUCKET)
-    .upload(key, Buffer.from(input.buf), {
+    .upload(key, input.body, {
       contentType: input.contentType || 'application/octet-stream',
       upsert: false,
     })
@@ -84,7 +88,7 @@ export async function addDrawingFile(input: {
     componentId: input.componentId,
     url: proxiedKeyUrl(key),
     filename: input.fileName,
-    filesize: input.buf.byteLength,
+    filesize: input.body.size,
     contentType: input.contentType || undefined,
     uploadedBy: input.uploadedBy,
     createdAt: input.nowIso,

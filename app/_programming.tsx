@@ -348,39 +348,81 @@ function DrawingDrop({
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [drag, setDrag] = useState(false)
-  const [busy, setBusy] = useState(false)
+  // 正在传谁、传到几成 —— 一个三十兆的模型在厂里的网上要走十几秒, 期间屏幕
+  // 上一个字都不动的话, 人只会以为系统死了, 然后再点一次。
+  const [job, setJob] = useState<{ name: string; pct: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const busy = job !== null
+
+  // 一份文件走一趟 XHR —— fetch 拿不到上传进度。
+  const putOne = (file: File) =>
+    new Promise<DrawingFile>((resolve, reject) => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('jobId', jobId)
+      form.append('componentId', componentId)
+
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', withBase('/api/upload-drawing'))
+      xhr.upload.onprogress = (e) => {
+        if (!e.lengthComputable) return
+        setJob({ name: file.name, pct: Math.round((e.loaded / e.total) * 100) })
+      }
+      xhr.onerror = () => reject(new Error('网络断了 — 重传一次'))
+      xhr.ontimeout = () => reject(new Error('传太久了 — 重传一次'))
+      xhr.onload = () => {
+        // 服务端 502 / 反代拦截时回的是一页 HTML, 不是 JSON。硬解会抛一句没人
+        // 看得懂的英文, 所以这里自己判断, 换成人话。
+        let json: { ok?: boolean; error?: string; drawing?: DrawingFile } | null =
+          null
+        try {
+          json = JSON.parse(xhr.responseText)
+        } catch {
+          json = null
+        }
+        if (!json) {
+          reject(
+            new Error(
+              xhr.status === 413
+                ? '文件过大 — 压成压缩包再传'
+                : `传不上去 (${xhr.status || '连不上'}) — 重传一次`,
+            ),
+          )
+          return
+        }
+        if (!json.ok || !json.drawing) {
+          reject(new Error(json.error || '上传失败'))
+          return
+        }
+        resolve(json.drawing)
+      }
+      xhr.send(form)
+    })
 
   const send = async (files: FileList | null) => {
-    if (!files || files.length === 0) return
+    if (busy || !files || files.length === 0) return
     setError(null)
-    setBusy(true)
-    try {
-      for (const file of Array.from(files)) {
-        const form = new FormData()
-        form.append('file', file)
-        form.append('jobId', jobId)
-        form.append('componentId', componentId)
-        const res = await fetch(withBase('/api/upload-drawing'), {
-          method: 'POST',
-          body: form,
-        })
-        const json = await res.json()
-        if (!json.ok) throw new Error(json.error || '上传失败')
-        onAdded(json.drawing as DrawingFile)
+    const list = Array.from(files)
+    const failed: string[] = []
+    for (const file of list) {
+      setJob({ name: file.name, pct: 0 })
+      try {
+        onAdded(await putOne(file))
+      } catch (e) {
+        // 一份失败不该把后面几份也拖住 —— 传得上去的先进去, 失败的单独报。
+        failed.push(`${file.name}: ${e instanceof Error ? e.message : '上传失败'}`)
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '上传失败')
-    } finally {
-      setBusy(false)
-      if (inputRef.current) inputRef.current.value = ''
     }
+    setJob(null)
+    setError(failed.length > 0 ? failed.join(' · ') : null)
+    if (inputRef.current) inputRef.current.value = ''
   }
 
   return (
     <div className={empty ? '' : 'mt-1.5'}>
       <div
         onDragOver={(e) => {
+          if (busy) return
           e.preventDefault()
           setDrag(true)
         }}
@@ -390,18 +432,41 @@ function DrawingDrop({
           setDrag(false)
           void send(e.dataTransfer.files)
         }}
-        onClick={() => inputRef.current?.click()}
-        className={`cursor-pointer rounded-[2px] border border-dashed px-2.5 py-1.5 text-[12px] transition-colors ${
-          drag
-            ? 'border-[var(--color-ink)] text-[var(--color-ink)]'
-            : 'border-[var(--color-border-strong)] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+        // 传的时候不接受第二次点击 —— 再点一下只会开出第二条上传, 两份一起挤
+        // 那条本来就不宽的线, 更慢。
+        onClick={() => {
+          if (!busy) inputRef.current?.click()
+        }}
+        className={`relative overflow-hidden rounded-[2px] border border-dashed px-2.5 py-1.5 text-[12px] transition-colors ${
+          busy
+            ? 'cursor-progress border-[var(--color-border-strong)] text-[var(--color-ink-2)]'
+            : drag
+              ? 'cursor-pointer border-[var(--color-ink)] text-[var(--color-ink)]'
+              : 'cursor-pointer border-[var(--color-border-strong)] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
         }`}
       >
-        {busy
-          ? '上传中…'
-          : empty
-            ? '把图纸拖进来 — 三维 / 二维都行'
-            : '＋ 再传一份'}
+        {/* 进度条就是这一格自己在填色 —— 不另摆一根细蓝条。 */}
+        {job && (
+          <span
+            aria-hidden
+            className="absolute inset-y-0 left-0 bg-[var(--color-active-bg)] transition-[width] duration-200"
+            style={{ width: `${job.pct}%` }}
+          />
+        )}
+        <span className="relative flex items-baseline gap-2">
+          {job ? (
+            <>
+              <span className="min-w-0 flex-1 truncate">{job.name}</span>
+              <span className="mono shrink-0 tabular-nums">
+                {job.pct < 100 ? `${job.pct}%` : '存盘中…'}
+              </span>
+            </>
+          ) : empty ? (
+            <span>把图纸拖进来 — 三维 / 二维都行</span>
+          ) : (
+            <span>＋ 再传一份</span>
+          )}
+        </span>
       </div>
       <input
         ref={inputRef}
