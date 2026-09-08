@@ -31,16 +31,32 @@ export default async function ProgrammingDeskPage() {
   const user = await requireUser()
 
   // 要编的活 —— 窄查询, 不走全厂快照 (见 lib/db 的 getProgrammingQueue)。
-  const queue = await getProgrammingQueue()
+  //
+  // 整页包在 try 里: 这一页要碰的东西不少 (看板视图 · 零件 · 工序 · 图纸清单
+  // · 程序单), 任何一样出岔子, 未捕获的话就是整页 500 —— 人看到的是一片空白,
+  // 只能说"用不了"。宁可把页面照常摆出来, 再用一句话讲清哪一段没读到。
+  let queue: Awaited<ReturnType<typeof getProgrammingQueue>> = {
+    items: [],
+    totalJobs: 0,
+    hiddenJobs: 0,
+  }
+  let drawings: DrawingFile[] = []
+  let allPrograms: NcProgram[] = []
+  let loadError: string | null = null
+  try {
+    queue = await getProgrammingQueue()
+    const jobIds = [...new Set(queue.items.map((it) => it.jobId))]
+    // 图纸清单是一张工单一份, 所以只读眼前这几张工单的。
+    const [lists, programs] = await Promise.all([
+      Promise.all(jobIds.map((id) => getDrawingFiles(id).catch(() => []))),
+      getNcPrograms().catch(() => [] as NcProgram[]),
+    ])
+    drawings = lists.flat()
+    allPrograms = programs
+  } catch (e) {
+    loadError = e instanceof Error ? e.message : '读不到数据'
+  }
 
-  const jobIds = [...new Set(queue.map((it) => it.jobId))]
-  // 图纸清单是一张工单一份, 所以只读眼前这几张工单的。
-  const [drawingLists, allPrograms] = await Promise.all([
-    Promise.all(jobIds.map((id) => getDrawingFiles(id))),
-    getNcPrograms(),
-  ])
-
-  const drawings: DrawingFile[] = drawingLists.flat()
   // 键是 partRef (工单 + 零件)。零件编号只在一张工单里唯一 (p1/p2/p3), 这一
   // 页摆的是几十张工单 —— 按编号归会把全厂每张工单的第一个零件混成一个。
   const byPart = new Map<string, NcProgram[]>()
@@ -49,7 +65,7 @@ export default async function ProgrammingDeskPage() {
     byPart.set(k, [...(byPart.get(k) ?? []), p])
   }
 
-  const rows: DeskRow[] = queue.map((it) => {
+  const rows: DeskRow[] = queue.items.map((it) => {
     const mine = byPart.get(partRef(it.jobId, it.componentId)) ?? []
     return {
       jobId: it.jobId,
@@ -97,6 +113,8 @@ export default async function ProgrammingDeskPage() {
         canUpload={canUploadDrawing(user)}
         canWrite={canWriteNcProgram(user)}
         canReport={canClickStage(user, '编程')}
+        hiddenJobs={queue.hiddenJobs}
+        loadError={loadError}
       />
     </div>
   )

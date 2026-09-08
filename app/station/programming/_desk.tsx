@@ -76,12 +76,18 @@ export function ProgrammingDesk({
   canUpload,
   canWrite,
   canReport,
+  hiddenJobs = 0,
+  loadError = null,
 }: {
   rows: DeskRow[]
   drawings: DrawingFile[]
   canUpload: boolean
   canWrite: boolean
   canReport: boolean
+  /** 因为封顶没摊开的工单张数 —— 说出来, 别让人以为活漏了。 */
+  hiddenJobs?: number
+  /** 取数出岔子时的原话 —— 页面照常出来, 但要讲清哪一段没读到。 */
+  loadError?: string | null
 }) {
   const [lens, setLens] = useState<Lens>('all')
   const [q, setQ] = useState('')
@@ -168,7 +174,29 @@ export function ProgrammingDesk({
                 <span className="text-[var(--color-success)]">图纸都齐了</span>
               </>
             ) : null}
+            {hiddenJobs > 0 && (
+              <>
+                <span className="mx-1.5 text-[var(--color-ink-4)]">·</span>
+                <span title="按交期排, 先摊开最急的那几张">
+                  另有 {hiddenJobs} 张单交期更远, 暂未摊开
+                </span>
+              </>
+            )}
           </p>
+          {loadError && (
+            <p className="mt-1.5 text-[12px] text-[var(--color-overdue)]">
+              有一段数据没读到 ({loadError}) — 刷新一次再看
+            </p>
+          )}
+          {/* 商务号能看图、能出程序单, 但点不了工段 (报工要记在真正动手的那
+              个人头上, 见 lib/auth 的 COMMERCE_STAGE_SCOPE)。不说明白的话,
+              按钮那一格就是空的 —— 人会以为功能坏了。 */}
+          {!canReport && (
+            <p className="mt-1.5 text-[12px] text-[var(--color-ink-3)]">
+              这个账号可以看图、传图、出程序单;「开始 / 编好了」要用工段账号
+              (编程 / 工程) 点 —— 报工记的是真正动手的那个人。
+            </p>
+          )}
         </div>
         <div className="w-[280px]">
           <input
@@ -319,12 +347,19 @@ export function ProgrammingDesk({
                     className="text-right"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {canReport && (
+                    {canReport ? (
                       <ReportButton
                         row={r}
                         hasProgram={progs.length > 0}
                         onDone={() => setDoneIds((s) => new Set(s).add(ref))}
                       />
+                    ) : (
+                      <span
+                        className="text-[11px] text-[var(--color-ink-4)]"
+                        title="报工要用工段账号 (编程 / 工程)"
+                      >
+                        {r.status === 'in_progress' ? '在编' : '待编'}
+                      </span>
                     )}
                   </span>
                 </div>
@@ -410,7 +445,8 @@ function HowTo() {
           <li>
             <b className="text-[var(--color-ink)]">③ 点「开始」。</b>
             全厂就知道这个件在你手上了。上游工程还没点完成的, 这一行写着「等工
-            程」—— 图可以先看先传, 开始会问你一句。
+            程」—— 图可以先看先传, 开始会问你一句。商务号看得到这一页、也能出
+            程序单, 但点不了这个按钮 (报工得记在动手的人头上)。
           </li>
           <li>
             <b className="text-[var(--color-ink)]">④ 出程序单。</b>

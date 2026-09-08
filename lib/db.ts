@@ -6788,18 +6788,45 @@ export type ProgrammingQueueItem = {
   upstreamReady: boolean
 }
 
-export async function getProgrammingQueue(): Promise<ProgrammingQueueItem[]> {
-  const rows = await getMasterRows()
-  // 编程这一格里还有没做完的零件, 才是这一页要管的单。
-  const jobs = rows.filter((r) => {
-    if (r.status && r.status !== 'ready') return false
-    const c = r.cells['编程']
-    if (!c || c.total === 0) return false
-    return c.inHouseDone + c.outsourcedClosed < c.total
-  })
-  if (jobs.length === 0) return []
+/** 一屏最多摊开多少张工单的零件。见下面 getProgrammingQueue 的注释。 */
+const PROGRAMMING_MAX_JOBS = 60
 
-  const jobIds = jobs.map((r) => r.id)
+export type ProgrammingQueue = {
+  items: ProgrammingQueueItem[]
+  /** 够得上"要编"的工单一共几张 */
+  totalJobs: number
+  /** 因为封顶没摊开的还有几张 */
+  hiddenJobs: number
+}
+
+export async function getProgrammingQueue(): Promise<ProgrammingQueue> {
+  const rows = await getMasterRows()
+  // 什么算"要编的活":
+  //   还没出货 —— 货都发出去了, 那张单的编程格子有没有人点已经无所谓, 它不
+  //     是活。厂里很多老单的编程从来没人点过, 全放进来就是几百张单、上万个
+  //     零件, 一次要几十趟数据库往返 —— 页面转不出来, 人就说"用不了"。
+  //   没暂停   —— 停掉的单不该占编程台。
+  //   编程这一格还没做完。
+  const jobs = rows
+    .filter((r) => {
+      if (r.status && r.status !== 'ready') return false
+      if (r.isShipped) return false
+      if (r.pausedAt) return false
+      const c = r.cells['编程']
+      if (!c || c.total === 0) return false
+      return c.inHouseDone + c.outsourcedClosed < c.total
+    })
+    // 交期近的在前 —— 封顶砍掉的永远是最不急的那几张。
+    .sort((a, b) =>
+      (a.dueDate || '9999-99-99').localeCompare(b.dueDate || '9999-99-99'),
+    )
+  if (jobs.length === 0) return { items: [], totalJobs: 0, hiddenJobs: 0 }
+
+  // 封顶。零件明细和工序状态都是按零件数收费的, 不封顶就等于把"页面能不能打
+  // 开"押在厂里当下有多少张在产单上。60 张 × 几十个零件已经是一整天也看不完
+  // 的量, 而砍掉的是交期最远的那几张。
+  const take = jobs.slice(0, PROGRAMMING_MAX_JOBS)
+  const jobIds = take.map((r) => r.id)
   const componentsByJob = await getJobsComponents(jobIds)
 
   // part_stages 只取这些零件的 工程 / 编程 两行 —— 不是整张表。
@@ -6819,13 +6846,17 @@ export async function getProgrammingQueue(): Promise<ProgrammingQueueItem[]> {
     )
   }
 
-  const jobById = new Map(jobs.map((r) => [r.id, r]))
+  const jobById = new Map(take.map((r) => [r.id, r]))
   const items: ProgrammingQueueItem[] = []
   for (const [jobId, list] of componentsByJob) {
     const job = jobById.get(jobId)
     if (!job) continue
     for (const c of list) {
-      const pid = `${jobId}:${c.id}`
+      // 老工单的零件 id 可能不带工单前缀 (见 findPartIdInSnap 的 legacy 分支)
+      // —— 两种都试, 不然那些单在这一页上会整张消失。
+      const pid = stateOf.has(`${jobId}:${c.id}|编程`)
+        ? `${jobId}:${c.id}`
+        : c.id
       const cheng = stateOf.get(`${pid}|编程`)
       // 路线里没有「编程」这一站的零件 (纯钣金、纯外购) 不进这一页。
       if (!cheng) continue
@@ -6853,7 +6884,11 @@ export async function getProgrammingQueue(): Promise<ProgrammingQueueItem[]> {
   items.sort(
     (a, b) => a.dueDate.localeCompare(b.dueDate) || a.jobNo.localeCompare(b.jobNo),
   )
-  return items
+  return {
+    items,
+    totalJobs: jobs.length,
+    hiddenJobs: Math.max(0, jobs.length - take.length),
+  }
 }
 
 export type StationJob = {
