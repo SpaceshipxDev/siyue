@@ -297,10 +297,22 @@ export function OutsourceLedger({
           <span className="mx-1.5 text-[var(--color-ink-4)]">·</span>
           {formatCny(shown.reduce((s, l) => s + (l.block.amountCny ?? 0), 0))}
         </p>
-        <OutsourceExportButton
-          lines={shown}
-          filename={`外协_${tab === 'done' ? '已回' : tab === 'open' ? '在外' : '全部'}_${gran === 'all' ? today : readout(anchor, gran).replace(/[月日 ]/g, '')}`}
-        />
+        <div className="flex items-center gap-2">
+          {/* 对账 —— 月底跟这家厂算钱的那张纸。选了供应商就直接是他的对账单,
+              没选就先选人; 月份跟着上面那条周期走。 */}
+          <Link
+            href={`/duizhang?kind=vendor${
+              scope?.kind === 'vendor' ? `&name=${encodeURIComponent(scope.name)}` : ''
+            }&m=${anchor.slice(0, 7)}`}
+            className="rounded-[2px] border border-[var(--color-border-strong)] px-3 py-1.5 text-[12px] tracking-wider text-[var(--color-ink-2)] transition-colors hover:text-[var(--color-ink)]"
+          >
+            对账
+          </Link>
+          <OutsourceExportButton
+            lines={shown}
+            filename={`外协_${tab === 'done' ? '已回' : tab === 'open' ? '在外' : '全部'}_${gran === 'all' ? today : readout(anchor, gran).replace(/[月日 ]/g, '')}`}
+          />
+        </div>
       </div>
 
       <div className="mt-2 overflow-x-auto">

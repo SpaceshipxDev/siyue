@@ -190,16 +190,20 @@ function FinanceTabs({
   isCommerce: boolean
   showExpenses: boolean
 }) {
-  const tabs: { key: FinanceTab; href: string; label: string }[] = [
+  // 对账 lives on its own route (/duizhang — it renders a printable sheet, not
+  // a ledger), but it belongs in this row: it's the last step of the same money
+  // story. Its key never matches a FinanceTab, so it simply never reads active.
+  const tabs: { key: string; href: string; label: string }[] = [
     { key: 'orders', href: '/finance', label: '订单' },
     // 统计 is the 订单额 / 外协额 this page already shows, sliced by month and
     // by owner — so it rides with 订单 rather than behind the commerce-only wall.
     { key: 'stats', href: '/finance?tab=stats', label: '统计' },
+    { key: 'duizhang', href: '/duizhang', label: '对账' },
     ...(isCommerce
       ? ([
           { key: 'ar', href: '/finance?tab=ar', label: '记账' },
           { key: 'money', href: '/finance?tab=money', label: '看钱' },
-        ] as { key: FinanceTab; href: string; label: string }[])
+        ] as { key: string; href: string; label: string }[])
       : []),
     ...(showExpenses
       ? ([
@@ -207,7 +211,7 @@ function FinanceTabs({
           { key: 'payroll', href: '/finance?tab=payroll', label: '工资' },
           { key: 'raise', href: '/finance?tab=raise', label: '调薪' },
           { key: 'month', href: '/finance?tab=month', label: '月度' },
-        ] as { key: FinanceTab; href: string; label: string }[])
+        ] as { key: string; href: string; label: string }[])
       : []),
   ]
   return (

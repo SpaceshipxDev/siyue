@@ -1,4 +1,5 @@
 import { Fragment } from 'react'
+import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { withBase } from '@/lib/base-path'
 import {
@@ -25,6 +26,7 @@ import {
 } from '@/lib/data'
 import { ensureVendorPortalTokens, getJob, getVendors } from '@/lib/db'
 import { logJobView } from '@/lib/access-log'
+import { shanghaiDay } from '@/lib/today'
 import { getContractFiles } from '@/lib/contract-file'
 import { BRAND } from '@/lib/brand'
 import {
@@ -356,6 +358,20 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               shipments={job.shipments}
               canEdit={canEditShipment(user)}
             />
+            {/* 货交掉了, 下一件事就是跟客户对账。落到这个客户的当月对账单上,
+                不是这一单 —— 客户是按月跟你对的, 不是按单。 */}
+            {job.shipments.length > 0 &&
+              job.customer &&
+              canSeeOrderLedger(user) && (
+                <Link
+                  href={`/duizhang?name=${encodeURIComponent(job.customer)}&m=${shanghaiDay(
+                    job.shipments[job.shipments.length - 1].createdAt,
+                  ).slice(0, 7)}`}
+                  className="inline-flex items-center px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border-strong)] text-[var(--color-ink-2)] rounded-[2px] hover:bg-[#f1eee4] hover:text-[var(--color-ink)] transition-colors"
+                >
+                  客户对账单
+                </Link>
+              )}
             <DeleteOrderButton
               jobId={job.id}
               jobNo={job.jobNo}
