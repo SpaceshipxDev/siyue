@@ -127,6 +127,8 @@ import {
   canEditWarehouse,
   canRenameUploadedJob,
   canRunReturnRework,
+  canUploadDrawing,
+  canWriteNcProgram,
   canWriteReturnCause,
   canWriteReturnPlan,
   canUndoFinishedStage,
@@ -151,6 +153,13 @@ import {
 } from '@/lib/complaints'
 import { setDefectAction } from '@/lib/defect-actions'
 import { writeReturnFlow } from '@/lib/return-flow-store'
+import {
+  addNcProgram,
+  deleteNcProgram,
+  updateNcProgram,
+} from '@/lib/nc-program-store'
+import { deleteDrawingFile } from '@/lib/drawing-file'
+import { reuseKey } from '@/lib/nc-program'
 import type { ReturnFlowEntry } from '@/lib/return-flow'
 import {
   addImprovement,
@@ -1756,6 +1765,86 @@ async function dispatch(
       if (isString(inputJobId)) revalidatePath(`/jobs/${inputJobId}`)
       revalidatePath('/returns')
       return Response.json(ok(result))
+    }
+
+    // === 编程 ===
+    //
+    // 程序单 — 一个零件在机台上要调哪几个程序。操机在机台前照着这一行调程
+    // 序、备刀、装夹, 所以每一条都签名: 撞了刀找谁, 不用问第二个人。
+    case 'addNcProgram': {
+      const input = body.input
+      if (typeof input !== 'object' || input === null)
+        return err('bad addNcProgram args')
+      const i = input as Record<string, unknown>
+      if (!isString(i.jobId) || !isString(i.componentId))
+        return err('bad addNcProgram args')
+      if (!isString(i.no) || !i.no.trim()) return err('先填程序号')
+      const u = await requireUser()
+      if (!canWriteNcProgram(u)) return err('程序单由编程填')
+      const row = await addNcProgram(
+        {
+          jobId: i.jobId,
+          componentId: i.componentId,
+          // 认"同一个件"的钥匙 — 料号优先, 没料号用零件名。半年后这个件再来,
+          // 靠它把上回的程序找回来。
+          partKey: reuseKey({
+            name: isString(i.partName) ? i.partName : undefined,
+            partNo: isString(i.partNo) ? i.partNo : undefined,
+          }),
+          no: i.no,
+          machine: isString(i.machine) ? i.machine : undefined,
+          fixture: isString(i.fixture) ? i.fixture : undefined,
+          tools: isString(i.tools) ? i.tools : undefined,
+          minutes: typeof i.minutes === 'number' ? i.minutes : undefined,
+          note: isString(i.note) ? i.note : undefined,
+        },
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath(`/jobs/${i.jobId}`)
+      return Response.json(ok(row))
+    }
+
+    case 'updateNcProgram': {
+      const programId = body.programId
+      const patch = body.patch
+      if (!isString(programId) || typeof patch !== 'object' || patch === null)
+        return err('bad updateNcProgram args')
+      const u = await requireUser()
+      if (!canWriteNcProgram(u)) return err('程序单由编程填')
+      const p = patch as Record<string, unknown>
+      await updateNcProgram(programId, {
+        no: isString(p.no) ? p.no : undefined,
+        machine: isString(p.machine) ? p.machine : undefined,
+        fixture: isString(p.fixture) ? p.fixture : undefined,
+        tools: isString(p.tools) ? p.tools : undefined,
+        minutes: typeof p.minutes === 'number' ? p.minutes : undefined,
+        note: isString(p.note) ? p.note : undefined,
+      })
+      if (isString(body.jobId)) revalidatePath(`/jobs/${body.jobId}`)
+      return Response.json(ok())
+    }
+
+    case 'deleteNcProgram': {
+      const programId = body.programId
+      if (!isString(programId)) return err('bad deleteNcProgram args')
+      const u = await requireUser()
+      if (!canWriteNcProgram(u)) return err('程序单由编程填')
+      await deleteNcProgram(programId)
+      if (isString(body.jobId)) revalidatePath(`/jobs/${body.jobId}`)
+      return Response.json(ok())
+    }
+
+    case 'deleteDrawing': {
+      const jobId = body.jobId
+      const drawingId = body.drawingId
+      if (!isString(jobId) || !isString(drawingId))
+        return err('bad deleteDrawing args')
+      const u = await requireUser()
+      if (!canUploadDrawing(u)) return err('无权删图纸')
+      await deleteDrawingFile(jobId, drawingId)
+      revalidatePath(`/jobs/${jobId}`)
+      return Response.json(ok())
     }
 
     // 退货流转单 — 处理方案 (工程) · 原因调查 (质量) · 下发返工 · 返工入库 ·

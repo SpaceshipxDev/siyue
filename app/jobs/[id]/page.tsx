@@ -28,6 +28,9 @@ import { ensureVendorPortalTokens, getJob, getVendors } from '@/lib/db'
 import { logJobView } from '@/lib/access-log'
 import { shanghaiDay } from '@/lib/today'
 import { getContractFiles } from '@/lib/contract-file'
+import { getDrawingFiles } from '@/lib/drawing-file'
+import { getNcPrograms } from '@/lib/nc-program-store'
+import { findReusable, reuseKey, type NcProgram } from '@/lib/nc-program'
 import { BRAND } from '@/lib/brand'
 import {
   canCreatePartRow,
@@ -39,6 +42,8 @@ import {
   canExportProductionOrder,
   canManageOutsource,
   canRenameUploadedJob,
+  canUploadDrawing,
+  canWriteNcProgram,
   canSeeCustomerData,
   canSeeMoney,
   canSeeReport,
@@ -93,6 +98,7 @@ import { DrawingChangeBanner } from '@/app/_drawing_change'
 import { PartDrawingChange } from '@/app/_part_drawing_change'
 import { ShippingComposerButton } from '@/app/_shipping'
 import { ShipmentHistoryButton } from '@/app/_shipment_history'
+import { ProgrammingTab } from './_programming'
 import { JobTypeEditor } from '@/app/_type_chip'
 import { DeletePartButton } from './_part_delete'
 import { DeleteOrderButton } from './_job_delete'
@@ -126,11 +132,16 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // load (the caiwu tab must add zero latency to the floor's hot path). The
   // 开票/回款 state is lazy-loaded by JobMoneyEditor itself, so it never touches
   // the server critical path at all.
-  const [rawJob, fetchedVendors, contractFiles] = await Promise.all([
-    getJob(id),
-    getVendors(),
-    showMoney ? getContractFiles(id) : Promise.resolve([]),
-  ])
+  // 图纸和程序单跟工单快照一起并行取 —— 编程那一页是全厂都看得到的一栏, 不
+  // 能给它加一次串行的往返。
+  const [rawJob, fetchedVendors, contractFiles, drawingFiles, allPrograms] =
+    await Promise.all([
+      getJob(id),
+      getVendors(),
+      showMoney ? getContractFiles(id) : Promise.resolve([]),
+      getDrawingFiles(id),
+      getNcPrograms(),
+    ])
   if (!rawJob) notFound()
   // Portal tokens power the 微信 share button on each 委外 row. No-op once
   // every vendor has one (the common case) — see ensureVendorPortalTokens.
@@ -282,8 +293,42 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   const openOutsourceCount = blockRows.filter(
     (r) => !isBlockClosed(r.block),
   ).length
+  // 编程 — 图纸进来、程序出去的那一栏。全厂可见: 编程员是生产账号, 操机也要
+  // 照着程序单调程序。编程站的账号一进来就落在这一栏 (排在最前)。
+  const jobPrograms = allPrograms.filter((p) => p.jobId === job.id)
+  const programsByPart = new Map<string, NcProgram[]>()
+  for (const p of jobPrograms) {
+    programsByPart.set(p.componentId, [
+      ...(programsByPart.get(p.componentId) ?? []),
+      p,
+    ])
+  }
+  const drawnParts = new Set(drawingFiles.map((d) => d.componentId))
+  const partsMissingDrawing = job.components.filter(
+    (c) => !drawnParts.has(c.id),
+  ).length
+  // "这个件以前编过" —— 只对还没出程序的零件去找, 已经有程序的不用提示。
+  const programReuse: Record<string, NcProgram[]> = {}
+  for (const c of job.components) {
+    if ((programsByPart.get(c.id) ?? []).length > 0) continue
+    const hits = findReusable(
+      allPrograms,
+      reuseKey({ name: c.name, partNo: c.partNo }),
+      job.id,
+    )
+    if (hits.length > 0) programReuse[c.id] = hits
+  }
+  const isProgrammer = user.defaultStage === '编程'
+  const programmingTab = {
+    key: 'programming',
+    label: '编程',
+    badge: partsMissingDrawing > 0 ? String(partsMissingDrawing) : undefined,
+    alarm: partsMissingDrawing > 0,
+  }
   const jobTabs = [
+    ...(isProgrammer ? [programmingTab] : []),
     { key: 'parts', label: '零件' },
+    ...(isProgrammer ? [] : [programmingTab]),
     ...(canManageOutsource(user)
       ? [
           {
@@ -1083,6 +1128,32 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
         </JobPartFilterProvider>
           </div>
           {/* /零件 tab */}
+
+          {/* 编程 — 图纸 (三维/二维) 和程序单。编程员在这一栏里读齐做程序要
+              的东西, 出完程序给操机看。 */}
+          <div data-jobtab="programming" hidden>
+            <ProgrammingTab
+              jobId={job.id}
+              dueDate={job.dueDate}
+              parts={job.components.map((c, i) => ({
+                componentId: c.id,
+                seq: c.seqLabel || String(i + 1).padStart(2, '0'),
+                name: c.name,
+                qty: c.qty,
+                partNo: c.partNo,
+                material: c.material,
+                process: c.process,
+                surfaceTreatment: c.surfaceTreatment,
+                notes: c.notes,
+                imageUrl: c.imageUrl,
+              }))}
+              initialDrawings={drawingFiles}
+              initialPrograms={jobPrograms}
+              reuse={programReuse}
+              canUpload={canUploadDrawing(user)}
+              canWrite={canWriteNcProgram(user)}
+            />
+          </div>
 
           {canManageOutsource(user) && (
             <div data-jobtab="waixie" hidden>

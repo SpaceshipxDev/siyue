@@ -348,6 +348,29 @@ export function canEditProductionFields(s: Scope): boolean {
   return canEditPartRoute(s)
 }
 
+// ─── 编程 (图纸进来, 程序出去) ──────────────────────────────────────────
+//
+// 编程员打开系统, 在这之前只看得到工序格子和一张缩略图 —— 做程序要的东西
+// (图纸、三维模型、材料、毛坯、装夹) 一样都读不到。所以这一档的规矩是反过来
+// 定的: 图纸谁都能下载, 不按"钱"那一档挡 (编程员是生产账号, 一挡他就又看不
+// 见图了)。能往上传的是下图纸的那几方。
+export function canUploadDrawing(s: Scope): boolean {
+  return (
+    s.role === 'commerce' ||
+    s.defaultStage === '工程' ||
+    s.defaultStage === '编程'
+  )
+}
+
+/** 程序单 — 程序是编程员出的, 工程和商务能代填 (人不在时单子不能卡死)。 */
+export function canWriteNcProgram(s: Scope): boolean {
+  return (
+    s.role === 'commerce' ||
+    s.defaultStage === '工程' ||
+    s.defaultStage === '编程'
+  )
+}
+
 // ─── 退货台 (一条退货从开单到再发货, 中间要过几个人的手) ─────────────────
 //
 // 退货是全厂唯一一条横跨四个部门的流水: 商务开单 → 工程出处理方案 → 质量查
