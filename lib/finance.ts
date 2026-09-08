@@ -409,6 +409,91 @@ export function shipSalesperson(r: FinanceRow): string {
   return (r.yuenongBusiness ?? '').trim() || (r.salesperson ?? '').trim() || '未分配'
 }
 
+// === 回款 · 按客户 ===
+//
+// 出货那两张表回答"这个月做出去多少", 这一张回答"这个月收回来多少" —— 对一
+// 个厂来说, 后面这个数才是能发工资的那个。
+//
+// 两个数放在一行上, 因为它们只有一起看才有意义:
+//   本月回款  这家客户这个月打了多少钱进来 (按回款日期落月, 不是出货日期 ——
+//             这个月收的常常是上个月甚至上上个月的货款)
+//   还欠多少  截至今天, 这家客户所有已开票没收齐的钱 (不分月份)
+// 只看回款会把"这个月刚好收了一笔大的、但还压着一大堆"的客户误读成好客户;
+// 只看欠款又看不出谁在还钱。所以两个数并排。
+export type CustomerCashRow = {
+  customer: string
+  /** 本月回款 */
+  paidCny: number
+  /** 本月回了几笔 */
+  count: number
+  /** 截至今日这家客户还欠的 (全量, 不分月) */
+  outstandingCny: number
+}
+
+export function cashByCustomer(
+  rows: FinanceRow[],
+  month: string,
+): CustomerCashRow[] {
+  const by = new Map<string, CustomerCashRow>()
+  const pick = (name: string): CustomerCashRow => {
+    const key = name || '未填客户'
+    const cur = by.get(key) ?? {
+      customer: key,
+      paidCny: 0,
+      count: 0,
+      outstandingCny: 0,
+    }
+    by.set(key, cur)
+    return cur
+  }
+  for (const r of rows) {
+    const name = (r.customer ?? '').trim()
+    // 本月回款 —— 按回款日期归月。
+    if (
+      r.paymentDate?.startsWith(month) &&
+      typeof r.paymentAmountCny === 'number' &&
+      r.paymentAmountCny > 0
+    ) {
+      const g = pick(name)
+      g.paidCny += r.paymentAmountCny
+      g.count += 1
+    }
+    // 还欠多少 —— 跟月份无关, 是"到今天为止"。
+    const owed = outstanding(r)
+    if (owed > 0) pick(name).outstandingCny += owed
+  }
+  // 这个月回了钱的排前面 (金额大的在上), 只欠钱没回款的跟在后面 —— 那一段
+  // 是催款名单。
+  return [...by.values()].sort(
+    (a, b) =>
+      b.paidCny - a.paidCny ||
+      b.outstandingCny - a.outstandingCny ||
+      a.customer.localeCompare(b.customer, 'zh'),
+  )
+}
+
+/** 这个月一共回了多少钱 · 几笔。 */
+export function cashTotals(
+  rows: FinanceRow[],
+  month: string,
+): { paidCny: number; count: number; outstandingCny: number } {
+  let paidCny = 0
+  let count = 0
+  let outstandingCny = 0
+  for (const r of rows) {
+    if (
+      r.paymentDate?.startsWith(month) &&
+      typeof r.paymentAmountCny === 'number' &&
+      r.paymentAmountCny > 0
+    ) {
+      paidCny += r.paymentAmountCny
+      count += 1
+    }
+    outstandingCny += outstanding(r)
+  }
+  return { paidCny, count, outstandingCny }
+}
+
 /** 按商务 — 金额高的在上, 那是这张表要回答的问题。 */
 export function shipStatsBySalesperson(rows: FinanceRow[]): ShipStat[] {
   return groupShipments(rows, shipSalesperson).sort((a, b) =>

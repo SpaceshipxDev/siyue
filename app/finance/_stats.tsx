@@ -7,6 +7,8 @@ import {
 import { getFinanceRows, getOutsourceBlockRows, getVendors } from '@/lib/db'
 import { shanghaiDay } from '@/lib/today'
 import {
+  cashByCustomer,
+  cashTotals,
   closedInMonth,
   outsourceStatsByVendor,
   outsourceTotals,
@@ -68,6 +70,12 @@ export async function MonthlyStats({
   // 今年累计 — the month strip answers "这个月", this answers "到今天为止".
   const yearTotals = shipTotals(shipmentsInPeriod(all, year, shanghaiDay))
 
+  // 回款 —— 这个月收回来多少, 每家客户各回了多少、还欠多少。跟出货用同一份
+  // 数据 (记账表那一栏), 不另外查一趟。
+  const cash = cashTotals(all, ym)
+  const byCustomer = cashByCustomer(all, ym)
+  const paidPeak = Math.max(1, ...byCustomer.map((c) => c.paidCny))
+
   const peak = Math.max(1, ...byPerson.map((s) => s.amountCny))
 
   // 外协 — 同「月度」口径: 单头总价, 加急单退回按件小计; 记在回件结算日。
@@ -109,6 +117,21 @@ export async function MonthlyStats({
           <p className="mt-1 text-[12px] tabular-nums text-[var(--color-ink-3)]">
             {totals.count} 单
             {totals.unpriced > 0 ? ` · 其中 ${totals.unpriced} 单没金额` : ''}
+          </p>
+        </div>
+        <div>
+          {/* 回款 —— 出货是做出去多少, 这个是收回来多少。能发工资的是后者。 */}
+          <p className="text-[22px] font-semibold tracking-tight tabular-nums leading-none text-[var(--color-success)]">
+            {formatCny(cash.paidCny)}
+          </p>
+          <p className="label mt-2.5">
+            {year}年{Number(month)}月回款
+          </p>
+          <p className="mt-1 text-[12px] tabular-nums text-[var(--color-ink-3)]">
+            {cash.count} 笔
+            {cash.outstandingCny > 0
+              ? ` · 未收合计 ${formatCny(cash.outstandingCny)}`
+              : ''}
           </p>
         </div>
         <div>
@@ -198,6 +221,69 @@ export async function MonthlyStats({
         出货金额跟「记账」是同一栏——财务改过的数优先，没改过就按零件单价×出货数算。
         商务按「越侬商务」算，老单没填的记在建单人名下。
       </p>
+
+      {/* ===== 回款 · 按客户 ===== */}
+      <div className="mt-12">
+        <h2 className="label mb-3">回款 · 按客户</h2>
+        <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+          {byCustomer.length === 0 ? (
+            <p className="px-5 py-10 text-center text-[13px] text-[var(--color-ink-3)]">
+              这个月没有回款，也没有未收
+            </p>
+          ) : (
+            byCustomer.map((c) => (
+              <div
+                key={c.customer}
+                className="relative border-b border-[var(--color-border)] px-5 py-3 last:border-b-0"
+              >
+                {/* 淡条按本月回款铺 —— 谁在还钱一眼看出。 */}
+                <div
+                  aria-hidden
+                  className="absolute inset-y-0 left-0 bg-[var(--color-active-bg)]"
+                  style={{ width: `${(c.paidCny / paidPeak) * 100}%` }}
+                />
+                <div className="relative flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <span className="min-w-0 flex-1 truncate text-[14px] font-medium tracking-tight text-[var(--color-ink)]">
+                    {c.customer}
+                  </span>
+                  {c.paidCny > 0 ? (
+                    <>
+                      <span className="mono shrink-0 text-[12px] tabular-nums text-[var(--color-ink-3)]">
+                        {c.count} 笔
+                      </span>
+                      <span className="mono w-[104px] shrink-0 text-right text-[14px] font-semibold tabular-nums text-[var(--color-ink)]">
+                        {formatCny(c.paidCny)}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="mono w-[104px] shrink-0 text-right text-[12px] tabular-nums text-[var(--color-ink-4)]">
+                      本月未回
+                    </span>
+                  )}
+                  {/* 还欠多少 —— 只看回款会把"刚好收了一笔大的、但还压着一
+                      大堆"的客户误读成好客户, 所以两个数并排。 */}
+                  <span
+                    className={`mono w-[104px] shrink-0 text-right text-[13px] tabular-nums ${
+                      c.outstandingCny > 0
+                        ? 'text-[var(--color-warning)]'
+                        : 'text-[var(--color-ink-4)]'
+                    }`}
+                    title="截至今天这家客户已开票还没收齐的钱"
+                  >
+                    {c.outstandingCny > 0 ? `欠 ${formatCny(c.outstandingCny)}` : '已结清'}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <p className="mt-3 text-[12px] text-[var(--color-ink-3)]">
+          回款按「回款时间」归月——这个月收的常常是上个月甚至更早的货款，所以它
+          和上面的出货金额不该对得上。「欠」是截至今天该客户所有已开票没收齐的
+          钱，不分月份；本月回了钱的排在前面，只欠钱没回款的跟在后面，那一段就
+          是催款名单。数跟「记账」表同源。
+        </p>
+      </div>
 
       {/* ===== 外协 ===== */}
       <div className="mt-14 border-t border-[var(--color-border)] pt-10">
