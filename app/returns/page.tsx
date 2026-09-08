@@ -1,35 +1,57 @@
-import { getJobsComponents, getMasterRows, listClosedReturns } from '@/lib/db'
-import { requirePartRouteEditor, canSeeReport, canSeeOrderLedger } from '@/lib/auth'
+import {
+  getJobsComponents,
+  getMasterRows,
+  listClosedReturns,
+  listOpenReturns,
+} from '@/lib/db'
+import {
+  canEditPartRoute,
+  canRunReturnRework,
+  canSeeOrderLedger,
+  canSeeCustomerData,
+  canSeeReport,
+  canWriteReturnCause,
+  canWriteReturnPlan,
+  canEditShipment,
+  requireReturnsDesk,
+} from '@/lib/auth'
+import { getReturnFlows } from '@/lib/return-flow-store'
 import { TopBar } from '@/app/_ui'
 import { ReturnsView, type ReturnsListJob } from './_view'
 import type { MasterRow } from '@/lib/master'
 
 export const dynamic = 'force-dynamic'
 
+// 退货台。门开给四方 —— 商务开单、工程出方案、质量查原因、商务再出货, 所以
+// 质量的账号也进得来 (以前只有商务和工程)。进来之后能动哪一格, 按各人那一档
+// 走, 见 lib/auth 的 canWriteReturnPlan / canWriteReturnCause。
 export default async function ReturnsPage() {
-  const user = await requirePartRouteEditor()
+  const user = await requireReturnsDesk()
+  const canOpen = canEditPartRoute(user)
 
-  // Lightweight first pass — same shape the master grid uses. The candidate
-  // set (shipped, no active return) gets its components hydrated separately
-  // so the inline 开退货 composer has the picker rows ready. Open-return
-  // rows don't need components for this view's chrome.
-  const [rows, closed] = await Promise.all([getMasterRows(), listClosedReturns()])
+  const [rows, openReturns, closed, flows] = await Promise.all([
+    getMasterRows(),
+    listOpenReturns(),
+    listClosedReturns(),
+    getReturnFlows(),
+  ])
 
   const live = rows.filter(
     (r) => r.status !== 'parsing' && r.status !== 'draft' && r.status !== 'failed',
   )
-  const openRows = live.filter((r) => Boolean(r.activeReturn))
-  const candidateRows = live.filter((r) => r.isShipped && !r.activeReturn)
+  const candidateRows = canOpen
+    ? live.filter((r) => r.isShipped && !r.activeReturn)
+    : []
 
-  // Only candidates need components for the composer; open returns are
-  // already attached to specific parts via JobReturn.parts in lib/db.
+  // Only candidates need components for the composer; 进行中 rows carry their
+  // own part detail from listOpenReturns.
   const componentsByJob = await getJobsComponents(candidateRows.map((r) => r.id))
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex flex-1 flex-col">
       <TopBar
         title="退货"
-        subtitle="出货后回厂的零件 · 进入工程返工"
+        subtitle="开单 · 方案 · 调查 · 返工 · 再出货"
         currentTab="退货"
         role={user.role}
         defaultStage={user.defaultStage}
@@ -37,11 +59,24 @@ export default async function ReturnsPage() {
         canSeeReport={canSeeReport(user)}
         canSeeFinance={canSeeOrderLedger(user)}
       />
-      <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">
+      <main className="mx-auto w-full max-w-[1500px] flex-1 px-4 py-6 md:px-10 md:py-10">
         <ReturnsView
-          openJobs={openRows.map((r) => serializeRow(r, undefined))}
-          candidates={candidateRows.map((r) => serializeRow(r, componentsByJob.get(r.id)))}
+          openRows={openReturns.map((r) => ({
+            ...r,
+            flow: flows.get(r.ret.id),
+          }))}
+          candidates={candidateRows.map((r) =>
+            serializeRow(r, componentsByJob.get(r.id)),
+          )}
           closed={closed}
+          perms={{
+            plan: canWriteReturnPlan(user),
+            cause: canWriteReturnCause(user),
+            rework: canRunReturnRework(user),
+            ship: canEditShipment(user),
+            open: canOpen,
+            showCustomer: canSeeCustomerData(user),
+          }}
         />
       </main>
     </div>
@@ -63,7 +98,6 @@ function serializeRow(
     product: r.product,
     shipDate,
     daysSinceShip,
-    activeReturn: r.activeReturn,
     components,
   }
 }

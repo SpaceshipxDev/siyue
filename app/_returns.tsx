@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { RETURN_REASONS, type Component, type JobReturn, type ReturnReason } from '@/lib/data'
 import { today } from '@/lib/today'
@@ -162,7 +163,7 @@ export function ReturnComposer({
             选择退回零件
           </h2>
           <p className="mt-1 text-[12px] text-[var(--color-ink-3)]">
-            勾选的零件会重回 工程,由工程头清理实际返工路线。
+            开完单去退货台走流程 — 工程出处理方案、质量查原因、下发返工。
           </p>
         </header>
 
@@ -211,7 +212,7 @@ export function ReturnComposer({
 
         <div className="px-6 py-4 border-t border-[var(--color-border)] grid grid-cols-2 gap-4">
           <div>
-            <p className="label mb-2">退货原因</p>
+            <p className="label mb-2">不良原因</p>
             <select
               value={reason}
               onChange={(e) => setReason(e.target.value as ReturnReason)}
@@ -224,19 +225,19 @@ export function ReturnComposer({
                 </option>
               ))}
             </select>
-            {reason === '其他' && (
-              <input
-                type="text"
-                value={reasonText}
-                onChange={(e) => setReasonText(e.target.value)}
-                placeholder="补充说明"
-                disabled={pending}
-                className="mt-2 w-full text-[12px] text-[var(--color-ink)] bg-transparent border-b border-[var(--color-border)] py-1 focus:outline-none focus:border-[var(--color-ink)]"
-              />
-            )}
+            {/* 客户原话 —— 以前只有选「其他」才给填, 可是"尺寸不符"到底哪一
+                个尺寸、差多少, 才是工程和质量后面要看的那句话。所以永远给填。 */}
+            <input
+              type="text"
+              value={reasonText}
+              onChange={(e) => setReasonText(e.target.value)}
+              placeholder="客户怎么说的 — 哪里不良"
+              disabled={pending}
+              className="mt-2 w-full text-[12px] text-[var(--color-ink)] bg-transparent border-b border-[var(--color-border)] py-1 focus:outline-none focus:border-[var(--color-ink)]"
+            />
           </div>
           <div>
-            <p className="label mb-2">内部交期</p>
+            <p className="label mb-2">二次交期</p>
             <input
               type="date"
               value={dueDate}
@@ -245,7 +246,7 @@ export function ReturnComposer({
               className="w-full mono text-[13px] text-[var(--color-ink)] bg-transparent border-b border-[var(--color-ink)] py-1.5 focus:outline-none"
             />
             <p className="mt-1 label text-[var(--color-ink-3)]">
-              退货期间总览按此日期排序
+              返工好这批件要交给客户的日期
             </p>
           </div>
         </div>
@@ -285,7 +286,11 @@ export function ReturnComposer({
 }
 
 // Active-return badge on the job-detail header. Shows reason + internal due
-// date + a 关闭 affordance for the editor (commerce + 工程 head).
+// date + 一个通往退货台的口子。
+//
+// 以前这里挂的是「关闭」—— 一键就把退货结掉。现在一条退货是一条流水 (方案 ·
+// 调查 · 下发返工 · 入库 · 再出货), 从工单页一键关掉等于把那条流水绕过去,
+// 所以结案挪回退货台那张流转单的末尾, 这里只留一个"去看它走到哪了"。
 export function ActiveReturnBadge({
   ret,
   canEdit,
@@ -293,15 +298,6 @@ export function ActiveReturnBadge({
   ret: JobReturn
   canEdit: boolean
 }) {
-  const [pending, start] = useTransition()
-  const router = useRouter()
-  const close = () => {
-    if (!confirm('确认关闭此次退货?关闭后该工单将不再标记为退货中。')) return
-    start(async () => {
-      await mutate({ kind: 'closeReturn', returnId: ret.id })
-      router.refresh()
-    })
-  }
   return (
     <div className="inline-flex items-center gap-3 px-3 py-1.5 border border-[var(--color-overdue)] bg-[var(--color-overdue-soft)] rounded-[2px]">
       <span className="label text-[var(--color-overdue)]">退货中</span>
@@ -315,14 +311,12 @@ export function ActiveReturnBadge({
         交期 {ret.dueDate}
       </span>
       {canEdit && (
-        <button
-          type="button"
-          onClick={close}
-          disabled={pending}
-          className="text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] underline underline-offset-2 disabled:opacity-50"
+        <Link
+          href="/returns"
+          className="text-[11px] text-[var(--color-ink-3)] underline underline-offset-2 hover:text-[var(--color-ink)]"
         >
-          {pending ? '关闭中…' : '关闭'}
-        </button>
+          退货台 →
+        </Link>
       )}
     </div>
   )

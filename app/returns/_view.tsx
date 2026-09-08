@@ -6,20 +6,35 @@ import {
   daysFromToday,
   dueState,
   type DueState,
-  type ReturnReason,
+  type JobReturn,
 } from '@/lib/data'
 import type { ClosedReturnRow } from '@/lib/db'
-import { ReturnChip, ReturnComposer, type ReturnComposerComponent } from '@/app/_returns'
+import {
+  returnStep,
+  RETURN_STEP_LABEL,
+  RETURN_STEP_OWNER,
+  type ReturnFlow,
+} from '@/lib/return-flow'
+import { ReturnComposer, type ReturnComposerComponent } from '@/app/_returns'
+import { ReturnFlowPanel } from './_flow'
 
-// Lighter shape than the full JobReturn — the /returns list and composer
-// only read reason + dueDate from the active return, so MasterRow's
-// activeReturn (from the SQL view) is enough.
-export type ReturnsActiveReturn = {
-  id: string
-  reason: ReturnReason
-  dueDate: string
+// 退货台 —— 一条退货是一条流水, 不是一个标记。
+//
+// 进行中那一栏里, 每一行摊开就是它的流转单: 商务开的单 → 工程的处理方案 →
+// 质量的原因调查 → 下发返工 → 返工入库 → 再开一张出货单。行上只留一句话:
+// 现在卡在哪一步、在等谁。谁打开这一页, 第一眼要看的就是这句话。
+
+// 一条进行中的退货, 连零件明细和流转单一起。
+export type ReturnDeskRow = {
+  ret: JobReturn
+  jobNo: string
+  customer: string
+  product: string
+  parts: { componentId: string; name: string; qty: number; totalQty: number }[]
+  flow?: ReturnFlow
 }
 
+// 可退货那一栏仍是"按工号找一张已出货的工单"。
 export type ReturnsListJob = {
   id: string
   jobNo: string
@@ -27,31 +42,49 @@ export type ReturnsListJob = {
   product: string
   shipDate: string
   daysSinceShip: number | null
-  activeReturn?: ReturnsActiveReturn
-  // Present on candidate rows so the inline 开退货 dialog can drive the part
-  // picker without a round-trip to /jobs/[id].
   components?: ReturnComposerComponent[]
+}
+
+export type ReturnPerms = {
+  plan: boolean
+  cause: boolean
+  rework: boolean
+  ship: boolean
+  /** 开新退货 — 商务/工程 */
+  open: boolean
+  /** 车间账号 (质量站) 看不到客户名 — 退货台不该成为它的旁门。 */
+  showCustomer: boolean
 }
 
 type Tab = 'open' | 'candidates' | 'closed'
 
 export function ReturnsView({
-  openJobs,
+  openRows,
   candidates,
   closed,
+  perms,
 }: {
-  openJobs: ReturnsListJob[]
+  openRows: ReturnDeskRow[]
   candidates: ReturnsListJob[]
   closed: ClosedReturnRow[]
+  perms: ReturnPerms
 }) {
-  const [tab, setTab] = useState<Tab>(openJobs.length > 0 ? 'open' : 'candidates')
+  const [tab, setTab] = useState<Tab>(openRows.length > 0 ? 'open' : 'candidates')
   const [q, setQ] = useState('')
   const [picked, setPicked] = useState<ReturnsListJob | null>(null)
+  const [expanded, setExpanded] = useState<string | null>(
+    openRows.length === 1 ? openRows[0].ret.id : null,
+  )
   const needle = q.trim().toLowerCase()
 
   const filteredOpen = useMemo(
-    () => filterJobs(openJobs, needle).sort(byActiveDue),
-    [openJobs, needle],
+    () =>
+      openRows.filter((r) =>
+        !needle
+          ? true
+          : `${r.jobNo} ${r.customer} ${r.product}`.toLowerCase().includes(needle),
+      ),
+    [openRows, needle],
   )
   const filteredCandidates = useMemo(
     () =>
@@ -65,12 +98,6 @@ export function ReturnsView({
     [closed, needle],
   )
 
-  const counts = {
-    open: openJobs.length,
-    candidates: candidates.length,
-    closed: closed.length,
-  }
-
   return (
     <div>
       <div className="mb-6 flex items-baseline justify-between gap-6">
@@ -80,7 +107,7 @@ export function ReturnsView({
             出货后回厂
           </h2>
           <p className="mt-1 text-[13px] text-[var(--color-ink-2)]">
-            进行中按内部交期排序 · 可退货搜索任意已出货工单 · 点行直接开退货
+            商务开单 · 工程出方案 · 质量查原因 · 下发返工 · 入库 · 再出货
           </p>
         </div>
         <div className="w-[320px] shrink-0">
@@ -89,12 +116,10 @@ export function ReturnsView({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder={
-              tab === 'candidates'
-                ? '搜索任意已出货工单 · 工号 / 客户 / 产品'
-                : '搜索 · 工号 / 客户 / 产品'
+              tab === 'candidates' ? '输工号开退货' : '搜索 · 工号 / 客户 / 产品'
             }
             autoFocus={tab === 'candidates'}
-            className="w-full bg-transparent border-b border-[var(--color-border-strong)] py-2 text-[13px] text-[var(--color-ink)] placeholder:text-[var(--color-ink-4)] focus:outline-none focus:border-[var(--color-ink)]"
+            className="w-full border-b border-[var(--color-border-strong)] bg-transparent py-2 text-[13px] text-[var(--color-ink)] placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-ink)] focus:outline-none"
           />
         </div>
       </div>
@@ -103,37 +128,47 @@ export function ReturnsView({
         <TabButton
           active={tab === 'open'}
           label="进行中"
-          count={counts.open}
+          count={openRows.length}
           onClick={() => setTab('open')}
         />
-        <TabButton
-          active={tab === 'candidates'}
-          label="可退货"
-          count={counts.candidates}
-          onClick={() => setTab('candidates')}
-        />
+        {perms.open && (
+          <TabButton
+            active={tab === 'candidates'}
+            label="开退货"
+            count={candidates.length}
+            onClick={() => setTab('candidates')}
+          />
+        )}
         <TabButton
           active={tab === 'closed'}
           label="已完成"
-          count={counts.closed}
+          count={closed.length}
           onClick={() => setTab('closed')}
         />
       </div>
 
       {tab === 'open' && (
-        <JobList rows={filteredOpen} mode="open" emptyText="暂无进行中的退货" />
+        <OpenList
+          rows={filteredOpen}
+          perms={perms}
+          expanded={expanded}
+          onToggle={(id) => setExpanded((cur) => (cur === id ? null : id))}
+          emptyText={needle ? '没有匹配的退货' : '暂无进行中的退货'}
+        />
       )}
-      {tab === 'candidates' && (
+      {tab === 'candidates' && perms.open && (
         <CandidateList
           rows={filteredCandidates}
           onPick={setPicked}
-          emptyText={
-            needle ? '没有匹配的已出货工单' : '暂无可退货工单'
-          }
+          emptyText={needle ? '没有匹配的已出货工单' : '暂无可退货工单'}
         />
       )}
       {tab === 'closed' && (
-        <ClosedList rows={filteredClosed} emptyText="暂无退货历史" />
+        <ClosedList
+          rows={filteredClosed}
+          showCustomer={perms.showCustomer}
+          emptyText="暂无退货历史"
+        />
       )}
 
       {picked && picked.components && (
@@ -147,6 +182,119 @@ export function ReturnsView({
     </div>
   )
 }
+
+// ── 进行中 ────────────────────────────────────────────────────────────────
+
+function OpenList({
+  rows,
+  perms,
+  expanded,
+  onToggle,
+  emptyText,
+}: {
+  rows: ReturnDeskRow[]
+  perms: ReturnPerms
+  expanded: string | null
+  onToggle: (id: string) => void
+  emptyText: string
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="border-b border-[var(--color-border)] py-6 text-[12px] text-[var(--color-ink-3)]">
+        {emptyText}
+      </p>
+    )
+  }
+  return (
+    <div className="border-y border-[var(--color-border)]">
+      {rows.map((r) => {
+        const open = expanded === r.ret.id
+        const step = returnStep(r.flow)
+        return (
+          <div
+            key={r.ret.id}
+            className="border-b border-[var(--color-border)] last:border-b-0"
+          >
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => onToggle(r.ret.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onToggle(r.ret.id)
+                }
+              }}
+              className={`flex cursor-pointer items-center gap-6 px-5 py-3.5 transition-colors ${
+                open ? 'bg-[#f1eee4]' : 'hover:bg-[#f1eee4]'
+              }`}
+            >
+              <span className="mono w-32 shrink-0 truncate text-[13px] font-medium text-[var(--color-ink)]">
+                {r.jobNo}
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col leading-tight">
+                <span className="truncate text-[13px] font-medium text-[var(--color-ink)]">
+                  {perms.showCustomer ? r.customer || '—' : r.product || '—'}
+                </span>
+                {perms.showCustomer && (
+                  <span className="mt-0.5 truncate text-[11px] text-[var(--color-ink-3)]">
+                    {r.product}
+                  </span>
+                )}
+              </div>
+              <span className="w-28 shrink-0 truncate text-[12px] text-[var(--color-ink-2)]">
+                {r.ret.reason}
+              </span>
+              <DueColumn dueDate={r.ret.dueDate} />
+              {/* 这一行唯一要人读的一句话: 卡在哪一步, 在等谁。 */}
+              <span className="w-32 shrink-0 text-right">
+                <span className="block text-[13px] text-[var(--color-ink)]">
+                  {RETURN_STEP_LABEL[step]}
+                </span>
+                <span className="label mt-0.5 block text-[var(--color-ink-3)]">
+                  {step === 'done' ? '流程走完' : `等${RETURN_STEP_OWNER[step]}`}
+                </span>
+              </span>
+              <Link
+                href={`/jobs/${r.ret.jobId}`}
+                onClick={(e) => e.stopPropagation()}
+                className="label shrink-0 text-[var(--color-ink-3)] underline-offset-2 hover:text-[var(--color-ink)] hover:underline"
+              >
+                工单
+              </Link>
+            </div>
+            {open && <ReturnFlowPanel row={r} perms={perms} />}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function DueColumn({ dueDate }: { dueDate: string }) {
+  const ds: DueState = dueState(dueDate)
+  const days = daysFromToday(dueDate)
+  const tone =
+    ds === 'overdue'
+      ? 'text-[var(--color-overdue)]'
+      : ds === 'today'
+        ? 'text-[var(--color-warning)]'
+        : 'text-[var(--color-ink)]'
+  const sub =
+    ds === 'overdue'
+      ? `逾期 ${Math.abs(days)} 天`
+      : ds === 'today'
+        ? '今日'
+        : `${days} 天后`
+  return (
+    <div className="flex w-28 shrink-0 flex-col items-end leading-tight">
+      <span className={`mono text-[13px] ${tone}`}>{dueDate}</span>
+      <span className="label mt-0.5 text-[var(--color-ink-3)]">{sub}</span>
+    </div>
+  )
+}
+
+// ── 其余两栏 (维持原样) ────────────────────────────────────────────────────
 
 function TabButton({
   active,
@@ -165,12 +313,12 @@ function TabButton({
       onClick={onClick}
       className={`relative px-5 py-3 text-[13px] tracking-wider transition-colors ${
         active
-          ? 'text-[var(--color-ink)] font-semibold'
+          ? 'font-semibold text-[var(--color-ink)]'
           : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
       }`}
     >
       {label}
-      <span className="ml-2 mono text-[11px] text-[var(--color-ink-3)]">
+      <span className="mono ml-2 text-[11px] text-[var(--color-ink-3)]">
         {count}
       </span>
       {active && (
@@ -180,82 +328,22 @@ function TabButton({
   )
 }
 
-function byActiveDue(a: ReturnsListJob, b: ReturnsListJob): number {
-  // open tab only — every row has activeReturn. Sort by internal due date so
-  // overdue rework climbs to the top.
-  const ad = a.activeReturn?.dueDate ?? ''
-  const bd = b.activeReturn?.dueDate ?? ''
-  return ad.localeCompare(bd)
-}
-
 function filterJobs(rows: ReturnsListJob[], needle: string): ReturnsListJob[] {
   if (!needle) return rows
-  return rows.filter((j) => {
-    const hay = `${j.jobNo} ${j.customer} ${j.product}`.toLowerCase()
-    return hay.includes(needle)
-  })
+  return rows.filter((j) =>
+    `${j.jobNo} ${j.customer} ${j.product}`.toLowerCase().includes(needle),
+  )
 }
 
 function filterClosed(rows: ClosedReturnRow[], needle: string): ClosedReturnRow[] {
   if (!needle) return rows
-  return rows.filter((r) => {
-    const hay = `${r.jobNo} ${r.customer} ${r.product}`.toLowerCase()
-    return hay.includes(needle)
-  })
-}
-
-function JobList({
-  rows,
-  mode,
-  emptyText,
-}: {
-  rows: ReturnsListJob[]
-  mode: 'open'
-  emptyText: string
-}) {
-  if (rows.length === 0) {
-    return (
-      <p className="text-[12px] text-[var(--color-ink-3)] py-6 border-b border-[var(--color-border)]">
-        {emptyText}
-      </p>
-    )
-  }
-  return (
-    <ul className="border-y border-[var(--color-border)] divide-y divide-[var(--color-border)]">
-      {rows.map((j) => (
-        <li key={j.id}>
-          <Link
-            href={`/jobs/${j.id}`}
-            className="flex items-center gap-6 px-5 py-3.5 hover:bg-[#f1eee4] transition-colors"
-          >
-            <span className="mono text-[13px] font-medium text-[var(--color-ink)] w-32 shrink-0 truncate">
-              {j.jobNo}
-            </span>
-            <div className="flex-1 min-w-0 flex flex-col leading-tight">
-              <span className="text-[13px] font-medium text-[var(--color-ink)] truncate">
-                {j.customer || '—'}
-              </span>
-              <span className="label normal-case tracking-normal text-[11px] text-[var(--color-ink-3)] mt-0.5 truncate">
-                {j.product}
-              </span>
-            </div>
-            {mode === 'open' && j.activeReturn ? (
-              <ActiveReturnInline ret={j.activeReturn} />
-            ) : (
-              <ShipDateColumn ship={j.shipDate} days={j.daysSinceShip} />
-            )}
-            <span className="label text-[var(--color-ink-3)]">打开 →</span>
-          </Link>
-        </li>
-      ))}
-    </ul>
+  return rows.filter((r) =>
+    `${r.jobNo} ${r.customer} ${r.product}`.toLowerCase().includes(needle),
   )
 }
 
 // Candidates render greyed by design — every row here is a finished/shipped
-// job, and the muting communicates "done; pick one to start a return". The
-// row is a button (not a link): clicking opens the inline 退货 composer
-// instead of bouncing through /jobs/[id] just to find the same affordance.
+// job, and the muting communicates "done; pick one to start a return".
 function CandidateList({
   rows,
   onPick,
@@ -267,28 +355,28 @@ function CandidateList({
 }) {
   if (rows.length === 0) {
     return (
-      <p className="text-[12px] text-[var(--color-ink-3)] py-6 border-b border-[var(--color-border)]">
+      <p className="border-b border-[var(--color-border)] py-6 text-[12px] text-[var(--color-ink-3)]">
         {emptyText}
       </p>
     )
   }
   return (
-    <ul className="border-y border-[var(--color-border)] divide-y divide-[var(--color-border)]">
+    <ul className="divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">
       {rows.map((j) => (
         <li key={j.id}>
           <button
             type="button"
             onClick={() => onPick(j)}
-            className="w-full text-left flex items-center gap-6 px-5 py-3.5 opacity-60 hover:opacity-100 hover:bg-[#f1eee4] transition-[opacity,background-color]"
+            className="flex w-full items-center gap-6 px-5 py-3.5 text-left opacity-60 transition-[opacity,background-color] hover:bg-[#f1eee4] hover:opacity-100"
           >
-            <span className="mono text-[13px] font-medium text-[var(--color-ink-2)] w-32 shrink-0 truncate">
+            <span className="mono w-32 shrink-0 truncate text-[13px] font-medium text-[var(--color-ink-2)]">
               {j.jobNo}
             </span>
-            <div className="flex-1 min-w-0 flex flex-col leading-tight">
-              <span className="text-[13px] font-medium text-[var(--color-ink-2)] truncate">
+            <div className="flex min-w-0 flex-1 flex-col leading-tight">
+              <span className="truncate text-[13px] font-medium text-[var(--color-ink-2)]">
                 {j.customer || '—'}
               </span>
-              <span className="label normal-case tracking-normal text-[11px] text-[var(--color-ink-3)] mt-0.5 truncate">
+              <span className="mt-0.5 truncate text-[11px] text-[var(--color-ink-3)]">
                 {j.product}
               </span>
             </div>
@@ -296,7 +384,7 @@ function CandidateList({
             <Link
               href={`/jobs/${j.id}`}
               onClick={(e) => e.stopPropagation()}
-              className="label text-[var(--color-ink-3)] hover:text-[var(--color-ink)] hover:underline underline-offset-2"
+              className="label text-[var(--color-ink-3)] underline-offset-2 hover:text-[var(--color-ink)] hover:underline"
             >
               查看工单
             </Link>
@@ -305,35 +393,6 @@ function CandidateList({
         </li>
       ))}
     </ul>
-  )
-}
-
-function ActiveReturnInline({ ret }: { ret: ReturnsActiveReturn }) {
-  const ds: DueState = dueState(ret.dueDate)
-  const days = daysFromToday(ret.dueDate)
-  const tone =
-    ds === 'overdue'
-      ? 'text-[var(--color-overdue)]'
-      : ds === 'today'
-        ? 'text-[var(--color-warning)]'
-        : 'text-[var(--color-ink)]'
-  const sub =
-    ds === 'overdue'
-      ? `逾期 ${Math.abs(days)} 天`
-      : ds === 'today'
-        ? '今日'
-        : `${days} 天后`
-  return (
-    <div className="flex items-center gap-3">
-      <ReturnChip ret={ret} />
-      <div className="flex flex-col items-end leading-tight">
-        <span className={`mono text-[13px] ${tone}`}>{ret.dueDate}</span>
-        <span className="label mt-0.5 text-[var(--color-ink-3)]">{sub}</span>
-      </div>
-      <span className="text-[12px] text-[var(--color-ink-2)] w-24 shrink-0 text-right truncate">
-        {ret.reason}
-      </span>
-    </div>
   )
 }
 
@@ -347,10 +406,10 @@ function ShipDateColumn({
   muted?: boolean
 }) {
   if (!ship) {
-    return <span className="label text-[var(--color-ink-4)] w-32 text-right">—</span>
+    return <span className="label w-32 text-right text-[var(--color-ink-4)]">—</span>
   }
   return (
-    <div className="flex flex-col items-end leading-tight w-32 shrink-0">
+    <div className="flex w-32 shrink-0 flex-col items-end leading-tight">
       <span
         className={`mono text-[12px] ${muted ? 'text-[var(--color-ink-2)]' : 'text-[var(--color-ink)]'}`}
       >
@@ -367,46 +426,50 @@ function ShipDateColumn({
 
 function ClosedList({
   rows,
+  showCustomer,
   emptyText,
 }: {
   rows: ClosedReturnRow[]
+  showCustomer: boolean
   emptyText: string
 }) {
   if (rows.length === 0) {
     return (
-      <p className="text-[12px] text-[var(--color-ink-3)] py-6 border-b border-[var(--color-border)]">
+      <p className="border-b border-[var(--color-border)] py-6 text-[12px] text-[var(--color-ink-3)]">
         {emptyText}
       </p>
     )
   }
   return (
-    <ul className="border-y border-[var(--color-border)] divide-y divide-[var(--color-border)]">
+    <ul className="divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">
       {rows.map((r) => (
         <li key={r.ret.id}>
           <Link
             href={`/jobs/${r.ret.jobId}`}
-            className="flex items-center gap-6 px-5 py-3.5 hover:bg-[#f1eee4] transition-colors"
+            className="flex items-center gap-6 px-5 py-3.5 transition-colors hover:bg-[#f1eee4]"
           >
-            <span className="mono text-[13px] font-medium text-[var(--color-ink)] w-32 shrink-0 truncate">
+            <span className="mono w-32 shrink-0 truncate text-[13px] font-medium text-[var(--color-ink)]">
               {r.jobNo}
             </span>
-            <div className="flex-1 min-w-0 flex flex-col leading-tight">
-              <span className="text-[13px] font-medium text-[var(--color-ink)] truncate">
-                {r.customer || '—'}
+            <div className="flex min-w-0 flex-1 flex-col leading-tight">
+              <span className="truncate text-[13px] font-medium text-[var(--color-ink)]">
+                {showCustomer ? r.customer || '—' : r.product || '—'}
               </span>
-              <span className="label normal-case tracking-normal text-[11px] text-[var(--color-ink-3)] mt-0.5 truncate">
-                {r.product}
-              </span>
+              {showCustomer && (
+                <span className="mt-0.5 truncate text-[11px] text-[var(--color-ink-3)]">
+                  {r.product}
+                </span>
+              )}
             </div>
-            <span className="text-[12px] text-[var(--color-ink-2)] w-28 shrink-0 truncate">
+            <span className="w-28 shrink-0 truncate text-[12px] text-[var(--color-ink-2)]">
               {r.ret.reason}
               {r.ret.reasonText && (
-                <span className="block label normal-case text-[10px] text-[var(--color-ink-3)] mt-0.5 truncate">
+                <span className="mt-0.5 block truncate text-[10px] text-[var(--color-ink-3)]">
                   {r.ret.reasonText}
                 </span>
               )}
             </span>
-            <span className="mono text-[11px] text-[var(--color-ink-3)] w-24 text-right shrink-0">
+            <span className="mono w-24 shrink-0 text-right text-[11px] text-[var(--color-ink-3)]">
               {(r.ret.closedAt ?? r.ret.createdAt).slice(0, 10)}
             </span>
             <span className="label text-[var(--color-ink-3)]">打开 →</span>

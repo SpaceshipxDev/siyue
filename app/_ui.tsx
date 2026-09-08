@@ -112,6 +112,11 @@ function tabsForRole(
       { key: '采购', label: '采购', href: '/procurement' },
       { key: '仓库', label: '仓库', href: '/warehouse' },
       { key: '人事', label: '人事', href: '/hr' },
+      // 退货 — 只给质量站。退货流转单上「原因调查」那一格是质量签的, 没有入
+      // 口他们就得等别人喊。别的单工段账号不出现这个 tab。
+      ...(defaultStage === '质量'
+        ? [{ key: '退货' as TabKey, label: '退货', href: '/returns' }]
+        : []),
     ]
   }
   return [

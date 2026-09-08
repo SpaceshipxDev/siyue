@@ -348,6 +348,41 @@ export function canEditProductionFields(s: Scope): boolean {
   return canEditPartRoute(s)
 }
 
+// ─── 退货台 (一条退货从开单到再发货, 中间要过几个人的手) ─────────────────
+//
+// 退货是全厂唯一一条横跨四个部门的流水: 商务开单 → 工程出处理方案 → 质量查
+// 原因 → 下发返工给生产 → 返工入库 → 商务再开一张出货单。所以门开给这四方,
+// 但每一格字只有该签的人能签 —— 处理方案是工程的判断, 原因调查是质量的结论,
+// 两个人的名字不该串。老板/商务永远算一档 (人不在的时候单子不能卡死)。
+export function canSeeReturnsDesk(s: Scope): boolean {
+  return (
+    s.role === 'commerce' ||
+    s.defaultStage === '工程' ||
+    s.defaultStage === '质量'
+  )
+}
+
+/** 处理方案 — 工程的判断 (这批件怎么救)。 */
+export function canWriteReturnPlan(s: Scope): boolean {
+  return s.role === 'commerce' || s.defaultStage === '工程'
+}
+
+/** 原因调查 — 质量的结论 (为什么会出, 以后怎么不再出)。 */
+export function canWriteReturnCause(s: Scope): boolean {
+  return s.role === 'commerce' || s.defaultStage === '质量'
+}
+
+/** 下发返工 / 确认入库 — 工程和商务, 跟开退货同一档。 */
+export function canRunReturnRework(s: Scope): boolean {
+  return canEditPartRoute(s)
+}
+
+export async function requireReturnsDesk(): Promise<AuthUser> {
+  const u = await requireUser()
+  if (canSeeReturnsDesk(u)) return u
+  redirect(landingPathFor(u))
+}
+
 // 一键导出生产单 (.xlsx) — 商务 + 工程. The 生产单 is a shop-floor traveler,
 // not a commercial document: it carries 单号/交期/备注/项目分组/跟单商务 and a
 // 图号·材质·加工方式·工艺要求 part table with photos. No customer, no prices.

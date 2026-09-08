@@ -4620,6 +4620,7 @@ export async function prepareShipping(
   jobId: string,
   selections: ShippingSelection[],
   actor: string,
+  opts?: { returnId?: string },
 ): Promise<PrepareShippingResult> {
   return withWriteLock(async () => {
     const snap = await loadJobSnapshot(jobId)
@@ -4650,11 +4651,31 @@ export async function prepareShipping(
         cumulative.set(sp.partId, (cumulative.get(sp.partId) ?? 0) + sp.qty)
       }
     }
+    // 返工再发货 —— 退回厂里的件重新做好, 理应能再开一张交货单; 按原数量算
+    // 它们早已"发满", 第二张单会被挡在"数量超过剩余 (0)"上。额度就是这张退
+    // 货单退回的件数: 发出 100 退回 20, 允许累计发 120, 净交付仍是 100。
+    const rework = new Map<string, number>()
+    if (opts?.returnId) {
+      const { data, error } = await supabase
+        .from('return_parts')
+        .select('part_id, qty, returns!inner(job_id)')
+        .eq('return_id', opts.returnId)
+        .eq('returns.job_id', jobId)
+      if (error) throw error
+      for (const rp of data ?? []) {
+        const pid = rp.part_id as string
+        rework.set(pid, (rework.get(pid) ?? 0) + Number(rp.qty ?? 0))
+      }
+    }
+
     for (const [partId, delta] of deltas) {
       const part = snap.idx.partById.get(partId)
       if (!part) throw new Error('零件不存在')
       const already = cumulative.get(partId) ?? 0
-      const remaining = Math.max(0, part.qty - already)
+      const remaining = Math.max(
+        0,
+        part.qty + (rework.get(partId) ?? 0) - already,
+      )
       if (delta > remaining) {
         throw new Error(`${part.name} 数量超过剩余 (${remaining})`)
       }
@@ -8420,6 +8441,101 @@ export async function listJobReturns(jobId: string): Promise<JobReturn[]> {
       closedAt: row.closedAt,
       createdBy: row.createdBy,
       parts: partsByReturn.get(row.id) ?? [],
+    }
+  })
+}
+
+// /退货 进行中 tab. 每条带上零件明细 (名字 · 退回数 · 原数量) —— 退货台要在
+// 行里把方案、调查、下发返工、再出货一路走完, 光有 id 走不动。
+export type OpenReturnRow = {
+  ret: JobReturn
+  jobNo: string
+  customer: string
+  product: string
+  parts: { componentId: string; name: string; qty: number; totalQty: number }[]
+}
+
+export async function listOpenReturns(): Promise<OpenReturnRow[]> {
+  const [{ data: rs, error: rErr }, { data: rps, error: rpErr }, jobsR] =
+    await Promise.all([
+      supabase
+        .from('returns')
+        .select('*')
+        .eq('status', 'open')
+        .order('due_date', { ascending: true }),
+      supabase
+        .from('return_parts')
+        .select('*, returns!inner(status)')
+        .eq('returns.status', 'open'),
+      supabase.from('jobs').select('id, job_no, customer, product'),
+    ])
+  if (rErr) throw rErr
+  if (rpErr) throw rpErr
+  if (jobsR.error) throw jobsR.error
+
+  const partRows = await selectAllIn('parts', 'id', [
+    ...new Set((rps ?? []).map((rp) => rp.part_id as string)),
+  ])
+  const partById = new Map<string, { name: string; qty: number }>()
+  for (const p of partRows) {
+    partById.set(p.id as string, {
+      name: (p.name as string) ?? '',
+      qty: Number(p.qty ?? 0),
+    })
+  }
+
+  const jobsById = new Map<
+    string,
+    { jobNo: string; customer: string; product: string }
+  >()
+  for (const j of jobsR.data ?? []) {
+    jobsById.set(j.id as string, {
+      jobNo: (j.job_no as string) ?? '',
+      customer: (j.customer as string) ?? '',
+      product: (j.product as string) ?? '',
+    })
+  }
+
+  const byReturn = new Map<string, OpenReturnRow['parts']>()
+  for (const rp of rps ?? []) {
+    const rawId = rp.part_id as string
+    const componentId = rawId.split(':').slice(1).join(':') || rawId
+    const meta = partById.get(rawId)
+    const arr = byReturn.get(rp.return_id as string) ?? []
+    arr.push({
+      componentId,
+      name: meta?.name || componentId,
+      qty: Number(rp.qty ?? 0),
+      totalQty: meta?.qty ?? Number(rp.qty ?? 0),
+    })
+    byReturn.set(rp.return_id as string, arr)
+  }
+
+  return (rs ?? []).map((r) => {
+    const row = fromReturn(r as AnyRow)
+    const meta = jobsById.get(row.jobId) ?? {
+      jobNo: row.jobId,
+      customer: '',
+      product: '',
+    }
+    const parts = byReturn.get(row.id) ?? []
+    return {
+      ret: {
+        id: row.id,
+        jobId: row.jobId,
+        reason: row.reason,
+        reasonText: row.reasonText,
+        dueDate: row.dueDate,
+        status: row.status,
+        createdAt: row.createdAt,
+        closedAt: row.closedAt,
+        createdBy: row.createdBy,
+        parts: parts.map((p) => ({ partId: p.componentId, qty: p.qty })),
+      },
+      jobNo: meta.jobNo,
+      customer: meta.customer,
+      product: meta.product,
+      parts,
     }
   })
 }

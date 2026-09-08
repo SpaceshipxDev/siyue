@@ -126,6 +126,9 @@ import {
   canEditQuality,
   canEditWarehouse,
   canRenameUploadedJob,
+  canRunReturnRework,
+  canWriteReturnCause,
+  canWriteReturnPlan,
   canUndoFinishedStage,
   canSeeFactoryPulse,
   canSeeMoney,
@@ -137,6 +140,7 @@ import {
   requireHrUser,
   requireOutsourceManager,
   requirePartRouteEditor,
+  requireReturnsDesk,
   requireUser,
   type AuthUser,
 } from '@/lib/auth'
@@ -146,6 +150,8 @@ import {
   updateComplaint,
 } from '@/lib/complaints'
 import { setDefectAction } from '@/lib/defect-actions'
+import { writeReturnFlow } from '@/lib/return-flow-store'
+import type { ReturnFlowEntry } from '@/lib/return-flow'
 import {
   addImprovement,
   deleteImprovement,
@@ -1367,11 +1373,24 @@ async function dispatch(
       )
         return err('bad prepareShipping args')
       const u = await requireOwnStage('出货')
+      // returnId — 这一张是返工后的补发。额度按那张退货单退回的件数放开
+      // (原数量早已发满), 开完顺手在流转单上签一笔"已再出货"。
+      const returnId = isString(body.returnId) ? body.returnId : undefined
       const result = await prepareShipping(
         jobId,
         selections as { componentId: string; qty: number }[],
         u.name,
+        returnId ? { returnId } : undefined,
       )
+      if (returnId) {
+        await writeReturnFlow(
+          returnId,
+          { kind: 'ship', shipmentId: result.shipmentId },
+          u.name,
+          new Date().toISOString(),
+        )
+        revalidatePath('/returns')
+      }
       revalidateStage(jobId, '出货')
       revalidatePath(`/jobs/${jobId}/print/shipping`)
       revalidatePath(`/jobs/${jobId}/print/shipping/pdf`)
@@ -1737,6 +1756,51 @@ async function dispatch(
       if (isString(inputJobId)) revalidatePath(`/jobs/${inputJobId}`)
       revalidatePath('/returns')
       return Response.json(ok(result))
+    }
+
+    // 退货流转单 — 处理方案 (工程) · 原因调查 (质量) · 下发返工 · 返工入库 ·
+    // 再出货。每一格只有该签的人能签; 签名和日期由服务端盖, 前端传不进来。
+    case 'setReturnFlow': {
+      const returnId = body.returnId
+      const entry = body.entry
+      if (!isString(returnId) || typeof entry !== 'object' || entry === null)
+        return err('bad setReturnFlow args')
+      const e = entry as Record<string, unknown>
+      const u = await requireReturnsDesk()
+      let payload: ReturnFlowEntry
+      switch (e.kind) {
+        case 'plan':
+          if (!canWriteReturnPlan(u)) return err('处理方案由工程填')
+          if (!isString(e.text)) return err('bad setReturnFlow args')
+          payload = { kind: 'plan', text: e.text }
+          break
+        case 'cause':
+          if (!canWriteReturnCause(u)) return err('原因调查由质量填')
+          if (!isString(e.text)) return err('bad setReturnFlow args')
+          payload = { kind: 'cause', text: e.text }
+          break
+        case 'release':
+          if (!canRunReturnRework(u)) return err('无权下发返工')
+          payload = { kind: 'release' }
+          break
+        case 'stock':
+          if (!canRunReturnRework(u)) return err('无权确认入库')
+          payload = {
+            kind: 'stock',
+            qty: typeof e.qty === 'number' ? e.qty : undefined,
+          }
+          break
+        default:
+          return err('bad setReturnFlow args')
+      }
+      const saved = await writeReturnFlow(
+        returnId,
+        payload,
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath('/returns')
+      return Response.json(ok(saved))
     }
 
     case 'closeReturn': {
