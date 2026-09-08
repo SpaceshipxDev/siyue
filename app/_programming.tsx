@@ -163,6 +163,7 @@ export function PartBlock({
   onDrawingRemoved,
   onProgramAdded,
   onProgramRemoved,
+  composeNow,
 }: {
   jobId: string
   part: ProgrammingPart
@@ -175,6 +176,8 @@ export function PartBlock({
   onDrawingRemoved: (id: string) => void
   onProgramAdded: (p: NcProgram) => void
   onProgramRemoved: (id: string) => void
+  /** 从外面那个「＋出程序单」进来的 —— 面板一摊开就把格子打开。 */
+  composeNow?: boolean
 }) {
   const facts = [
     part.material && `材质 ${part.material}`,
@@ -279,6 +282,7 @@ export function PartBlock({
               partNo={part.partNo}
               reusable={programs.length === 0 ? reusable : []}
               onAdded={onProgramAdded}
+              autoOpen={composeNow && programs.length === 0}
             />
           )}
         </Row>
@@ -565,6 +569,7 @@ function ProgramComposer({
   partNo,
   reusable,
   onAdded,
+  autoOpen = false,
 }: {
   jobId: string
   componentId: string
@@ -572,8 +577,10 @@ function ProgramComposer({
   partNo?: string
   reusable: NcProgram[]
   onAdded: (p: NcProgram) => void
+  /** 从"＋出程序单"那个口进来的 —— 直接把格子摊开, 少一次点击。 */
+  autoOpen?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(autoOpen)
   const [no, setNo] = useState('')
   const [machine, setMachine] = useState('')
   const [fixture, setFixture] = useState('')
@@ -737,9 +744,9 @@ function ProgramComposer({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="text-[12.5px] text-[var(--color-ink-3)] underline underline-offset-2 hover:text-[var(--color-ink)]"
+          className="rounded-[2px] border border-[var(--color-border-strong)] px-2.5 py-1 text-[12.5px] text-[var(--color-ink)] transition-colors hover:border-[var(--color-ink)]"
         >
-          ＋ 加程序
+          ＋ 出程序单
         </button>
       )}
       {!open && error && (

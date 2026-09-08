@@ -98,6 +98,8 @@ export function ProgrammingDesk({
   const [lens, setLens] = useState<Lens>('all')
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<string | null>(null)
+  // 从「＋出程序单」那个口点进来的那一行 —— 摊开面板的同时直接把填写格打开。
+  const [composeFor, setComposeFor] = useState<string | null>(null)
   // 图纸和程序在这一页上是活的 (传一份、加一条, 行上的字立刻变), 所以本地存
   // 一份, 不靠整页刷新。
   const [files, setFiles] = useState(drawings)
@@ -306,7 +308,9 @@ export function ProgrammingDesk({
           />
         {visible.length === 0 ? (
           <p className="border-b border-[var(--color-border)] py-16 text-center text-[13px] text-[var(--color-ink-3)]">
-            {needle || lens !== 'all' ? '没有匹配的件' : '没有要编的件'}
+            {needle || lens !== 'all'
+              ? '没有匹配的件'
+              : '没有要编的件 — 程序单在任意工单的「编程」那一栏里也能出'}
           </p>
         ) : (
           visible.map((r) => {
@@ -322,7 +326,10 @@ export function ProgrammingDesk({
                 <div
                   role="button"
                   tabIndex={0}
-                  onClick={() => setOpen((cur) => (cur === ref ? null : ref))}
+                  onClick={() => {
+                    setComposeFor(null)
+                    setOpen((cur) => (cur === ref ? null : ref))
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
@@ -375,11 +382,30 @@ export function ProgrammingDesk({
                   </span>
 
                   {/* 程序 —— 出了就把程序号摆出来, 操机认的就是这个 */}
-                  <span className="mono min-w-0 break-all text-[12.5px] leading-snug">
+                  {/* 程序号那一格。没程序时它不是一句"未出程序"的死字, 而
+                      是出程序单的入口 —— "怎么编出程序单"的答案, 就该摆在程
+                      序号该在的这个位置上。 */}
+                  <span
+                    className="mono min-w-0 break-all text-[12.5px] leading-snug"
+                    onClick={(e) => {
+                      if (progs.length === 0 && canWrite) e.stopPropagation()
+                    }}
+                  >
                     {progs.length > 0 ? (
                       <span className="text-[var(--color-ink)]">
                         {progs.map((p) => p.no).join(' · ')}
                       </span>
+                    ) : canWrite ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpen(ref)
+                          setComposeFor(ref)
+                        }}
+                        className="rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-2 py-0.5 text-[12px] text-[var(--color-ink-3)] transition-colors hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]"
+                      >
+                        ＋ 出程序单
+                      </button>
                     ) : (
                       <span className="text-[var(--color-ink-4)]">未出程序</span>
                     )}
@@ -447,6 +473,7 @@ export function ProgrammingDesk({
                       reusable={progs.length === 0 ? r.reusable : []}
                       canUpload={canUpload}
                       canWrite={canWrite}
+                      composeNow={composeFor === ref}
                       onDrawingAdded={(d) => setFiles((prev) => [d, ...prev])}
                       onDrawingRemoved={(id) =>
                         setFiles((prev) => prev.filter((x) => x.id !== id))
@@ -520,9 +547,10 @@ function HowTo() {
           </li>
           <li>
             <b className="text-[var(--color-ink)]">④ 出程序单。</b>
-            刀路照旧在 UG 里做、程序照旧存共享盘; 回到这里把
-            <b> 程序号 · 机床 · 装夹 · 刀具 · 单件分钟</b> 填上。这几个字是给操
-            机看的 —— 他在机台前照着调程序、备刀, 不用再回头找你。
+            刀路照旧在 UG 里做、程序照旧存共享盘 —— 系统不替你算刀路。回到这
+            里, 点「程序号」那一格上的<b>「＋ 出程序单」</b>, 把
+            <b> 程序号 · 机床 · 装夹 · 刀具 · 单件分钟</b> 填上就出来了。这几
+            个字是给操机看的 —— 他在机台前照着调程序、备刀, 不用再回头找你。
           </li>
           <li>
             <b className="text-[var(--color-ink)]">⑤ 点「编好了」。</b>
