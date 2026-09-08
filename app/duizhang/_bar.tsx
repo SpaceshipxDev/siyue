@@ -7,6 +7,7 @@ import { formatCny } from '@/lib/data'
 import { SearchSelect } from '@/app/_search_select'
 import {
   dateLabel,
+  monthLabel,
   shiftMonth,
   DUIZHANG_DATE_LABEL,
   DUIZHANG_DETAIL_LABEL,
@@ -15,12 +16,11 @@ import {
   DUIZHANG_TITLE_LABEL,
   type Duizhang,
   type DuizhangKind,
+  type DuizhangParty,
 } from '@/lib/duizhang'
 
 // 对账页顶上那一条 —— 三个选择 (跟谁 · 哪个月 · 客户还是外协) 和两个出口
 // (PDF / Excel)。选择一变, 下面那张纸跟着变, 没有"生成"这一步。
-
-type Party = { name: string; count: number; amountCny: number }
 
 function href(kind: DuizhangKind, party: string, month: string): string {
   const p = new URLSearchParams()
@@ -44,7 +44,7 @@ export function DuizhangBar({
   party: string
   month: string
   monthText: string
-  parties: Party[]
+  parties: DuizhangParty[]
   canCustomer: boolean
   canVendor: boolean
   sheet: Duizhang | null
@@ -143,7 +143,9 @@ function Step({
   )
 }
 
-// 还没选对方时, 页面本身就是名单 —— 谁的账最大排最前, 点一下就是他的对账单。
+// 还没选对方时, 页面本身就是那张一览: 这个月每一家各该收/该付多少, 金额大的
+// 在上 —— 月底对账先看的就是这个。点一家, 就是他这个月的对账单。
+// 本期没往来的不占版面 (上面的下拉里照样搜得到)。
 export function DuizhangPartyList({
   kind,
   month,
@@ -151,35 +153,60 @@ export function DuizhangPartyList({
 }: {
   kind: DuizhangKind
   month: string
-  parties: Party[]
+  parties: DuizhangParty[]
 }) {
   const router = useRouter()
-  if (parties.length === 0)
+  const who = kind === 'customer' ? '客户' : '供应商'
+  const live = parties.filter((p) => p.inPeriod)
+  const total = live.reduce((s, p) => s + p.amountCny, 0)
+  const orders = live.reduce((s, p) => s + p.count, 0)
+
+  if (live.length === 0)
     return (
       <p className="py-24 text-center text-[13px] text-[var(--color-ink-3)]">
-        还没有可对账的{kind === 'customer' ? '客户' : '供应商'}
+        {monthLabel(month)}没有{kind === 'customer' ? '出货' : '回厂的外协单'}
+        {parties.length > 0 ? ' — 换个月, 或者上面直接选一家' : ''}
       </p>
     )
+
   return (
-    <div className="mx-auto mt-8 max-w-[560px]">
-      <p className="label">选一个{kind === 'customer' ? '客户' : '供应商'}</p>
+    <div className="mx-auto mt-8 max-w-[620px]">
+      <div className="flex items-baseline justify-between gap-4">
+        <p className="label">
+          {monthLabel(month)} · 按{who}
+        </p>
+        <p className="text-[12px] tabular-nums text-[var(--color-ink-3)]">
+          {live.length} 家 · {orders} 单 ·{' '}
+          <span className="text-[var(--color-ink)]">{formatCny(total)}</span>
+        </p>
+      </div>
       <div className="mt-2">
-        {parties.slice(0, 40).map((p) => (
+        {live.map((p) => (
           <button
             key={p.name}
             type="button"
             onClick={() => router.push(href(kind, p.name, month))}
-            className="flex w-full items-baseline justify-between gap-4 border-b border-[var(--color-border)] px-1 py-2.5 text-left transition-colors hover:bg-[var(--color-active-bg)]"
+            className="flex w-full items-baseline justify-between gap-4 border-b border-[var(--color-border)] px-1 py-3 text-left transition-colors hover:bg-[var(--color-active-bg)]"
           >
             <span className="min-w-0 truncate text-[14.5px] text-[var(--color-ink)]">
               {p.name}
             </span>
-            <span className="shrink-0 text-[12px] tabular-nums text-[var(--color-ink-3)]">
-              {p.count} 单 · {formatCny(p.amountCny)}
+            <span className="shrink-0 tabular-nums">
+              <span className="text-[12px] text-[var(--color-ink-3)]">
+                {p.count} 单
+              </span>
+              <span className="ml-3 text-[15px] font-medium text-[var(--color-ink)]">
+                {formatCny(p.amountCny)}
+              </span>
             </span>
           </button>
         ))}
       </div>
+      <p className="mt-3 text-[11px] text-[var(--color-ink-3)]">
+        {kind === 'customer'
+          ? '按出货日期归月。'
+          : '按回厂结算日归月 —— 还没回齐的单不算这个月的账。'}
+      </p>
     </div>
   )
 }

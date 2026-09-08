@@ -18,6 +18,7 @@ import {
   vendorOptions,
   type Duizhang,
   type DuizhangKind,
+  type DuizhangParty,
 } from '@/lib/duizhang'
 
 // 对账单的取数口 —— 页面和 PDF 走同一条路, 所以纸上和屏幕上不可能是两个数。
@@ -30,7 +31,7 @@ export type DuizhangLoad = {
   month: string
   todayStr: string
   sheet: Duizhang | null
-  parties: { name: string; count: number; amountCny: number }[]
+  parties: DuizhangParty[]
   canCustomer: boolean
   canVendor: boolean
 }
@@ -54,14 +55,14 @@ export async function loadDuizhang(params: {
   const party = (params.name ?? '').trim()
 
   let sheet: Duizhang | null = null
-  let parties: { name: string; count: number; amountCny: number }[] = []
+  let parties: DuizhangParty[] = []
   if (kind === 'customer') {
     const rows = await getFinanceRows()
-    parties = customerOptions(rows)
+    parties = customerOptions(rows, from, to, shanghaiDay)
     if (party) sheet = buildCustomerDuizhang(rows, party, from, to, shanghaiDay)
   } else {
     const [rows, vendors] = await Promise.all([getOutsourceBlockRows(), getVendors()])
-    parties = vendorOptions(rows, vendors)
+    parties = vendorOptions(rows, vendors, from, to)
     if (party) sheet = buildVendorDuizhang(rows, vendors, party, from, to)
   }
 

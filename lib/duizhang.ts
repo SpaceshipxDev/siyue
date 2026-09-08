@@ -167,21 +167,63 @@ export function buildCustomerDuizhang(
   }
 }
 
-/** 有过出货的客户, 出货金额大的在前 —— 要对的账多半是大的那几家。 */
+/**
+ * 客户名单 —— 数是「本期」的数, 不是全历史的。页头写着几月, 名单上却是开厂
+ * 至今的总额, 那张名单就没法当账用: 要对的是这个月的账。
+ * 本期有往来的排前面 (金额大的在上), 其余留着只为能被搜到。
+ */
 export function customerOptions(
   all: FinanceRow[],
-): { name: string; count: number; amountCny: number }[] {
-  const by = new Map<string, { name: string; count: number; amountCny: number }>()
-  for (const r of all) {
-    const name = (r.customer ?? '').trim()
+  from: string,
+  to: string,
+  dayOf: (iso: string) => string,
+): DuizhangParty[] {
+  return rollupParties(
+    all,
+    (r) => (r.customer ?? '').trim(),
+    (r) => {
+      const d = dayOf(r.shipDate)
+      return d >= from && d <= to
+    },
+    (r) => effectiveAmount(r) ?? 0,
+  )
+}
+
+// === 对账对象名单 ===
+
+/** 名单上的一家。count / amountCny 只算本期; inPeriod=false 表示本期没往来。 */
+export type DuizhangParty = {
+  name: string
+  count: number
+  amountCny: number
+  inPeriod: boolean
+}
+
+/** 客户和供应商共用的一次归并 —— 谁、算不算本期、这一笔多少钱。 */
+function rollupParties<T>(
+  rows: T[],
+  nameOf: (r: T) => string,
+  inPeriod: (r: T) => boolean,
+  amountOf: (r: T) => number,
+): DuizhangParty[] {
+  const by = new Map<string, DuizhangParty>()
+  for (const r of rows) {
+    const name = (nameOf(r) ?? '').trim()
     if (!name) continue
-    const g = by.get(name) ?? { name, count: 0, amountCny: 0 }
-    g.count += 1
-    g.amountCny += effectiveAmount(r) ?? 0
+    const g = by.get(name) ?? { name, count: 0, amountCny: 0, inPeriod: false }
+    if (inPeriod(r)) {
+      g.count += 1
+      g.amountCny += amountOf(r)
+      g.inPeriod = true
+    }
     by.set(name, g)
   }
+  // 本期有往来的在前, 金额大的在上 —— 月底先对的就是这几家。
   return [...by.values()].sort(
-    (a, b) => b.amountCny - a.amountCny || a.name.localeCompare(b.name, 'zh'),
+    (a, b) =>
+      Number(b.inPeriod) - Number(a.inPeriod) ||
+      b.amountCny - a.amountCny ||
+      a.name.localeCompare(b.name, 'zh'),
   )
 }
 
@@ -262,23 +304,25 @@ export function buildVendorDuizhang(
   }
 }
 
-/** 有过外协往来的供应商, 金额大的在前。 */
+/**
+ * 供应商名单 —— 一家一行, 数是这个月回厂结算的数, 也就是这个月该付他多少。
+ * 月底外协对账要的第一张表就是它: 先看谁的账最大, 再逐家点开出单。
+ */
 export function vendorOptions(
   rows: OpenBlockRow[],
   vendors: Vendor[],
-): { name: string; count: number; amountCny: number }[] {
+  from: string,
+  to: string,
+): DuizhangParty[] {
   const nameOf = new Map(vendors.map((v) => [v.id, v.name]))
-  const by = new Map<string, { name: string; count: number; amountCny: number }>()
-  for (const r of rows) {
-    const name = nameOf.get(r.block.vendorId) ?? r.block.vendorId
-    if (!name) continue
-    const g = by.get(name) ?? { name, count: 0, amountCny: 0 }
-    g.count += 1
-    g.amountCny += blockSettleAmount(r.block) ?? 0
-    by.set(name, g)
-  }
-  return [...by.values()].sort(
-    (a, b) => b.amountCny - a.amountCny || a.name.localeCompare(b.name, 'zh'),
+  return rollupParties(
+    rows,
+    (r) => nameOf.get(r.block.vendorId) ?? r.block.vendorId,
+    (r) => {
+      const closedAt = blockClosedAt(r.block)
+      return !!closedAt && closedAt >= from && closedAt <= to
+    },
+    (r) => blockSettleAmount(r.block) ?? 0,
   )
 }
 
