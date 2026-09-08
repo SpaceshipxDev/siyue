@@ -130,8 +130,11 @@ export function ProgrammingTab({
 }
 
 // ── 一个零件 ───────────────────────────────────────────────────────────────
+//
+// 导出给编程台复用 —— 工单页和编程台看到的必须是同一块东西, 各写一份迟早会
+// 长歪成两个样子。
 
-function PartBlock({
+export function PartBlock({
   jobId,
   part,
   drawings,

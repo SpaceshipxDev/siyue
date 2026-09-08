@@ -1999,10 +1999,24 @@ export async function getOutsourceBlockRows(): Promise<
 // Lightweight per-job components (id, name, qty) for a set of jobs.
 // Used by /returns to populate the inline 开退货 picker for candidate rows
 // without forcing a full snapshot. Empty input → empty map.
+// 除了 id/name/qty, 还捎上编程要读的那几样 (料号 · 材质 · 加工方式 · 表面处
+// 理 · 图)。行本来就整行读回来了, 多传几个字段不多一次查询; /returns 只取前
+// 三个, 结构子类型, 不受影响。
+export type JobPartBrief = {
+  id: string
+  name: string
+  qty: number
+  partNo?: string
+  material?: string
+  process?: string
+  surfaceTreatment?: string
+  imageUrl?: string
+}
+
 export async function getJobsComponents(
   jobIds: string[],
-): Promise<Map<string, Array<{ id: string; name: string; qty: number }>>> {
-  const out = new Map<string, Array<{ id: string; name: string; qty: number }>>()
+): Promise<Map<string, JobPartBrief[]>> {
+  const out = new Map<string, JobPartBrief[]>()
   if (jobIds.length === 0) return out
   // /returns passes EVERY shipped job (614+ today, growing). Two limits bit the
   // old single `.in('job_id', jobIds)`: the URL crossed undici's ~16KB header
@@ -2011,7 +2025,7 @@ export async function getJobsComponents(
   // chunks the id-list (~4KB URLs) and paginates each chunk, fixing both. It
   // loses global ordering, so we sort each job's parts by position after
   // grouping (a part's rows all land in the one chunk holding its job_id).
-  type PartPick = { id: string; name: string; qty: number; position: number }
+  type PartPick = JobPartBrief & { position: number }
   const grouped = new Map<string, PartPick[]>()
   for (const r of (await selectAllIn('parts', 'job_id', jobIds)) as AnyRow[]) {
     const jobId = r.job_id as string
@@ -2024,6 +2038,11 @@ export async function getJobsComponents(
       id: (r.id as string).split(':').slice(1).join(':') || (r.id as string),
       name: (r.name as string) ?? '',
       qty: Number(r.qty ?? 0),
+      partNo: (r.part_no as string | null) ?? undefined,
+      material: (r.material as string | null) ?? undefined,
+      process: (r.process as string | null) ?? undefined,
+      surfaceTreatment: (r.surface_treatment as string | null) ?? undefined,
+      imageUrl: (r.image_url as string | null) ?? undefined,
       position: Number(r.position ?? 0),
     })
   }
@@ -2031,7 +2050,8 @@ export async function getJobsComponents(
     arr.sort((a, b) => a.position - b.position)
     out.set(
       jobId,
-      arr.map(({ id, name, qty }) => ({ id, name, qty })),
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      arr.map(({ position, ...rest }) => rest),
     )
   }
   return out

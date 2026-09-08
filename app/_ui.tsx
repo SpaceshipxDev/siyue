@@ -59,6 +59,13 @@ function tabsForRole(
   // 质量站的账号照旧进工段看板 (那一页上也留了回工段看板的链接)。
   const officeQuality = (tabs: Tab[]): Tab[] =>
     tabs.map((t) => (t.key === '质量' ? { ...t, href: '/quality' } : t))
+  // 编程点开的是编程台, 不是工段队列 —— 编程的活跟操机不一样: 做之前要看图、
+  // 看材料、看这个件以前编过没有, 做完要把程序号交给操机, 一个格子装不下。
+  // 编程台上留了「工段看板 →」, 要看队列一步就回得去。
+  const programmingDesk = (tabs: Tab[]): Tab[] =>
+    tabs.map((t) =>
+      t.key === '编程' ? { ...t, href: '/station/programming' } : t,
+    )
   if (role === 'production') {
     if (defaultStage === '工程') {
       // 工程 head's home tab IS bare / (their holistic master view), not
@@ -93,7 +100,7 @@ function tabsForRole(
         // you see to your own 部门 (canSeeAllHr / hrDeptOf).
         { key: '人事', label: '人事', href: '/hr' },
         { key: '外协', label: '外协', href: '/station/outsource' },
-        ...officeQuality(stageTabs('工程')),
+        ...programmingDesk(officeQuality(stageTabs('工程'))),
         { key: '退货', label: '退货', href: '/returns' },
       ]
     }
@@ -108,7 +115,7 @@ function tabsForRole(
     // to log/see what's on the way, regardless of station.
     return [
       { key: '工单', label: '全部', href: '/' },
-      ...stageTabs(),
+      ...programmingDesk(stageTabs()),
       { key: '采购', label: '采购', href: '/procurement' },
       { key: '仓库', label: '仓库', href: '/warehouse' },
       { key: '人事', label: '人事', href: '/hr' },
@@ -137,7 +144,7 @@ function tabsForRole(
     // every other account is scoped to its own 部门 (canSeeAllHr / hrDeptOf).
     { key: '人事', label: '人事', href: '/hr' },
     { key: '外协', label: '外协', href: '/station/outsource' },
-    ...officeQuality(stageTabs()),
+    ...programmingDesk(officeQuality(stageTabs())),
     { key: '退货', label: '退货', href: '/returns' },
   ]
 }
