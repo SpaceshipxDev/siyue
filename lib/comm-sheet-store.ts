@@ -1,9 +1,11 @@
 import 'server-only'
 import { supabase, STORAGE_BUCKET } from './supabase'
+import { proxiedKeyUrl, storageKeyFromUrl } from './storage-url'
 import {
   isCommStage,
   isCommTopic,
   type CommEntry,
+  type CommPhoto,
   type CommSheet,
   type CommTopic,
 } from './comm-sheet'
@@ -24,6 +26,24 @@ function str(v: unknown, max = 2000): string {
   return typeof v === 'string' ? v.trim().slice(0, max) : ''
 }
 
+function photoList(v: unknown): CommPhoto[] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const out: CommPhoto[] = []
+  for (const x of v as unknown[]) {
+    if (typeof x !== 'object' || x === null) continue
+    const r = x as Record<string, unknown>
+    if (typeof r.id !== 'string' || typeof r.url !== 'string') continue
+    out.push({
+      id: r.id,
+      url: r.url,
+      filename: str(r.filename, 200) || '图片',
+      uploadedBy: str(r.uploadedBy, 40) || undefined,
+      createdAt: str(r.createdAt, 40),
+    })
+  }
+  return out.length > 0 ? out : undefined
+}
+
 function entry(v: unknown): CommEntry {
   if (typeof v !== 'object' || v === null) return {}
   const r = v as Record<string, unknown>
@@ -31,6 +51,7 @@ function entry(v: unknown): CommEntry {
     ask: str(r.ask) || undefined,
     ours: str(r.ours) || undefined,
     agreed: str(r.agreed) || undefined,
+    photos: photoList(r.photos),
   }
 }
 
@@ -112,13 +133,82 @@ export async function saveCommSheet(
   }
   cur.by = by
   cur.updatedAt = nowIso
+  await write(jobId, cur)
+  return cur
+}
 
+async function write(jobId: string, sheet: CommSheet): Promise<void> {
   const { error } = await supabase.storage
     .from(STORAGE_BUCKET)
-    .upload(keyFor(jobId), Buffer.from(JSON.stringify(cur), 'utf8'), {
+    .upload(keyFor(jobId), Buffer.from(JSON.stringify(sheet), 'utf8'), {
       contentType: 'application/json',
       upsert: true,
     })
   if (error) throw error
+}
+
+// 图片本体进 storage, 一条元数据进这张单的 JSON。Blob 直接转交, 不在内存里
+// 再拷一份 —— 全厂跑在一个 Node 进程上, 一张大图穿过它, 所有人都要跟着卡。
+export async function addCommPhoto(input: {
+  jobId: string
+  topic: CommTopic
+  body: Blob
+  fileName: string
+  contentType: string
+  uploadedBy?: string
+  nowIso: string
+}): Promise<{ sheet: CommSheet; photo: CommPhoto }> {
+  const { jobId, topic } = input
+  const id = crypto.randomUUID()
+  const m = input.fileName.toLowerCase().match(/\.([a-z0-9]+)$/)
+  const ext = m ? m[1] : 'png'
+  const key = `${safeId(jobId)}/comm/${topic}-${id}.${ext}`
+  const upR = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(key, input.body, {
+      contentType: input.contentType || 'application/octet-stream',
+      upsert: false,
+    })
+  if (upR.error) throw upR.error
+
+  const photo: CommPhoto = {
+    id,
+    url: proxiedKeyUrl(key),
+    filename: input.fileName,
+    uploadedBy: input.uploadedBy,
+    createdAt: input.nowIso,
+  }
+  const cur = (await getCommSheet(jobId)) ?? { jobId, items: {} }
+  const e = { ...(cur.items[topic] ?? {}) }
+  e.photos = [...(e.photos ?? []), photo]
+  cur.items[topic] = e
+  cur.by = input.uploadedBy
+  cur.updatedAt = input.nowIso
+  await write(jobId, cur)
+  return { sheet: cur, photo }
+}
+
+export async function deleteCommPhoto(
+  jobId: string,
+  topic: CommTopic,
+  photoId: string,
+): Promise<CommSheet | undefined> {
+  const cur = await getCommSheet(jobId)
+  if (!cur) return undefined
+  const e = cur.items[topic]
+  const target = e?.photos?.find((p) => p.id === photoId)
+  if (!e || !target) return cur
+  const rest = (e.photos ?? []).filter((p) => p.id !== photoId)
+  cur.items[topic] = { ...e, photos: rest.length > 0 ? rest : undefined }
+  await write(jobId, cur)
+  // 单是准, 文件是次 —— 删不掉的孤儿文件没人看得见, 无害。
+  const key = storageKeyFromUrl(target.url)
+  if (key) {
+    try {
+      await supabase.storage.from(STORAGE_BUCKET).remove([key])
+    } catch {
+      // 见上
+    }
+  }
   return cur
 }

@@ -1,8 +1,10 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import { withBase } from '@/lib/base-path'
+import { proxiedStorageUrl } from '@/lib/storage-url'
 import { mutate } from '@/lib/mutate'
+import { usePasteImage } from '@/app/_paste_image'
 import {
   commProgress,
   topicAgreed,
@@ -11,6 +13,7 @@ import {
   COMM_STAGES,
   COMM_TOPIC_SPECS,
   type CommEntry,
+  type CommPhoto,
   type CommSheet,
   type CommStage,
   type CommTopic,
@@ -51,6 +54,21 @@ export function CommSheetPanel({
     const res = await mutate<CommSheet>({ kind: 'saveCommSheet', jobId, patch })
     if (res.data) setSheet(res.data)
   }
+
+  // 图片进出都只动那一项 —— 别的项正在编辑的内容不受影响。
+  const addPhoto = (key: CommTopic, photo: CommPhoto) =>
+    setSheet((cur) => {
+      const e = { ...(cur.items?.[key] ?? {}) }
+      e.photos = [...(e.photos ?? []), photo]
+      return { ...cur, items: { ...cur.items, [key]: e } }
+    })
+  const dropPhoto = (key: CommTopic, photoId: string) =>
+    setSheet((cur) => {
+      const e = { ...(cur.items?.[key] ?? {}) }
+      const rest = (e.photos ?? []).filter((p) => p.id !== photoId)
+      e.photos = rest.length > 0 ? rest : undefined
+      return { ...cur, items: { ...cur.items, [key]: e } }
+    })
 
   return (
     <div>
@@ -137,6 +155,7 @@ export function CommSheetPanel({
           <TopicBlock
             key={spec.key}
             n={i + 1}
+            jobId={jobId}
             spec={spec}
             entry={sheet.items?.[spec.key]}
             canWrite={canWrite}
@@ -144,6 +163,8 @@ export function CommSheetPanel({
             onSave={(field, text) =>
               save({ topic: { key: spec.key, field, text } })
             }
+            onPhotoAdded={(ph) => addPhoto(spec.key, ph)}
+            onPhotoRemoved={(id) => dropPhoto(spec.key, id)}
           />
         ))}
       </div>
@@ -223,18 +244,24 @@ function HeadDate({
 
 function TopicBlock({
   n,
+  jobId,
   spec,
   entry,
   canWrite,
   mine,
   onSave,
+  onPhotoAdded,
+  onPhotoRemoved,
 }: {
   n: number
+  jobId: string
   spec: (typeof COMM_TOPIC_SPECS)[number]
   entry?: CommEntry
   canWrite: boolean
   mine: boolean
   onSave: (field: 'ask' | 'ours' | 'agreed', text: string) => Promise<void>
+  onPhotoAdded: (p: CommPhoto) => void
+  onPhotoRemoved: (id: string) => void
 }) {
   const agreed = topicAgreed(entry)
   const filled = topicFilled(entry)
@@ -291,8 +318,146 @@ function TopicBlock({
           strong
           onSave={(v) => onSave('agreed', v)}
         />
+
+        <Photos
+          jobId={jobId}
+          topic={spec.key}
+          photos={entry?.photos ?? []}
+          canWrite={canWrite}
+          onAdded={onPhotoAdded}
+          onRemoved={onPhotoRemoved}
+        />
       </div>
     </section>
+  )
+}
+
+// 这一项的图 —— 客户圈出来的那个圆角、色板照、丝印位置。一句话写半天还容易
+// 理解偏, 一张图贴上去就没歧义, 而且跟着确认单一起印给客户签。
+function Photos({
+  jobId,
+  topic,
+  photos,
+  canWrite,
+  onAdded,
+  onRemoved,
+}: {
+  jobId: string
+  topic: CommTopic
+  photos: CommPhoto[]
+  canWrite: boolean
+  onAdded: (p: CommPhoto) => void
+  onRemoved: (id: string) => void
+}) {
+  const zoneRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const send = async (files: FileList | File[] | null) => {
+    if (!files) return
+    const list = Array.from(files)
+    if (list.length === 0 || busy) return
+    setError(null)
+    setBusy(true)
+    for (const file of list) {
+      try {
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('jobId', jobId)
+        fd.append('topic', topic)
+        const r = await fetch(withBase('/api/upload-comm-photo'), {
+          method: 'POST',
+          body: fd,
+        })
+        const d = (await r.json()) as {
+          ok?: boolean
+          photo?: CommPhoto
+          error?: string
+        }
+        if (!d.ok || !d.photo) throw new Error(d.error || '上传失败')
+        onAdded(d.photo)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '上传失败')
+      }
+    }
+    setBusy(false)
+    if (inputRef.current) inputRef.current.value = ''
+  }
+
+  usePasteImage(zoneRef, (f) => void send([f]), canWrite)
+
+  if (photos.length === 0 && !canWrite) return null
+
+  return (
+    <div ref={zoneRef} className="mt-2 flex flex-wrap items-center gap-2">
+      {photos.map((p) => (
+        <span
+          key={p.id}
+          className="group relative block h-[68px] w-[68px] overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]"
+        >
+          <a
+            href={proxiedStorageUrl(p.url)}
+            target="_blank"
+            rel="noreferrer"
+            title={`${p.filename}${p.uploadedBy ? ` · ${p.uploadedBy}` : ''}`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={proxiedStorageUrl(p.url)}
+              alt={p.filename}
+              loading="lazy"
+              className="h-full w-full object-cover"
+            />
+          </a>
+          {canWrite && (
+            <button
+              type="button"
+              aria-label="删除这张图"
+              title="删除这张图"
+              onClick={async () => {
+                if (!confirm('删掉这张图?')) return
+                await mutate({
+                  kind: 'deleteCommPhoto',
+                  jobId,
+                  topic,
+                  photoId: p.id,
+                })
+                onRemoved(p.id)
+              }}
+              className="absolute right-0.5 top-0.5 inline-flex h-5 w-5 items-center justify-center rounded-[2px] bg-[var(--color-surface)]/90 text-[var(--color-ink-2)] hover:text-[var(--color-overdue)]"
+            >
+              ×
+            </button>
+          )}
+        </span>
+      ))}
+      {canWrite && (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={busy}
+          title="点击选图 · 或鼠标停在这里按 Ctrl+V 粘贴"
+          className="flex h-[68px] w-[68px] flex-col items-center justify-center gap-0.5 rounded-[2px] border border-dashed border-[var(--color-border-strong)] text-[var(--color-ink-3)] transition-colors hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] disabled:opacity-50"
+        >
+          <span className="text-[15px] leading-none">＋</span>
+          <span className="text-[10px] tracking-wider">
+            {busy ? '上传中' : '贴图'}
+          </span>
+        </button>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,application/pdf"
+        multiple
+        className="hidden"
+        onChange={(e) => void send(e.target.files)}
+      />
+      {error && (
+        <span className="text-[12px] text-[var(--color-overdue)]">{error}</span>
+      )}
+    </div>
   )
 }
 

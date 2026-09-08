@@ -6,7 +6,9 @@ import {
   COMM_AGREED_LABEL,
   COMM_STAGES,
   COMM_TOPIC_SPECS,
+  type CommPhoto,
 } from '@/lib/comm-sheet'
+import { proxiedStorageUrl } from '@/lib/storage-url'
 import { BRAND } from '@/lib/brand'
 import { today } from '@/lib/today'
 import { PrintButton } from '@/app/_print_button'
@@ -95,6 +97,7 @@ export default async function CommSheetPrintPage(props: {
                       [spec.oursLabel, e?.ours],
                       [COMM_AGREED_LABEL, e?.agreed],
                     ]}
+                    photos={e?.photos ?? []}
                   />
                 )
               })}
@@ -129,20 +132,29 @@ export default async function CommSheetPrintPage(props: {
   )
 }
 
-// 一项三行 —— 第一行把「沟通项」那一格竖着并起来, 和纸上的合并单元格一样。
+// 一项三行 (贴了图就是四行) —— 第一格把「沟通项」竖着并起来, 和纸上的合并单
+// 元格一样。图跟着这一项印在最后一行: 客户签的是"图上这个样子", 比签一段文
+// 字牢靠。
 function Rows({
   title,
   rows,
+  photos,
 }: {
   title: string
   rows: [string, string | undefined][]
+  photos: CommPhoto[]
 }) {
+  const span = rows.length + (photos.length > 0 ? 1 : 0)
   return (
     <>
       {rows.map(([label, value], i) => (
         <tr key={label}>
           {i === 0 && (
-            <td rowSpan={3} className="font-medium" style={{ verticalAlign: 'middle' }}>
+            <td
+              rowSpan={span}
+              className="font-medium"
+              style={{ verticalAlign: 'middle' }}
+            >
               {title}
             </td>
           )}
@@ -157,6 +169,27 @@ function Rows({
           </td>
         </tr>
       ))}
+      {photos.length > 0 && (
+        <tr>
+          <td className="text-[var(--color-ink-2)]" style={{ textAlign: 'left' }}>
+            图示
+          </td>
+          <td style={{ textAlign: 'left' }}>
+            <span className="flex flex-wrap gap-2">
+              {photos.map((p) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={p.id}
+                  src={proxiedStorageUrl(p.url)}
+                  alt={p.filename}
+                  className="doc-thumb"
+                  style={{ width: 108, height: 108, objectFit: 'contain' }}
+                />
+              ))}
+            </span>
+          </td>
+        </tr>
+      )}
     </>
   )
 }

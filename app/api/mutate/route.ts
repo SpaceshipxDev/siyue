@@ -160,7 +160,7 @@ import {
   updateNcProgram,
 } from '@/lib/nc-program-store'
 import { deleteDrawingFile } from '@/lib/drawing-file'
-import { saveCommSheet } from '@/lib/comm-sheet-store'
+import { deleteCommPhoto, saveCommSheet } from '@/lib/comm-sheet-store'
 import { isCommTopic, type CommSheet } from '@/lib/comm-sheet'
 import { reuseKey } from '@/lib/nc-program'
 import type { ReturnFlowEntry } from '@/lib/return-flow'
@@ -1805,6 +1805,19 @@ async function dispatch(
         u.name,
         new Date().toISOString(),
       )
+      revalidatePath(`/jobs/${jobId}`)
+      return Response.json(ok(saved))
+    }
+
+    case 'deleteCommPhoto': {
+      const jobId = body.jobId
+      const topic = body.topic
+      const photoId = body.photoId
+      if (!isString(jobId) || !isCommTopic(topic) || !isString(photoId))
+        return err('bad deleteCommPhoto args')
+      const u = await requireUser()
+      if (!canWriteCommSheet(u)) return err('沟通确认单由工程或商务改')
+      const saved = await deleteCommPhoto(jobId, topic, photoId)
       revalidatePath(`/jobs/${jobId}`)
       return Response.json(ok(saved))
     }

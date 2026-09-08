@@ -113,6 +113,22 @@ export function isCommTopic(x: unknown): x is CommTopic {
   return typeof x === 'string' && (COMM_TOPICS as readonly string[]).includes(x)
 }
 
+/**
+ * 挂在某一项上的图。
+ *
+ * 这七项里有一多半是"说不清、指一下就明白"的事: 客户圈出来的那个圆角、色板
+ * 拍的一张照、丝印要往哪儿摆、哪个面不许有夹伤。一句话写半天还容易理解偏,
+ * 一张图贴上去就没歧义了 —— 而且这张图要跟着确认单一起印出来给客户签, 签的
+ * 是"图上这个样子", 比签一段文字牢靠。
+ */
+export type CommPhoto = {
+  id: string
+  url: string
+  filename: string
+  uploadedBy?: string
+  createdAt: string
+}
+
 export type CommEntry = {
   /** 客户提的 */
   ask?: string
@@ -120,6 +136,8 @@ export type CommEntry = {
   ours?: string
   /** 双方点过头的那一句 —— 车间和质检照着做的就是它 */
   agreed?: string
+  /** 这一项的图 —— 指一下比说半天清楚。 */
+  photos?: CommPhoto[]
 }
 
 export type CommSheet = {
@@ -140,9 +158,14 @@ export function emptyCommSheet(jobId: string): CommSheet {
   return { jobId, items: {} }
 }
 
-/** 这一项谈过没有 —— 三格里有任意一格有字就算谈过。 */
+/** 这一项谈过没有 —— 三格里有字, 或者贴了图, 都算谈过。 */
 export function topicFilled(e?: CommEntry): boolean {
-  return !!(e?.ask?.trim() || e?.ours?.trim() || e?.agreed?.trim())
+  return !!(
+    e?.ask?.trim() ||
+    e?.ours?.trim() ||
+    e?.agreed?.trim() ||
+    (e?.photos?.length ?? 0) > 0
+  )
 }
 
 /** 这一项谈定了没有 —— 只有"最终结论"落笔才算定。 */
