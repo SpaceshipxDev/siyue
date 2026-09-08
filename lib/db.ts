@@ -6786,6 +6786,10 @@ export type ProgrammingQueueItem = {
   status: StageStatus
   /** 上游 (工程) 完了没。没完 = 还轮不到动手, 但可以先看图。 */
   upstreamReady: boolean
+  /** 编好的那天 (MM-DD 或 ISO, 照 part_stages 里存的样子) */
+  doneAt?: string
+  /** 谁编的 */
+  doneBy?: string
 }
 
 /** 一屏最多摊开多少张工单的零件。见下面 getProgrammingQueue 的注释。 */
@@ -6806,15 +6810,18 @@ export async function getProgrammingQueue(): Promise<ProgrammingQueue> {
   //     是活。厂里很多老单的编程从来没人点过, 全放进来就是几百张单、上万个
   //     零件, 一次要几十趟数据库往返 —— 页面转不出来, 人就说"用不了"。
   //   没暂停   —— 停掉的单不该占编程台。
-  //   编程这一格还没做完。
+  //   路线里有编程这一站。
+  //
+  // 注意这里**不**排除"编程已经做完"的单: 已经编好的件也要摆出来 (标成已
+  // 编), 否则编完就从台面上蒸发, 管理的人无处回答"这张单编程做完没有" ——
+  // 那正是这一页最常被问到的一句话。
   const jobs = rows
     .filter((r) => {
       if (r.status && r.status !== 'ready') return false
       if (r.isShipped) return false
       if (r.pausedAt) return false
       const c = r.cells['编程']
-      if (!c || c.total === 0) return false
-      return c.inHouseDone + c.outsourcedClosed < c.total
+      return !!c && c.total > 0
     })
     // 交期近的在前 —— 封顶砍掉的永远是最不急的那几张。
     .sort((a, b) =>
@@ -6839,11 +6846,14 @@ export async function getProgrammingQueue(): Promise<ProgrammingQueue> {
     values: ['工程', '编程'],
   })
   const stateOf = new Map<string, StageStatus>()
+  const doneMeta = new Map<string, { at?: string; by?: string }>()
   for (const r of stageRows) {
-    stateOf.set(
-      `${r.part_id as string}|${r.stage as string}`,
-      (r.status as StageStatus) ?? 'pending',
-    )
+    const k = `${r.part_id as string}|${r.stage as string}`
+    stateOf.set(k, (r.status as StageStatus) ?? 'pending')
+    doneMeta.set(k, {
+      at: (r.completed_at as string | null) ?? undefined,
+      by: (r.by_actor as string | null) ?? undefined,
+    })
   }
 
   const jobById = new Map(take.map((r) => [r.id, r]))
@@ -6860,7 +6870,7 @@ export async function getProgrammingQueue(): Promise<ProgrammingQueue> {
       const cheng = stateOf.get(`${pid}|编程`)
       // 路线里没有「编程」这一站的零件 (纯钣金、纯外购) 不进这一页。
       if (!cheng) continue
-      if (cheng === 'done') continue
+      const meta = cheng === 'done' ? doneMeta.get(`${pid}|编程`) : undefined
       items.push({
         jobId,
         jobNo: job.jobNo,
@@ -6877,6 +6887,8 @@ export async function getProgrammingQueue(): Promise<ProgrammingQueue> {
         status: cheng,
         // 工程不在路线里 (少数零件) 就算已就绪 —— 它永远不会被点完成。
         upstreamReady: (stateOf.get(`${pid}|工程`) ?? 'done') === 'done',
+        doneAt: meta?.at,
+        doneBy: meta?.by,
       })
     }
   }

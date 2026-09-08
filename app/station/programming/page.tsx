@@ -83,6 +83,8 @@ export default async function ProgrammingDeskPage() {
       process: it.process,
       surfaceTreatment: it.surfaceTreatment,
       imageUrl: it.imageUrl,
+      doneAt: it.doneAt,
+      doneBy: it.doneBy,
       programs: mine,
       reusable:
         mine.length > 0

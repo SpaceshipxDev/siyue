@@ -39,6 +39,9 @@ export type DeskRow = {
   status: StageStatus
   /** 上游 (工程) 完了没 —— 没完就是"可以先看图, 还轮不到报完成"。 */
   upstreamReady: boolean
+  /** 编好的那天 · 谁编的 —— 只有已编的行才有。 */
+  doneAt?: string
+  doneBy?: string
   componentId: string
   name: string
   qty: number
@@ -52,11 +55,13 @@ export type DeskRow = {
   reusable: NcProgram[]
 }
 
-// 四个口子, 按"我现在能不能动手"分:
+// 五个口子, 前四个按"我现在能不能动手"分, 最后一个回答另一个问题:
 //   能编   上游 (工程) 完了, 还没开始 —— 今天该干的就是这些
 //   在编   自己已经点过开始
 //   等上游 工程还没点完成 —— 可以先看图、先传图, 报不了完成
-type Lens = 'all' | 'ready' | 'doing' | 'waiting'
+//   已编   编好了的 —— "这张单编程做完没有", 这一栏就是答案。编完的行不该
+//          从台面上蒸发: 蒸发了, 管理的人只能挨个去问。
+type Lens = 'all' | 'ready' | 'doing' | 'waiting' | 'done'
 
 // 列。工号 / 程序号这些东西没有标准长度 (YNMX-26-4-9-094 和客户给的长料号都
 // 是一列), 所以定死多宽都会截掉谁 —— 列宽是可以拉的, 拉过的记在这台机器上。
@@ -98,7 +103,11 @@ export function ProgrammingDesk({
   const [programs, setPrograms] = useState<NcProgram[]>(() =>
     rows.flatMap((r) => r.programs),
   )
-  const [doneIds, setDoneIds] = useState<Set<string>>(() => new Set())
+  // 刚点过「编好了」的那几行 —— 不抹掉, 就地翻成"已编好"沉到底下。抹掉的话
+  // 人点完就找不着了, 也无从确认自己刚才那一下到底记上没有。
+  const [justDone, setJustDone] = useState<Map<string, string>>(
+    () => new Map(),
+  )
   const { rootRef, template, minWidth, startResize, resetCol, resetAll } =
     useColumnWidths('colw:programming', COLS)
 
@@ -115,18 +124,32 @@ export function ProgrammingDesk({
     return by
   }, [programs])
 
+  // 本地刚报完成的, 就地当成 done 参与所有筛选和统计。
+  const rowsNow = useMemo(
+    () =>
+      rows.map((r) => {
+        const who = justDone.get(partRef(r.jobId, r.componentId))
+        return who === undefined
+          ? r
+          : { ...r, status: 'done' as StageStatus, doneBy: who }
+      }),
+    [rows, justDone],
+  )
+
   const needle = q.trim().toLowerCase()
   const visible = useMemo(() => {
-    return rows
-      .filter((r) => !doneIds.has(partRef(r.jobId, r.componentId)))
+    return rowsNow
       .filter((r) =>
         lens === 'ready'
           ? r.upstreamReady && r.status === 'pending'
           : lens === 'doing'
             ? r.status === 'in_progress'
             : lens === 'waiting'
-              ? !r.upstreamReady
-              : true,
+              ? !r.upstreamReady && r.status !== 'done'
+              : lens === 'done'
+                ? r.status === 'done'
+                : // 全部 —— 没编完的在前, 编好的沉到后面。
+                  true,
       )
       .filter((r) =>
         needle
@@ -137,19 +160,28 @@ export function ProgrammingDesk({
       )
       .sort(
         (a, b) =>
-          a.dueDate.localeCompare(b.dueDate) || a.jobNo.localeCompare(b.jobNo),
+          // 编好的沉到后面 —— 台面最上头永远是还要动手的。
+          Number(a.status === 'done') - Number(b.status === 'done') ||
+          a.dueDate.localeCompare(b.dueDate) ||
+          a.jobNo.localeCompare(b.jobNo),
       )
-  }, [rows, doneIds, lens, needle])
+  }, [rowsNow, lens, needle])
 
-  const live = rows.filter((r) => !doneIds.has(partRef(r.jobId, r.componentId)))
+  const live = rowsNow
+  // 缺图只算还要动手的那些 —— 编都编完了, 再提"缺图"是噪音。
   const noDrawing = live.filter(
-    (r) => (dByPart.get(partRef(r.jobId, r.componentId)) ?? []).length === 0,
+    (r) =>
+      r.status !== 'done' &&
+      (dByPart.get(partRef(r.jobId, r.componentId)) ?? []).length === 0,
   ).length
   const counts = {
     all: live.length,
-    ready: live.filter((r) => r.upstreamReady && r.status === 'pending').length,
+    ready: live.filter(
+      (r) => r.upstreamReady && r.status === 'pending',
+    ).length,
     doing: live.filter((r) => r.status === 'in_progress').length,
-    waiting: live.filter((r) => !r.upstreamReady).length,
+    waiting: live.filter((r) => !r.upstreamReady && r.status !== 'done').length,
+    done: live.filter((r) => r.status === 'done').length,
   }
 
   return (
@@ -160,7 +192,15 @@ export function ProgrammingDesk({
             编程
           </h2>
           <p className="mt-2 text-[13px] text-[var(--color-ink-2)]">
-            {counts.all} 个件要编
+            {counts.all - counts.done} 个件要编
+            {counts.done > 0 && (
+              <>
+                <span className="mx-1.5 text-[var(--color-ink-4)]">·</span>
+                <span className="text-[var(--color-success)]">
+                  {counts.done} 个已编好
+                </span>
+              </>
+            )}
             {noDrawing > 0 ? (
               <>
                 <span className="mx-1.5 text-[var(--color-ink-4)]">·</span>
@@ -216,6 +256,7 @@ export function ProgrammingDesk({
             ['ready', '能编', counts.ready],
             ['doing', '在编', counts.doing],
             ['waiting', '等上游', counts.waiting],
+            ['done', '已编', counts.done],
           ] as [Lens, string, number][]
         ).map(([k, label, n]) => (
           <button
@@ -290,7 +331,7 @@ export function ProgrammingDesk({
                   style={{ gridTemplateColumns: template }}
                   className={`grid cursor-pointer items-start gap-x-4 px-3 py-3 transition-colors ${
                     expanded ? 'bg-[#f1eee4]' : 'hover:bg-[#f1eee4]'
-                  }`}
+                  } ${r.status === 'done' ? 'opacity-65' : ''}`}
                 >
                   <span className="mono min-w-0 break-all text-[12.5px] leading-snug text-[var(--color-ink-2)]">
                     {r.jobNo}
@@ -317,10 +358,12 @@ export function ProgrammingDesk({
                       <span className="text-[var(--color-ink-2)]">
                         图纸 {parts.length}
                       </span>
+                    ) : r.status === 'done' ? (
+                      <span className="text-[var(--color-ink-4)]">无图纸</span>
                     ) : (
                       <span className="text-[var(--color-overdue)]">缺图纸</span>
                     )}
-                    {!r.upstreamReady && (
+                    {!r.upstreamReady && r.status !== 'done' && (
                       <span
                         className="mt-0.5 block text-[11px] text-[var(--color-ink-4)]"
                         title="工程还没点完成 — 图可以先看先传, 程序也可以先出"
@@ -341,7 +384,22 @@ export function ProgrammingDesk({
                     )}
                   </span>
 
-                  <DueCol dueDate={r.dueDate} />
+                  {r.status === 'done' ? (
+                    // 已编 —— 这一格不再说交期 (它已经不催了), 说的是谁哪天
+                    // 编好的。"编程做完没有"这句话的答案就在这里。
+                    <div className="flex min-w-0 flex-col items-end leading-tight">
+                      <span className="text-[12.5px] text-[var(--color-success)]">
+                        已编好
+                      </span>
+                      <span className="label mt-0.5 break-words text-right text-[var(--color-ink-3)]">
+                        {[r.doneBy, r.doneAt?.slice(-5)]
+                          .filter(Boolean)
+                          .join(' · ') || '—'}
+                      </span>
+                    </div>
+                  ) : (
+                    <DueCol dueDate={r.dueDate} />
+                  )}
 
                   <span
                     className="text-right"
@@ -351,7 +409,9 @@ export function ProgrammingDesk({
                       <ReportButton
                         row={r}
                         hasProgram={progs.length > 0}
-                        onDone={() => setDoneIds((s) => new Set(s).add(ref))}
+                        onDone={(who) =>
+                          setJustDone((m) => new Map(m).set(ref, who))
+                        }
                       />
                     ) : (
                       <span
@@ -456,8 +516,13 @@ function HowTo() {
           </li>
           <li>
             <b className="text-[var(--color-ink)]">⑤ 点「编好了」。</b>
-            这一行从台面上消失, 操机站立刻看到活来了。程序号还没填就报完成, 会
-            先问你一句。
+            操机站立刻看到活来了。程序号还没填就报完成, 会先问你一句。
+          </li>
+          <li>
+            <b className="text-[var(--color-ink)]">怎么知道编好了没有。</b>
+            上面那排口子里的<b>「已编」</b>就是答案 —— 谁哪天编好的、出的哪几
+            个程序号, 都写在行上。编好的件不会从这一页消失, 只是淡下去沉到底
+            部。整张工单的编程进度, 也可以在看板的「编程」那一列上一眼看到。
           </li>
         </ol>
       )}
@@ -499,7 +564,7 @@ function ReportButton({
 }: {
   row: DeskRow
   hasProgram: boolean
-  onDone: () => void
+  onDone: (who: string) => void
 }) {
   const [pending, start] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -514,7 +579,7 @@ function ReportButton({
           componentId: row.componentId,
           stage: '编程',
         })
-        if (kind === 'finishStage') onDone()
+        if (kind === 'finishStage') onDone('刚才')
       } catch (e) {
         setError(e instanceof Error ? e.message : '报工失败')
       }
@@ -525,6 +590,10 @@ function ReportButton({
     return (
       <span className="text-[11px] text-[var(--color-overdue)]">{error}</span>
     )
+
+  // 已经编好的不再给按钮 —— 右边那一格已经写着"已编好 · 谁 · 哪天"。要退回
+  // 去改, 走工段看板的撤销 (那是名单制的动作, 不该藏在这一页的一个小按钮里)。
+  if (row.status === 'done') return null
 
   if (row.status === 'pending')
     return (
