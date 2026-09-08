@@ -22,8 +22,12 @@ const MONTHS = [
   '07', '08', '09', '10', '11', '12',
 ]
 
+// 最后一格之前多一列「记录人」—— 这条不良是谁落的笔。它跟责任人是两回事:
+// 责任人是"谁做坏的", 记录人是"谁写下来的"。事后回头查一条记录, 第一个要找
+// 的往往就是当时写它的人。系统一直在存 (导出里早就有这一列), 只是屏幕上没
+// 露出来 —— 于是这张表看着像没有出处。
 const COLS =
-  'grid-cols-[64px_120px_52px_minmax(0,1.1fr)_minmax(0,1fr)_72px_72px_minmax(0,1.2fr)_28px]'
+  'grid-cols-[64px_120px_52px_minmax(0,1.1fr)_minmax(0,1fr)_72px_72px_minmax(0,1.2fr)_72px_28px]'
 
 export function ProcessBoard({
   rows,
@@ -282,6 +286,7 @@ export function ProcessBoard({
           <span className="label">直接责任</span>
           <span className="label">间接责任</span>
           <span className="label">纠正预防措施</span>
+          <span className="label">记录人</span>
           <span />
         </div>
 
@@ -339,6 +344,18 @@ export function ProcessBoard({
                 placeholder="待定措施…"
                 onSave={(v) => patch(r.id, { action: v })}
               />
+              {/* 记录人不给改 —— 它是系统在落笔那一刻盖上的签名, 手改了这条
+                  记录就不能当凭据用了。老记录 (这一列存在之前的) 显示 —。 */}
+              <span
+                className="break-words text-[12.5px] text-[var(--color-ink-2)]"
+                title={
+                  r.createdAt
+                    ? `记于 ${r.createdAt.slice(0, 10)}`
+                    : undefined
+                }
+              >
+                {r.by || '—'}
+              </span>
               <span className="text-right">
                 {canEdit &&
                   (armDelete === r.id ? (
@@ -367,8 +384,8 @@ export function ProcessBoard({
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
         先把不良记下来，责任人和纠正预防措施定了再回来补——还空着的格谁都填得
-        上，填过的要改找工程或于海伟。顶上的「待定措施」就是还没闭环的条数。
-        导出的就是屏幕上这一批。
+        上，填过的要改找工程或于海伟。记录人是落笔那一刻自动签的，改不了。
+        顶上的「待定措施」就是还没闭环的条数。导出的就是屏幕上这一批。
       </p>
     </div>
   )
