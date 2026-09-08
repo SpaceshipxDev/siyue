@@ -54,6 +54,16 @@ export const RETURN_STEP_LABEL: Record<ReturnStep, string> = {
   done: '可结案',
 }
 
+/** 挤在看板一个小标记里的短名 —— 那里只放得下三四个字。 */
+export const RETURN_STEP_SHORT: Record<ReturnStep, string> = {
+  plan: '待方案',
+  cause: '待调查',
+  release: '待下发',
+  rework: '返工中',
+  ship: '待出货',
+  done: '可结案',
+}
+
 /** 这一步在等谁 —— 列表上一眼看出球在谁脚下。 */
 export const RETURN_STEP_OWNER: Record<ReturnStep, string> = {
   plan: '工程',

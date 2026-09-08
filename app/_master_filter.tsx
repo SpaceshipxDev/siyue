@@ -165,7 +165,11 @@ type DateFilter =
 
 // Top-level scope filter on the master sheet. 在产 hides shipped jobs (the
 // daily-attention set); 已出货 surfaces them for finance / archive lookups.
-type ShipFilter = 'live' | 'paused' | 'shipped'
+//
+// 返工 是第四类, 而且优先于其它三类: 一张工单退回来重做, 它在系统里仍然是
+// "已出货" (货确实交过), 可是活已经回到车间了 —— 躺在已出货那一栏里, 工程
+// 就永远看不见它。所以只要有一条退货没结案, 这张工单就归返工。
+type ShipFilter = 'live' | 'paused' | 'shipped' | 'rework'
 
 // Tab names, reused when telling the user a search hit lives outside the
 // tab they're standing in.
@@ -173,6 +177,7 @@ const SHIP_SCOPE_LABEL: Record<ShipFilter, string> = {
   live: '在产',
   shipped: '已出货',
   paused: '暂停/取消',
+  rework: '退货返工',
 }
 
 // Per-column status filter (商务 / 工程 overview only). The viewer focuses ONE
@@ -460,32 +465,52 @@ export function MasterSheet({
   // 暂停 wins over 在产 for any not-yet-shipped job; shipped always wins (a
   // shipped job is done regardless of a stale pause flag). Uses the optimistic
   // overlay so the counts move in the same tick the chip is toggled.
-  const { liveCount, pausedCount, shippedCount } = useMemo(() => {
+  const { liveCount, pausedCount, shippedCount, reworkCount } = useMemo(() => {
     let live = 0
     let paused = 0
     let shipped = 0
+    let rework = 0
     for (const r of rows) {
       // 收件箱 jobs (parsing/draft/failed) are not confirmed orders — they never
       // belong to any production bucket. The board feed already excludes them;
       // this guards the optimistic by-id refresh path from re-introducing them.
       if (rowIsInbox(r)) continue
-      if (rowIsShipped(r)) shipped++
+      // 返工优先 — 退回来的活在车间里, 不该被"已出货"盖住。
+      if (r.activeReturn) rework++
+      else if (rowIsShipped(r)) shipped++
       else if (effectiveIsPaused(r)) paused++
       else live++
     }
-    return { liveCount: live, pausedCount: paused, shippedCount: shipped }
+    return {
+      liveCount: live,
+      pausedCount: paused,
+      shippedCount: shipped,
+      reworkCount: rework,
+    }
   }, [rows, effectiveIsPaused])
 
   const scopedRows = useMemo(() => {
     if (!showShipTabs) return rows.filter((r) => !rowIsInbox(r))
+    if (shipFilter === 'rework')
+      return rows.filter((r) => !rowIsInbox(r) && !!r.activeReturn)
     if (shipFilter === 'shipped')
-      return rows.filter((r) => !rowIsInbox(r) && rowIsShipped(r))
+      return rows.filter(
+        (r) => !rowIsInbox(r) && !r.activeReturn && rowIsShipped(r),
+      )
     if (shipFilter === 'paused')
       return rows.filter(
-        (r) => !rowIsInbox(r) && !rowIsShipped(r) && effectiveIsPaused(r),
+        (r) =>
+          !rowIsInbox(r) &&
+          !r.activeReturn &&
+          !rowIsShipped(r) &&
+          effectiveIsPaused(r),
       )
     return rows.filter(
-      (r) => !rowIsInbox(r) && !rowIsShipped(r) && !effectiveIsPaused(r),
+      (r) =>
+        !rowIsInbox(r) &&
+        !r.activeReturn &&
+        !rowIsShipped(r) &&
+        !effectiveIsPaused(r),
     )
   }, [rows, showShipTabs, shipFilter, effectiveIsPaused])
   // Highlight the user's home station for production; otherwise highlight the
@@ -509,9 +534,16 @@ export function MasterSheet({
 
   // Which tab a row belongs to. Same three-way split as the tab counts, so a
   // row can never be listed under a tab it isn't counted in.
+  // 一行归哪一栏 —— 和上面的分桶同一套优先级: 返工 > 已出货 > 暂停 > 在产。
   const scopeOf = useCallback(
     (r: MasterRow): ShipFilter =>
-      rowIsShipped(r) ? 'shipped' : effectiveIsPaused(r) ? 'paused' : 'live',
+      r.activeReturn
+        ? 'rework'
+        : rowIsShipped(r)
+          ? 'shipped'
+          : effectiveIsPaused(r)
+            ? 'paused'
+            : 'live',
     [effectiveIsPaused],
   )
 
@@ -543,7 +575,12 @@ export function MasterSheet({
       remoteSearch.rows.filter((r) => !rowIsInbox(r)),
     ).filter(match)
     const mine: MasterRow[] = []
-    const others: Record<ShipFilter, number> = { live: 0, paused: 0, shipped: 0 }
+    const others: Record<ShipFilter, number> = {
+      live: 0,
+      paused: 0,
+      shipped: 0,
+      rework: 0,
+    }
     for (const r of hits) {
       const s = scopeOf(r)
       if (s === shipFilter) mine.push(r)
@@ -890,6 +927,7 @@ export function MasterSheet({
           liveCount={liveCount}
           pausedCount={pausedCount}
           shippedCount={shippedCount}
+          reworkCount={reworkCount}
           shippedPending={pendingShipped}
           shippedFailed={shippedFailed}
           onRetryShipped={onRetryShipped}
@@ -1309,6 +1347,7 @@ function ShipFilterToggle({
   liveCount,
   pausedCount,
   shippedCount,
+  reworkCount,
   shippedPending,
   shippedFailed,
   onRetryShipped,
@@ -1318,6 +1357,7 @@ function ShipFilterToggle({
   liveCount: number
   pausedCount: number
   shippedCount: number
+  reworkCount: number
   /** Shipped rows still streaming in — show … instead of a partial count. */
   shippedPending?: boolean
   /** Shipped history gave up — the count is incomplete and must not read as fact. */
@@ -1334,6 +1374,17 @@ function ShipFilterToggle({
       count: shippedPending ? '…' : shippedFailed ? '?' : shippedCount,
     },
     { key: 'paused', label: '暂停/取消', count: pausedCount },
+    // 返工排在最后, 但只在真有活退回来的时候才出现 —— 常态是空的, 空着的一栏
+    // 天天摆在那里, 看久了就成了背景。
+    ...(reworkCount > 0
+      ? [
+          {
+            key: 'rework' as ShipFilter,
+            label: '退货返工',
+            count: reworkCount as number | string,
+          },
+        ]
+      : []),
   ]
   return (
     <div role="tablist" aria-label="工单范围" className="mb-6 flex items-baseline gap-x-7">

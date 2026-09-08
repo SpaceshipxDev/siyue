@@ -9,6 +9,8 @@ import {
 import { SCHEMA_VERSION } from '@/lib/data'
 import type { MasterRow } from '@/lib/master'
 import { toMasterWireRows } from '@/lib/master_wire'
+import { getReturnFlows } from '@/lib/return-flow-store'
+import { returnStep } from '@/lib/return-flow'
 
 // Stamp each row with its 收款 money light from the per-job aggregation.
 // Confirmed orders with no 出货单 aren't in the map → 在产 (blank cell, no money
@@ -34,6 +36,31 @@ function applyMoney(
       // in-production orders stay blank.
       r.moneyStatus = r.isShipped ? 'uninvoiced' : 'in_production'
       r.outstandingCny = 0
+    }
+  }
+  return rows
+}
+
+// 退货走到哪一步 —— 从退货台那张流转单上读回来, 盖在行的 activeReturn 上。
+// 看板上的「退货」因此不再只是一个红字, 而是"在等谁": 工程模块看到的和退货
+// 台看到的是同一件事, 不用来回切页面对。
+//
+// 只有真的有退货在跑时才去读那份流转单 (一次几 KB 的读) —— 大部分时候厂里
+// 没几条退货, 一条都没有就一次都不读。
+async function applyReturnStep(rows: MasterRow[]): Promise<MasterRow[]> {
+  if (!rows.some((r) => r.activeReturn)) return rows
+  let flows
+  try {
+    flows = await getReturnFlows()
+  } catch {
+    // 读不到就当没有 —— 看板不该因为一份流转单挂掉。
+    return rows
+  }
+  for (const r of rows) {
+    if (!r.activeReturn) continue
+    r.activeReturn = {
+      ...r.activeReturn,
+      step: returnStep(flows.get(r.activeReturn.id)),
     }
   }
   return rows
@@ -93,7 +120,10 @@ export async function GET(request: Request): Promise<Response> {
         {
           ok: true,
           v: SCHEMA_VERSION,
-          rows: toMasterWireRows(applyMoney(page.rows, money), user),
+          rows: toMasterWireRows(
+            await applyReturnStep(applyMoney(page.rows, money)),
+            user,
+          ),
           nextCursor: page.nextCursor,
           total: page.total,
         },
@@ -115,7 +145,10 @@ export async function GET(request: Request): Promise<Response> {
       {
         ok: true,
         v: SCHEMA_VERSION,
-        rows: toMasterWireRows(applyMoney(rows, money), user),
+        rows: toMasterWireRows(
+          await applyReturnStep(applyMoney(rows, money)),
+          user,
+        ),
       },
       { headers: { 'cache-control': 'no-store' } },
     )

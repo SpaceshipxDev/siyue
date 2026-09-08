@@ -7,6 +7,7 @@
 // The grid renders per (row, stage) cells; this module mirrors that shape
 // 1:1 so the page handler never iterates components in JS.
 
+import type { ReturnStep } from './return-flow'
 import type { JobStatus, JobType, PlanKey, ReturnReason, Stage } from './data'
 import { STAGES, dueState } from './data'
 import { today } from './today'
@@ -50,6 +51,12 @@ export type MasterActiveReturn = {
   id: string
   dueDate: string
   reason: ReturnReason
+  /**
+   * 退货流转走到哪一步了 (退货台那张单上的第几格)。看板上的「退货」标记因此
+   * 不再只是一个红字, 而是"在等谁" —— 工程模块看见的和退货台看见的是同一件
+   * 事。undefined = 流转单还没起头 (刚开的退货), 读作"待工程方案"。
+   */
+  step?: ReturnStep
 }
 
 // One row per job — what MasterSheet renders, what StationSummary sums.

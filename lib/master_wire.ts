@@ -1,4 +1,5 @@
 import { STAGES, type JobStatus, type JobType, type PlanKey, type ReturnReason, type Stage } from './data'
+import type { ReturnStep } from './return-flow'
 import type { MasterActiveReturn, MasterCell, MasterRow } from './master'
 import type { OrderMoneyStatus } from './order-money'
 
@@ -13,6 +14,8 @@ type CompactActiveReturn = [
   id: string,
   dueDate: string,
   reason: ReturnReason,
+  // 走到哪一步 — 追加在末尾, 所以旧客户端读前三格照旧, 不受影响。
+  step?: ReturnStep,
 ]
 
 type CompactCell = [
@@ -106,11 +109,11 @@ function scrubForWire(row: MasterRow, scope: Scope): MasterRow {
 }
 
 function compactActiveReturn(r: MasterActiveReturn | undefined): WireValue<CompactActiveReturn> {
-  return r ? [r.id, r.dueDate, r.reason] : null
+  return r ? [r.id, r.dueDate, r.reason, r.step] : null
 }
 
 function expandActiveReturn(r: WireValue<CompactActiveReturn>): MasterActiveReturn | undefined {
-  return r ? { id: r[0], dueDate: r[1], reason: r[2] } : undefined
+  return r ? { id: r[0], dueDate: r[1], reason: r[2], step: r[3] } : undefined
 }
 
 function compactCell(c: MasterCell | undefined): WireValue<CompactCell> {

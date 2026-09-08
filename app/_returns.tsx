@@ -5,6 +5,12 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { RETURN_REASONS, type Component, type JobReturn, type ReturnReason } from '@/lib/data'
 import { today } from '@/lib/today'
+import {
+  RETURN_STEP_LABEL,
+  RETURN_STEP_OWNER,
+  RETURN_STEP_SHORT,
+  type ReturnStep,
+} from '@/lib/return-flow'
 import { mutate } from '@/lib/mutate'
 
 // Minimal shape the composer needs — id/name/qty are enough to drive the
@@ -329,16 +335,25 @@ export function ActiveReturnBadge({
 export function ReturnChip({
   ret,
 }: {
-  ret: Pick<JobReturn, 'reason' | 'dueDate'> & { reasonText?: string }
+  ret: Pick<JobReturn, 'reason' | 'dueDate'> & {
+    reasonText?: string
+    /** 退货台那张流转单走到哪一格了。缺省 = 刚开的单, 读作"待方案"。 */
+    step?: ReturnStep
+  }
 }) {
+  // 标记上带一句"卡在哪一步" —— 看板和退货台从此说的是同一件事, 不用切页面
+  // 去对。空间只够三四个字, 所以用短名 (待方案 / 待调查 / 返工中 / 待出货)。
+  const step = ret.step ?? 'plan'
   return (
     <span
       className="row-badge"
       data-tone="overdue"
-      title={`退货中 · ${ret.reason}${ret.reasonText ? ` · ${ret.reasonText}` : ''} · 交期 ${ret.dueDate}`}
-      aria-label={`此工单退货中,内部交期 ${ret.dueDate}`}
+      title={`退货中 · ${RETURN_STEP_LABEL[step]} (等${RETURN_STEP_OWNER[step]}) · ${ret.reason}${
+        ret.reasonText ? ` · ${ret.reasonText}` : ''
+      } · 二次交期 ${ret.dueDate}`}
+      aria-label={`此工单退货返工中,${RETURN_STEP_LABEL[step]},二次交期 ${ret.dueDate}`}
     >
-      退货
+      退货 · {RETURN_STEP_SHORT[step]}
     </span>
   )
 }
