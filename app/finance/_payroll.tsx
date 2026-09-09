@@ -738,7 +738,9 @@ function Slip({
               <Ln label="保密费" v={s.secretFeeCny} />
               <Ln label="安全费" v={s.safetyFeeCny} />
               <Ln label="绩效工资" v={s.perfPayCny} />
-              <Ln label="其他" v={s.otherPartCny} />
+              {/* 按比例拆完剩下的那一截 —— 多了少了都落在奖金上, 所以上面
+                  六项加起来永远等于综合工资。 */}
+              <Ln label="奖金" v={s.splitBonusCny} />
             </div>
           ) : (
             <p className="text-[12.5px] text-[var(--color-ink-3)]">
@@ -746,7 +748,8 @@ function Slip({
             </p>
           )}
           <p className="mt-1.5 text-[11px] text-[var(--color-ink-4)]">
-            这几项是综合工资的拆法，不额外加钱——实发从下面的出勤工资算起。
+            按比例拆完的余额（多的少的）都归入奖金，所以这几项加起来正好是综合
+            工资。这是拆法，不额外加钱——实发从下面的出勤工资算起。
           </p>
         </div>
 

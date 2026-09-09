@@ -336,8 +336,14 @@ export type Payslip = {
   secretFeeCny: number // 保密费
   safetyFeeCny: number // 安全费
   perfPayCny: number // 绩效工资
-  /** 综合工资减掉上面五项之后剩下的 —— 拆不干净的部分照实摆出来, 不藏。 */
-  otherPartCny: number
+  /**
+   * 综合工资减掉上面五项之后的余数, 归到**奖金**里 —— 比例是死的, 人的工资
+   * 是活的, 两边不可能正好凑齐。多出来的那一截和差的那一截都落在这里, 所以
+   * 拆出来的几项永远加得回综合工资, 一分不差。
+   *
+   * 可以是负数 (综合工资低、按比例拆超了)。工资条上照实写, 不藏。
+   */
+  splitBonusCny: number
   /** 综合工资没过门槛就不拆 (工资条上那几行留空)。 */
   splitApplies: boolean
   // === 出勤 ===
@@ -424,7 +430,10 @@ export function computePayslip(
   const secretFeeCny = pct(rules.secretPct)
   const safetyFeeCny = pct(rules.safetyPct)
   const perfPayCny = pct(rules.perfPct)
-  const otherPartCny = splitApplies
+  // 按比例拆完之后的余数进奖金 —— 比例是死的, 综合工资是活的, 差的那一截或
+  // 多出来的那一截总得有个去处; 挂在奖金上, 拆出来的几项就永远加得回综合工
+  // 资。综合工资没过门槛就整个不拆, 这一格也是 0。
+  const splitBonusCny = splitApplies
     ? monthlyCny -
       baseSalaryCny -
       postSubsidyCny -
@@ -493,7 +502,7 @@ export function computePayslip(
     secretFeeCny,
     safetyFeeCny,
     perfPayCny,
-    otherPartCny,
+    splitBonusCny,
     splitApplies,
     attendancePayCny,
     socialSubsidyCny,
@@ -632,6 +641,7 @@ export const PAYROLL_EXPORT_HEADERS = [
   '保密费',
   '安全费',
   '绩效工资',
+  '奖金(拆分余额)',
   '应出勤天',
   '实际出勤天',
   '每天工时',
@@ -689,6 +699,7 @@ export function buildPayrollExportAoa(
       p.splitApplies ? p.secretFeeCny : '',
       p.splitApplies ? p.safetyFeeCny : '',
       p.splitApplies ? p.perfPayCny : '',
+      p.splitApplies ? p.splitBonusCny : '',
       p.standardDays,
       p.workedDays,
       p.hoursPerDay,

@@ -84,7 +84,7 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
             <span>保密费 {formatCny(s.secretFeeCny)}</span>
             <span>安全费 {formatCny(s.safetyFeeCny)}</span>
             <span>绩效工资 {formatCny(s.perfPayCny)}</span>
-            {s.otherPartCny !== 0 && <span>其他 {formatCny(s.otherPartCny)}</span>}
+            <span>奖金 {formatCny(s.splitBonusCny)}</span>
           </>
         )}
       </div>
