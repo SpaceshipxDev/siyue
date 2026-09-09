@@ -25,14 +25,16 @@ import {
 // 工资 — one month, one line per person, and the month's arithmetic done for
 // you.
 //
-// The 考勤 columns (事假/病假/旷工/迟到) are not typed here: they come straight
-// off 人事, which the 工段长 already fills in the day something happens. The
-// only two things nobody can know from the log — 加班小时 and 奖罚 — are the
-// only two cells that take a keystroke. 实发 derives.
+// The 考勤 columns (加班/事假/病假/旷工/迟到) are not typed here: they come
+// straight off 人事, which the 工段长 already fills in the day something
+// happens — 加班 included, so the shop's overtime hours live in exactly one
+// book. 奖罚 is the one thing nobody can know from the log, so it is the one
+// cell on the row that takes a keystroke. 实发 derives.
 //
-// The sentence under the title IS the 制度: 月休4天, 每天8小时, and what a 病假
-// or a 旷工 hour costs. Change a number in it and every row re-reads itself,
-// because there is no second place the rules are written down.
+// The sentence under the title IS the 制度: 月休4天, 周六8小时, 每个部门每天几
+// 小时, and what a 病假 or a 旷工 hour costs. Change a number in it and every
+// row re-reads itself, because there is no second place the rules are written
+// down.
 //
 // 发放 turns the month into 支出台账 rows (类别 工资) and freezes it — after
 // that the numbers on screen are the ones that were handed over, not a live
@@ -218,6 +220,8 @@ export function PayrollBoard({
           </span>
           <Rule label="月休" unit="天" value={rules.restDays} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'restDays', value: v })} />
           <Sep />
+          <Rule label="周六" unit="小时" value={rules.saturdayHours} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'saturdayHours', value: v })} />
+          <Sep />
           <Rule label="病假扣" unit="%" value={rules.sickPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'sickPct', value: v })} />
           <Sep />
           <Rule label="旷工扣" unit="%" value={rules.absentPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'absentPct', value: v })} />
@@ -226,7 +230,8 @@ export function PayrollBoard({
           <Sep />
           <Rule label="加班" unit="倍" value={rules.otRate} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'otRate', value: v })} />
           <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-            事假全扣 · 工伤不扣 · 违纪和质量异常自己定奖罚
+            加班费 = 综合工资 ÷ 应出勤工时 × 加班小时 × 倍率 · 事假全扣 · 工伤
+            不扣 · 违纪和质量异常自己定奖罚
           </span>
         </div>
 
@@ -289,6 +294,10 @@ export function PayrollBoard({
           >
             {allDepts ? '只看在册部门' : '全部部门'}
           </button>
+          <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
+            平时按本部门这个数, 周六按上面那个数 —— 两个加起来就是当月应出勤
+            工时
+          </span>
         </div>
       </div>
 
@@ -392,20 +401,8 @@ export function PayrollBoard({
               <Att value={s.attendance.sickHours} unit="h" />
               <Att value={s.attendance.absentHours} unit="h" heavy />
               <Att value={s.attendance.lateTimes} unit="" heavy />
-              <Num
-                className="hidden md:block"
-                align="center"
-                value={s.otHours}
-                locked={locked}
-                onSave={(v) =>
-                  save({
-                    kind: 'setPayrollLine',
-                    month,
-                    name: s.name,
-                    patch: { otHours: v },
-                  })
-                }
-              />
+              {/* 加班也是考勤 —— 人事记, 这里只读。 */}
+              <Att value={s.otHours} unit="h" />
               <Num
                 className="hidden md:block"
                 align="center"
@@ -503,11 +500,12 @@ export function PayrollBoard({
       </div>
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
-        事假 · 病假 · 旷工 · 迟到 全部读自
+        加班 · 事假 · 病假 · 旷工 · 迟到 全部读自
         <Link href={`/hr?p=${month}`} className="mx-1 underline decoration-[var(--color-border-strong)] underline-offset-2 hover:text-[var(--color-ink)]">
           人事
         </Link>
-        ，在那边记，这边自动算。点名字看工资条。
+        ，在那边记，这边自动算。加班费按这个人自己的时薪（综合工资 ÷ 当月应出
+        勤工时）算。点名字看工资条。
       </p>
     </div>
   )
@@ -723,8 +721,10 @@ function Slip({
       <div className="mx-auto max-w-[860px]">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
           <p className="mono text-[12px] tabular-nums text-[var(--color-ink-3)]">
-            {s.dept} · 应出勤 {s.standardDays} 天 · 实际出勤 {num(s.workedDays)} 天
-            · 每天 {num(s.hoursPerDay)} 小时 · 时薪 ¥{s.hourlyCny.toFixed(1)}
+            {s.dept} · 应出勤 {s.standardDays} 天 (含周六 {s.saturdays} 天) ·
+            实际出勤 {num(s.workedDays)} 天 · 平时每天 {num(s.hoursPerDay)} 小时
+            · 周六 {num(s.saturdayHours)} 小时 · 应出勤 {num(s.standardHours)}{' '}
+            小时 · 时薪 ¥{s.hourlyCny.toFixed(1)}
           </p>
           <a
             href={withBase(`/finance/payroll/print?m=${month}&name=${encodeURIComponent(s.name)}`)}
@@ -793,8 +793,17 @@ function Slip({
           <div>
             <p className="label mb-1 text-[var(--color-ink-3)]">应发</p>
             <Ln label="出勤工资" v={s.attendancePayCny} strong />
+            {/* 加班小时来自人事, 单价是这个人自己的时薪 —— 把算式写在旁
+                边, 条子上就不用再解释一遍。 */}
             <Ln
-              label={`加班费${s.otHours > 0 ? ` · ${num(s.otHours)} 小时` : ''}`}
+              label="加班费"
+              detail={
+                s.otHours > 0
+                  ? `${num(s.otHours)} 小时 × ¥${s.hourlyCny.toFixed(1)}${
+                      s.otRate === 1 ? '' : ` × ${num(s.otRate)} 倍`
+                    }`
+                  : '人事没记加班'
+              }
               v={s.otPay}
             />
             {PAYROLL_ADD_FIELDS.map(([k, label]) => (

@@ -517,7 +517,12 @@ export type VoucherFile = {
 // in the bucket alongside the purchase (see lib/procurement-photo.ts).
 export type ProcurementPhoto = VoucherFile
 
-// 人事 — the seven things a shop writes down about a person, in display order.
+// 人事 — the eight things a shop writes down about a person, in display order.
+//
+// 加班 comes first because it's the only one that pays: 加班时长 is summed by
+// 人事 the day it's worked and 工资 prices it off the person's own 时薪
+// (综合工资 ÷ 应出勤工时). It used to be typed a second time on the 工资 sheet
+// — the same hours in two books, which is how two books disagree.
 //
 // 请假 is three separate things, not one: 事假 comes out of the person's pay,
 // 病假 partly, 工伤 not at all and it's the factory's own to answer for. A
@@ -528,6 +533,7 @@ export type ProcurementPhoto = VoucherFile
 // an absence nobody arranged, 违纪 is a rule broken, 重大质量异常 is the one
 // that reached the customer.
 export const HR_TYPES = [
+  '加班',
   '事假',
   '病假',
   '工伤',
@@ -544,6 +550,7 @@ export type HrType = (typeof HR_TYPES)[number]
 // The rest are counted — a 迟到 is a 迟到 whether it was five minutes or
 // fifty, and 违纪 / 重大质量异常 have no duration at all.
 export const HR_HOURS_TYPES: readonly HrType[] = [
+  '加班',
   '事假',
   '病假',
   '工伤',
@@ -562,7 +569,7 @@ export type HrRecord = {
   name: string // 员工姓名 — the roster name, so 月度/年度 group by it
   type: HrType
   date: string // YYYY-MM-DD — the day it happened
-  hours?: number // 时长, in hours — 事假/病假/工伤/旷工 only
+  hours?: number // 时长, in hours — 加班/事假/病假/工伤/旷工 only
   note?: string
   by?: string // 记录人
   // 部门 — the 工段 this person belongs to (商务 for office staff). Stamped by

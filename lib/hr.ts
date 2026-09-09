@@ -4,9 +4,11 @@ import type { HrRecord, HrType } from './data'
 import { HR_TYPES, hrHasHours } from './data'
 
 /*
- * 人事 — 事假 / 病假 / 工伤 / 迟到 / 旷工 / 违纪 / 重大质量异常, one line per
- * event, written the day it happens and read back per person by month or by
- * year. The four absence kinds carry 时长 in hours; the rest are counted.
+ * 人事 — 加班 / 事假 / 病假 / 工伤 / 迟到 / 旷工 / 违纪 / 重大质量异常, one
+ * line per event, written the day it happens and read back per person by month
+ * or by year. 加班 and the four absence kinds carry 时长 in hours; the rest are
+ * counted. 加班 is what 工资 prices the month's overtime off — 人事 sums the
+ * hours, 财务 never types them again.
  *
  * Deliberately TABLE-FREE — the same choice as 合同 (lib/contract-file.ts),
  * 凭证 (lib/voucher-file.ts) and 请购图片 (lib/procurement-photo.ts), so there
@@ -177,7 +179,7 @@ export type NewHrRecordInput = {
   name: string
   type: HrType
   date: string // YYYY-MM-DD
-  hours?: number // 时长, hours — only meaningful on 事假/病假/工伤/旷工
+  hours?: number // 时长, hours — only meaningful on 加班/事假/病假/工伤/旷工
   note?: string
 }
 

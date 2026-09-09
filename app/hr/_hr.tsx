@@ -24,11 +24,13 @@ import type { HrRecord, HrType } from '@/lib/data'
 // no login at all, so the account list was never the shop's roster.
 //
 // Bottom: 一人一行 for the chosen 月 or 年 — one column per kind, ordered by
-// whoever has the most to answer for. The four absence kinds read in hours
-// (事假 16h), because hours are what payroll deducts from; 迟到 / 违纪 /
+// whoever has the most to answer for. 加班 and the four absence kinds read in
+// hours (事假 16h), because hours are what payroll prices; 迟到 / 违纪 /
 // 重大质量异常 read as a count, because a 迟到 is a 迟到 whether it was five
 // minutes or fifty. 请假共 adds 事假 + 病假 + 工伤 into the one number the
-// month actually gets settled on. Click a name to read that person's actual
+// month actually gets settled on. 加班 is the one column that pays rather than
+// costs: 工资 reads this month's 加班小时 straight off these lines, so nobody
+// types the same hours a second time. Click a name to read that person's actual
 // lines. Nobody with a clean record appears; the table is the exception list.
 
 export function HrBoard({
@@ -128,7 +130,9 @@ export function HrBoard({
     // 事假 / 病假 / 工伤 / 旷工 ARE their hours — a 请假 with no length is a
     // line nothing can be added up from, so it isn't accepted at all.
     if (hrHasHours(type) && parseHours(hours) === null) {
-      setError(`${type}要填时长 · 半天 4，一天 8`)
+      setError(
+        type === '加班' ? '加班要填时长 · 几个小时就填几' : `${type}要填时长 · 半天 4，一天 8`,
+      )
       return
     }
     setError(null)
@@ -343,7 +347,7 @@ export function HrBoard({
           </Link>
         </div>
 
-        <div className="hidden grid-cols-[minmax(0,1fr)_repeat(7,52px)_58px_46px] items-center gap-2 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
+        <div className="hidden grid-cols-[minmax(0,1fr)_repeat(8,52px)_58px_46px] items-center gap-2 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
           <span className="label">姓名</span>
           {HR_TYPES.map((t) => (
             <span key={t} className="label text-center">
@@ -371,7 +375,7 @@ export function HrBoard({
                 onClick={() =>
                   setOpenName(openName === r.name ? null : r.name)
                 }
-                className={`grid w-full grid-cols-[minmax(0,1fr)_46px] items-center gap-2 px-4 py-3 text-left md:grid-cols-[minmax(0,1fr)_repeat(7,52px)_58px_46px] md:px-5 ${
+                className={`grid w-full grid-cols-[minmax(0,1fr)_46px] items-center gap-2 px-4 py-3 text-left md:grid-cols-[minmax(0,1fr)_repeat(8,52px)_58px_46px] md:px-5 ${
                   openName === r.name ? 'bg-[#faf8f2]' : 'hover:bg-[#faf8f2]'
                 }`}
               >

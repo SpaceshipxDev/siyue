@@ -4,9 +4,13 @@
 // 商务 10 小时, 车间 11, 操机 12, 人事/采购 8. So a month's pay is a
 // consequence of two numbers, the shop-wide 月休 and the 部门's 每天工时:
 //
-//   应出勤天数 = 当月天数 − 月休天数            (8月 31 天 − 4 = 27 天)
-//   应出勤工时 = 应出勤天数 × 本部门每天工时     (27 × 11 = 297 小时)
-//   时薪       = 月薪 ÷ 应出勤工时               (¥6000 ÷ 297 = ¥20.2)
+//   应出勤天数 = 当月天数 − 月休天数            (9月 30 天 − 4 = 26 天)
+//   其中周六   = 当月日历上的周六, 一天只算 8 小时 (半天班)
+//   应出勤工时 = 平日 × 本部门每天工时 + 周六 × 8 (22×11 + 4×8 = 274 小时)
+//   时薪       = 综合工资 ÷ 应出勤工时           (¥6000 ÷ 274 = ¥21.9)
+//
+// 加班费 = 时薪 × 加班小时 × 加班倍率 — 加班小时不在这页填, 它来自 人事 的
+// 「加班」记录 (谁哪天加了几个小时), 汇总到当月。
 //
 // The 部门 is therefore part of a person's pay, not a label: the same 月薪 in
 // 操机 and in 商务 buys different hours, and every deduction is priced off the
@@ -78,10 +82,19 @@ export const FALLBACK_HOURS = 11
 export type PayrollRules = {
   restDays: number // 月休天数 — 全厂一个数
   hoursByDept: Record<string, number> // 每天工时 — 一个部门一个数
+  /**
+   * 周六一天算几个小时 — 全厂一个数。周六是半天班, 不分部门, 所以它不在
+   * hoursByDept 里: 应出勤工时 = 平日 × 本部门每天工时 + 周六 × 这个数。
+   */
+  saturdayHours: number
   sickPct: number // 病假扣薪比例 %（0 = 病假照发, 100 = 全扣）
   absentPct: number // 旷工扣薪比例 %（200 = 旷工一小时扣两小时）
   latePerTime: number // 迟到每次扣款, 元
-  otRate: number // 加班倍率
+  /**
+   * 加班倍率 — 设成 1 就是老板定的口径: 加班费 = 综合工资 ÷ 应出勤工时 ×
+   * 加班小时。要按 1.5 倍发就把它改成 1.5, 一处改, 全厂跟着走。
+   */
+  otRate: number
   // === 工资条上的工资构成 ===
   //
   // 综合工资是这个人一个月的总盘子 (系统里原来叫"月薪")。工资条上要把它拆
@@ -116,10 +129,11 @@ export type PayrollRules = {
 export const DEFAULT_PAYROLL_RULES: PayrollRules = {
   restDays: 4,
   hoursByDept: DEFAULT_HOURS_BY_DEPT,
+  saturdayHours: 8,
   sickPct: 50,
   absentPct: 200,
   latePerTime: 0,
-  otRate: 1.5,
+  otRate: 1,
   baseSalaryCny: 2660,
   splitThresholdCny: 6000,
   phonePct: 5,
@@ -136,6 +150,7 @@ export const DEFAULT_PAYROLL_RULES: PayrollRules = {
 // overtime rate, a 40-day month off) from turning into a payroll run.
 const RULE_LIMITS: Record<string, [number, number]> = {
   restDays: [0, 15],
+  saturdayHours: [0, 16],
   sickPct: [0, 100],
   absentPct: [0, 300],
   latePerTime: [0, 1000],
@@ -154,6 +169,7 @@ const RULE_LIMITS: Record<string, [number, number]> = {
 
 export type ScalarRuleKey =
   | 'restDays'
+  | 'saturdayHours'
   | 'sickPct'
   | 'absentPct'
   | 'latePerTime'
@@ -216,6 +232,7 @@ export function hoursForDept(rules: PayrollRules, dept?: string): number {
 // === 考勤汇总 ===
 
 export type Attendance = {
+  otHours: number // 加班
   leaveHours: number // 事假
   sickHours: number // 病假
   injuryHours: number // 工伤
@@ -226,6 +243,7 @@ export type Attendance = {
 }
 
 export const EMPTY_ATTENDANCE: Attendance = {
+  otHours: 0,
   leaveHours: 0,
   sickHours: 0,
   injuryHours: 0,
@@ -235,8 +253,8 @@ export const EMPTY_ATTENDANCE: Attendance = {
   qualityTimes: 0,
 }
 
-// One month of 人事 lines → one summary per person. The four hour-kinds add
-// their 时长; the rest count. Records filed before 时长 was required carry no
+// One month of 人事 lines → one summary per person. 加班 and the four absence
+// kinds add their 时长; the rest count. Records filed before 时长 was required carry no
 // hours and contribute none — they still show up in 人事 as an event, but
 // nothing can be deducted from a length nobody wrote down.
 export function summarizeAttendance(
@@ -246,7 +264,8 @@ export function summarizeAttendance(
   for (const r of records) {
     const a = (out[r.name] ??= { ...EMPTY_ATTENDANCE })
     const h = typeof r.hours === 'number' && r.hours > 0 ? r.hours : 0
-    if (r.type === '事假') a.leaveHours += h
+    if (r.type === '加班') a.otHours += h
+    else if (r.type === '事假') a.leaveHours += h
     else if (r.type === '病假') a.sickHours += h
     else if (r.type === '工伤') a.injuryHours += h
     else if (r.type === '旷工') a.absentHours += h
@@ -262,7 +281,12 @@ export function summarizeAttendance(
 // 每月每人手填的那一行。上面几项是加的, 下面几项是减的 —— 工资条上就按这
 // 个顺序排, 跟厂里发的那张纸一样。全部按整元存。
 export type PayrollLine = {
-  otHours?: number // 加班小时
+  /**
+   * 加班小时 —— 现在由 人事 的「加班」记录汇总而来 (见 summarizeAttendance),
+   * 这一格只在 人事 当月一条加班都没记时才用得上: 老月份里手填过的数不会
+   * 因为改了来源就凭空消失。人事一记, 就以人事为准。
+   */
+  otHours?: number
   adjustCny?: number // 奖罚, 正为奖 负为扣
   // —— 工资构成里的两项定额 (手填就盖掉制度里的默认数; 不填 = 用默认) ——
   phoneAllowanceCny?: number // 话费补贴
@@ -365,10 +389,15 @@ export type Payslip = {
   monthlyCny: number // 月薪
   hoursPerDay: number // 本部门每天工时
   standardDays: number // 应出勤天数
-  standardHours: number // 应出勤工时
-  hourlyCny: number // 时薪（未取整, 展示用一位小数）
+  saturdays: number // 其中周六几天（一天按 saturdayHours 算）
+  saturdayHours: number // 周六一天算几小时
+  standardHours: number // 应出勤工时 = 平日×每天工时 + 周六×周六工时
+  hourlyCny: number // 时薪 = 综合工资 ÷ 应出勤工时（展示用一位小数）
   attendance: Attendance
-  otHours: number // 加班小时
+  otHours: number // 加班小时 —— 来自人事
+  otRate: number // 加班倍率（工资条上把算式写全用）
+  /** 这个月的加班小时是不是人事记的（否则是老数据里手填的）。 */
+  otFromHr: boolean
   workedHours: number // 实际工时 = 应出勤 − 缺勤 + 加班
   leaveCut: number // 事假扣
   sickCut: number // 病假扣
@@ -435,6 +464,38 @@ export function standardDaysOf(month: string, rules: PayrollRules): number {
   return Math.max(1, daysInMonth(month) - rules.restDays)
 }
 
+/** 当月日历上有几个周六 —— 周六是半天班, 工时另算。 */
+export function saturdaysInMonth(month: string): number {
+  const y = Number(month.slice(0, 4))
+  const m = Number(month.slice(5, 7))
+  let n = 0
+  for (let d = 1; d <= daysInMonth(month); d++) {
+    if (new Date(Date.UTC(y, m - 1, d)).getUTCDay() === 6) n++
+  }
+  return n
+}
+
+/**
+ * 当月该上多少小时 —— 加班费和每一笔缺勤扣都是从它算出来的。
+ *
+ *   应出勤天数 = 当月天数 − 月休
+ *   其中周六按 rules.saturdayHours 算 (半天班), 其余按本部门每天工时
+ *
+ * 月休默认 4 天, 正好是四个周日; 遇到有五个周日的月份, 周六天数会被应出勤天
+ * 数夹住, 不会算出比上班天数还多的周六。
+ */
+export function standardHoursOf(
+  month: string,
+  rules: PayrollRules,
+  hoursPerDay: number,
+): { standardDays: number; saturdays: number; standardHours: number } {
+  const standardDays = standardDaysOf(month, rules)
+  const saturdays = Math.min(saturdaysInMonth(month), standardDays)
+  const standardHours =
+    (standardDays - saturdays) * hoursPerDay + saturdays * rules.saturdayHours
+  return { standardDays, saturdays, standardHours: Math.max(1, standardHours) }
+}
+
 export function computePayslip(
   name: string,
   dept: string,
@@ -444,11 +505,17 @@ export function computePayslip(
   rules: PayrollRules,
   month: string,
 ): Payslip {
-  const standardDays = standardDaysOf(month, rules)
   const hoursPerDay = hoursForDept(rules, dept)
-  const standardHours = standardDays * hoursPerDay
+  const { standardDays, saturdays, standardHours } = standardHoursOf(
+    month,
+    rules,
+    hoursPerDay,
+  )
   const hourlyCny = monthlyCny / standardHours
-  const otHours = line.otHours ?? 0
+  // 加班小时以 人事 记的为准 —— 同一件事只在一个地方写。人事当月一条没记时
+  // 才回落到工资表上手填过的那个数 (老月份)。
+  const otFromHr = attendance.otHours > 0
+  const otHours = otFromHr ? attendance.otHours : (line.otHours ?? 0)
   const adjustCny = Math.round(line.adjustCny ?? 0)
 
   const leaveCut = Math.round(attendance.leaveHours * hourlyCny)
@@ -563,16 +630,28 @@ export function computePayslip(
     monthlyCny,
     hoursPerDay,
     standardDays,
+    saturdays,
+    saturdayHours: rules.saturdayHours,
     standardHours,
     hourlyCny,
     attendance,
     otHours,
+    otRate: rules.otRate,
+    otFromHr,
     workedHours: Math.max(0, Math.round(workedHours * 10) / 10),
-    // 实际出勤天数 —— 由工时折回天, 一位小数 (半天假是常事)。加班不算进出勤
-    // 天数, 它自己有一行。
+    // 实际出勤天数 —— 应出勤天数减掉缺勤折成的天 (半天假是常事, 留一位小
+    // 数)。加班不算进出勤天数, 它自己有一行。
     workedDays:
       Math.round(
-        (Math.max(0, workedHours - otHours) / (hoursPerDay || 1)) * 10,
+        Math.max(
+          0,
+          standardDays -
+            (attendance.leaveHours +
+              attendance.sickHours +
+              attendance.injuryHours +
+              attendance.absentHours) /
+              (hoursPerDay || 1),
+        ) * 10,
       ) / 10,
     leaveCut,
     sickCut,
@@ -739,7 +818,9 @@ export const PAYROLL_EXPORT_HEADERS = [
   '应出勤天',
   '实际出勤天',
   '每天工时',
+  '周六天',
   '应出勤工时',
+  '时薪',
   '事假h',
   '病假h',
   '工伤h',
@@ -802,7 +883,9 @@ export function buildPayrollExportAoa(
       p.standardDays,
       p.workedDays,
       p.hoursPerDay,
+      p.saturdays,
       p.standardHours,
+      Math.round(p.hourlyCny * 10) / 10,
       p.attendance.leaveHours,
       p.attendance.sickHours,
       p.attendance.injuryHours,

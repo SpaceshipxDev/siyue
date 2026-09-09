@@ -11,6 +11,7 @@ import {
   isValidDeptHours,
   isValidMonthlyCny,
   isValidOtHours,
+  DEFAULT_PAYROLL_RULES,
   FALLBACK_HOURS,
   NO_DEPARTMENT,
   isValidPayrollMoney,
@@ -431,6 +432,9 @@ function normalizeSheet(raw: unknown): PayrollSheet {
   if (typeof o.paid !== 'object' || o.paid === null) return { lines }
   // 工资条 frozen before 部门 was part of pay carry neither — they read as
   // 未分部门 at the shop's commonest day, which is what they were paid at.
+  // 同样地, 发放于"周六半天"和"加班读自人事"之前的条子上没有这几格: 它们读
+  // 成 0 / 1 倍, 因为那个月本来就是那么发的 —— 已发放的工资条是凭据, 不能被
+  // 后来改的算法追认。
   const p = o.paid as PayrollPaid
   const paid: PayrollPaid = {
     ...p,
@@ -440,6 +444,13 @@ function normalizeSheet(raw: unknown): PayrollSheet {
       hoursPerDay: isValidDeptHours(s.hoursPerDay)
         ? s.hoursPerDay
         : FALLBACK_HOURS,
+      saturdays: typeof s.saturdays === 'number' ? s.saturdays : 0,
+      saturdayHours:
+        typeof s.saturdayHours === 'number'
+          ? s.saturdayHours
+          : DEFAULT_PAYROLL_RULES.saturdayHours,
+      otRate: typeof s.otRate === 'number' ? s.otRate : 1,
+      otFromHr: s.otFromHr === true,
     })),
   }
   return { lines, paid }

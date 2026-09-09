@@ -70,7 +70,8 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
           {s.dept} · {monthLabel(month)}
         </span>
         <span className="mono text-[12px] text-[var(--color-ink-2)]">
-          应出勤 {s.standardDays} 天 · 实际出勤 {fmt(s.workedDays)} 天
+          应出勤 {s.standardDays} 天 / {fmt(s.standardHours)} 小时 · 实际出勤{' '}
+          {fmt(s.workedDays)} 天
         </span>
       </div>
 
@@ -101,7 +102,12 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
         <div>
           <p className="label mb-0.5">应发</p>
           <Row label="出勤工资" v={s.attendancePayCny} />
-          <Row label="加班费" v={s.otPay} />
+          <Row
+            label={
+              s.otHours > 0 ? `加班费 · ${fmt(s.otHours)} 小时` : '加班费'
+            }
+            v={s.otPay}
+          />
           {PAYROLL_ADD_FIELDS.map(([k, label]) => (
             <Row key={k} label={label} v={s[k]} />
           ))}

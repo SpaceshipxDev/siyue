@@ -20,8 +20,9 @@ import { HrBoard } from './_hr'
 
 export const dynamic = 'force-dynamic'
 
-// 人事 — one line per event (事假 / 病假 / 工伤 / 迟到 / 旷工 / 违纪 /
+// 人事 — one line per event (加班 / 事假 / 病假 / 工伤 / 迟到 / 旷工 / 违纪 /
 // 重大质量异常), filed the day it happens, read back per person by 月 or by 年.
+// 加班时长 is summed here and read straight into 工资 — one book, not two.
 //
 // The period is a URL param, not client state: the boss lands on this month,
 // and a month he wants to keep looking at is a link he can leave open. The
@@ -82,7 +83,7 @@ export default async function HrPage({
       <TopBar
         title="人事"
         subtitle={
-          seeAll ? '全厂 · 请假 · 迟到 · 旷工 · 违纪 · 质量异常' : `${myDept}部门`
+          seeAll ? '全厂 · 加班 · 请假 · 迟到 · 旷工 · 违纪' : `${myDept}部门`
         }
         currentTab="人事"
         role={user.role}
