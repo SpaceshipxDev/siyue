@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { mutate } from '@/lib/mutate'
+import { withBase } from '@/lib/base-path'
 import { showToast } from '@/app/_toast'
 import { EditableText } from '@/app/_editable'
 import { formatCny } from '@/lib/data'
@@ -12,6 +13,8 @@ import {
   hoursForDept,
   monthLabel,
   payrollTotal,
+  PAYROLL_ADD_FIELDS,
+  PAYROLL_CUT_FIELDS,
   DEPARTMENTS,
   NO_DEPARTMENT,
   type PayrollRules,
@@ -168,6 +171,16 @@ export function PayrollBoard({
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {/* 一沓打出来、沿虚线剪开、连着钱发下去 —— 厂里发工资就是这么发
+              的, 所以这一步不该是"先导出 Excel 再自己排版"。 */}
+          <a
+            href={withBase(`/finance/payroll/print?m=${month}`)}
+            target="_blank"
+            rel="noopener"
+            className="rounded-[2px] border border-[var(--color-border)] px-4 py-2 text-[13px] font-medium text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)]"
+          >
+            打印工资条
+          </a>
           <Link
             href={`/finance/payroll/export?m=${month}`}
             className="rounded-[2px] border border-[var(--color-border)] px-4 py-2 text-[13px] font-medium text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)]"
@@ -365,7 +378,14 @@ export function PayrollBoard({
               </button>
             </div>
 
-            {open === s.name && <Slip slip={s} />}
+            {open === s.name && (
+              <Slip
+                slip={s}
+                month={month}
+                locked={locked}
+                save={save}
+              />
+            )}
           </div>
         ))}
 
@@ -428,82 +448,6 @@ export function PayrollBoard({
 
 // 工资条 — the arithmetic in the order it runs, so it answers the question a
 // person actually asks: 为什么是这个数.
-function Slip({ slip: s }: { slip: Payslip }) {
-  const rows: [string, string, number][] = []
-  if (s.attendance.leaveHours > 0)
-    rows.push(['事假', `${num(s.attendance.leaveHours)} 小时`, -s.leaveCut])
-  if (s.attendance.sickHours > 0)
-    rows.push(['病假', `${num(s.attendance.sickHours)} 小时`, -s.sickCut])
-  if (s.attendance.injuryHours > 0)
-    rows.push(['工伤', `${num(s.attendance.injuryHours)} 小时 · 不扣`, 0])
-  if (s.attendance.absentHours > 0)
-    rows.push(['旷工', `${num(s.attendance.absentHours)} 小时`, -s.absentCut])
-  if (s.attendance.lateTimes > 0)
-    rows.push(['迟到', `${s.attendance.lateTimes} 次`, -s.lateCut])
-  if (s.otHours > 0) rows.push(['加班', `${num(s.otHours)} 小时`, s.otPay])
-  if (s.adjustCny !== 0)
-    rows.push([s.adjustCny > 0 ? '奖' : '罚', s.note ?? '', s.adjustCny])
-
-  return (
-    <div className="border-t border-[var(--color-border)] bg-[#faf8f2] px-4 py-3 md:px-5">
-      <div className="mx-auto max-w-[520px]">
-        <p className="mono mb-2 text-[12px] text-[var(--color-ink-3)] tabular-nums">
-          {s.dept} · 月薪 {formatCny(s.monthlyCny)} ÷ 应出勤 {s.standardDays} 天
-          ÷ 每天 {num(s.hoursPerDay)} 小时 = 时薪 ¥{s.hourlyCny.toFixed(1)}
-        </p>
-        <div className="flex items-baseline justify-between border-b border-[var(--color-border)] py-1.5">
-          <span className="text-[13px] text-[var(--color-ink-2)]">月薪</span>
-          <span className="mono text-[13px] tabular-nums text-[var(--color-ink)]">
-            {formatCny(s.monthlyCny)}
-          </span>
-        </div>
-        {rows.map(([label, detail, amount], i) => (
-          <div
-            key={`${label}-${i}`}
-            className="flex items-baseline justify-between gap-3 border-b border-[var(--color-border)] py-1.5"
-          >
-            <span className="min-w-0 truncate text-[13px] text-[var(--color-ink-2)]">
-              {label}
-              {detail && (
-                <span className="ml-2 text-[12px] text-[var(--color-ink-3)]">
-                  {detail}
-                </span>
-              )}
-            </span>
-            <span
-              className={`mono shrink-0 text-[13px] tabular-nums ${
-                amount < 0
-                  ? 'text-[var(--color-overdue)]'
-                  : amount > 0
-                    ? 'text-[var(--color-success)]'
-                    : 'text-[var(--color-ink-3)]'
-              }`}
-            >
-              {amount === 0
-                ? '—'
-                : `${amount > 0 ? '+' : '−'}${formatCny(Math.abs(amount))}`}
-            </span>
-          </div>
-        ))}
-        <div className="flex items-baseline justify-between py-2">
-          <span className="text-[13px] font-medium text-[var(--color-ink)]">
-            实发
-          </span>
-          <span className="mono text-[15px] font-semibold tabular-nums text-[var(--color-ink)]">
-            {formatCny(s.netCny)}
-          </span>
-        </div>
-        <p className="mono text-[11.5px] text-[var(--color-ink-4)] tabular-nums">
-          实际工时 {num(s.workedHours)} 小时 · 应出勤 {num(s.standardHours)} 小时
-        </p>
-      </div>
-    </div>
-  )
-}
-
-// 部门格 — 换一个部门, 这个人一天的工时就变了, 整行跟着重算。A plain native
-// select: fourteen options, one tap, and it works the same on the office PC and
-// on a phone. Invisible at rest like every other inline field on the board.
 function Dept({
   value,
   onSave,
@@ -547,6 +491,7 @@ function Dept({
 }
 
 // 考勤格 — read-only, it belongs to 人事.
+
 function Att({
   value,
   unit,
@@ -573,6 +518,239 @@ function Att({
 
 // 可改的数字格. A paid-out month is history, so every cell goes read-only once
 // 发放 has happened.
+
+// 工资条 —— 厂里发到手上的那张纸, 长在这一行下面。
+//
+// 左边应发, 右边扣款, 底下实发 —— 跟纸上的排法一样, 所以拿着条子的人不用重
+// 新认一遍。能填的格子当场点着填 (社保、个税、房补这些是每月手录的), 发放之
+// 后整张锁住。
+//
+// 顶上那一段是"综合工资是怎么构成的": 基本工资加几项按比例的补贴。这几行只
+// 是把综合工资拆开写, **不参与实发计算** —— 拆法改了，钱一分不变。
+function Slip({
+  slip: s,
+  month,
+  locked,
+  save,
+}: {
+  slip: Payslip
+  month: string
+  locked: boolean
+  save: (body: Record<string, unknown> & { kind: string }) => Promise<void>
+}) {
+  const setLine = (patch: Record<string, number>) =>
+    save({ kind: 'setPayrollLine', month, name: s.name, patch })
+
+  const cuts: [string, string, number][] = []
+  if (s.attendance.leaveHours > 0)
+    cuts.push(['事假', `${num(s.attendance.leaveHours)} 小时`, s.leaveCut])
+  if (s.attendance.sickHours > 0)
+    cuts.push(['病假', `${num(s.attendance.sickHours)} 小时`, s.sickCut])
+  if (s.attendance.injuryHours > 0)
+    cuts.push(['工伤', `${num(s.attendance.injuryHours)} 小时 · 不扣`, 0])
+  if (s.attendance.absentHours > 0)
+    cuts.push(['旷工', `${num(s.attendance.absentHours)} 小时`, s.absentCut])
+  if (s.attendance.lateTimes > 0)
+    cuts.push(['迟到', `${s.attendance.lateTimes} 次`, s.lateCut])
+
+  return (
+    <div className="border-t border-[var(--color-border)] bg-[#faf8f2] px-4 py-4 md:px-5">
+      <div className="mx-auto max-w-[860px]">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+          <p className="mono text-[12px] tabular-nums text-[var(--color-ink-3)]">
+            {s.dept} · 应出勤 {s.standardDays} 天 · 实际出勤 {num(s.workedDays)} 天
+            · 每天 {num(s.hoursPerDay)} 小时 · 时薪 ¥{s.hourlyCny.toFixed(1)}
+          </p>
+          <a
+            href={withBase(`/finance/payroll/print?m=${month}&name=${encodeURIComponent(s.name)}`)}
+            target="_blank"
+            rel="noopener"
+            className="text-[12px] text-[var(--color-ink-3)] underline underline-offset-2 hover:text-[var(--color-ink)]"
+          >
+            打印这张工资条
+          </a>
+        </div>
+
+        {/* 工资构成 —— 只是拆法, 不加钱。 */}
+        <div className="mb-4 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5">
+          <p className="label mb-1.5 text-[var(--color-ink-3)]">
+            工资构成 · 综合工资 {formatCny(s.monthlyCny)}
+            {!s.splitApplies && ' · 未过拆分门槛'}
+          </p>
+          {s.splitApplies ? (
+            <div className="grid grid-cols-2 gap-x-8 gap-y-1 md:grid-cols-3">
+              <Ln label="基本工资" v={s.baseSalaryCny} />
+              <Ln label="岗位补贴" v={s.postSubsidyCny} />
+              <Ln label="保密费" v={s.secretFeeCny} />
+              <Ln label="安全费" v={s.safetyFeeCny} />
+              <Ln label="绩效工资" v={s.perfPayCny} />
+              <Ln label="其他" v={s.otherPartCny} />
+            </div>
+          ) : (
+            <p className="text-[12.5px] text-[var(--color-ink-3)]">
+              综合工资不高于拆分门槛，工资条上不拆分。
+            </p>
+          )}
+          <p className="mt-1.5 text-[11px] text-[var(--color-ink-4)]">
+            这几项是综合工资的拆法，不额外加钱——实发从下面的出勤工资算起。
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-x-10 gap-y-1 md:grid-cols-2">
+          {/* 应发 */}
+          <div>
+            <p className="label mb-1 text-[var(--color-ink-3)]">应发</p>
+            <Ln label="出勤工资" v={s.attendancePayCny} strong />
+            <Ln
+              label={`加班费${s.otHours > 0 ? ` · ${num(s.otHours)} 小时` : ''}`}
+              v={s.otPay}
+            />
+            {PAYROLL_ADD_FIELDS.map(([k, label]) => (
+              <Edit
+                key={k}
+                label={label}
+                value={s[k]}
+                locked={locked}
+                onSave={(v) => setLine({ [k]: v })}
+              />
+            ))}
+            {s.adjustCny !== 0 && (
+              <Ln label={s.adjustCny > 0 ? '奖' : '罚'} v={s.adjustCny} />
+            )}
+            <Ln label="应发合计" v={s.grossCny} strong divider />
+          </div>
+
+          {/* 扣款 */}
+          <div>
+            <p className="label mb-1 text-[var(--color-ink-3)]">扣款</p>
+            {cuts.map(([label, detail, amount], i) => (
+              <Ln
+                key={`${label}-${i}`}
+                label={label}
+                detail={detail}
+                v={-amount}
+              />
+            ))}
+            {cuts.length > 0 && (
+              <p className="py-0.5 text-[11px] text-[var(--color-ink-4)]">
+                上面几笔已经算在出勤工资里了
+              </p>
+            )}
+            {PAYROLL_CUT_FIELDS.map(([k, label]) => (
+              <Edit
+                key={k}
+                label={label}
+                value={s[k]}
+                locked={locked}
+                negative
+                onSave={(v) => setLine({ [k]: v })}
+              />
+            ))}
+            <Ln label="扣款合计" v={-s.deductCny} strong divider />
+          </div>
+        </div>
+
+        <div className="mt-3 flex items-baseline justify-between border-t border-[var(--color-ink)] pt-2.5">
+          <span className="text-[13.5px] font-medium text-[var(--color-ink)]">
+            实发工资
+          </span>
+          <span
+            className={`mono text-[17px] font-semibold tabular-nums ${
+              s.netCny < 0
+                ? 'text-[var(--color-overdue)]'
+                : 'text-[var(--color-ink)]'
+            }`}
+          >
+            {formatCny(s.netCny)}
+          </span>
+        </div>
+        {s.note && (
+          <p className="mt-1.5 text-[12px] text-[var(--color-ink-3)]">
+            备注 · {s.note}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 一行只读的钱。 */
+function Ln({
+  label,
+  detail,
+  v,
+  strong,
+  divider,
+}: {
+  label: string
+  detail?: string
+  v: number
+  strong?: boolean
+  divider?: boolean
+}) {
+  return (
+    <div
+      className={`flex items-baseline justify-between gap-3 py-1 ${
+        divider ? 'mt-0.5 border-t border-[var(--color-border-strong)]' : ''
+      }`}
+    >
+      <span className="min-w-0 truncate text-[12.5px] text-[var(--color-ink-2)]">
+        {label}
+        {detail && (
+          <span className="ml-2 text-[11.5px] text-[var(--color-ink-3)]">
+            {detail}
+          </span>
+        )}
+      </span>
+      <span
+        className={`mono shrink-0 tabular-nums ${
+          strong
+            ? 'text-[13.5px] font-semibold text-[var(--color-ink)]'
+            : v < 0
+              ? 'text-[12.5px] text-[var(--color-overdue)]'
+              : 'text-[12.5px] text-[var(--color-ink)]'
+        }`}
+      >
+        {v === 0 ? '—' : formatCny(v)}
+      </span>
+    </div>
+  )
+}
+
+/** 一行能填的钱 —— 点着就改, 发放之后是死的。 */
+function Edit({
+  label,
+  value,
+  locked,
+  negative,
+  onSave,
+}: {
+  label: string
+  value: number
+  locked: boolean
+  negative?: boolean
+  onSave: (v: number) => Promise<void>
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-1">
+      <span className="min-w-0 truncate text-[12.5px] text-[var(--color-ink-2)]">
+        {label}
+      </span>
+      <span className="w-[96px] shrink-0">
+        <Num
+          value={value}
+          locked={locked}
+          onSave={onSave}
+          placeholder="—"
+          className={
+            negative && value > 0 ? 'text-[var(--color-overdue)]' : undefined
+          }
+        />
+      </span>
+    </div>
+  )
+}
+
 function Num({
   value,
   onSave,

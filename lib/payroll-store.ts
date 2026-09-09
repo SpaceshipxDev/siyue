@@ -13,6 +13,8 @@ import {
   isValidOtHours,
   FALLBACK_HOURS,
   NO_DEPARTMENT,
+  isValidPayrollMoney,
+  PAYROLL_MONEY_KEYS,
   type PayrollLine,
   type PayrollPerson,
   type PayrollRules,
@@ -370,6 +372,10 @@ function normalizeSheet(raw: unknown): PayrollSheet {
     const line: PayrollLine = {}
     if (isValidOtHours(l.otHours)) line.otHours = l.otHours
     if (isValidAdjust(l.adjustCny)) line.adjustCny = l.adjustCny
+    // 工资条上手填的那十二格 —— 一份清单管住存和取, 加一项只改 lib/payroll。
+    for (const k of PAYROLL_MONEY_KEYS) {
+      if (isValidPayrollMoney(l[k])) line[k] = l[k] as number
+    }
     if (typeof l.note === 'string' && l.note.trim()) line.note = l.note
     lines[name] = line
   }

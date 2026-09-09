@@ -82,6 +82,17 @@ export type PayrollRules = {
   absentPct: number // 旷工扣薪比例 %（200 = 旷工一小时扣两小时）
   latePerTime: number // 迟到每次扣款, 元
   otRate: number // 加班倍率
+  // === 工资条上的工资构成 ===
+  //
+  // 综合工资是这个人一个月的总盘子 (系统里原来叫"月薪")。工资条上要把它拆
+  // 开写: 一份固定的基本工资, 加上几项按比例算的补贴。这几个数只是**构成的
+  // 拆法**, 不额外加钱 —— 实发仍然从综合工资算起, 所以拆法改了实发一分不变。
+  baseSalaryCny: number // 基本工资 — 全厂一个数
+  splitThresholdCny: number // 综合工资高过这个数才拆分
+  postPct: number // 岗位补贴 %
+  secretPct: number // 保密费 %
+  safetyPct: number // 安全费 %
+  perfPct: number // 绩效工资 %
 }
 
 export const DEFAULT_PAYROLL_RULES: PayrollRules = {
@@ -91,6 +102,12 @@ export const DEFAULT_PAYROLL_RULES: PayrollRules = {
   absentPct: 200,
   latePerTime: 0,
   otRate: 1.5,
+  baseSalaryCny: 2660,
+  splitThresholdCny: 6000,
+  postPct: 10,
+  secretPct: 15,
+  safetyPct: 10,
+  perfPct: 35,
 }
 
 // Bounds are sanity rails, not policy: they stop a slipped keystroke (a 500x
@@ -101,9 +118,26 @@ const RULE_LIMITS: Record<string, [number, number]> = {
   absentPct: [0, 300],
   latePerTime: [0, 1000],
   otRate: [1, 5],
+  baseSalaryCny: [0, 100000],
+  splitThresholdCny: [0, 100000],
+  postPct: [0, 100],
+  secretPct: [0, 100],
+  safetyPct: [0, 100],
+  perfPct: [0, 100],
 }
 
-export type ScalarRuleKey = 'restDays' | 'sickPct' | 'absentPct' | 'latePerTime' | 'otRate'
+export type ScalarRuleKey =
+  | 'restDays'
+  | 'sickPct'
+  | 'absentPct'
+  | 'latePerTime'
+  | 'otRate'
+  | 'baseSalaryCny'
+  | 'splitThresholdCny'
+  | 'postPct'
+  | 'secretPct'
+  | 'safetyPct'
+  | 'perfPct'
 
 export const RULE_KEYS = Object.keys(RULE_LIMITS) as ScalarRuleKey[]
 
@@ -195,10 +229,63 @@ export function summarizeAttendance(
 
 // === 每人每月的手工两项 ===
 
+// 每月每人手填的那一行。上面几项是加的, 下面几项是减的 —— 工资条上就按这
+// 个顺序排, 跟厂里发的那张纸一样。全部按整元存。
 export type PayrollLine = {
   otHours?: number // 加班小时
   adjustCny?: number // 奖罚, 正为奖 负为扣
+  // —— 补助 (加) ——
+  socialSubsidyCny?: number // 社保补贴
+  housingCny?: number // 房补
+  mealCny?: number // 餐补
+  nightShiftCny?: number // 夜班补贴
+  holidayCny?: number // 节假日补贴
+  bonusCny?: number // 奖金
+  // —— 扣款 (减) ——
+  advanceCny?: number // 预支工资
+  otherDeductCny?: number // 其他扣款
+  perfDeductCny?: number // 绩效扣款
+  safetyDeductCny?: number // 安全扣款
+  socialInsuranceCny?: number // 社保 (个人部分)
+  taxCny?: number // 个税
   note?: string
+}
+
+/** 手填的钱格子 —— 一份清单管住校验、录入界面和工资条的顺序。 */
+export const PAYROLL_ADD_FIELDS = [
+  ['socialSubsidyCny', '社保补贴'],
+  ['housingCny', '房补'],
+  ['mealCny', '餐补'],
+  ['nightShiftCny', '夜班补贴'],
+  ['holidayCny', '节假日补贴'],
+  ['bonusCny', '奖金'],
+] as const
+
+export const PAYROLL_CUT_FIELDS = [
+  ['advanceCny', '预支工资'],
+  ['perfDeductCny', '绩效扣款'],
+  ['safetyDeductCny', '安全扣款'],
+  ['otherDeductCny', '其他扣款'],
+  ['socialInsuranceCny', '社保'],
+  ['taxCny', '个税'],
+] as const
+
+export type PayrollMoneyKey =
+  | (typeof PAYROLL_ADD_FIELDS)[number][0]
+  | (typeof PAYROLL_CUT_FIELDS)[number][0]
+
+export const PAYROLL_MONEY_KEYS: PayrollMoneyKey[] = [
+  ...PAYROLL_ADD_FIELDS.map((f) => f[0]),
+  ...PAYROLL_CUT_FIELDS.map((f) => f[0]),
+]
+
+export function isPayrollMoneyKey(x: unknown): x is PayrollMoneyKey {
+  return typeof x === 'string' && (PAYROLL_MONEY_KEYS as string[]).includes(x)
+}
+
+/** 一格钱: 整元, 不为负, 有上限 —— 手滑多打一个零不会变成一次发薪事故。 */
+export function isValidPayrollMoney(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1_000_000
 }
 
 export function isValidOtHours(v: unknown): v is number {
@@ -243,6 +330,36 @@ export type Payslip = {
   lateCut: number // 迟到扣
   otPay: number // 加班费
   adjustCny: number // 奖罚
+  // === 工资构成 (只是把综合工资拆开写, 不额外加钱) ===
+  baseSalaryCny: number // 基本工资
+  postSubsidyCny: number // 岗位补贴
+  secretFeeCny: number // 保密费
+  safetyFeeCny: number // 安全费
+  perfPayCny: number // 绩效工资
+  /** 综合工资减掉上面五项之后剩下的 —— 拆不干净的部分照实摆出来, 不藏。 */
+  otherPartCny: number
+  /** 综合工资没过门槛就不拆 (工资条上那几行留空)。 */
+  splitApplies: boolean
+  // === 出勤 ===
+  workedDays: number // 实际出勤天数
+  attendancePayCny: number // 出勤工资 = 综合工资 − 各项缺勤扣
+  // === 手填的加减项 ===
+  socialSubsidyCny: number
+  housingCny: number
+  mealCny: number
+  nightShiftCny: number
+  holidayCny: number
+  bonusCny: number
+  advanceCny: number
+  otherDeductCny: number
+  perfDeductCny: number
+  safetyDeductCny: number
+  socialInsuranceCny: number
+  taxCny: number
+  /** 应发合计 = 出勤工资 + 加班费 + 补助 + 奖金 + 奖罚 */
+  grossCny: number
+  /** 扣款合计 */
+  deductCny: number
   netCny: number // 实发
   note?: string
 }
@@ -294,6 +411,60 @@ export function computePayslip(
     attendance.absentHours +
     otHours
 
+  // 出勤工资 —— 综合工资扣掉缺勤的那几笔。加班和补助不在里面 (它们是另外
+  // 加的), 所以这一格回答的是"这个月按出勤该拿多少底"。
+  const attendancePayCny = monthlyCny - leaveCut - sickCut - absentCut - lateCut
+
+  // 工资构成 —— 把综合工资拆开写在条子上。只有过了门槛才拆; 拆完剩下的那点
+  // 照实摆在"其他"里, 不硬凑。这几行**不参与实发计算**, 改拆法钱不会变。
+  const splitApplies = monthlyCny > rules.splitThresholdCny
+  const pct = (p: number) => (splitApplies ? Math.round(monthlyCny * (p / 100)) : 0)
+  const baseSalaryCny = splitApplies ? Math.round(rules.baseSalaryCny) : 0
+  const postSubsidyCny = pct(rules.postPct)
+  const secretFeeCny = pct(rules.secretPct)
+  const safetyFeeCny = pct(rules.safetyPct)
+  const perfPayCny = pct(rules.perfPct)
+  const otherPartCny = splitApplies
+    ? monthlyCny -
+      baseSalaryCny -
+      postSubsidyCny -
+      secretFeeCny -
+      safetyFeeCny -
+      perfPayCny
+    : 0
+
+  const money = (v: number | undefined) => Math.round(v ?? 0)
+  const socialSubsidyCny = money(line.socialSubsidyCny)
+  const housingCny = money(line.housingCny)
+  const mealCny = money(line.mealCny)
+  const nightShiftCny = money(line.nightShiftCny)
+  const holidayCny = money(line.holidayCny)
+  const bonusCny = money(line.bonusCny)
+  const advanceCny = money(line.advanceCny)
+  const otherDeductCny = money(line.otherDeductCny)
+  const perfDeductCny = money(line.perfDeductCny)
+  const safetyDeductCny = money(line.safetyDeductCny)
+  const socialInsuranceCny = money(line.socialInsuranceCny)
+  const taxCny = money(line.taxCny)
+
+  const grossCny =
+    attendancePayCny +
+    otPay +
+    socialSubsidyCny +
+    housingCny +
+    mealCny +
+    nightShiftCny +
+    holidayCny +
+    bonusCny +
+    adjustCny
+  const deductCny =
+    advanceCny +
+    otherDeductCny +
+    perfDeductCny +
+    safetyDeductCny +
+    socialInsuranceCny +
+    taxCny
+
   return {
     name,
     dept,
@@ -305,14 +476,41 @@ export function computePayslip(
     attendance,
     otHours,
     workedHours: Math.max(0, Math.round(workedHours * 10) / 10),
+    // 实际出勤天数 —— 由工时折回天, 一位小数 (半天假是常事)。加班不算进出勤
+    // 天数, 它自己有一行。
+    workedDays:
+      Math.round(
+        (Math.max(0, workedHours - otHours) / (hoursPerDay || 1)) * 10,
+      ) / 10,
     leaveCut,
     sickCut,
     absentCut,
     lateCut,
     otPay,
     adjustCny,
-    netCny:
-      monthlyCny - leaveCut - sickCut - absentCut - lateCut + otPay + adjustCny,
+    baseSalaryCny,
+    postSubsidyCny,
+    secretFeeCny,
+    safetyFeeCny,
+    perfPayCny,
+    otherPartCny,
+    splitApplies,
+    attendancePayCny,
+    socialSubsidyCny,
+    housingCny,
+    mealCny,
+    nightShiftCny,
+    holidayCny,
+    bonusCny,
+    advanceCny,
+    otherDeductCny,
+    perfDeductCny,
+    safetyDeductCny,
+    socialInsuranceCny,
+    taxCny,
+    grossCny,
+    deductCny,
+    netCny: grossCny - deductCny,
     note: line.note,
   }
 }
@@ -423,11 +621,19 @@ export function monthLabel(month: string): string {
 //
 // The sheet they print and pass around on payday — last column is left blank
 // on purpose, it's where people sign.
+// 导出的表头 = 工资条上的项目, 顺序一样 —— 屏幕上、纸上、Excel 里读到的是
+// 同一张表, 不用在三份东西之间对字段。
 export const PAYROLL_EXPORT_HEADERS = [
   '姓名',
   '部门',
-  '月薪',
+  '综合工资',
+  '基本工资',
+  '岗位补贴',
+  '保密费',
+  '安全费',
+  '绩效工资',
   '应出勤天',
+  '实际出勤天',
   '每天工时',
   '应出勤工时',
   '事假h',
@@ -441,16 +647,33 @@ export const PAYROLL_EXPORT_HEADERS = [
   '病假扣',
   '旷工扣',
   '迟到扣',
+  '出勤工资',
   '加班费',
+  '社保补贴',
+  '房补',
+  '餐补',
+  '夜班补贴',
+  '节假日补贴',
+  '奖金',
   '奖罚',
+  '应发合计',
+  '预支工资',
+  '绩效扣款',
+  '安全扣款',
+  '其他扣款',
+  '社保',
+  '个税',
+  '扣款合计',
   '实发',
   '备注',
-  '签字',
+  '领款人签名',
 ] as const
 
-export const PAYROLL_EXPORT_COL_WIDTHS = [
-  10, 9, 10, 10, 10, 12, 8, 8, 8, 8, 8, 8, 10, 9, 9, 9, 9, 9, 9, 11, 18, 12,
-]
+// 列宽跟着表头走 —— 名字和备注宽一点, 钱和工时一律窄的。列一多, 手动数着排
+// 宽度必错一次, 所以按表头名字算。
+export const PAYROLL_EXPORT_COL_WIDTHS = PAYROLL_EXPORT_HEADERS.map((h) =>
+  h === '备注' ? 18 : h === '领款人签名' ? 12 : h === '姓名' || h === '部门' ? 10 : 9,
+)
 
 export function buildPayrollExportAoa(
   slips: Payslip[],
@@ -461,7 +684,13 @@ export function buildPayrollExportAoa(
       p.name,
       p.dept,
       p.monthlyCny,
+      p.splitApplies ? p.baseSalaryCny : '',
+      p.splitApplies ? p.postSubsidyCny : '',
+      p.splitApplies ? p.secretFeeCny : '',
+      p.splitApplies ? p.safetyFeeCny : '',
+      p.splitApplies ? p.perfPayCny : '',
       p.standardDays,
+      p.workedDays,
       p.hoursPerDay,
       p.standardHours,
       p.attendance.leaveHours,
@@ -475,8 +704,23 @@ export function buildPayrollExportAoa(
       p.sickCut,
       p.absentCut,
       p.lateCut,
+      p.attendancePayCny,
       p.otPay,
+      p.socialSubsidyCny,
+      p.housingCny,
+      p.mealCny,
+      p.nightShiftCny,
+      p.holidayCny,
+      p.bonusCny,
       p.adjustCny,
+      p.grossCny,
+      p.advanceCny,
+      p.perfDeductCny,
+      p.safetyDeductCny,
+      p.otherDeductCny,
+      p.socialInsuranceCny,
+      p.taxCny,
+      p.deductCny,
       p.netCny,
       p.note ?? '',
       '',
