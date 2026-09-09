@@ -192,6 +192,55 @@ export async function setPayrollBase(
   })
 }
 
+/**
+ * 改名 —— 名字打错了、或者厂里换了叫法。
+ *
+ * 只动名册和**还没发放**的那些月份的行: 已经发过的工资条是发钱的凭据, 上面
+ * 的名字不该在事后被人改掉。所以旧名字在历史条子上保持原样, 新名字从这个月
+ * 往后生效。调薪记录同理跟着改 —— 它是名册的影子, 名字对不上就查不出人。
+ */
+export async function renamePayrollPerson(
+  from: string,
+  to: string,
+): Promise<{ moved: number }> {
+  const a = from.trim()
+  const b = to.trim()
+  if (!a || !b || a === b) return { moved: 0 }
+  return withPayrollLock(async () => {
+    const base = normalizeBase(await readJson(BASE_KEY))
+    if (!base[a]) throw new Error(`名册里没有「${a}」`)
+    if (base[b]) throw new Error(`「${b}」已经在名册里了`)
+    base[b] = base[a]
+    delete base[a]
+    await writeJson(BASE_KEY, base)
+
+    // 调薪记录跟着走。
+    const changes = normalizeChanges(await readJson(CHANGES_KEY))
+    let touched = false
+    for (const c of changes) {
+      if (c.name === a) {
+        c.name = b
+        touched = true
+      }
+    }
+    if (touched) await writeJson(CHANGES_KEY, changes)
+
+    // 未发放月份里那一行手填的数跟着搬 —— 已发放的一律不动。
+    let moved = 0
+    for (const m of await getPayrollMonths()) {
+      const sheet = normalizeSheet(await readJson(monthKey(m)))
+      if (sheet.paid) continue
+      const line = sheet.lines[a]
+      if (!line) continue
+      delete sheet.lines[a]
+      sheet.lines[b] = line
+      await writeJson(monthKey(m), sheet)
+      moved++
+    }
+    return { moved }
+  })
+}
+
 // === 调薪记录 ===
 //
 // Append-only-ish: rows are born from 工资表 edits (see setPayrollBase), never

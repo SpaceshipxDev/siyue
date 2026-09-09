@@ -229,6 +229,28 @@ export function PayrollBoard({
           </span>
         </div>
 
+        {/* 工资构成 —— 工资条上把综合工资拆成基本工资 + 几项补贴时用的数。
+            这几个数只影响条子上怎么写, 不影响实发, 所以随手调不会把钱调错。 */}
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-1 gap-y-2 border-t border-[var(--color-border)] pt-2.5">
+          <span className="mr-2 w-[52px] shrink-0 font-medium text-[var(--color-ink-2)]">
+            工资构成
+          </span>
+          <Rule label="基本工资" unit="元" value={rules.baseSalaryCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'baseSalaryCny', value: v })} />
+          <Sep />
+          <Rule label="超过" unit="元才拆" value={rules.splitThresholdCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'splitThresholdCny', value: v })} />
+          <Sep />
+          <Rule label="岗位补贴" unit="%" value={rules.postPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'postPct', value: v })} />
+          <Sep />
+          <Rule label="保密费" unit="%" value={rules.secretPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'secretPct', value: v })} />
+          <Sep />
+          <Rule label="安全费" unit="%" value={rules.safetyPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'safetyPct', value: v })} />
+          <Sep />
+          <Rule label="绩效工资" unit="%" value={rules.perfPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'perfPct', value: v })} />
+          <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
+            百分比按综合工资算 · 只影响工资条上的拆法, 不影响实发
+          </span>
+        </div>
+
         <div className="mt-2.5 flex flex-wrap items-center gap-x-1 gap-y-2 border-t border-[var(--color-border)] pt-2.5">
           <span className="mr-2 w-[52px] shrink-0 font-medium text-[var(--color-ink-2)]">
             每天工时
@@ -300,6 +322,29 @@ export function PayrollBoard({
                 <span className="truncate text-[14.5px] font-medium tracking-tight text-[var(--color-ink)]">
                   {s.name}
                 </span>
+                {!locked && (
+                  // 名字是这张表的钥匙, 打错了以前只能重加一个人。改名只动名
+                  // 册和还没发放的月份 —— 发过的工资条上那个名字是凭据。
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    title="改名 — 已发放月份的工资条不动"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const next = prompt(`把「${s.name}」改成`, s.name)
+                      if (!next || next.trim() === s.name) return
+                      void save({
+                        kind: 'renamePayrollPerson',
+                        from: s.name,
+                        to: next.trim(),
+                      })
+                    }}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    className="shrink-0 text-[11px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
+                  >
+                    改名
+                  </span>
+                )}
                 {s.attendance.disciplineTimes > 0 && (
                   <span className="shrink-0 text-[11.5px] text-[var(--color-overdue)]">
                     违纪{s.attendance.disciplineTimes}
@@ -433,6 +478,17 @@ export function PayrollBoard({
             ))}
           </>
         )}
+
+        {/* 加人 —— 名册是被动长出来的 (开过账号、或者人事里记过一笔的人才在
+            上面)。临时工、刚来的人两样都没有, 以前就只能先去别处记一笔再回
+            来。填个名字和月薪, 这个人就上表了。 */}
+        {!locked && (
+          <AddPerson
+            onAdd={(name, monthlyCny, dept) =>
+              save({ kind: 'setPayrollBase', name, monthlyCny, dept })
+            }
+          />
+        )}
       </div>
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
@@ -442,6 +498,111 @@ export function PayrollBoard({
         </Link>
         ，在那边记，这边自动算。点名字看工资条。
       </p>
+    </div>
+  )
+}
+
+// 直接往工资表上加一个人。收起来只有一行字, 展开是三个格 —— 名字、月薪、
+// 部门。名字是这张表的钥匙, 所以填错了还能改 (见每一行名字上的「改名」)。
+function AddPerson({
+  onAdd,
+}: {
+  onAdd: (name: string, monthlyCny: number, dept: string) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [pay, setPay] = useState('')
+  const [dept, setDept] = useState<string>(NO_DEPARTMENT)
+  const [pending, start] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex w-full items-center gap-1.5 border-t border-[var(--color-border)] px-5 py-2 text-left text-[12.5px] text-[var(--color-ink-3)] hover:bg-[#faf8f2] hover:text-[var(--color-ink)]"
+      >
+        ＋ 加人
+        <span className="text-[11px] text-[var(--color-ink-4)]">
+          没账号、人事里也没记过的人, 从这里进表
+        </span>
+      </button>
+    )
+  }
+
+  const submit = () => {
+    setError(null)
+    const n = name.trim()
+    const v = Number(pay.trim().replace(/[¥,，元\s]/g, ''))
+    if (!n) {
+      setError('先填名字')
+      return
+    }
+    if (!Number.isFinite(v) || v <= 0) {
+      setError('月薪要填一个数')
+      return
+    }
+    start(async () => {
+      try {
+        await onAdd(n, Math.round(v), dept)
+        setName('')
+        setPay('')
+        setDept(NO_DEPARTMENT)
+        setOpen(false)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '加不上')
+      }
+    })
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] bg-[#faf8f2] px-5 py-2.5">
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="姓名"
+        className="w-[120px] border-b border-[var(--color-border-strong)] bg-transparent py-1 text-[13px] focus:border-[var(--color-ink)] focus:outline-none"
+      />
+      <input
+        value={pay}
+        onChange={(e) => setPay(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && submit()}
+        placeholder="月薪"
+        inputMode="numeric"
+        className="mono w-[92px] border-b border-[var(--color-border-strong)] bg-transparent py-1 text-[13px] focus:border-[var(--color-ink)] focus:outline-none"
+      />
+      <select
+        value={dept}
+        onChange={(e) => setDept(e.target.value)}
+        className="border-b border-[var(--color-border-strong)] bg-transparent py-1 text-[13px] focus:border-[var(--color-ink)] focus:outline-none"
+      >
+        {DEPT_OPTIONS.map((d) => (
+          <option key={d} value={d}>
+            {d}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        onClick={submit}
+        disabled={pending}
+        className="rounded-[2px] bg-[var(--color-ink)] px-3 py-1.5 text-[12px] tracking-wider text-[var(--color-surface)] hover:opacity-80 disabled:opacity-40"
+      >
+        {pending ? '加中…' : '加进表'}
+      </button>
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        disabled={pending}
+        className="px-2 py-1.5 text-[12px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+      >
+        取消
+      </button>
+      {error && (
+        <span className="text-[12px] text-[var(--color-overdue)]">{error}</span>
+      )}
     </div>
   )
 }

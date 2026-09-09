@@ -221,6 +221,7 @@ import {
   loadPayroll,
   markPayrollPaid,
   recordSalaryChange,
+  renamePayrollPerson,
   setPayrollBase,
   setPayrollDept,
   setPayrollDeptHours,
@@ -2462,6 +2463,20 @@ async function dispatch(
       await setPayrollDeptHours(dept, hours)
       revalidatePath('/finance')
       return Response.json(ok())
+    }
+
+    // 改名 —— 名字录错了。只动名册和未发放月份; 发过的工资条上那个名字是发
+    // 钱的凭据, 事后不该被改掉。
+    case 'renamePayrollPerson': {
+      const from = body.from
+      const to = body.to
+      if (!isString(from) || !isString(to) || !from.trim() || !to.trim())
+        return err('bad renamePayrollPerson args')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      const r = await renamePayrollPerson(from, to)
+      revalidatePath('/finance')
+      return Response.json(ok(r))
     }
 
     case 'setPayrollBase': {
