@@ -96,8 +96,12 @@ export type PayrollRules = {
   // 这几个数只是**构成的拆法**, 不额外加钱 —— 实发仍然从综合工资算起, 所以
   // 拆法改了实发一分不变。
   baseSalaryCny: number // 基本工资 — 全厂一个数
+  // 话费 / 交通 —— 全厂的默认数。这两样是一人一个价 (有人要跑客户, 有人不
+  // 出厂门), 所以每个月每个人都可以在工资条上手填盖掉它; 这里的值只是"没填
+  // 时用哪个数", 省得每月给几十个人重敲一遍一样的金额。
   phoneAllowanceCny: number // 话费补贴 — 定额, 不参与比例
   transportAllowanceCny: number // 交通补贴 — 定额, 不参与比例
+  welfareAllowanceCny: number // 福利补贴 — 定额, 不参与比例
   splitThresholdCny: number // 综合工资高过这个数才拆分
   postPct: number // 岗位补贴 %（按可分配额算）
   secretPct: number // 保密费 %
@@ -115,6 +119,7 @@ export const DEFAULT_PAYROLL_RULES: PayrollRules = {
   baseSalaryCny: 2660,
   phoneAllowanceCny: 0,
   transportAllowanceCny: 0,
+  welfareAllowanceCny: 0,
   splitThresholdCny: 6000,
   postPct: 10,
   secretPct: 15,
@@ -133,6 +138,7 @@ const RULE_LIMITS: Record<string, [number, number]> = {
   baseSalaryCny: [0, 100000],
   phoneAllowanceCny: [0, 100000],
   transportAllowanceCny: [0, 100000],
+  welfareAllowanceCny: [0, 100000],
   splitThresholdCny: [0, 100000],
   postPct: [0, 100],
   secretPct: [0, 100],
@@ -149,6 +155,7 @@ export type ScalarRuleKey =
   | 'baseSalaryCny'
   | 'phoneAllowanceCny'
   | 'transportAllowanceCny'
+  | 'welfareAllowanceCny'
   | 'splitThresholdCny'
   | 'postPct'
   | 'secretPct'
@@ -250,6 +257,10 @@ export function summarizeAttendance(
 export type PayrollLine = {
   otHours?: number // 加班小时
   adjustCny?: number // 奖罚, 正为奖 负为扣
+  // —— 工资构成里的两项定额 (手填就盖掉制度里的默认数; 不填 = 用默认) ——
+  phoneAllowanceCny?: number // 话费补贴
+  transportAllowanceCny?: number // 交通补贴
+  welfareAllowanceCny?: number // 福利补贴
   // —— 补助 (加) ——
   socialSubsidyCny?: number // 社保补贴
   housingCny?: number // 房补
@@ -286,13 +297,25 @@ export const PAYROLL_CUT_FIELDS = [
   ['taxCny', '个税'],
 ] as const
 
+/**
+ * 工资构成里那两项定额 —— 一人一个价, 每月能改。它们不在"应发"那两栏里,
+ * 因为它们不是额外加的钱, 而是综合工资拆开之后的一块 (见 computePayslip)。
+ */
+export const PAYROLL_ALLOWANCE_FIELDS = [
+  ['phoneAllowanceCny', '话费补贴'],
+  ['transportAllowanceCny', '交通补贴'],
+  ['welfareAllowanceCny', '福利补贴'],
+] as const
+
 export type PayrollMoneyKey =
   | (typeof PAYROLL_ADD_FIELDS)[number][0]
   | (typeof PAYROLL_CUT_FIELDS)[number][0]
+  | (typeof PAYROLL_ALLOWANCE_FIELDS)[number][0]
 
 export const PAYROLL_MONEY_KEYS: PayrollMoneyKey[] = [
   ...PAYROLL_ADD_FIELDS.map((f) => f[0]),
   ...PAYROLL_CUT_FIELDS.map((f) => f[0]),
+  ...PAYROLL_ALLOWANCE_FIELDS.map((f) => f[0]),
 ]
 
 export function isPayrollMoneyKey(x: unknown): x is PayrollMoneyKey {
@@ -350,7 +373,8 @@ export type Payslip = {
   baseSalaryCny: number // 基本工资
   phoneAllowanceCny: number // 话费补贴 (定额)
   transportAllowanceCny: number // 交通补贴 (定额)
-  /** 可分配额 = 综合工资 − 基本工资 − 话费 − 交通。下面四项按它算。 */
+  welfareAllowanceCny: number // 福利补贴 (定额)
+  /** 可分配额 = 综合工资 − 基本工资 − 话费 − 交通 − 福利。下面四项按它算。 */
   splitBaseCny: number
   postSubsidyCny: number // 岗位补贴
   secretFeeCny: number // 保密费
@@ -447,15 +471,23 @@ export function computePayslip(
   // 三样定额先拿走 —— 电话费、车费跟工资高低没关系, 谁的都差不多, 所以它们
   // 是固定的数, 不跟着比例走。
   const baseSalaryCny = splitApplies ? Math.round(rules.baseSalaryCny) : 0
+  // 手填的那个数优先 —— 这两样一人一个价。没填就用制度里的默认数。
   const phoneAllowanceCny = splitApplies
-    ? Math.round(rules.phoneAllowanceCny)
+    ? Math.round(line.phoneAllowanceCny ?? rules.phoneAllowanceCny)
     : 0
   const transportAllowanceCny = splitApplies
-    ? Math.round(rules.transportAllowanceCny)
+    ? Math.round(line.transportAllowanceCny ?? rules.transportAllowanceCny)
+    : 0
+  const welfareAllowanceCny = splitApplies
+    ? Math.round(line.welfareAllowanceCny ?? rules.welfareAllowanceCny)
     : 0
   // 剩下的这一块才是按比例分的底 —— 比例乘的是它, 不是综合工资全额。
   const splitBaseCny = splitApplies
-    ? monthlyCny - baseSalaryCny - phoneAllowanceCny - transportAllowanceCny
+    ? monthlyCny -
+      baseSalaryCny -
+      phoneAllowanceCny -
+      transportAllowanceCny -
+      welfareAllowanceCny
     : 0
   const pct = (p: number) =>
     splitApplies ? Math.round(splitBaseCny * (p / 100)) : 0
@@ -528,6 +560,7 @@ export function computePayslip(
     baseSalaryCny,
     phoneAllowanceCny,
     transportAllowanceCny,
+    welfareAllowanceCny,
     splitBaseCny,
     postSubsidyCny,
     secretFeeCny,
@@ -670,6 +703,7 @@ export const PAYROLL_EXPORT_HEADERS = [
   '基本工资',
   '话费补贴',
   '交通补贴',
+  '福利补贴',
   '可分配额',
   '岗位补贴',
   '保密费',
@@ -731,6 +765,7 @@ export function buildPayrollExportAoa(
       p.splitApplies ? p.baseSalaryCny : '',
       p.splitApplies ? p.phoneAllowanceCny : '',
       p.splitApplies ? p.transportAllowanceCny : '',
+      p.splitApplies ? p.welfareAllowanceCny : '',
       p.splitApplies ? p.splitBaseCny : '',
       p.splitApplies ? p.postSubsidyCny : '',
       p.splitApplies ? p.secretFeeCny : '',

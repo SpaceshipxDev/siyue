@@ -14,6 +14,7 @@ import {
   monthLabel,
   payrollTotal,
   PAYROLL_ADD_FIELDS,
+  PAYROLL_ALLOWANCE_FIELDS,
   PAYROLL_CUT_FIELDS,
   DEPARTMENTS,
   NO_DEPARTMENT,
@@ -237,9 +238,11 @@ export function PayrollBoard({
           </span>
           <Rule label="基本工资" unit="元" value={rules.baseSalaryCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'baseSalaryCny', value: v })} />
           <Sep />
-          <Rule label="话费补贴" unit="元" value={rules.phoneAllowanceCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'phoneAllowanceCny', value: v })} />
+          <Rule label="话费默认" unit="元" value={rules.phoneAllowanceCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'phoneAllowanceCny', value: v })} />
           <Sep />
-          <Rule label="交通补贴" unit="元" value={rules.transportAllowanceCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'transportAllowanceCny', value: v })} />
+          <Rule label="交通默认" unit="元" value={rules.transportAllowanceCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'transportAllowanceCny', value: v })} />
+          <Sep />
+          <Rule label="福利默认" unit="元" value={rules.welfareAllowanceCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'welfareAllowanceCny', value: v })} />
           <Sep />
           <Rule label="超过" unit="元才拆" value={rules.splitThresholdCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'splitThresholdCny', value: v })} />
           <Sep />
@@ -251,7 +254,8 @@ export function PayrollBoard({
           <Sep />
           <Rule label="绩效工资" unit="%" value={rules.perfPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'perfPct', value: v })} />
           <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-            前三项是定额 · 百分比按「综合工资 − 这三项」算 · 只影响拆法, 不影响实发
+            话费/交通/福利是默认数, 每个人可在工资条上单改 · 百分比按「综合工
+            资 − 基本工资 − 这三项」算 · 只影响拆法, 不影响实发
           </span>
         </div>
 
@@ -738,8 +742,18 @@ function Slip({
           {s.splitApplies ? (
             <div className="grid grid-cols-2 gap-x-8 gap-y-1 md:grid-cols-3">
               <Ln label="基本工资" v={s.baseSalaryCny} />
-              <Ln label="话费补贴" v={s.phoneAllowanceCny} />
-              <Ln label="交通补贴" v={s.transportAllowanceCny} />
+              {/* 这两样一人一个价 (有人跑客户, 有人不出厂门), 所以点着就能
+                  改; 不改就是制度里那个默认数。改完可分配额和下面四项立刻
+                  跟着重算。 */}
+              {PAYROLL_ALLOWANCE_FIELDS.map(([k, label]) => (
+                <Edit
+                  key={k}
+                  label={label}
+                  value={s[k]}
+                  locked={locked}
+                  onSave={(v) => setLine({ [k]: v })}
+                />
+              ))}
               <Ln label="岗位补贴" v={s.postSubsidyCny} />
               <Ln label="保密费" v={s.secretFeeCny} />
               <Ln label="安全费" v={s.safetyFeeCny} />
@@ -754,7 +768,8 @@ function Slip({
             </p>
           )}
           <p className="mt-1.5 text-[11px] text-[var(--color-ink-4)]">
-            基本工资、话费、交通是定额，先扣掉；剩下的
+            基本工资、话费、交通、福利是定额，先扣掉；后三项点着能改（一人一
+            个价，不改就用制度里的默认数）。剩下的
             {s.splitApplies ? ` ${formatCny(s.splitBaseCny)} ` : ' '}
             才按比例分成岗位/保密/安全/绩效，分完的余额归入奖金。所以这六项加
             起来正好是综合工资。这是拆法，不额外加钱——实发从下面的出勤工资算起。
