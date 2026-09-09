@@ -686,6 +686,11 @@ function Att({
 // 新认一遍。能填的格子当场点着填 (社保、个税、房补这些是每月手录的), 发放之
 // 后整张锁住。
 //
+// 条子上**不列事假 / 病假 / 工伤 / 旷工 / 迟到, 也不列它们各自的扣款**。那几
+// 笔已经折进「出勤工资」这一个数里了; 把明细印在发到人手上的纸上, 换来的只
+// 是当场对着条子争一句"那天不算旷工"。要查明细去人事页, 或者导出的工资表 ——
+// 那两处一项都没少。
+//
 // 顶上那一段是"综合工资是怎么构成的": 基本工资加几项按比例的补贴。这几行只
 // 是把综合工资拆开写, **不参与实发计算** —— 拆法改了，钱一分不变。
 function Slip({
@@ -701,18 +706,6 @@ function Slip({
 }) {
   const setLine = (patch: Record<string, number>) =>
     save({ kind: 'setPayrollLine', month, name: s.name, patch })
-
-  const cuts: [string, string, number][] = []
-  if (s.attendance.leaveHours > 0)
-    cuts.push(['事假', `${num(s.attendance.leaveHours)} 小时`, s.leaveCut])
-  if (s.attendance.sickHours > 0)
-    cuts.push(['病假', `${num(s.attendance.sickHours)} 小时`, s.sickCut])
-  if (s.attendance.injuryHours > 0)
-    cuts.push(['工伤', `${num(s.attendance.injuryHours)} 小时 · 不扣`, 0])
-  if (s.attendance.absentHours > 0)
-    cuts.push(['旷工', `${num(s.attendance.absentHours)} 小时`, s.absentCut])
-  if (s.attendance.lateTimes > 0)
-    cuts.push(['迟到', `${s.attendance.lateTimes} 次`, s.lateCut])
 
   return (
     <div className="border-t border-[var(--color-border)] bg-[#faf8f2] px-4 py-4 md:px-5">
@@ -784,19 +777,6 @@ function Slip({
           {/* 扣款 */}
           <div>
             <p className="label mb-1 text-[var(--color-ink-3)]">扣款</p>
-            {cuts.map(([label, detail, amount], i) => (
-              <Ln
-                key={`${label}-${i}`}
-                label={label}
-                detail={detail}
-                v={-amount}
-              />
-            ))}
-            {cuts.length > 0 && (
-              <p className="py-0.5 text-[11px] text-[var(--color-ink-4)]">
-                上面几笔已经算在出勤工资里了
-              </p>
-            )}
             {PAYROLL_CUT_FIELDS.map(([k, label]) => (
               <Edit
                 key={k}
