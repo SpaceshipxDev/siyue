@@ -85,11 +85,21 @@ export type PayrollRules = {
   // === 工资条上的工资构成 ===
   //
   // 综合工资是这个人一个月的总盘子 (系统里原来叫"月薪")。工资条上要把它拆
-  // 开写: 一份固定的基本工资, 加上几项按比例算的补贴。这几个数只是**构成的
-  // 拆法**, 不额外加钱 —— 实发仍然从综合工资算起, 所以拆法改了实发一分不变。
+  // 开写, 顺序是:
+  //
+  //   ① 先扣掉三样固定的: 基本工资 · 话费补贴 · 交通补贴
+  //      这三样跟工资高低无关 —— 谁的电话费都差不多, 谁坐的公交也一样贵,
+  //      所以它们是定额, 不参与比例。
+  //   ② 剩下的那一块 (可分配额) 才按比例分成岗位补贴 / 保密费 / 安全费 /
+  //      绩效工资, 分完的余数进奖金。
+  //
+  // 这几个数只是**构成的拆法**, 不额外加钱 —— 实发仍然从综合工资算起, 所以
+  // 拆法改了实发一分不变。
   baseSalaryCny: number // 基本工资 — 全厂一个数
+  phoneAllowanceCny: number // 话费补贴 — 定额, 不参与比例
+  transportAllowanceCny: number // 交通补贴 — 定额, 不参与比例
   splitThresholdCny: number // 综合工资高过这个数才拆分
-  postPct: number // 岗位补贴 %
+  postPct: number // 岗位补贴 %（按可分配额算）
   secretPct: number // 保密费 %
   safetyPct: number // 安全费 %
   perfPct: number // 绩效工资 %
@@ -103,6 +113,8 @@ export const DEFAULT_PAYROLL_RULES: PayrollRules = {
   latePerTime: 0,
   otRate: 1.5,
   baseSalaryCny: 2660,
+  phoneAllowanceCny: 0,
+  transportAllowanceCny: 0,
   splitThresholdCny: 6000,
   postPct: 10,
   secretPct: 15,
@@ -119,6 +131,8 @@ const RULE_LIMITS: Record<string, [number, number]> = {
   latePerTime: [0, 1000],
   otRate: [1, 5],
   baseSalaryCny: [0, 100000],
+  phoneAllowanceCny: [0, 100000],
+  transportAllowanceCny: [0, 100000],
   splitThresholdCny: [0, 100000],
   postPct: [0, 100],
   secretPct: [0, 100],
@@ -133,6 +147,8 @@ export type ScalarRuleKey =
   | 'latePerTime'
   | 'otRate'
   | 'baseSalaryCny'
+  | 'phoneAllowanceCny'
+  | 'transportAllowanceCny'
   | 'splitThresholdCny'
   | 'postPct'
   | 'secretPct'
@@ -332,6 +348,10 @@ export type Payslip = {
   adjustCny: number // 奖罚
   // === 工资构成 (只是把综合工资拆开写, 不额外加钱) ===
   baseSalaryCny: number // 基本工资
+  phoneAllowanceCny: number // 话费补贴 (定额)
+  transportAllowanceCny: number // 交通补贴 (定额)
+  /** 可分配额 = 综合工资 − 基本工资 − 话费 − 交通。下面四项按它算。 */
+  splitBaseCny: number
   postSubsidyCny: number // 岗位补贴
   secretFeeCny: number // 保密费
   safetyFeeCny: number // 安全费
@@ -424,8 +444,21 @@ export function computePayslip(
   // 工资构成 —— 把综合工资拆开写在条子上。只有过了门槛才拆; 拆完剩下的那点
   // 照实摆在"其他"里, 不硬凑。这几行**不参与实发计算**, 改拆法钱不会变。
   const splitApplies = monthlyCny > rules.splitThresholdCny
-  const pct = (p: number) => (splitApplies ? Math.round(monthlyCny * (p / 100)) : 0)
+  // 三样定额先拿走 —— 电话费、车费跟工资高低没关系, 谁的都差不多, 所以它们
+  // 是固定的数, 不跟着比例走。
   const baseSalaryCny = splitApplies ? Math.round(rules.baseSalaryCny) : 0
+  const phoneAllowanceCny = splitApplies
+    ? Math.round(rules.phoneAllowanceCny)
+    : 0
+  const transportAllowanceCny = splitApplies
+    ? Math.round(rules.transportAllowanceCny)
+    : 0
+  // 剩下的这一块才是按比例分的底 —— 比例乘的是它, 不是综合工资全额。
+  const splitBaseCny = splitApplies
+    ? monthlyCny - baseSalaryCny - phoneAllowanceCny - transportAllowanceCny
+    : 0
+  const pct = (p: number) =>
+    splitApplies ? Math.round(splitBaseCny * (p / 100)) : 0
   const postSubsidyCny = pct(rules.postPct)
   const secretFeeCny = pct(rules.secretPct)
   const safetyFeeCny = pct(rules.safetyPct)
@@ -434,12 +467,7 @@ export function computePayslip(
   // 多出来的那一截总得有个去处; 挂在奖金上, 拆出来的几项就永远加得回综合工
   // 资。综合工资没过门槛就整个不拆, 这一格也是 0。
   const splitBonusCny = splitApplies
-    ? monthlyCny -
-      baseSalaryCny -
-      postSubsidyCny -
-      secretFeeCny -
-      safetyFeeCny -
-      perfPayCny
+    ? splitBaseCny - postSubsidyCny - secretFeeCny - safetyFeeCny - perfPayCny
     : 0
 
   const money = (v: number | undefined) => Math.round(v ?? 0)
@@ -498,6 +526,9 @@ export function computePayslip(
     otPay,
     adjustCny,
     baseSalaryCny,
+    phoneAllowanceCny,
+    transportAllowanceCny,
+    splitBaseCny,
     postSubsidyCny,
     secretFeeCny,
     safetyFeeCny,
@@ -637,6 +668,9 @@ export const PAYROLL_EXPORT_HEADERS = [
   '部门',
   '综合工资',
   '基本工资',
+  '话费补贴',
+  '交通补贴',
+  '可分配额',
   '岗位补贴',
   '保密费',
   '安全费',
@@ -695,6 +729,9 @@ export function buildPayrollExportAoa(
       p.dept,
       p.monthlyCny,
       p.splitApplies ? p.baseSalaryCny : '',
+      p.splitApplies ? p.phoneAllowanceCny : '',
+      p.splitApplies ? p.transportAllowanceCny : '',
+      p.splitApplies ? p.splitBaseCny : '',
       p.splitApplies ? p.postSubsidyCny : '',
       p.splitApplies ? p.secretFeeCny : '',
       p.splitApplies ? p.safetyFeeCny : '',

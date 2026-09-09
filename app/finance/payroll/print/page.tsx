@@ -80,6 +80,8 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
         {s.splitApplies && (
           <>
             <span>基本工资 {formatCny(s.baseSalaryCny)}</span>
+            <span>话费补贴 {formatCny(s.phoneAllowanceCny)}</span>
+            <span>交通补贴 {formatCny(s.transportAllowanceCny)}</span>
             <span>岗位补贴 {formatCny(s.postSubsidyCny)}</span>
             <span>保密费 {formatCny(s.secretFeeCny)}</span>
             <span>安全费 {formatCny(s.safetyFeeCny)}</span>
