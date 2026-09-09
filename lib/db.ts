@@ -3243,6 +3243,34 @@ export async function getCustomerStatementLines(
   return out
 }
 
+/**
+ * 哪几张工单里有"单个数量超过 N"的零件。
+ *
+ * 只捞 qty > N 的那几行的 job_id —— 大数量零件是少数, 这一查通常只有几百行,
+ * 比把全厂几万行零件拉回来求每张单的最大值轻一个数量级。看板上要回答的也就
+ * 是一个是非题 ("这是不是大单"), 具体是 12 件还是 300 件, 点进工单去看。
+ */
+export async function getJobsWithBigPartQty(
+  threshold: number,
+): Promise<Set<string>> {
+  const out = new Set<string>()
+  const PAGE = 1000
+  let from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('parts')
+      .select('job_id')
+      .gt('qty', threshold)
+      .range(from, from + PAGE - 1)
+    if (error) throw error
+    const rows = (data ?? []) as AnyRow[]
+    for (const r of rows) out.add(r.job_id as string)
+    if (rows.length < PAGE) break
+    from += PAGE
+  }
+  return out
+}
+
 // === 财务 / 应收账款 ledger ===
 
 // Per-unit price for a part: explicit unit price wins, else derive from a

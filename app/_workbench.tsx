@@ -11,6 +11,8 @@ import {
   type Stage,
 } from '@/lib/data'
 import {
+  bigJobReason,
+  isBigJob,
   rowIsDownstreamOf,
   rowIsMineAtStage,
   rowIsUpstreamOfStage,
@@ -521,7 +523,17 @@ function WorkbenchRow({
                   onChange={onTypeChange}
                   onProductChange={onProductChange}
                 />
-                <span className="mono text-[14px] font-medium text-[var(--color-ink)] whitespace-nowrap">
+                {/* 大单 —— 跟看板同一个判定 (零件超过 10 项, 或任一零件数量
+                    超过 10 件)。同一张单在两处必须长一个样, 不然人会以为是两
+                    张不同的单。 */}
+                <span
+                  title={bigJobReason(row)}
+                  className={`mono whitespace-nowrap text-[14px] font-medium ${
+                    isBigJob(row)
+                      ? 'font-semibold text-[var(--color-overdue)]'
+                      : 'text-[var(--color-ink)]'
+                  }`}
+                >
                   <Highlight text={row.jobNo} q={q} />
                 </span>
               </div>

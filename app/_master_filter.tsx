@@ -25,6 +25,8 @@ import {
   rowIsInbox,
   rowIsMineAtStage,
   rowIsShipped,
+  bigJobReason,
+  isBigJob,
   rowIsUpstreamOfStage,
   rowMatchesProductionQuery,
   rowMostRecentFinishedAt,
@@ -1905,9 +1907,17 @@ function JobRow({
               onProductChange={onProductChange}
               onPauseChange={onPauseChange}
             />
+            {/* 大单 —— 零件超过 10 项, 或者任一零件数量超过 10 件。这两种
+                单不能按平常的节奏排 (一道工序卡住就是一片件一起卡), 所以让
+                工号自己红出来, 而不是再加一个小标记挤在这一行里。 */}
             <Link
               href={detailHref}
-              className="mono text-[13px] font-medium text-[var(--color-ink)] hover:underline underline-offset-4 decoration-[var(--color-ink-3)] whitespace-nowrap"
+              title={bigJobReason(row)}
+              className={`mono whitespace-nowrap text-[13px] font-medium underline-offset-4 decoration-[var(--color-ink-3)] hover:underline ${
+                isBigJob(row)
+                  ? 'font-semibold text-[var(--color-overdue)]'
+                  : 'text-[var(--color-ink)]'
+              }`}
             >
               <Highlight text={row.jobNo} q={q} />
             </Link>

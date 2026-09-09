@@ -1,5 +1,6 @@
 import { currentUser } from '@/lib/auth'
 import {
+  getJobsWithBigPartQty,
   getMasterRows,
   getMasterRowsByShipped,
   getMasterRowsPage,
@@ -7,7 +8,7 @@ import {
   type OrderMoneyLite,
 } from '@/lib/db'
 import { SCHEMA_VERSION } from '@/lib/data'
-import type { MasterRow } from '@/lib/master'
+import { BIG_JOB_PART_QTY, type MasterRow } from '@/lib/master'
 import { toMasterWireRows } from '@/lib/master_wire'
 import { getReturnFlows } from '@/lib/return-flow-store'
 import { returnStep } from '@/lib/return-flow'
@@ -38,6 +39,20 @@ function applyMoney(
       r.outstandingCny = 0
     }
   }
+  return rows
+}
+
+// 大单标记 —— 哪几张单里有单个数量超过 10 的零件。看板上工号变红就靠它 (另
+// 一半 componentCount 视图里本来就有)。一条窄查询, 结果是个 job_id 集合。
+async function applyBigPartQty(rows: MasterRow[]): Promise<MasterRow[]> {
+  let big: Set<string>
+  try {
+    big = await getJobsWithBigPartQty(BIG_JOB_PART_QTY)
+  } catch {
+    // 读不到就当没有 —— 少一个提示比整块看板打不开好。
+    return rows
+  }
+  for (const r of rows) if (big.has(r.id)) r.hasBigPartQty = true
   return rows
 }
 
@@ -121,7 +136,7 @@ export async function GET(request: Request): Promise<Response> {
           ok: true,
           v: SCHEMA_VERSION,
           rows: toMasterWireRows(
-            await applyReturnStep(applyMoney(page.rows, money)),
+            await applyBigPartQty(await applyReturnStep(applyMoney(page.rows, money))),
             user,
           ),
           nextCursor: page.nextCursor,
@@ -146,7 +161,7 @@ export async function GET(request: Request): Promise<Response> {
         ok: true,
         v: SCHEMA_VERSION,
         rows: toMasterWireRows(
-          await applyReturnStep(applyMoney(rows, money)),
+          await applyBigPartQty(await applyReturnStep(applyMoney(rows, money))),
           user,
         ),
       },

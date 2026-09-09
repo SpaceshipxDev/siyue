@@ -143,6 +143,14 @@ export type MasterRow = {
   overdueDays?: number
   /** Parts count (drives inbox label, no other display use). */
   componentCount: number
+  /**
+   * 这张单里有没有单个数量超过 10 的零件。
+   *
+   * 不放具体数字, 只放一个"有没有" —— 看板上要回答的就是一句话: 这是不是一
+   * 张大单。取数因此可以是一条极窄的查询 (只捞 qty>10 的零件的 job_id), 而不
+   * 用把全厂几万行零件拉回来求最大值。
+   */
+  hasBigPartQty?: boolean
   /** Lowercased haystack for substring search — built by the view. */
   searchHaystack: string
   /** Open 退货, if any. */
@@ -178,6 +186,36 @@ export type MasterAggregates = {
 // master-grid path used. Each takes the precomputed cell or row instead
 // of iterating components.
 // =====================================================================
+
+// === 大单 ===
+//
+// 零件多、或者某个零件要做很多个 —— 这两种单不能按平常的节奏排。零件二三十
+// 项的单，一道工序卡住就是二三十个件一起卡；单件数量上百的，光装夹就够一天。
+// 商务在看板上一眼要认出来的就是这个，所以工号本身变红：不是又加一个小标记
+// 挤在行里，而是让这张单的名字自己喊出来。
+//
+// 阈值是"超过 10" —— 11 项零件、或任一零件 11 件起。
+export const BIG_JOB_PART_COUNT = 10
+export const BIG_JOB_PART_QTY = 10
+
+export function isBigJob(row: {
+  componentCount?: number
+  hasBigPartQty?: boolean
+}): boolean {
+  return (row.componentCount ?? 0) > BIG_JOB_PART_COUNT || !!row.hasBigPartQty
+}
+
+/** 为什么这张单是红的 —— 鼠标停上去要看得到原因, 否则红得莫名其妙。 */
+export function bigJobReason(row: {
+  componentCount?: number
+  hasBigPartQty?: boolean
+}): string | undefined {
+  const parts: string[] = []
+  if ((row.componentCount ?? 0) > BIG_JOB_PART_COUNT)
+    parts.push(`零件 ${row.componentCount} 项`)
+  if (row.hasBigPartQty) parts.push(`有零件数量超过 ${BIG_JOB_PART_QTY} 件`)
+  return parts.length > 0 ? `大单 · ${parts.join(' · ')}` : undefined
+}
 
 export type RowRollupKind = 'pending' | 'partial' | 'done' | 'na'
 

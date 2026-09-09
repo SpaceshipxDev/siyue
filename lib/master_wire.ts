@@ -77,6 +77,9 @@ export type CompactMasterRow = [
   // scheduling, not customer PII, so never scrubbed. Always an object ({} when
   // no plan); a stale client that predates this slot reads undefined → {}.
   stagePlan: Partial<Record<PlanKey, string>>,
+  // 大单标记 (任一零件数量 > 10) — 追加在最末 (index 35), 所以旧客户端读前面
+  // 那些格子照旧, 读不到这一格就当没有。
+  hasBigPartQty: WireValue<boolean>,
 ]
 
 function canSeeCustomerData(scope: Scope): boolean {
@@ -195,6 +198,7 @@ export function toMasterWireRows(rows: MasterRow[], scope: Scope): CompactMaster
       r.overdueDays ?? null,
       r.yuenongBusiness ?? null,
       r.stagePlan ?? {},
+      r.hasBigPartQty ?? null,
     ]
   })
 }
@@ -242,6 +246,7 @@ export function expandMasterWireRows(rows: CompactMasterRow[]): MasterRow[] {
       overdueDays: r[32] ?? undefined,
       yuenongBusiness: r[33] ?? undefined,
       stagePlan: r[34] ?? {},
+      hasBigPartQty: r[35] ?? undefined,
     }
   })
 }
