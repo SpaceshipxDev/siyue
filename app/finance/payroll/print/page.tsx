@@ -81,12 +81,17 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
           <>
             <span>基本工资 {formatCny(s.baseSalaryCny)}</span>
             <span>话费补贴 {formatCny(s.phoneAllowanceCny)}</span>
-            <span>交通补贴 {formatCny(s.transportAllowanceCny)}</span>
+            <span>交通补助 {formatCny(s.transportAllowanceCny)}</span>
             <span>福利补贴 {formatCny(s.welfareAllowanceCny)}</span>
-            <span>岗位补贴 {formatCny(s.postSubsidyCny)}</span>
-            <span>保密费 {formatCny(s.secretFeeCny)}</span>
-            <span>安全费 {formatCny(s.safetyFeeCny)}</span>
+            <span>岗位补助 {formatCny(s.postSubsidyCny)}</span>
             <span>绩效工资 {formatCny(s.perfPayCny)}</span>
+            <span>保密费用 {formatCny(s.secretFeeCny)}</span>
+            {s.socialSubsidyBaseCny !== 0 && (
+              <span>社保补贴 {formatCny(s.socialSubsidyBaseCny)}</span>
+            )}
+            {s.safetyFeeCny !== 0 && (
+              <span>安全费 {formatCny(s.safetyFeeCny)}</span>
+            )}
             <span>奖金 {formatCny(s.splitBonusCny)}</span>
           </>
         )}

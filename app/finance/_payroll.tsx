@@ -238,11 +238,13 @@ export function PayrollBoard({
           </span>
           <Rule label="基本工资" unit="元" value={rules.baseSalaryCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'baseSalaryCny', value: v })} />
           <Sep />
-          <Rule label="话费默认" unit="元" value={rules.phoneAllowanceCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'phoneAllowanceCny', value: v })} />
+          <Rule label="话费补贴" unit="%" value={rules.phonePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'phonePct', value: v })} />
           <Sep />
-          <Rule label="交通默认" unit="元" value={rules.transportAllowanceCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'transportAllowanceCny', value: v })} />
+          <Rule label="福利补贴" unit="%" value={rules.welfarePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'welfarePct', value: v })} />
           <Sep />
-          <Rule label="福利默认" unit="元" value={rules.welfareAllowanceCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'welfareAllowanceCny', value: v })} />
+          <Rule label="交通补助" unit="%" value={rules.transportPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'transportPct', value: v })} />
+          <Sep />
+          <Rule label="社保补贴" unit="%" value={rules.socialPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'socialPct', value: v })} />
           <Sep />
           <Rule label="超过" unit="元才拆" value={rules.splitThresholdCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'splitThresholdCny', value: v })} />
           <Sep />
@@ -254,8 +256,9 @@ export function PayrollBoard({
           <Sep />
           <Rule label="绩效工资" unit="%" value={rules.perfPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'perfPct', value: v })} />
           <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-            话费/交通/福利是默认数, 每个人可在工资条上单改 · 百分比按「综合工
-            资 − 基本工资 − 这三项」算 · 只影响拆法, 不影响实发
+            先减基本工资 → 分出话费/交通/福利 → 剩下的再按其余几项的百分比分
+            → 余额进奖金 · 那三项可在工资条上给某个人单独填 · 只影响拆法, 不影
+            响实发
           </span>
         </div>
 
@@ -741,10 +744,10 @@ function Slip({
           </p>
           {s.splitApplies ? (
             <div className="grid grid-cols-2 gap-x-8 gap-y-1 md:grid-cols-3">
+              {/* ① 定额 */}
               <Ln label="基本工资" v={s.baseSalaryCny} />
-              {/* 这两样一人一个价 (有人跑客户, 有人不出厂门), 所以点着就能
-                  改; 不改就是制度里那个默认数。改完可分配额和下面四项立刻
-                  跟着重算。 */}
+              {/* ② 先分出去的三项 —— 一人一个价 (有人跑客户, 有人不出厂门),
+                  点着就能给这个人单独填一个数, 不填就按比例算。 */}
               {PAYROLL_ALLOWANCE_FIELDS.map(([k, label]) => (
                 <Edit
                   key={k}
@@ -754,12 +757,18 @@ function Slip({
                   onSave={(v) => setLine({ [k]: v })}
                 />
               ))}
-              <Ln label="岗位补贴" v={s.postSubsidyCny} />
-              <Ln label="保密费" v={s.secretFeeCny} />
-              <Ln label="安全费" v={s.safetyFeeCny} />
+              {/* ③ 剩下的按比例分。比例设成 0 的项不占版面。 */}
+              <Ln label="岗位补助" v={s.postSubsidyCny} />
               <Ln label="绩效工资" v={s.perfPayCny} />
-              {/* 按比例拆完剩下的那一截 —— 多了少了都落在奖金上, 所以上面
-                  六项加起来永远等于综合工资。 */}
+              <Ln label="保密费用" v={s.secretFeeCny} />
+              {s.socialSubsidyBaseCny !== 0 && (
+                <Ln label="社保补贴" v={s.socialSubsidyBaseCny} />
+              )}
+              {s.safetyFeeCny !== 0 && (
+                <Ln label="安全费" v={s.safetyFeeCny} />
+              )}
+              {/* 分完剩下的那一截 —— 多了少了都落在奖金上, 所以上面各项加起
+                  来永远等于综合工资。 */}
               <Ln label="奖金" v={s.splitBonusCny} />
             </div>
           ) : (
@@ -768,11 +777,14 @@ function Slip({
             </p>
           )}
           <p className="mt-1.5 text-[11px] text-[var(--color-ink-4)]">
-            基本工资、话费、交通、福利是定额，先扣掉；后三项点着能改（一人一
-            个价，不改就用制度里的默认数）。剩下的
+            综合工资先减基本工资
+            {s.splitApplies ? ` = ${formatCny(s.afterBaseCny)}` : ''}，
+            从中分出话费、交通、福利；再剩下的
             {s.splitApplies ? ` ${formatCny(s.splitBaseCny)} ` : ' '}
-            才按比例分成岗位/保密/安全/绩效，分完的余额归入奖金。所以这六项加
-            起来正好是综合工资。这是拆法，不额外加钱——实发从下面的出勤工资算起。
+            按比例分给岗位补助、绩效工资、保密费用、社保补贴、安全费，分完的余
+            额归入奖金。话费、交通、福利那三格点着能给这个人单独填一个数（填了
+            就不按比例，差额自动落到奖金上）。所有项加起来正好是综合工资——这是
+            拆法，不额外加钱，实发从下面的出勤工资算起。
           </p>
         </div>
 
