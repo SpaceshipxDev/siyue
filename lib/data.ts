@@ -262,6 +262,23 @@ export function blockLineTotalsSum(block: OutsourceBlock): number | undefined {
   return any ? sum : undefined
 }
 
+/**
+ * 这张外协单实际多少钱 —— 全厂只认这一个口径。
+ *
+ * 单头上手填的总价说了算 (谈下来的一口价, 可能含运费、可能抹了零); 没填过就
+ * 按每件「单价 × 数量」自己合起来。两样都没有才是 undefined —— 那才是真的还
+ * 没定价, 台账上留一个「—」, 不硬凑成 ¥0。
+ *
+ * 以前只有月度统计和对账单会这么退一步算, 外协台账、导出和供应商那边只看单
+ * 头的总价 —— 于是明明每件单价都填了的单, 在台账上是空的, 合计也少了一截。
+ */
+export function blockAmountCny(block: OutsourceBlock): number | undefined {
+  if (typeof block.amountCny === 'number' && Number.isFinite(block.amountCny)) {
+    return block.amountCny
+  }
+  return blockLineTotalsSum(block)
+}
+
 export function isMemberPartiallyReturned(m: OutsourceBlockMember): boolean {
   const r = memberReturnedQty(m)
   return r > 0 && r < m.qty
@@ -2004,7 +2021,7 @@ export function jobExternalSpend(job: Job): number {
       // the per-member line totals (单价 × 数量) so 外/利 reflect rush pricing
       // too. Still 0 (skipped) when neither a block amount nor any line price
       // exists, so the chips never go NaN on a genuinely unpriced block.
-      const spend = b.amountCny ?? blockLineTotalsSum(b)
+      const spend = blockAmountCny(b)
       if (spend != null) total += spend
     }
   }

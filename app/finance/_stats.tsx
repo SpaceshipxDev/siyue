@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import {
   blockClosedAt,
-  blockLineTotalsSum,
+  blockAmountCny,
   formatCny,
 } from '@/lib/data'
 import { getFinanceRows, getOutsourceBlockRows, getVendors } from '@/lib/db'
@@ -81,10 +81,10 @@ export async function MonthlyStats({
   // 外协 — 同「月度」口径: 单头总价, 加急单退回按件小计; 记在回件结算日。
   const vendorName = new Map(vendors.map((v) => [v.id, v.name]))
   const outAll: OutsourceStatRow[] = blockRows.map((r) => {
-    const priced =
-      r.block.amountCny != null || blockLineTotalsSum(r.block) != null
+    const amount = blockAmountCny(r.block)
+    const priced = amount != null
     return {
-      amountCny: r.block.amountCny ?? blockLineTotalsSum(r.block) ?? 0,
+      amountCny: amount ?? 0,
       closedAt: blockClosedAt(r.block),
       vendorName: vendorName.get(r.block.vendorId) ?? r.block.vendorId,
       priced,

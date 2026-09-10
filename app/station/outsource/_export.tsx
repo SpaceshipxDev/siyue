@@ -1,7 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { memberRemainingQty, memberReturnedQty } from '@/lib/data'
+import {
+  blockAmountCny,
+  memberRemainingQty,
+  memberReturnedQty,
+} from '@/lib/data'
 import type { LedgerLine } from './_ledger'
 
 // 外协 导出 — same contract as 采购 / 报工: "export" means "export the list you
@@ -65,7 +69,7 @@ export function OutsourceExportButton({
         l.totalQty,
         l.remainingQty,
         l.returnedQty,
-        l.block.amountCny ?? '',
+        blockAmountCny(l.block) ?? '',
         l.block.expectedReturn,
         l.closedAt ?? '',
         l.block.docNo ?? '',
@@ -74,7 +78,7 @@ export function OutsourceExportButton({
         l.block.vendorShippedAt ? l.block.vendorShippedAt.slice(0, 10) : '',
         l.block.notes ?? '',
       ])
-      const total = lines.reduce((s, l) => s + (l.block.amountCny ?? 0), 0)
+      const total = lines.reduce((s, l) => s + (blockAmountCny(l.block) ?? 0), 0)
       const totalQty = lines.reduce((s, l) => s + l.totalQty, 0)
       const totalOut = lines.reduce((s, l) => s + l.remainingQty, 0)
       body.push([
@@ -162,7 +166,7 @@ export function OutsourceExportButton({
         v.blocks += 1
         v.qty += l.totalQty
         v.out += l.remainingQty
-        v.amount += l.block.amountCny ?? 0
+        v.amount += blockAmountCny(l.block) ?? 0
         if (l.overdue) v.overdue += 1
       }
       const vHead = ['供应商', '外协单', '件数', '在外件数', '金额', '逾期单']

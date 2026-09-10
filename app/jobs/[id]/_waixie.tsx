@@ -6,6 +6,7 @@ import {
   ACTIVITY_DEFAULT_STAGES,
   OUTSOURCE_ACTIVITIES,
   blockClosedAt,
+  blockLineTotalsSum,
   daysFromToday,
   isBlockClosed,
   isMemberFullyReturned,
@@ -738,6 +739,7 @@ function BlockGroup({
                     blockId={block.id}
                     jobId={jobId}
                     value={block.amountCny}
+                    derived={blockLineTotalsSum(block)}
                     className="mono text-[13px] text-[var(--color-ink)] [field-sizing:content] min-w-[3ch]"
                   />
                 </span>

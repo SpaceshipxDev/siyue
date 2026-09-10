@@ -2,6 +2,7 @@ import { Fragment } from 'react'
 import type { Metadata } from 'next'
 import { cookies } from 'next/headers'
 import {
+  blockAmountCny,
   blockClosedAt,
   daysFromToday,
   formatCny,
@@ -160,7 +161,7 @@ export default async function VendorPortalPage({
     const rows = blocks.filter((b) => (b.sentDate ?? '').startsWith(ym))
     return {
       count: rows.length,
-      amount: rows.reduce((s, b) => s + (b.amountCny ?? 0), 0),
+      amount: rows.reduce((s, b) => s + (blockAmountCny(b) ?? 0), 0),
     }
   }
   const cur = monthSum(thisMonth)
@@ -261,7 +262,9 @@ export default async function VendorPortalPage({
                   ) : null}
                 </span>
                 <span className="shrink-0 text-[13px] text-[var(--color-ink-3)]">
-                  {b.amountCny != null ? `${formatCny(b.amountCny)} · ` : ''}
+                  {blockAmountCny(b) != null
+                    ? `${formatCny(blockAmountCny(b)!)} · `
+                    : ''}
                   回厂 {mdCn(blockClosedAt(b))}
                 </span>
               </div>
@@ -305,7 +308,7 @@ function LedgerRow({ block, token }: { block: OutsourceBlock; token: string }) {
   const subParts = [
     activityCn(block),
     `${totalQty}件`,
-    block.amountCny != null ? formatCny(block.amountCny) : '',
+    blockAmountCny(block) != null ? formatCny(blockAmountCny(block)!) : '',
   ].filter(Boolean)
 
   return (

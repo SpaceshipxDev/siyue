@@ -216,6 +216,7 @@ export default async function OutsourceDocPage(
                   blockId={info.block.id}
                   jobId={info.jobId}
                   value={info.block.amountCny}
+                  derived={blockLineTotalsSum(info.block)}
                   className="font-semibold [field-sizing:content] min-w-[2ch]"
                 />
               </span>

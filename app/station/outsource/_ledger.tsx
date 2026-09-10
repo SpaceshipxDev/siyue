@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import {
   blockActivityLabel,
+  blockAmountCny,
   blockClosedAt,
+  blockLineTotalsSum,
   daysFromToday,
   formatCny,
   isBlockClosed,
@@ -181,7 +183,7 @@ export function OutsourceLedger({
     for (const l of scoped) {
       qty += l.totalQty
       remaining += l.remainingQty
-      amount += l.block.amountCny ?? 0
+      amount += blockAmountCny(l.block) ?? 0
       if (l.overdue) overdue++
     }
     return { count: scoped.length, qty, remaining, amount, overdue }
@@ -295,7 +297,7 @@ export function OutsourceLedger({
           {CN.format(shown.length)} 单
           {shown.length !== stats.count ? ` / ${CN.format(stats.count)}` : ''}
           <span className="mx-1.5 text-[var(--color-ink-4)]">·</span>
-          {formatCny(shown.reduce((s, l) => s + (l.block.amountCny ?? 0), 0))}
+          {formatCny(shown.reduce((s, l) => s + (blockAmountCny(l.block) ?? 0), 0))}
         </p>
         <div className="flex items-center gap-2">
           {/* 对账 —— 月底跟这家厂算钱的那张纸。选了供应商就直接是他的对账单,
@@ -352,7 +354,7 @@ export function OutsourceLedger({
                     <span className="h-px flex-1 translate-y-[-3px] bg-[var(--color-border)]" />
                     <span className="text-[11px] tabular-nums text-[var(--color-ink-4)]">
                       {g.lines.length} 单 ·{' '}
-                      {formatCny(g.lines.reduce((s, l) => s + (l.block.amountCny ?? 0), 0))}
+                      {formatCny(g.lines.reduce((s, l) => s + (blockAmountCny(l.block) ?? 0), 0))}
                     </span>
                   </div>
                 )}
@@ -412,6 +414,7 @@ function Row({
   onDeleted: () => void
 }) {
   const { block, closed } = line
+  const amount = blockAmountCny(block)
 
   return (
     <div
@@ -517,13 +520,21 @@ function Row({
           </span>
         </span>
 
-        {/* 金额 — a missing price is a blank, not an alarm. Painting 30 rows
-            amber only taught the eye to ignore amber. */}
+        {/* 金额 — 单头总价, 没填就按每件单价合计。真的没定价才是一个「—」;
+            a missing price is a blank, not an alarm. Painting 30 rows amber
+            only taught the eye to ignore amber. */}
         <span className="text-right tabular-nums text-[13.5px]">
-          {block.amountCny == null ? (
+          {amount == null ? (
             <span className="text-[var(--color-ink-4)]">—</span>
           ) : (
-            <span className="text-[var(--color-ink)]">{formatCny(block.amountCny)}</span>
+            <span
+              className="text-[var(--color-ink)]"
+              title={
+                block.amountCny == null ? '按每件单价 × 数量合计' : undefined
+              }
+            >
+              {formatCny(amount)}
+            </span>
           )}
         </span>
 
@@ -843,6 +854,7 @@ function Panel({
                   blockId={block.id}
                   jobId={jobId}
                   value={block.amountCny}
+                  derived={blockLineTotalsSum(block)}
                   className="min-w-[4ch] text-[13px] text-[var(--color-ink)] [field-sizing:content]"
                 />
               </span>

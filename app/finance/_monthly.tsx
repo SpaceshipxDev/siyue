@@ -2,7 +2,7 @@ import Link from 'next/link'
 import {
   formatCny,
   blockClosedAt,
-  blockLineTotalsSum,
+  blockAmountCny,
   procurementTotalCny,
 } from '@/lib/data'
 import {
@@ -86,9 +86,8 @@ export async function MonthlyCashflow({
   for (const r of blockRows) {
     const closedAt = blockClosedAt(r.block)
     if (!closedAt || monthOf(closedAt) !== month) continue
-    // Rush (加急) blocks have no block-level amount — fall back to the
-    // per-line sum so 月度 matches the 订单资金 board and AR ledger.
-    outsourceCny += r.block.amountCny ?? blockLineTotalsSum(r.block) ?? 0
+    // 单头总价优先, 没填就按件小计 —— 和台账、对账单一个口径。
+    outsourceCny += blockAmountCny(r.block) ?? 0
     outsourceCount += 1
   }
 

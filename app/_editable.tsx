@@ -1911,6 +1911,7 @@ export function OutsourceBlockAmount({
   blockId,
   jobId,
   value,
+  derived,
   className,
 }: {
   blockId: string
@@ -1918,6 +1919,13 @@ export function OutsourceBlockAmount({
   // null = 加急 block awaiting price (待补金额); render empty with a placeholder
   // and let commerce type in the quote when it lands.
   value: number | null | undefined
+  /**
+   * 按每件「单价 × 数量」合出来的数 (lib/data 的 blockLineTotalsSum)。单头还
+   * 没手填总价时, 这个数就是这张单实际的金额 —— 所以它以占位字的形式摆在格
+   * 子里, 而不是留一个空框让人再按一遍计算器。谈成了别的价 (含运费、抹零),
+   * 直接在这里打上去, 打上去的那个数从此说了算。
+   */
+  derived?: number
   className?: string
 }) {
   const ref = useRef<HTMLInputElement>(null)
@@ -1966,7 +1974,14 @@ export function OutsourceBlockAmount({
       min={0}
       step={1}
       value={draft}
-      placeholder={isPending ? '待定' : undefined}
+      placeholder={
+        isPending ? (derived != null ? String(derived) : '待定') : undefined
+      }
+      title={
+        isPending && derived != null
+          ? '按每件单价 × 数量合计 — 谈的是别的价就直接在这里改'
+          : undefined
+      }
       onChange={(e) => setDraft(e.target.value)}
       onFocus={() => setFocused(true)}
       onBlur={() => {

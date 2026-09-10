@@ -14,7 +14,7 @@
 
 import {
   blockClosedAt,
-  blockLineTotalsSum,
+  blockAmountCny,
   type OpenBlockRow,
   type Vendor,
 } from './data'
@@ -267,12 +267,11 @@ function rollupParties<T>(
 
 // === 供应商 (外协) ===
 
-/** 一张外协单该付多少: 单头总价优先, 没填就按件小计 (加急单的算法)。 */
+/** 一张外协单该付多少 —— 全厂同一个口径, 见 lib/data 的 blockAmountCny。 */
 export function blockSettleAmount(
   block: OpenBlockRow['block'],
 ): number | undefined {
-  if (block.amountCny != null) return block.amountCny
-  return blockLineTotalsSum(block)
+  return blockAmountCny(block)
 }
 
 /**

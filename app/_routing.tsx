@@ -7,6 +7,7 @@ import {
   OUTSOURCEABLE_STAGES,
   OUTSOURCE_ACTIVITIES,
   blockActivityLabel,
+  blockLineTotalsSum,
   daysFromToday,
   isBlockClosed,
   isMemberFullyReturned,
@@ -1143,6 +1144,7 @@ export function BlockRow({
             blockId={block.id}
             jobId={jobId}
             value={block.amountCny}
+            derived={blockLineTotalsSum(block)}
             className="text-[13px] text-[var(--color-ink)] [field-sizing:content] min-w-[3ch]"
           />
         </div>

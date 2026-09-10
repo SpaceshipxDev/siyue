@@ -2,6 +2,7 @@ import 'server-only'
 import { Document, Image, Link, Page, Text, View } from '@react-pdf/renderer'
 import type { OutsourceBlock, Vendor } from './../data'
 import {
+  blockAmountCny,
   blockLineTotalsSum,
   effectiveMemberLineTotal,
   effectiveUnitPriceCny,
@@ -97,7 +98,7 @@ export function OutsourceDocPDF({
           <Field full label="收件地址" value={recipientAddress} />
           <Field label="收件人" value={recipientName} />
           <Field label="联系电话" value={recipientPhone} />
-          <Field label="订单金额" value={formatCny(block.amountCny)} />
+          <Field label="订单金额" value={formatCny(blockAmountCny(block))} />
           <Field full label="备注" value={stripProcessMethodFromNotes(block.notes) || '—'} />
         </View>
 
