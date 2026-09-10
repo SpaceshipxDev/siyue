@@ -742,86 +742,72 @@ function Slip({
           </a>
         </div>
 
-        {/* 工资构成 —— 只是拆法, 不加钱。顺序就是老板那张清单的顺序。 */}
-        <div className="mb-4 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5">
-          <p className="label mb-1.5 text-[var(--color-ink-3)]">
-            工资构成 · 综合工资 {formatCny(s.monthlyCny)}
-            {!s.splitApplies && ' · 未过拆分门槛'}
-          </p>
-          {s.splitApplies ? (
-            <div className="grid grid-cols-2 gap-x-8 gap-y-1 md:grid-cols-3">
-              <Ln label="基本工资" v={s.baseSalaryCny} />
-              <Ln
-                label="加班费"
-                detail={s.otHours > 0 ? `${num(s.otHours)} 小时` : undefined}
-                v={s.otPay}
-              />
-              {/* 手填的四项 —— 一人一个数, 点着就填。填多了福利那一格自动变
-                  少, 加起来永远还是综合工资。 */}
-              <Edit
-                label="餐补"
-                value={s.mealCny}
-                locked={locked}
-                onSave={(v) => setLine({ mealCny: v })}
-              />
-              <Ln label="岗位补助" v={s.postSubsidyCny} />
-              <Edit
-                label="话费补助"
-                value={s.phoneAllowanceCny}
-                locked={locked}
-                onSave={(v) => setLine({ phoneAllowanceCny: v })}
-              />
-              <Edit
-                label="交通补助"
-                value={s.transportAllowanceCny}
-                locked={locked}
-                onSave={(v) => setLine({ transportAllowanceCny: v })}
-              />
-              <Ln label="绩效工资" v={s.perfPayCny} />
-              <Ln label="安全费" v={s.safetyFeeCny} />
-              <Edit
-                label="房补"
-                value={s.housingCny}
-                locked={locked}
-                onSave={(v) => setLine({ housingCny: v })}
-              />
-              <Ln
-                label="全勤"
-                detail={s.fullAttendance ? undefined : '本月有缺勤'}
-                v={s.fullAttendanceCny}
-              />
-              <Ln label="社保补贴" v={s.socialSubsidyCny} />
-              {/* 兜底的那一格 —— 上面各项加起来永远等于综合工资。手填的几
-                  项填得太多, 它会变成负数, 那时候是红的。 */}
-              <Ln label="福利" v={s.welfareCny} />
-            </div>
-          ) : (
-            <p className="text-[12.5px] text-[var(--color-ink-3)]">
-              综合工资不高于拆分门槛，工资条上不拆分。
-            </p>
-          )}
-          <p className="mt-1.5 text-[11px] text-[var(--color-ink-4)]">
-            岗位补助、绩效工资、安全费的基数是综合工资先减掉加班费和餐补
-            {s.splitApplies ? ` = ${formatCny(s.ratedBaseCny)}` : ''}
-            ；社保补贴按综合工资算；全勤当月没有事假、病假、旷工、迟到才有；福
-            利 = 综合工资减掉上面所有项目，所以这一列加起来正好是综合工资。餐
-            补、话费、交通、房补点着就能给这个人单独填一个数，填多了福利自动变
-            少。这一段是拆法，不额外加钱，实发从下面的出勤工资算起。
-          </p>
-        </div>
-
         <div className="grid grid-cols-1 gap-x-10 gap-y-1 md:grid-cols-2">
-          {/* 应发 */}
+          {/* 工资明细 —— 前半段是出勤工资 (人到岗才有的那几项), 后半段是各
+              项补助, 两段加起来就是应发工资。福利是倒挤的, 所以这一列永远
+              加得回综合工资。 */}
           <div>
-            <p className="label mb-1 text-[var(--color-ink-3)]">应发</p>
-            <Ln label="出勤工资" v={s.attendancePayCny} strong />
-            {/* 加班小时来自人事, 单价是厂里定死的 —— 把算式写在旁边, 条子
-                上就不用再解释一遍。周六周日一个价, 平时一个价。 */}
-            <Ln
-              label="加班费"
-              detail={otDetail(s)}
-              v={s.otPay}
-            />
+            <p className="label mb-1 text-[var(--color-ink-3)]">
+              出勤工资
+              {!s.splitApplies && ' · 综合工资未过拆分门槛, 不拆'}
+            </p>
+            {s.splitApplies ? (
+              <>
+                <Ln label="基本工资" v={s.baseSalaryCny} />
+                <Ln label="岗位补助" v={s.postSubsidyCny} />
+                <Ln label="加班费" detail={otDetail(s)} v={s.otPay} />
+              </>
+            ) : (
+              <>
+                <Ln label="综合工资" v={s.monthlyCny} />
+                <Ln label="加班费" detail={otDetail(s)} v={s.otPay} />
+              </>
+            )}
+            {s.attendanceCutCny > 0 && (
+              <Ln label="缺勤扣" detail="事假·病假·旷工·迟到" v={-s.attendanceCutCny} />
+            )}
+            <Ln label="出勤工资" v={s.attendancePayCny} strong divider />
+
+            <p className="label mt-3 mb-1 text-[var(--color-ink-3)]">其他项目</p>
+            {s.splitApplies && (
+              <>
+                <Edit
+                  label="餐补"
+                  value={s.mealCny}
+                  locked={locked}
+                  onSave={(v) => setLine({ mealCny: v })}
+                />
+                <Edit
+                  label="话费补助"
+                  value={s.phoneAllowanceCny}
+                  locked={locked}
+                  onSave={(v) => setLine({ phoneAllowanceCny: v })}
+                />
+                <Edit
+                  label="交通补助"
+                  value={s.transportAllowanceCny}
+                  locked={locked}
+                  onSave={(v) => setLine({ transportAllowanceCny: v })}
+                />
+                <Ln label="绩效工资" v={s.perfPayCny} />
+                <Ln label="安全费" v={s.safetyFeeCny} />
+                <Edit
+                  label="房补"
+                  value={s.housingCny}
+                  locked={locked}
+                  onSave={(v) => setLine({ housingCny: v })}
+                />
+                <Ln
+                  label="全勤"
+                  detail={s.fullAttendance ? undefined : '本月有缺勤'}
+                  v={s.fullAttendanceCny}
+                />
+                <Ln label="社保补贴" v={s.socialSubsidyCny} />
+                {/* 兜底的那一格 —— 上面各项加起来永远等于综合工资。手填的几
+                    项填得太多, 它会变成负数, 那时候是红的。 */}
+                <Ln label="福利" v={s.welfareCny} />
+              </>
+            )}
             {PAYROLL_ADD_FIELDS.map(([k, label]) => (
               <Edit
                 key={k}
@@ -834,7 +820,7 @@ function Slip({
             {s.adjustCny !== 0 && (
               <Ln label={s.adjustCny > 0 ? '奖' : '罚'} v={s.adjustCny} />
             )}
-            <Ln label="应发合计" v={s.grossCny} strong divider />
+            <Ln label="应发工资" v={s.grossCny} strong divider />
           </div>
 
           {/* 扣款 */}
@@ -851,6 +837,16 @@ function Slip({
               />
             ))}
             <Ln label="扣款合计" v={-s.deductCny} strong divider />
+            <p className="mt-3 text-[11px] text-[var(--color-ink-4)]">
+              基本工资、岗位补助、加班费合起来是出勤工资；再加上后面这一串子
+              项目，就是应发工资。岗位补助、绩效工资、安全费的基数是综合工资
+              先减掉加班费和餐补
+              {s.splitApplies ? ` = ${formatCny(s.ratedBaseCny)}` : ''}
+              ；社保补贴按综合工资算；全勤当月没有事假、病假、旷工、迟到才
+              有；福利 = 综合工资减掉前面所有项目，所以人到齐、没有额外奖金
+              时，应发工资正好是综合工资。餐补、话费、交通、房补点着就能给这
+              个人单独填一个数。
+            </p>
           </div>
         </div>
 

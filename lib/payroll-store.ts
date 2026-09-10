@@ -480,6 +480,8 @@ function normalizeSheet(raw: unknown): PayrollSheet {
         typeof s.postSubsidyCny === 'number' ? s.postSubsidyCny : 0,
       perfPayCny: typeof s.perfPayCny === 'number' ? s.perfPayCny : 0,
       safetyFeeCny: typeof s.safetyFeeCny === 'number' ? s.safetyFeeCny : 0,
+      attendanceCutCny:
+        typeof s.attendanceCutCny === 'number' ? s.attendanceCutCny : 0,
       baseSalaryCny:
         typeof s.baseSalaryCny === 'number' ? s.baseSalaryCny : 0,
     })),

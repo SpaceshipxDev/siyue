@@ -450,8 +450,16 @@ export type Payslip = {
   fullAttendance: boolean
   // === 出勤 ===
   workedDays: number // 实际出勤天数
-  attendancePayCny: number // 出勤工资 = 综合工资 − 各项缺勤扣
-  // === 应发里手填的加减项 ===
+  attendanceCutCny: number // 缺勤扣合计 = 事假 + 病假 + 旷工 + 迟到
+  /**
+   * 出勤工资 —— 工资条前半段那一小计: 基本工资 + 岗位补助 + 加班费, 再减掉
+   * 缺勤扣。这三项是"人到岗才有"的那部分, 所以它们合起来叫出勤工资。
+   *
+   * 综合工资没过拆分门槛的人不拆构成, 这一格就退回老口径 (综合工资 + 加班
+   * 费 − 缺勤扣) —— 条子上只有这一行, 后面那一串是空的。
+   */
+  attendancePayCny: number
+  // === 后半段里手填的几项 (综合工资之外, 真加上去的钱) ===
   nightShiftCny: number
   holidayCny: number
   bonusCny: number
@@ -461,7 +469,7 @@ export type Payslip = {
   safetyDeductCny: number
   socialInsuranceCny: number
   taxCny: number
-  /** 应发合计 = 出勤工资 + 加班费 + 补助 + 奖金 + 奖罚 */
+  /** 应发工资 = 出勤工资 + 后面所有子项目 */
   grossCny: number
   /** 扣款合计 */
   deductCny: number
@@ -560,14 +568,15 @@ export function computePayslip(
     attendance.absentHours +
     otHours
 
-  // 出勤工资 —— 综合工资扣掉缺勤的那几笔。加班和补助不在里面 (它们是另外
-  // 加的), 所以这一格回答的是"这个月按出勤该拿多少底"。
-  const attendancePayCny = monthlyCny - leaveCut - sickCut - absentCut - lateCut
+  const attendanceCutCny = leaveCut + sickCut + absentCut + lateCut
 
-  // === 工资构成 ===
+  // === 工资条的两段 ===
   //
-  // 把综合工资按老板那张清单拆开写在条子上。只有过了门槛才拆。这几行**不参
-  // 与实发计算** —— 拆法改了, 钱一分不变。
+  // 前半段「出勤工资」= 基本工资 + 岗位补助 + 加班费 − 缺勤扣, 后半段是餐补
+  // 起到福利、奖金为止的一串子项目; 两段加起来就是应发工资。
+  //
+  // 福利是倒挤出来的 (综合工资 − 前面所有项), 所以只要人到齐、没有额外的奖
+  // 金, 应发工资正好等于综合工资 —— 条子上加得起来, 这是它能拿去对账的前提。
   const splitApplies = monthlyCny > rules.splitThresholdCny
   const on = (v: number) => (splitApplies ? Math.round(v) : 0)
 
@@ -621,9 +630,24 @@ export function computePayslip(
   const socialInsuranceCny = money(line.socialInsuranceCny)
   const taxCny = money(line.taxCny)
 
+  // 前半段 —— 综合工资没过门槛的人不拆构成, 退回老口径 (综合工资 + 加班费),
+  // 条子上就只有这一行。
+  const attendancePayCny = splitApplies
+    ? baseSalaryCny + postSubsidyCny + otPay - attendanceCutCny
+    : monthlyCny + otPay - attendanceCutCny
+
+  // 应发工资 = 前半段 + 后半段所有子项目。
   const grossCny =
     attendancePayCny +
-    otPay +
+    mealCny +
+    phoneAllowanceCny +
+    transportAllowanceCny +
+    perfPayCny +
+    safetyFeeCny +
+    housingCny +
+    fullAttendanceCny +
+    socialSubsidyCny +
+    welfareCny +
     nightShiftCny +
     holidayCny +
     bonusCny +
@@ -687,6 +711,7 @@ export function computePayslip(
     welfareCny,
     splitApplies,
     fullAttendance,
+    attendanceCutCny,
     attendancePayCny,
     nightShiftCny,
     holidayCny,
@@ -851,7 +876,7 @@ export const PAYROLL_EXPORT_HEADERS = [
   '节假日补贴',
   '奖金',
   '奖罚',
-  '应发合计',
+  '应发工资',
   '预支工资',
   '绩效扣款',
   '安全扣款',

@@ -75,51 +75,60 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
         </span>
       </div>
 
-      {/* 工资构成 —— 综合工资怎么拆的。不加钱, 只是写清楚。顺序和屏幕上、
-          导出的工资表完全一样, 三处读到的是同一张表。 */}
-      <div className="flex flex-wrap gap-x-6 gap-y-0.5 border-b border-[var(--color-border)] py-1.5 text-[11.5px] text-[var(--color-ink-2)]">
-        <span>综合工资 {formatCny(s.monthlyCny)}</span>
-        {s.splitApplies && (
-          <>
-            <span>基本工资 {formatCny(s.baseSalaryCny)}</span>
-            <span>加班费 {formatCny(s.otPay)}</span>
-            <span>餐补 {formatCny(s.mealCny)}</span>
-            <span>岗位补助 {formatCny(s.postSubsidyCny)}</span>
-            <span>话费补助 {formatCny(s.phoneAllowanceCny)}</span>
-            <span>交通补助 {formatCny(s.transportAllowanceCny)}</span>
-            <span>绩效工资 {formatCny(s.perfPayCny)}</span>
-            <span>安全费 {formatCny(s.safetyFeeCny)}</span>
-            <span>房补 {formatCny(s.housingCny)}</span>
-            <span>全勤 {formatCny(s.fullAttendanceCny)}</span>
-            <span>社保补贴 {formatCny(s.socialSubsidyCny)}</span>
-            <span>福利 {formatCny(s.welfareCny)}</span>
-          </>
-        )}
-      </div>
-
+      {/* 一张条子两段: 前半段出勤工资 (人到岗才有的那几项), 后半段各项补
+          助, 两段加起来是应发工资。顺序和屏幕上、导出的工资表完全一样 ——
+          三处读到的是同一张表。 */}
       <div className="grid grid-cols-2 gap-x-8 py-2">
         <div>
-          <p className="label mb-0.5">应发</p>
-          <Row label="出勤工资" v={s.attendancePayCny} />
-          <Row
-            label={
-              s.otHours > 0
-                ? `加班费 · ${fmt(s.otHours)} 小时${
-                    s.otWeekendHours > 0
-                      ? ` (周末 ${fmt(s.otWeekendHours)})`
-                      : ''
-                  }`
-                : '加班费'
-            }
-            v={s.otPay}
-          />
+          <p className="label mb-0.5">出勤工资</p>
+          {s.splitApplies ? (
+            <>
+              <Row label="基本工资" v={s.baseSalaryCny} />
+              <Row label="岗位补助" v={s.postSubsidyCny} />
+              <Row
+                label={
+                  s.otHours > 0 ? `加班费 · ${fmt(s.otHours)} 小时` : '加班费'
+                }
+                v={s.otPay}
+              />
+            </>
+          ) : (
+            <>
+              <Row label="综合工资" v={s.monthlyCny} />
+              <Row
+                label={
+                  s.otHours > 0 ? `加班费 · ${fmt(s.otHours)} 小时` : '加班费'
+                }
+                v={s.otPay}
+              />
+            </>
+          )}
+          {s.attendanceCutCny > 0 && (
+            <Row label="缺勤扣" v={-s.attendanceCutCny} />
+          )}
+          <Row label="出勤工资" v={s.attendancePayCny} strong />
+
+          <p className="label mt-2 mb-0.5">其他项目</p>
+          {s.splitApplies && (
+            <>
+              <Row label="餐补" v={s.mealCny} />
+              <Row label="话费补助" v={s.phoneAllowanceCny} />
+              <Row label="交通补助" v={s.transportAllowanceCny} />
+              <Row label="绩效工资" v={s.perfPayCny} />
+              <Row label="安全费" v={s.safetyFeeCny} />
+              <Row label="房补" v={s.housingCny} />
+              <Row label="全勤" v={s.fullAttendanceCny} />
+              <Row label="社保补贴" v={s.socialSubsidyCny} />
+              <Row label="福利" v={s.welfareCny} />
+            </>
+          )}
           {PAYROLL_ADD_FIELDS.map(([k, label]) => (
             <Row key={k} label={label} v={s[k]} />
           ))}
           {s.adjustCny !== 0 && (
             <Row label={s.adjustCny > 0 ? '奖' : '罚'} v={s.adjustCny} />
           )}
-          <Row label="应发合计" v={s.grossCny} strong />
+          <Row label="应发工资" v={s.grossCny} strong />
         </div>
         <div>
           <p className="label mb-0.5">扣款</p>
