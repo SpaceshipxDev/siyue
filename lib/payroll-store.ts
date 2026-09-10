@@ -10,7 +10,6 @@ import {
   isValidAdjust,
   isValidDeptHours,
   isValidMonthlyCny,
-  isValidOtHours,
   DEFAULT_PAYROLL_RULES,
   FALLBACK_HOURS,
   NO_DEPARTMENT,
@@ -420,7 +419,6 @@ function normalizeSheet(raw: unknown): PayrollSheet {
     if (typeof v !== 'object' || v === null) continue
     const l = v as Record<string, unknown>
     const line: PayrollLine = {}
-    if (isValidOtHours(l.otHours)) line.otHours = l.otHours
     if (isValidAdjust(l.adjustCny)) line.adjustCny = l.adjustCny
     // 工资条上手填的那十二格 —— 一份清单管住存和取, 加一项只改 lib/payroll。
     for (const k of PAYROLL_MONEY_KEYS) {
@@ -449,8 +447,41 @@ function normalizeSheet(raw: unknown): PayrollSheet {
         typeof s.saturdayHours === 'number'
           ? s.saturdayHours
           : DEFAULT_PAYROLL_RULES.saturdayHours,
-      otRate: typeof s.otRate === 'number' ? s.otRate : 1,
-      otFromHr: s.otFromHr === true,
+      otWeekdayHours:
+        typeof s.otWeekdayHours === 'number' ? s.otWeekdayHours : 0,
+      otWeekendHours:
+        typeof s.otWeekendHours === 'number' ? s.otWeekendHours : 0,
+      otWeekdayCny:
+        typeof s.otWeekdayCny === 'number'
+          ? s.otWeekdayCny
+          : DEFAULT_PAYROLL_RULES.otWeekdayCny,
+      otWeekendCny:
+        typeof s.otWeekendCny === 'number'
+          ? s.otWeekendCny
+          : DEFAULT_PAYROLL_RULES.otWeekendCny,
+      // 发放在这套工资构成之前的条子上没有这几格 —— 读成 0, 那个月本来就是
+      // 那么发的。已发放的工资条是凭据, 不能被后来改的拆法追认。
+      fullAttendanceCny:
+        typeof s.fullAttendanceCny === 'number' ? s.fullAttendanceCny : 0,
+      fullAttendance: s.fullAttendance === true,
+      ratedBaseCny: typeof s.ratedBaseCny === 'number' ? s.ratedBaseCny : 0,
+      welfareCny: typeof s.welfareCny === 'number' ? s.welfareCny : 0,
+      mealCny: typeof s.mealCny === 'number' ? s.mealCny : 0,
+      housingCny: typeof s.housingCny === 'number' ? s.housingCny : 0,
+      phoneAllowanceCny:
+        typeof s.phoneAllowanceCny === 'number' ? s.phoneAllowanceCny : 0,
+      transportAllowanceCny:
+        typeof s.transportAllowanceCny === 'number'
+          ? s.transportAllowanceCny
+          : 0,
+      socialSubsidyCny:
+        typeof s.socialSubsidyCny === 'number' ? s.socialSubsidyCny : 0,
+      postSubsidyCny:
+        typeof s.postSubsidyCny === 'number' ? s.postSubsidyCny : 0,
+      perfPayCny: typeof s.perfPayCny === 'number' ? s.perfPayCny : 0,
+      safetyFeeCny: typeof s.safetyFeeCny === 'number' ? s.safetyFeeCny : 0,
+      baseSalaryCny:
+        typeof s.baseSalaryCny === 'number' ? s.baseSalaryCny : 0,
     })),
   }
   return { lines, paid }
@@ -471,13 +502,16 @@ export async function setPayrollLine(
     const sheet = normalizeSheet(await readJson(monthKey(month)))
     if (sheet.paid) throw new Error('这个月已发放，先撤销再改')
     const line = { ...(sheet.lines[name] ?? {}) }
-    if (patch.otHours !== undefined) {
-      if (patch.otHours > 0) line.otHours = patch.otHours
-      else delete line.otHours
-    }
     if (patch.adjustCny !== undefined) {
       if (patch.adjustCny !== 0) line.adjustCny = patch.adjustCny
       else delete line.adjustCny
+    }
+    // 手填的钱格子: 0 就是清空 (格子留白), 其余照存。
+    for (const k of PAYROLL_MONEY_KEYS) {
+      const v = patch[k]
+      if (v === undefined) continue
+      if (v > 0) line[k] = v
+      else delete line[k]
     }
     if (patch.note !== undefined) {
       if (patch.note.trim()) line.note = patch.note.trim()

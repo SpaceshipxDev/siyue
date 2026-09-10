@@ -208,8 +208,9 @@ import {
   isValidAdjust,
   isValidDeptHours,
   isValidMonthlyCny,
-  isValidOtHours,
+  isValidPayrollMoney,
   isValidRuleValue,
+  PAYROLL_MONEY_KEYS,
   monthLabel as payrollMonthLabel,
   payrollTotal,
   NO_DEPARTMENT,
@@ -3068,13 +3069,17 @@ async function dispatch(
         return err('bad setPayrollLine args')
       const p = patch as Record<string, unknown>
       const line: PayrollLine = {}
-      if (p.otHours !== undefined) {
-        if (!isValidOtHours(p.otHours)) return err('加班小时不对')
-        line.otHours = p.otHours
-      }
       if (p.adjustCny !== undefined) {
         if (!isValidAdjust(p.adjustCny)) return err('奖罚金额不对')
         line.adjustCny = p.adjustCny
+      }
+      // 工资条上手填的那些钱格子 (餐补/话费/交通/房补/夜班/社保/个税…) —— 一
+      // 份清单管住校验, 加一项只改 lib/payroll。
+      for (const k of PAYROLL_MONEY_KEYS) {
+        const v = p[k]
+        if (v === undefined) continue
+        if (!isValidPayrollMoney(v)) return err('金额不对')
+        line[k] = v
       }
       if (p.note !== undefined) {
         if (!isString(p.note)) return err('bad setPayrollLine args')

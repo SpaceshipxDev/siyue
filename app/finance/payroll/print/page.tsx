@@ -75,25 +75,24 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
         </span>
       </div>
 
-      {/* 工资构成 —— 综合工资怎么拆的。不加钱, 只是写清楚。 */}
+      {/* 工资构成 —— 综合工资怎么拆的。不加钱, 只是写清楚。顺序和屏幕上、
+          导出的工资表完全一样, 三处读到的是同一张表。 */}
       <div className="flex flex-wrap gap-x-6 gap-y-0.5 border-b border-[var(--color-border)] py-1.5 text-[11.5px] text-[var(--color-ink-2)]">
         <span>综合工资 {formatCny(s.monthlyCny)}</span>
         {s.splitApplies && (
           <>
             <span>基本工资 {formatCny(s.baseSalaryCny)}</span>
-            <span>话费补贴 {formatCny(s.phoneAllowanceCny)}</span>
-            <span>交通补助 {formatCny(s.transportAllowanceCny)}</span>
-            <span>福利补贴 {formatCny(s.welfareAllowanceCny)}</span>
+            <span>加班费 {formatCny(s.otPay)}</span>
+            <span>餐补 {formatCny(s.mealCny)}</span>
             <span>岗位补助 {formatCny(s.postSubsidyCny)}</span>
+            <span>话费补助 {formatCny(s.phoneAllowanceCny)}</span>
+            <span>交通补助 {formatCny(s.transportAllowanceCny)}</span>
             <span>绩效工资 {formatCny(s.perfPayCny)}</span>
-            <span>保密费用 {formatCny(s.secretFeeCny)}</span>
-            {s.socialSubsidyBaseCny !== 0 && (
-              <span>社保补贴 {formatCny(s.socialSubsidyBaseCny)}</span>
-            )}
-            {s.safetyFeeCny !== 0 && (
-              <span>安全费 {formatCny(s.safetyFeeCny)}</span>
-            )}
-            <span>奖金 {formatCny(s.splitBonusCny)}</span>
+            <span>安全费 {formatCny(s.safetyFeeCny)}</span>
+            <span>房补 {formatCny(s.housingCny)}</span>
+            <span>全勤 {formatCny(s.fullAttendanceCny)}</span>
+            <span>社保补贴 {formatCny(s.socialSubsidyCny)}</span>
+            <span>福利 {formatCny(s.welfareCny)}</span>
           </>
         )}
       </div>
@@ -104,7 +103,13 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
           <Row label="出勤工资" v={s.attendancePayCny} />
           <Row
             label={
-              s.otHours > 0 ? `加班费 · ${fmt(s.otHours)} 小时` : '加班费'
+              s.otHours > 0
+                ? `加班费 · ${fmt(s.otHours)} 小时${
+                    s.otWeekendHours > 0
+                      ? ` (周末 ${fmt(s.otWeekendHours)})`
+                      : ''
+                  }`
+                : '加班费'
             }
             v={s.otPay}
           />

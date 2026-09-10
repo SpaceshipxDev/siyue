@@ -14,7 +14,6 @@ import {
   monthLabel,
   payrollTotal,
   PAYROLL_ADD_FIELDS,
-  PAYROLL_ALLOWANCE_FIELDS,
   PAYROLL_CUT_FIELDS,
   DEPARTMENTS,
   NO_DEPARTMENT,
@@ -228,42 +227,49 @@ export function PayrollBoard({
           <Sep />
           <Rule label="迟到每次扣" unit="元" value={rules.latePerTime} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'latePerTime', value: v })} />
           <Sep />
-          <Rule label="加班" unit="倍" value={rules.otRate} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'otRate', value: v })} />
           <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-            加班费 = 综合工资 ÷ 应出勤工时 × 加班小时 × 倍率 · 事假全扣 · 工伤
-            不扣 · 违纪和质量异常自己定奖罚
+            事假全扣 · 工伤不扣 · 违纪和质量异常自己定奖罚
           </span>
         </div>
 
-        {/* 工资构成 —— 工资条上把综合工资拆成基本工资 + 几项补贴时用的数。
-            这几个数只影响条子上怎么写, 不影响实发, 所以随手调不会把钱调错。 */}
+        {/* 加班费 —— 厂里定死的小时价, 跟月薪无关。周六周日一个价, 平时一个
+            价; 是哪种由人事那条记录的日期决定, 记的人不用选。 */}
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-1 gap-y-2 border-t border-[var(--color-border)] pt-2.5">
+          <span className="mr-2 w-[52px] shrink-0 font-medium text-[var(--color-ink-2)]">
+            加班费
+          </span>
+          <Rule label="平时" unit="元/小时" value={rules.otWeekdayCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'otWeekdayCny', value: v })} />
+          <Sep />
+          <Rule label="周六周日" unit="元/小时" value={rules.otWeekendCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'otWeekendCny', value: v })} />
+          <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
+            加班小时记在人事, 哪天加的就按哪天的价 —— 周六周日一个价, 平时一
+            个价
+          </span>
+        </div>
+
+        {/* 工资构成 —— 工资条上把综合工资拆成一列项目时用的数。这几个数只影
+            响条子上怎么写, 不影响实发, 所以随手调不会把钱调错。 */}
         <div className="mt-2.5 flex flex-wrap items-center gap-x-1 gap-y-2 border-t border-[var(--color-border)] pt-2.5">
           <span className="mr-2 w-[52px] shrink-0 font-medium text-[var(--color-ink-2)]">
             工资构成
           </span>
           <Rule label="基本工资" unit="元" value={rules.baseSalaryCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'baseSalaryCny', value: v })} />
           <Sep />
-          <Rule label="话费补贴" unit="%" value={rules.phonePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'phonePct', value: v })} />
+          <Rule label="岗位补助" unit="%" value={rules.postRatePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'postRatePct', value: v })} />
           <Sep />
-          <Rule label="福利补贴" unit="%" value={rules.welfarePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'welfarePct', value: v })} />
+          <Rule label="绩效工资" unit="%" value={rules.perfRatePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'perfRatePct', value: v })} />
           <Sep />
-          <Rule label="交通补助" unit="%" value={rules.transportPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'transportPct', value: v })} />
+          <Rule label="安全费" unit="%" value={rules.safetyRatePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'safetyRatePct', value: v })} />
           <Sep />
-          <Rule label="社保补贴" unit="%" value={rules.socialPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'socialPct', value: v })} />
+          <Rule label="社保补贴" unit="%" value={rules.socialRatePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'socialRatePct', value: v })} />
+          <Sep />
+          <Rule label="全勤" unit="元" value={rules.fullAttendanceCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'fullAttendanceCny', value: v })} />
           <Sep />
           <Rule label="超过" unit="元才拆" value={rules.splitThresholdCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'splitThresholdCny', value: v })} />
-          <Sep />
-          <Rule label="岗位补贴" unit="%" value={rules.postPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'postPct', value: v })} />
-          <Sep />
-          <Rule label="保密费" unit="%" value={rules.secretPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'secretPct', value: v })} />
-          <Sep />
-          <Rule label="安全费" unit="%" value={rules.safetyPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'safetyPct', value: v })} />
-          <Sep />
-          <Rule label="绩效工资" unit="%" value={rules.perfPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'perfPct', value: v })} />
           <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-            先减基本工资 → 分出话费/交通/福利 → 剩下的再按其余几项的百分比分
-            → 余额进奖金 · 那三项可在工资条上给某个人单独填 · 只影响拆法, 不影
-            响实发
+            岗位、绩效、安全费乘的是「综合工资 − 加班费 − 餐补」· 社保补贴乘综合工资 ·
+            餐补/话费/交通/房补在工资条上一人一个数 · 福利 = 综合工资 − 以上全
+            部 · 只影响拆法, 不影响实发
           </span>
         </div>
 
@@ -504,8 +510,8 @@ export function PayrollBoard({
         <Link href={`/hr?p=${month}`} className="mx-1 underline decoration-[var(--color-border-strong)] underline-offset-2 hover:text-[var(--color-ink)]">
           人事
         </Link>
-        ，在那边记，这边自动算。加班费按这个人自己的时薪（综合工资 ÷ 当月应出
-        勤工时）算。点名字看工资条。
+        ，在那边记，这边自动算。加班费按厂里定的小时价：周六周日一个价、平时
+        一个价，哪天加的就按哪天的。点名字看工资条。
       </p>
     </div>
   )
@@ -724,7 +730,7 @@ function Slip({
             {s.dept} · 应出勤 {s.standardDays} 天 (含周六 {s.saturdays} 天) ·
             实际出勤 {num(s.workedDays)} 天 · 平时每天 {num(s.hoursPerDay)} 小时
             · 周六 {num(s.saturdayHours)} 小时 · 应出勤 {num(s.standardHours)}{' '}
-            小时 · 时薪 ¥{s.hourlyCny.toFixed(1)}
+            小时 · 时薪 ¥{num(s.hourlyCny)}（缺勤按它扣）
           </p>
           <a
             href={withBase(`/finance/payroll/print?m=${month}&name=${encodeURIComponent(s.name)}`)}
@@ -736,7 +742,7 @@ function Slip({
           </a>
         </div>
 
-        {/* 工资构成 —— 只是拆法, 不加钱。 */}
+        {/* 工资构成 —— 只是拆法, 不加钱。顺序就是老板那张清单的顺序。 */}
         <div className="mb-4 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5">
           <p className="label mb-1.5 text-[var(--color-ink-3)]">
             工资构成 · 综合工资 {formatCny(s.monthlyCny)}
@@ -744,32 +750,50 @@ function Slip({
           </p>
           {s.splitApplies ? (
             <div className="grid grid-cols-2 gap-x-8 gap-y-1 md:grid-cols-3">
-              {/* ① 定额 */}
               <Ln label="基本工资" v={s.baseSalaryCny} />
-              {/* ② 先分出去的三项 —— 一人一个价 (有人跑客户, 有人不出厂门),
-                  点着就能给这个人单独填一个数, 不填就按比例算。 */}
-              {PAYROLL_ALLOWANCE_FIELDS.map(([k, label]) => (
-                <Edit
-                  key={k}
-                  label={label}
-                  value={s[k]}
-                  locked={locked}
-                  onSave={(v) => setLine({ [k]: v })}
-                />
-              ))}
-              {/* ③ 剩下的按比例分。比例设成 0 的项不占版面。 */}
+              <Ln
+                label="加班费"
+                detail={s.otHours > 0 ? `${num(s.otHours)} 小时` : undefined}
+                v={s.otPay}
+              />
+              {/* 手填的四项 —— 一人一个数, 点着就填。填多了福利那一格自动变
+                  少, 加起来永远还是综合工资。 */}
+              <Edit
+                label="餐补"
+                value={s.mealCny}
+                locked={locked}
+                onSave={(v) => setLine({ mealCny: v })}
+              />
               <Ln label="岗位补助" v={s.postSubsidyCny} />
+              <Edit
+                label="话费补助"
+                value={s.phoneAllowanceCny}
+                locked={locked}
+                onSave={(v) => setLine({ phoneAllowanceCny: v })}
+              />
+              <Edit
+                label="交通补助"
+                value={s.transportAllowanceCny}
+                locked={locked}
+                onSave={(v) => setLine({ transportAllowanceCny: v })}
+              />
               <Ln label="绩效工资" v={s.perfPayCny} />
-              <Ln label="保密费用" v={s.secretFeeCny} />
-              {s.socialSubsidyBaseCny !== 0 && (
-                <Ln label="社保补贴" v={s.socialSubsidyBaseCny} />
-              )}
-              {s.safetyFeeCny !== 0 && (
-                <Ln label="安全费" v={s.safetyFeeCny} />
-              )}
-              {/* 分完剩下的那一截 —— 多了少了都落在奖金上, 所以上面各项加起
-                  来永远等于综合工资。 */}
-              <Ln label="奖金" v={s.splitBonusCny} />
+              <Ln label="安全费" v={s.safetyFeeCny} />
+              <Edit
+                label="房补"
+                value={s.housingCny}
+                locked={locked}
+                onSave={(v) => setLine({ housingCny: v })}
+              />
+              <Ln
+                label="全勤"
+                detail={s.fullAttendance ? undefined : '本月有缺勤'}
+                v={s.fullAttendanceCny}
+              />
+              <Ln label="社保补贴" v={s.socialSubsidyCny} />
+              {/* 兜底的那一格 —— 上面各项加起来永远等于综合工资。手填的几
+                  项填得太多, 它会变成负数, 那时候是红的。 */}
+              <Ln label="福利" v={s.welfareCny} />
             </div>
           ) : (
             <p className="text-[12.5px] text-[var(--color-ink-3)]">
@@ -777,14 +801,12 @@ function Slip({
             </p>
           )}
           <p className="mt-1.5 text-[11px] text-[var(--color-ink-4)]">
-            综合工资先减基本工资
-            {s.splitApplies ? ` = ${formatCny(s.afterBaseCny)}` : ''}，
-            从中分出话费、交通、福利；再剩下的
-            {s.splitApplies ? ` ${formatCny(s.splitBaseCny)} ` : ' '}
-            按比例分给岗位补助、绩效工资、保密费用、社保补贴、安全费，分完的余
-            额归入奖金。话费、交通、福利那三格点着能给这个人单独填一个数（填了
-            就不按比例，差额自动落到奖金上）。所有项加起来正好是综合工资——这是
-            拆法，不额外加钱，实发从下面的出勤工资算起。
+            岗位补助、绩效工资、安全费的基数是综合工资先减掉加班费和餐补
+            {s.splitApplies ? ` = ${formatCny(s.ratedBaseCny)}` : ''}
+            ；社保补贴按综合工资算；全勤当月没有事假、病假、旷工、迟到才有；福
+            利 = 综合工资减掉上面所有项目，所以这一列加起来正好是综合工资。餐
+            补、话费、交通、房补点着就能给这个人单独填一个数，填多了福利自动变
+            少。这一段是拆法，不额外加钱，实发从下面的出勤工资算起。
           </p>
         </div>
 
@@ -793,17 +815,11 @@ function Slip({
           <div>
             <p className="label mb-1 text-[var(--color-ink-3)]">应发</p>
             <Ln label="出勤工资" v={s.attendancePayCny} strong />
-            {/* 加班小时来自人事, 单价是这个人自己的时薪 —— 把算式写在旁
-                边, 条子上就不用再解释一遍。 */}
+            {/* 加班小时来自人事, 单价是厂里定死的 —— 把算式写在旁边, 条子
+                上就不用再解释一遍。周六周日一个价, 平时一个价。 */}
             <Ln
               label="加班费"
-              detail={
-                s.otHours > 0
-                  ? `${num(s.otHours)} 小时 × ¥${s.hourlyCny.toFixed(1)}${
-                      s.otRate === 1 ? '' : ` × ${num(s.otRate)} 倍`
-                    }`
-                  : '人事没记加班'
-              }
+              detail={otDetail(s)}
               v={s.otPay}
             />
             {PAYROLL_ADD_FIELDS.map(([k, label]) => (
@@ -1006,7 +1022,7 @@ function Rule({
           {num(value)}
         </span>
       ) : (
-        <span className="mx-0.5 inline-block w-[42px]">
+        <span className="mx-0.5 inline-block w-[54px]">
           <EditableText
             mono
             align="center"
@@ -1029,7 +1045,17 @@ function Sep() {
   return <span className="mx-2 text-[var(--color-ink-4)]">·</span>
 }
 
-// 8 not 8.0, 7.5 stays 7.5.
+// 8 not 8.00, 7.5 stays 7.5, 22.94 stays 22.94.
 function num(n: number): string {
-  return String(Math.round(n * 10) / 10)
+  return String(Math.round(n * 100) / 100)
+}
+
+// 加班费旁边那一句算式 —— 平时和周末两个价, 有哪个写哪个。
+function otDetail(s: Payslip): string {
+  const parts: string[] = []
+  if (s.otWeekdayHours > 0)
+    parts.push(`平时 ${num(s.otWeekdayHours)}h × ¥${num(s.otWeekdayCny)}`)
+  if (s.otWeekendHours > 0)
+    parts.push(`周末 ${num(s.otWeekendHours)}h × ¥${num(s.otWeekendCny)}`)
+  return parts.length > 0 ? parts.join(' + ') : '人事没记加班'
 }

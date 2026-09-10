@@ -90,40 +90,38 @@ export type PayrollRules = {
   sickPct: number // 病假扣薪比例 %（0 = 病假照发, 100 = 全扣）
   absentPct: number // 旷工扣薪比例 %（200 = 旷工一小时扣两小时）
   latePerTime: number // 迟到每次扣款, 元
-  /**
-   * 加班倍率 — 设成 1 就是老板定的口径: 加班费 = 综合工资 ÷ 应出勤工时 ×
-   * 加班小时。要按 1.5 倍发就把它改成 1.5, 一处改, 全厂跟着走。
-   */
-  otRate: number
+  // === 加班费 ===
+  //
+  // 一小时多少钱是厂里定死的价, 不再从月薪折算 —— 同一个小时, 谁加都是这个
+  // 数。周六周日一个价, 平时一个价; 是哪种, 系统看加班那天是星期几, 人事记
+  // 的时候不用选。
+  otWeekdayCny: number // 平时加班, 元/小时
+  otWeekendCny: number // 周六周日加班, 元/小时
   // === 工资条上的工资构成 ===
   //
-  // 综合工资是这个人一个月的总盘子 (系统里原来叫"月薪")。工资条上要把它拆
-  // 开写, 顺序是:
+  // 综合工资是这个人一个月的总盘子。工资条上要把它拆开写, 顺序就是老板给的
+  // 那张清单:
   //
-  //   ① 先扣掉三样固定的: 基本工资 · 话费补贴 · 交通补贴
-  //      这三样跟工资高低无关 —— 谁的电话费都差不多, 谁坐的公交也一样贵,
-  //      所以它们是定额, 不参与比例。
-  //   ② 剩下的那一块 (可分配额) 才按比例分成岗位补贴 / 保密费 / 安全费 /
-  //      绩效工资, 分完的余数进奖金。
+  //   基本工资(定额) · 加班费 · 餐补 · 岗位补助 · 话费补助 · 交通补助 ·
+  //   绩效工资 · 安全费 · 房补 · 全勤 · 社保补贴 · 福利
+  //
+  //   岗位补助 = (综合工资 − 加班费 − 餐补) × 8%
+  //   绩效工资 = (综合工资 − 加班费 − 餐补) × 30%
+  //   安全费   = (综合工资 − 加班费 − 餐补) × 10%
+  //   社保补贴 = 综合工资 × 9.6%
+  //   福利     = 综合工资 − 以上所有项目      ← 兜底, 所以永远加得回综合工资
+  //
+  // 话费 / 交通 / 房补 / 餐补是一人一个数, 在工资条上手填。
   //
   // 这几个数只是**构成的拆法**, 不额外加钱 —— 实发仍然从综合工资算起, 所以
   // 拆法改了实发一分不变。
   baseSalaryCny: number // 基本工资 — 全厂一个数, 唯一的定额
   splitThresholdCny: number // 综合工资高过这个数才拆分
-  // 拆的顺序是三层:
-  //   ① 综合工资 − 基本工资(定额) = 待分配
-  //   ② 待分配里先分出话费 / 交通 / 福利 —— 百分比乘的是「待分配」
-  //   ③ 剩下的再按下面几项的百分比分, 分完的余额进奖金
-  phonePct: number // 话费补贴 %（按「综合 − 基本工资」算）
-  welfarePct: number // 福利补贴 %
-  transportPct: number // 交通补助 %
-  // 下面几项的百分比乘的是"再扣掉话费/交通/福利之后"的那一块。加起来不必凑
-  // 够 100 —— 差多少就是奖金那一格。
-  postPct: number // 岗位补助 %
-  perfPct: number // 绩效工资 %
-  secretPct: number // 保密费用 %
-  socialPct: number // 社保补贴 %
-  safetyPct: number // 安全费 % —— 设成 0 就整项不出现在工资条上
+  postRatePct: number // 岗位补助 %（乘「综合 − 加班费 − 餐补」）
+  perfRatePct: number // 绩效工资 %（同上）
+  safetyRatePct: number // 安全费 %（同上）
+  socialRatePct: number // 社保补贴 %（乘综合工资）
+  fullAttendanceCny: number // 全勤, 元 — 当月无事假/病假/旷工/迟到才给
 }
 
 export const DEFAULT_PAYROLL_RULES: PayrollRules = {
@@ -133,17 +131,15 @@ export const DEFAULT_PAYROLL_RULES: PayrollRules = {
   sickPct: 50,
   absentPct: 200,
   latePerTime: 0,
-  otRate: 1,
+  otWeekdayCny: 22.94,
+  otWeekendCny: 30.57,
   baseSalaryCny: 2660,
   splitThresholdCny: 6000,
-  phonePct: 5,
-  welfarePct: 10,
-  transportPct: 8,
-  postPct: 10,
-  perfPct: 35,
-  secretPct: 15,
-  socialPct: 0,
-  safetyPct: 10,
+  postRatePct: 8,
+  perfRatePct: 30,
+  safetyRatePct: 10,
+  socialRatePct: 9.6,
+  fullAttendanceCny: 500,
 }
 
 // Bounds are sanity rails, not policy: they stop a slipped keystroke (a 500x
@@ -154,17 +150,15 @@ const RULE_LIMITS: Record<string, [number, number]> = {
   sickPct: [0, 100],
   absentPct: [0, 300],
   latePerTime: [0, 1000],
-  otRate: [1, 5],
+  otWeekdayCny: [0, 500],
+  otWeekendCny: [0, 500],
   baseSalaryCny: [0, 100000],
   splitThresholdCny: [0, 100000],
-  phonePct: [0, 100],
-  welfarePct: [0, 100],
-  transportPct: [0, 100],
-  socialPct: [0, 100],
-  postPct: [0, 100],
-  secretPct: [0, 100],
-  safetyPct: [0, 100],
-  perfPct: [0, 100],
+  postRatePct: [0, 100],
+  perfRatePct: [0, 100],
+  safetyRatePct: [0, 100],
+  socialRatePct: [0, 100],
+  fullAttendanceCny: [0, 10000],
 }
 
 export type ScalarRuleKey =
@@ -173,17 +167,15 @@ export type ScalarRuleKey =
   | 'sickPct'
   | 'absentPct'
   | 'latePerTime'
-  | 'otRate'
+  | 'otWeekdayCny'
+  | 'otWeekendCny'
   | 'baseSalaryCny'
   | 'splitThresholdCny'
-  | 'phonePct'
-  | 'welfarePct'
-  | 'transportPct'
-  | 'socialPct'
-  | 'postPct'
-  | 'secretPct'
-  | 'safetyPct'
-  | 'perfPct'
+  | 'postRatePct'
+  | 'perfRatePct'
+  | 'safetyRatePct'
+  | 'socialRatePct'
+  | 'fullAttendanceCny'
 
 export const RULE_KEYS = Object.keys(RULE_LIMITS) as ScalarRuleKey[]
 
@@ -232,7 +224,8 @@ export function hoursForDept(rules: PayrollRules, dept?: string): number {
 // === 考勤汇总 ===
 
 export type Attendance = {
-  otHours: number // 加班
+  otWeekdayHours: number // 平时加班
+  otWeekendHours: number // 周六周日加班
   leaveHours: number // 事假
   sickHours: number // 病假
   injuryHours: number // 工伤
@@ -243,7 +236,8 @@ export type Attendance = {
 }
 
 export const EMPTY_ATTENDANCE: Attendance = {
-  otHours: 0,
+  otWeekdayHours: 0,
+  otWeekendHours: 0,
   leaveHours: 0,
   sickHours: 0,
   injuryHours: 0,
@@ -251,6 +245,32 @@ export const EMPTY_ATTENDANCE: Attendance = {
   lateTimes: 0,
   disciplineTimes: 0,
   qualityTimes: 0,
+}
+
+/** 这一天是不是周六或周日 —— 加班算哪个价, 就看它。 */
+export function isWeekend(ymd: string): boolean {
+  const y = Number(ymd.slice(0, 4))
+  const m = Number(ymd.slice(5, 7))
+  const d = Number(ymd.slice(8, 10))
+  if (!y || !m || !d) return false
+  const w = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+  return w === 0 || w === 6
+}
+
+/**
+ * 全勤 —— 当月一次事假、病假、旷工、迟到都没有。
+ *
+ * 工伤不算破全勤: 那是厂里的事, 不是这个人的。违纪和重大质量异常也不在这里
+ * 判 —— 它们没有时长, 老板在奖罚那一格自己定, 不该由一条 500 元的规则替他
+ * 做决定。
+ */
+export function isFullAttendance(a: Attendance): boolean {
+  return (
+    a.leaveHours === 0 &&
+    a.sickHours === 0 &&
+    a.absentHours === 0 &&
+    a.lateTimes === 0
+  )
 }
 
 // One month of 人事 lines → one summary per person. 加班 and the four absence
@@ -264,7 +284,12 @@ export function summarizeAttendance(
   for (const r of records) {
     const a = (out[r.name] ??= { ...EMPTY_ATTENDANCE })
     const h = typeof r.hours === 'number' && r.hours > 0 ? r.hours : 0
-    if (r.type === '加班') a.otHours += h
+    // 加班分两个价, 靠的是那天是星期几 —— 人事记的时候不用选, 记的是哪天
+    // 就是哪天的价。
+    if (r.type === '加班') {
+      if (isWeekend(r.date)) a.otWeekendHours += h
+      else a.otWeekdayHours += h
+    }
     else if (r.type === '事假') a.leaveHours += h
     else if (r.type === '病假') a.sickHours += h
     else if (r.type === '工伤') a.injuryHours += h
@@ -276,26 +301,22 @@ export function summarizeAttendance(
   return out
 }
 
-// === 每人每月的手工两项 ===
+// === 每人每月手填的那一行 ===
 
-// 每月每人手填的那一行。上面几项是加的, 下面几项是减的 —— 工资条上就按这
-// 个顺序排, 跟厂里发的那张纸一样。全部按整元存。
+// 工资条上要一个人一个数、系统又算不出来的格子。全部按整元存。
+//
+// 分两类, 因为它们在条子上的身份不一样:
+//   · 工资构成里的 (话费 · 交通 · 房补 · 餐补) —— 综合工资拆开之后的一块,
+//     **不额外加钱**;
+//   · 应发里的 (夜班 · 节假日 · 奖金) —— 综合工资之外真发下去的钱。
 export type PayrollLine = {
-  /**
-   * 加班小时 —— 现在由 人事 的「加班」记录汇总而来 (见 summarizeAttendance),
-   * 这一格只在 人事 当月一条加班都没记时才用得上: 老月份里手填过的数不会
-   * 因为改了来源就凭空消失。人事一记, 就以人事为准。
-   */
-  otHours?: number
   adjustCny?: number // 奖罚, 正为奖 负为扣
-  // —— 工资构成里的两项定额 (手填就盖掉制度里的默认数; 不填 = 用默认) ——
-  phoneAllowanceCny?: number // 话费补贴
-  transportAllowanceCny?: number // 交通补贴
-  welfareAllowanceCny?: number // 福利补贴
-  // —— 补助 (加) ——
-  socialSubsidyCny?: number // 社保补贴
+  // —— 工资构成里手填的四项 (一人一个数) ——
+  phoneAllowanceCny?: number // 话费补助
+  transportAllowanceCny?: number // 交通补助
   housingCny?: number // 房补
   mealCny?: number // 餐补
+  // —— 应发 (加) ——
   nightShiftCny?: number // 夜班补贴
   holidayCny?: number // 节假日补贴
   bonusCny?: number // 奖金
@@ -309,11 +330,8 @@ export type PayrollLine = {
   note?: string
 }
 
-/** 手填的钱格子 —— 一份清单管住校验、录入界面和工资条的顺序。 */
+/** 应发那一栏里手填的钱 —— 综合工资之外, 真加上去的。 */
 export const PAYROLL_ADD_FIELDS = [
-  ['socialSubsidyCny', '社保补贴'],
-  ['housingCny', '房补'],
-  ['mealCny', '餐补'],
   ['nightShiftCny', '夜班补贴'],
   ['holidayCny', '节假日补贴'],
   ['bonusCny', '奖金'],
@@ -329,13 +347,15 @@ export const PAYROLL_CUT_FIELDS = [
 ] as const
 
 /**
- * 工资构成里那两项定额 —— 一人一个价, 每月能改。它们不在"应发"那两栏里,
- * 因为它们不是额外加的钱, 而是综合工资拆开之后的一块 (见 computePayslip)。
+ * 工资构成里手填的四项 —— 一人一个数, 每月能改。它们不在"应发"那两栏里,
+ * 因为它们不是额外加的钱, 而是综合工资拆开之后的一块 (见 computePayslip):
+ * 填多了福利那一格就少, 加起来永远还是综合工资。
  */
 export const PAYROLL_ALLOWANCE_FIELDS = [
-  ['phoneAllowanceCny', '话费补贴'],
-  ['transportAllowanceCny', '交通补贴'],
-  ['welfareAllowanceCny', '福利补贴'],
+  ['phoneAllowanceCny', '话费补助'],
+  ['transportAllowanceCny', '交通补助'],
+  ['housingCny', '房补'],
+  ['mealCny', '餐补'],
 ] as const
 
 export type PayrollMoneyKey =
@@ -356,12 +376,6 @@ export function isPayrollMoneyKey(x: unknown): x is PayrollMoneyKey {
 /** 一格钱: 整元, 不为负, 有上限 —— 手滑多打一个零不会变成一次发薪事故。 */
 export function isValidPayrollMoney(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1_000_000
-}
-
-export function isValidOtHours(v: unknown): v is number {
-  // A month of 12h days on top of a full roster is ~200 extra hours; past that
-  // it's a typo.
-  return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 400
 }
 
 export function isValidAdjust(v: unknown): v is number {
@@ -386,56 +400,58 @@ export function isPayrollMonth(x: unknown): x is string {
 export type Payslip = {
   name: string
   dept: string // 部门 — 决定这个人一天算几个小时
-  monthlyCny: number // 月薪
+  monthlyCny: number // 综合工资 (名册上定的月总盘子)
   hoursPerDay: number // 本部门每天工时
   standardDays: number // 应出勤天数
   saturdays: number // 其中周六几天（一天按 saturdayHours 算）
   saturdayHours: number // 周六一天算几小时
   standardHours: number // 应出勤工时 = 平日×每天工时 + 周六×周六工时
-  hourlyCny: number // 时薪 = 综合工资 ÷ 应出勤工时（展示用一位小数）
+  hourlyCny: number // 时薪 = 综合工资 ÷ 应出勤工时 — 缺勤扣按它算
   attendance: Attendance
-  otHours: number // 加班小时 —— 来自人事
-  otRate: number // 加班倍率（工资条上把算式写全用）
-  /** 这个月的加班小时是不是人事记的（否则是老数据里手填的）。 */
-  otFromHr: boolean
+  // === 加班 ===
+  otWeekdayHours: number // 平时加班小时 —— 来自人事
+  otWeekendHours: number // 周六周日加班小时 —— 来自人事
+  otHours: number // 两者之和
+  otWeekdayCny: number // 平时加班单价
+  otWeekendCny: number // 周末加班单价
+  otPay: number // 加班费 = 平时h×平时价 + 周末h×周末价
   workedHours: number // 实际工时 = 应出勤 − 缺勤 + 加班
   leaveCut: number // 事假扣
   sickCut: number // 病假扣
   absentCut: number // 旷工扣
   lateCut: number // 迟到扣
-  otPay: number // 加班费
   adjustCny: number // 奖罚
   // === 工资构成 (只是把综合工资拆开写, 不额外加钱) ===
-  baseSalaryCny: number // 基本工资
-  phoneAllowanceCny: number // 话费补贴 (定额)
-  transportAllowanceCny: number // 交通补贴 (定额)
-  welfareAllowanceCny: number // 福利补贴 (定额)
-  /** 综合工资 − 基本工资 —— 话费/交通/福利的百分比乘的是它。 */
-  afterBaseCny: number
-  /** 再扣掉话费/交通/福利之后剩下的 —— 其余几项的百分比乘的是它。 */
-  splitBaseCny: number
-  socialSubsidyBaseCny: number // 社保补贴 (基础部分里按比例分的那一项)
-  postSubsidyCny: number // 岗位补贴
-  secretFeeCny: number // 保密费
-  safetyFeeCny: number // 安全费
-  perfPayCny: number // 绩效工资
+  //
+  // 顺序就是工资条上那一列的顺序, 加起来正好是综合工资。
+  baseSalaryCny: number // 基本工资 (定额)
+  mealCny: number // 餐补 (手填)
+  postSubsidyCny: number // 岗位补助 = (综合 − 加班费 − 餐补) × postRatePct
+  phoneAllowanceCny: number // 话费补助 (手填)
+  transportAllowanceCny: number // 交通补助 (手填)
+  perfPayCny: number // 绩效工资 = (综合 − 加班费 − 餐补) × perfRatePct
+  safetyFeeCny: number // 安全费 = (综合 − 加班费 − 餐补) × safetyRatePct
+  housingCny: number // 房补 (手填)
+  fullAttendanceCny: number // 全勤 — 无事假/病假/旷工/迟到才有
+  socialSubsidyCny: number // 社保补贴 = 综合 × socialRatePct
+  /** 岗位补助 / 绩效工资 / 安全费的基数: 综合工资 − 加班费 − 餐补。 */
+  ratedBaseCny: number
   /**
-   * 综合工资减掉上面五项之后的余数, 归到**奖金**里 —— 比例是死的, 人的工资
-   * 是活的, 两边不可能正好凑齐。多出来的那一截和差的那一截都落在这里, 所以
-   * 拆出来的几项永远加得回综合工资, 一分不差。
+   * 福利 = 综合工资 − 以上所有项目。
    *
-   * 可以是负数 (综合工资低、按比例拆超了)。工资条上照实写, 不藏。
+   * 它是兜底的那一格: 比例是死的, 人的工资是活的, 两边不可能正好凑齐, 差的
+   * 和多的都落在这里 —— 所以拆出来的几项永远加得回综合工资, 一分不差。
+   * 可以是负数 (综合工资低、上面几项拆超了), 工资条上照实写, 不藏。
    */
-  splitBonusCny: number
+  welfareCny: number
   /** 综合工资没过门槛就不拆 (工资条上那几行留空)。 */
   splitApplies: boolean
+  /** 当月无事假/病假/旷工/迟到。 */
+  fullAttendance: boolean
   // === 出勤 ===
   workedDays: number // 实际出勤天数
   attendancePayCny: number // 出勤工资 = 综合工资 − 各项缺勤扣
-  // === 手填的加减项 ===
-  socialSubsidyCny: number
-  housingCny: number
-  mealCny: number
+  // === 应发里手填的加减项 ===
   nightShiftCny: number
   holidayCny: number
   bonusCny: number
@@ -512,12 +528,10 @@ export function computePayslip(
     hoursPerDay,
   )
   const hourlyCny = monthlyCny / standardHours
-  // 加班小时以 人事 记的为准 —— 同一件事只在一个地方写。人事当月一条没记时
-  // 才回落到工资表上手填过的那个数 (老月份)。
-  const otFromHr = attendance.otHours > 0
-  const otHours = otFromHr ? attendance.otHours : (line.otHours ?? 0)
   const adjustCny = Math.round(line.adjustCny ?? 0)
 
+  // 缺勤扣还是按这个人自己的时薪 (综合工资 ÷ 应出勤工时) —— 少上一个小时,
+  // 扣的就是那一个小时。
   const leaveCut = Math.round(attendance.leaveHours * hourlyCny)
   const sickCut = Math.round(
     attendance.sickHours * hourlyCny * (rules.sickPct / 100),
@@ -528,7 +542,15 @@ export function computePayslip(
     attendance.absentHours * hourlyCny * (rules.absentPct / 100),
   )
   const lateCut = Math.round(attendance.lateTimes * rules.latePerTime)
-  const otPay = Math.round(otHours * hourlyCny * rules.otRate)
+
+  // 加班费 —— 厂里定死的小时价, 跟月薪无关。周六周日一个价, 平时一个价; 是
+  // 哪种由 人事 那条记录的日期决定 (见 summarizeAttendance)。
+  const otWeekdayHours = attendance.otWeekdayHours
+  const otWeekendHours = attendance.otWeekendHours
+  const otHours = otWeekdayHours + otWeekendHours
+  const otPay = Math.round(
+    otWeekdayHours * rules.otWeekdayCny + otWeekendHours * rules.otWeekendCny,
+  )
 
   const workedHours =
     standardHours -
@@ -542,60 +564,53 @@ export function computePayslip(
   // 加的), 所以这一格回答的是"这个月按出勤该拿多少底"。
   const attendancePayCny = monthlyCny - leaveCut - sickCut - absentCut - lateCut
 
-  // 工资构成 —— 把综合工资拆开写在条子上。只有过了门槛才拆; 拆完剩下的那点
-  // 照实摆在"其他"里, 不硬凑。这几行**不参与实发计算**, 改拆法钱不会变。
+  // === 工资构成 ===
+  //
+  // 把综合工资按老板那张清单拆开写在条子上。只有过了门槛才拆。这几行**不参
+  // 与实发计算** —— 拆法改了, 钱一分不变。
   const splitApplies = monthlyCny > rules.splitThresholdCny
-
-  // ① 基本工资是定额, 先拿走。
-  const baseSalaryCny = splitApplies ? Math.round(rules.baseSalaryCny) : 0
-  const afterBaseCny = splitApplies ? monthlyCny - baseSalaryCny : 0
-
-  // ② 待分配里先分出话费 / 交通 / 福利 —— 百分比乘的是「综合 − 基本工资」。
-  //    手填的那个数优先: 有人跑客户跑得多, 单独给他一个数, 不必为这一个人去
-  //    改全厂的比例。
-  const ofAfterBase = (p: number) =>
-    splitApplies ? Math.round(afterBaseCny * (p / 100)) : 0
-  const phoneAllowanceCny = splitApplies
-    ? Math.round(line.phoneAllowanceCny ?? ofAfterBase(rules.phonePct))
-    : 0
-  const welfareAllowanceCny = splitApplies
-    ? Math.round(line.welfareAllowanceCny ?? ofAfterBase(rules.welfarePct))
-    : 0
-  const transportAllowanceCny = splitApplies
-    ? Math.round(line.transportAllowanceCny ?? ofAfterBase(rules.transportPct))
-    : 0
-
-  // ③ 再扣掉这三项, 剩下的才按比例分给基础部分的其余几项。
-  const splitBaseCny = splitApplies
-    ? afterBaseCny -
-      phoneAllowanceCny -
-      welfareAllowanceCny -
-      transportAllowanceCny
-    : 0
-  const pct = (p: number) =>
-    splitApplies ? Math.round(splitBaseCny * (p / 100)) : 0
-  const postSubsidyCny = pct(rules.postPct)
-  const perfPayCny = pct(rules.perfPct)
-  const secretFeeCny = pct(rules.secretPct)
-  const socialSubsidyBaseCny = pct(rules.socialPct)
-  const safetyFeeCny = pct(rules.safetyPct)
-  // 按比例拆完之后的余数进奖金 —— 比例是死的, 综合工资是活的, 差的那一截或
-  // 多出来的那一截总得有个去处; 挂在奖金上, 拆出来的几项就永远加得回综合工
-  // 资。综合工资没过门槛就整个不拆, 这一格也是 0。
-  // 分完的余额进奖金 —— 百分比加起来不必凑够 100, 差多少就是这一格。
-  const splitBonusCny = splitApplies
-    ? splitBaseCny -
-      postSubsidyCny -
-      perfPayCny -
-      secretFeeCny -
-      socialSubsidyBaseCny -
-      safetyFeeCny
-    : 0
+  const on = (v: number) => (splitApplies ? Math.round(v) : 0)
 
   const money = (v: number | undefined) => Math.round(v ?? 0)
-  const socialSubsidyCny = money(line.socialSubsidyCny)
-  const housingCny = money(line.housingCny)
-  const mealCny = money(line.mealCny)
+
+  // 基本工资是定额; 餐补、话费、交通、房补一人一个数, 手填。
+  const baseSalaryCny = on(rules.baseSalaryCny)
+  const mealCny = on(money(line.mealCny))
+  const phoneAllowanceCny = on(money(line.phoneAllowanceCny))
+  const transportAllowanceCny = on(money(line.transportAllowanceCny))
+  const housingCny = on(money(line.housingCny))
+
+  // 岗位补助 / 绩效工资 / 安全费的基数: 综合工资先减掉加班费和餐补 —— 那两
+  // 笔是专款, 不该再被摊进比例里。
+  const ratedBaseCny = splitApplies ? monthlyCny - otPay - mealCny : 0
+  const postSubsidyCny = on(ratedBaseCny * (rules.postRatePct / 100))
+  const perfPayCny = on(ratedBaseCny * (rules.perfRatePct / 100))
+  const safetyFeeCny = on(ratedBaseCny * (rules.safetyRatePct / 100))
+
+  // 全勤 —— 当月一次事假、病假、旷工、迟到都没有才有。工伤不算破全勤。
+  const fullAttendance = isFullAttendance(attendance)
+  const fullAttendanceCny =
+    splitApplies && fullAttendance ? Math.round(rules.fullAttendanceCny) : 0
+
+  const socialSubsidyCny = on(monthlyCny * (rules.socialRatePct / 100))
+
+  // 福利 = 综合工资 − 以上所有项目。兜底的那一格, 所以上面各项加起来永远等
+  // 于综合工资, 一分不差。
+  const welfareCny = splitApplies
+    ? monthlyCny -
+      baseSalaryCny -
+      otPay -
+      mealCny -
+      postSubsidyCny -
+      phoneAllowanceCny -
+      transportAllowanceCny -
+      perfPayCny -
+      safetyFeeCny -
+      housingCny -
+      fullAttendanceCny -
+      socialSubsidyCny
+    : 0
+
   const nightShiftCny = money(line.nightShiftCny)
   const holidayCny = money(line.holidayCny)
   const bonusCny = money(line.bonusCny)
@@ -609,9 +624,6 @@ export function computePayslip(
   const grossCny =
     attendancePayCny +
     otPay +
-    socialSubsidyCny +
-    housingCny +
-    mealCny +
     nightShiftCny +
     holidayCny +
     bonusCny +
@@ -635,9 +647,12 @@ export function computePayslip(
     standardHours,
     hourlyCny,
     attendance,
+    otWeekdayHours,
+    otWeekendHours,
     otHours,
-    otRate: rules.otRate,
-    otFromHr,
+    otWeekdayCny: rules.otWeekdayCny,
+    otWeekendCny: rules.otWeekendCny,
+    otPay,
     workedHours: Math.max(0, Math.round(workedHours * 10) / 10),
     // 实际出勤天数 —— 应出勤天数减掉缺勤折成的天 (半天假是常事, 留一位小
     // 数)。加班不算进出勤天数, 它自己有一行。
@@ -657,25 +672,22 @@ export function computePayslip(
     sickCut,
     absentCut,
     lateCut,
-    otPay,
     adjustCny,
     baseSalaryCny,
+    mealCny,
+    postSubsidyCny,
     phoneAllowanceCny,
     transportAllowanceCny,
-    welfareAllowanceCny,
-    afterBaseCny,
-    splitBaseCny,
-    socialSubsidyBaseCny,
-    postSubsidyCny,
-    secretFeeCny,
-    safetyFeeCny,
     perfPayCny,
-    splitBonusCny,
-    splitApplies,
-    attendancePayCny,
-    socialSubsidyCny,
+    safetyFeeCny,
     housingCny,
-    mealCny,
+    fullAttendanceCny,
+    socialSubsidyCny,
+    ratedBaseCny,
+    welfareCny,
+    splitApplies,
+    fullAttendance,
+    attendancePayCny,
     nightShiftCny,
     holidayCny,
     bonusCny,
@@ -805,16 +817,17 @@ export const PAYROLL_EXPORT_HEADERS = [
   '部门',
   '综合工资',
   '基本工资',
-  '福利补贴',
-  '话费补贴',
-  '交通补助',
-  '按比例分配额',
+  '加班费',
+  '餐补',
   '岗位补助',
+  '话费补助',
+  '交通补助',
   '绩效工资',
-  '保密费用',
-  '社保补贴',
   '安全费',
-  '奖金(拆分余额)',
+  '房补',
+  '全勤',
+  '社保补贴',
+  '福利',
   '应出勤天',
   '实际出勤天',
   '每天工时',
@@ -826,17 +839,14 @@ export const PAYROLL_EXPORT_HEADERS = [
   '工伤h',
   '旷工h',
   '迟到次',
-  '加班h',
+  '平时加班h',
+  '周末加班h',
   '实际工时',
   '事假扣',
   '病假扣',
   '旷工扣',
   '迟到扣',
   '出勤工资',
-  '加班费',
-  '社保补贴',
-  '房补',
-  '餐补',
   '夜班补贴',
   '节假日补贴',
   '奖金',
@@ -865,43 +875,42 @@ export function buildPayrollExportAoa(
 ): (string | number)[][] {
   const aoa: (string | number)[][] = [PAYROLL_EXPORT_HEADERS.slice() as string[]]
   for (const p of slips) {
+    const split = (v: number) => (p.splitApplies ? v : '')
     aoa.push([
       p.name,
       p.dept,
       p.monthlyCny,
-      p.splitApplies ? p.baseSalaryCny : '',
-      p.splitApplies ? p.welfareAllowanceCny : '',
-      p.splitApplies ? p.phoneAllowanceCny : '',
-      p.splitApplies ? p.transportAllowanceCny : '',
-      p.splitApplies ? p.splitBaseCny : '',
-      p.splitApplies ? p.postSubsidyCny : '',
-      p.splitApplies ? p.perfPayCny : '',
-      p.splitApplies ? p.secretFeeCny : '',
-      p.splitApplies ? p.socialSubsidyBaseCny : '',
-      p.splitApplies ? p.safetyFeeCny : '',
-      p.splitApplies ? p.splitBonusCny : '',
+      split(p.baseSalaryCny),
+      p.otPay,
+      split(p.mealCny),
+      split(p.postSubsidyCny),
+      split(p.phoneAllowanceCny),
+      split(p.transportAllowanceCny),
+      split(p.perfPayCny),
+      split(p.safetyFeeCny),
+      split(p.housingCny),
+      split(p.fullAttendanceCny),
+      split(p.socialSubsidyCny),
+      split(p.welfareCny),
       p.standardDays,
       p.workedDays,
       p.hoursPerDay,
       p.saturdays,
       p.standardHours,
-      Math.round(p.hourlyCny * 10) / 10,
+      Math.round(p.hourlyCny * 100) / 100,
       p.attendance.leaveHours,
       p.attendance.sickHours,
       p.attendance.injuryHours,
       p.attendance.absentHours,
       p.attendance.lateTimes,
-      p.otHours,
+      p.otWeekdayHours,
+      p.otWeekendHours,
       p.workedHours,
       p.leaveCut,
       p.sickCut,
       p.absentCut,
       p.lateCut,
       p.attendancePayCny,
-      p.otPay,
-      p.socialSubsidyCny,
-      p.housingCny,
-      p.mealCny,
       p.nightShiftCny,
       p.holidayCny,
       p.bonusCny,
