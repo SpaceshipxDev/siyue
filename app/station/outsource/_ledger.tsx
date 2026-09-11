@@ -773,8 +773,8 @@ function Panel({
                         type="button"
                         onClick={() => unreturn(m.componentId)}
                         disabled={pending}
-                        title="撤销回厂"
-                        className="label shrink-0 text-[var(--color-ink-4)] opacity-0 transition-opacity hover:text-[var(--color-ink)] group-hover:opacity-100"
+                        title="撤销签收 — 这个零件退回在外"
+                        className="label shrink-0 text-[var(--color-ink-4)] transition-colors hover:text-[var(--color-overdue)]"
                       >
                         撤销
                       </button>

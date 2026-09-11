@@ -1471,8 +1471,8 @@ export function BlockRow({
             type="button"
             onClick={() => unreturn(fullyReturnedMembers[0].componentId)}
             disabled={pending}
-            title="撤销回厂"
-            className="label text-[var(--color-ink-4)] hover:text-[var(--color-ink)] opacity-0 group-hover:opacity-100 transition-opacity"
+            title="撤销签收 — 这个零件退回在外"
+            className="label text-[var(--color-ink-4)] transition-colors hover:text-[var(--color-overdue)]"
           >
             撤销
           </button>

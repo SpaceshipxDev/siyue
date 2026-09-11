@@ -868,6 +868,23 @@ function MemberRow({
     })
   }
 
+  // 撤销签收 —— 回件数清零, 回厂日期抹掉, 这个零件回到"在外"。数量和回件
+  // 记录都在同一条线上, 所以撤了之后重新收就是干净的一遍。
+  const undoReceive = () => {
+    start(async () => {
+      await mutate({
+        kind: 'setMemberReturnedQty',
+        blockId: block.id,
+        componentId: m.componentId,
+        qty: 0,
+        date: null,
+        jobId,
+      })
+      showToast(`${m.name} 已撤销签收`)
+      onChanged()
+    })
+  }
+
   const removeMember = () => {
     setArmed(false)
     start(async () => {
@@ -920,6 +937,8 @@ function MemberRow({
       <td className={tdStatus} />
       <td className={tdStatus}>
         {done ? (
+          // 签收了还能撤 —— 收错了、收的是别家的货、日期点错, 都是当场发现
+          // 的事。撤销把这个零件退回"在外", 数量清零, 回厂日期一并抹掉。
           <span className={`${statusInner} px-1`}>
             <span className="text-[15px] font-semibold leading-none text-[var(--color-success)]">
               ✓
@@ -927,6 +946,15 @@ function MemberRow({
             <span className="mono text-[10px] text-[var(--color-ink-3)]">
               {mdShort(m.returnedAt)}
             </span>
+            <button
+              type="button"
+              disabled={busy}
+              title="撤销签收 — 这个零件退回在外"
+              onClick={undoReceive}
+              className="text-[10px] text-[var(--color-ink-4)] transition-colors hover:text-[var(--color-overdue)]"
+            >
+              撤销
+            </button>
           </span>
         ) : receiving ? (
           // Opened panel — the ONLY place buttons live. Receive qty/date, then
