@@ -156,7 +156,7 @@ export const DEFAULT_PAYROLL_RULES: PayrollRules = {
   safetyRatePct: 8,
   secretRatePct: 8,
   tier1MinCny: 8000,
-  tier1Cny: 500,
+  tier1Cny: 200,
   tier2MinCny: 12000,
   tier2Cny: 800,
   tier3MinCny: 16000,
@@ -562,7 +562,7 @@ export function standardHoursOf(
 
 /**
  * 话费补助 / 餐补 / 内宿补贴 / 交通补助 —— 按这个人的综合工资落在哪一档给。
- * 够不到第一档的没有。四项一张表, 数字是老板定的 (500 / 800 / 1000)。
+ * 够不到第一档的没有。四项一张表, 数字是老板定的 (200 / 800 / 1000)。
  */
 export function tierAllowanceCny(
   monthlyCny: number,
