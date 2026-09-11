@@ -10,6 +10,7 @@ import {
   type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { useRouter } from 'next/navigation'
 import {
   DEFAULT_ROUTE_STAGES,
   OPT_IN_STAGES,
@@ -21,6 +22,7 @@ import {
   type Stage,
 } from '@/lib/data'
 import { mutate } from '@/lib/mutate'
+import { showToast } from './_toast'
 import type { SetPartRouteResult } from '@/lib/db'
 
 // 出货 也是一道可以关掉的工序: 加刀、电极这种后加的分支件是厂里自己留着用的,
@@ -42,11 +44,21 @@ type ConflictDialogState = {
 export function StageChips({
   jobId,
   component,
+  siblings,
   readOnly = false,
   onRouteChange,
 }: {
   jobId: string
   component: Component
+  /**
+   * 本单其余的零件 —— 有它, 选择器底下就多一行「套用到本单其余 N 个零件」。
+   *
+   * 一张工单十几个零件, 工程十有八九是整单走同一条路线 (这单不用编程, 这单
+   * 加表处)。以前那是一个零件一个零件点开、一道一道点, 几十下; 现在设好一
+   * 个, 一下推到全单。会被服务端挡下的 (已报工要覆盖、已外协、已出货) 自动
+   * 跳过, 只在结果里报个数 —— 批量绝不替人做那种删不掉的决定。
+   */
+  siblings?: { id: string }[]
   readOnly?: boolean
   // Rows whose `component` is held in client state (a part added this visit,
   // before any reload) pass this so the stage grid on the same row re-renders
@@ -54,6 +66,8 @@ export function StageChips({
   // it undefined — their grid is truth from the last load either way.
   onRouteChange?: (stages: Stage[]) => void
 }) {
+  const router = useRouter()
+  const [bulkPending, setBulkPending] = useState(false)
   const [pending, start] = useTransition()
   const [optimistic, setOptimistic] = useState<Set<Stage> | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -152,6 +166,48 @@ export function StageChips({
     void apply(next, false)
   }
 
+  // 把眼前这条路线推到本单其余零件上。逐个走服务端那道 setPartRoute, 所以
+  // 外协锁、出货锁、"这道工序已经报过工"全都照旧拦得住 —— 拦下来的跳过, 不
+  // 强制。
+  const others = (siblings ?? []).filter((c) => c.id !== component.id)
+  const applyToAll = async () => {
+    const stages = STAGES.filter((s) => currentRoute.has(s))
+    if (others.length === 0 || stages.length === 0) return
+    if (
+      !confirm(
+        `把这条工序套到本单其余 ${others.length} 个零件？\n${stages.join(' → ')}`,
+      )
+    )
+      return
+    setBulkPending(true)
+    let done = 0
+    let skipped = 0
+    for (const o of others) {
+      try {
+        const r = await mutate<SetPartRouteResult>({
+          kind: 'setPartRoute',
+          jobId,
+          componentId: o.id,
+          stages,
+          force: false,
+        })
+        if (r.data.ok) done += 1
+        else skipped += 1
+      } catch {
+        skipped += 1
+      }
+    }
+    setBulkPending(false)
+    setAnchor(null)
+    showToast(
+      skipped === 0
+        ? `已套用到 ${done} 个零件`
+        : `已套用 ${done} 个 · ${skipped} 个跳过 (已报工 / 已外协 / 已出货)`,
+      skipped === 0 ? 'success' : 'warning',
+    )
+    router.refresh()
+  }
+
   const summary = (
     <RouteSummary route={currentRoute} lockedByOutsource={lockedByOutsource} />
   )
@@ -195,6 +251,9 @@ export function StageChips({
           pending={pending}
           onToggle={onToggle}
           onClose={() => setAnchor(null)}
+          othersCount={others.length}
+          bulkPending={bulkPending}
+          onApplyAll={others.length > 0 ? applyToAll : undefined}
         />
       ) : null}
 
@@ -317,6 +376,9 @@ function RoutePicker({
   pending,
   onToggle,
   onClose,
+  othersCount,
+  bulkPending,
+  onApplyAll,
 }: {
   anchor: DOMRect
   triggerRef: RefObject<HTMLButtonElement | null>
@@ -327,6 +389,10 @@ function RoutePicker({
   pending: boolean
   onToggle: (stage: Stage) => void
   onClose: () => void
+  /** 本单其余零件的个数 —— 0 就不出现那一行。 */
+  othersCount: number
+  bulkPending: boolean
+  onApplyAll?: () => void
 }) {
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -444,6 +510,19 @@ function RoutePicker({
       </div>
 
       <div className="shrink-0 border-t border-[var(--color-border)] px-1.5 py-1.5">
+        {/* 一张单十几个零件多半走同一条路线 —— 设好一个, 一下推到全单。 */}
+        {onApplyAll ? (
+          <button
+            type="button"
+            disabled={pending || bulkPending}
+            onClick={onApplyAll}
+            className="mb-0.5 w-full rounded-[2px] py-1.5 text-[12px] tracking-wider text-[var(--color-ink-2)] transition-colors hover:bg-[var(--color-active-bg)] hover:text-[var(--color-ink)] disabled:opacity-40"
+          >
+            {bulkPending
+              ? '套用中…'
+              : `套用到本单其余 ${othersCount} 个零件`}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onClose}

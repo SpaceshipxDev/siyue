@@ -1059,6 +1059,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       <StageChips
                         jobId={job.id}
                         component={c}
+                        siblings={job.components}
                         readOnly={!canEditPartRoute(user)}
                       />
                     </td>

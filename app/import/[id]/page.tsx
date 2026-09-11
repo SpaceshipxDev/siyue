@@ -352,6 +352,7 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
                   index={i}
                   jobId={job.id}
                   component={c}
+                  siblings={job.components}
                   canAddRow={canCreatePartRow(user)}
                   canDeleteRow={canDeletePartRow(user)}
                 />
@@ -417,12 +418,14 @@ function ImportComponentRows({
   index,
   jobId,
   component,
+  siblings,
   canAddRow,
   canDeleteRow,
 }: {
   index: number
   jobId: string
   component: Component
+  siblings: { id: string }[]
   canAddRow: boolean
   canDeleteRow: boolean
 }) {
@@ -515,7 +518,7 @@ function ImportComponentRows({
         />
       </td>
       <td className="px-3 py-3">
-        <StageChips jobId={jobId} component={component} />
+        <StageChips jobId={jobId} component={component} siblings={siblings} />
       </td>
       <td className="px-3 py-3">
         <ComponentNotes
