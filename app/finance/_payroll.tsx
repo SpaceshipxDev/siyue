@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useId, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { mutate } from '@/lib/mutate'
@@ -895,6 +895,15 @@ function AddPerson({
 
 // 工资条 — the arithmetic in the order it runs, so it answers the question a
 // person actually asks: 为什么是这个数.
+// 部门那一格 —— 点一下就能打字。
+//
+// 原来是个下拉: 要改成一个还没有的部门, 得先去别处把那个部门建出来, 再回这
+// 里选。厂里的组织架构是一边用一边长的 (操机拆成塑料和金属、又多出车件部),
+// 所以这一格现在是**直接填**: 打什么就是什么, 是个新名字系统当场把这个部门
+// 建出来, 下一个人就能从提示里直接选。
+//
+// 打字的同时给已有部门的提示 (原生 datalist) —— 想选的两个字就点中, 想新建
+// 的接着打完。清空 = 未分部门。
 function Dept({
   value,
   rules,
@@ -906,7 +915,11 @@ function Dept({
   onSave: (dept: string) => Promise<void>
   locked: boolean
 }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
   const [pending, setPending] = useState(false)
+  const listId = useId()
+
   if (locked) {
     return (
       <span
@@ -917,38 +930,68 @@ function Dept({
       </span>
     )
   }
-  // 一个 appearance-none 的 select 在表格里长得跟一行灰字一模一样, 没人知道
-  // 它能点。右边留出一个小三角 (背景画的, 不占 DOM), 一眼就看出这一格是能
-  // 换的 —— 部门换了, 这个人的每天工时、时薪、整张工资条跟着重算。
+
+  const commit = async (next: string) => {
+    const d = next.trim()
+    setEditing(false)
+    if (d === value || (d === '' && value === NO_DEPARTMENT)) return
+    setPending(true)
+    try {
+      await onSave(d || NO_DEPARTMENT)
+    } catch (e) {
+      setDraft(value)
+      showToast(e instanceof Error ? e.message : '改不上', 'warning')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <span className="hidden md:block">
+        <input
+          autoFocus
+          list={listId}
+          value={draft}
+          disabled={pending}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => commit(draft)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+            if (e.key === 'Escape') {
+              setDraft(value)
+              setEditing(false)
+            }
+          }}
+          className="mono w-full rounded-[2px] border-0 bg-[var(--color-active-bg)] px-1 -mx-1 py-0.5 text-[12px] text-[var(--color-ink)] shadow-[inset_0_-1px_0_var(--color-ink)] outline-none"
+        />
+        <datalist id={listId}>
+          {[...deptPickerOptions(rules, value), NO_DEPARTMENT].map((d) => (
+            <option key={d} value={d} />
+          ))}
+        </datalist>
+      </span>
+    )
+  }
+
   return (
-    <select
-      value={value}
-      disabled={pending}
-      title="换部门 — 每天工时和整张工资条跟着重算"
-      onChange={async (e) => {
-        setPending(true)
-        try {
-          await onSave(e.target.value)
-        } finally {
-          setPending(false)
-        }
+    <button
+      type="button"
+      title="点一下改部门 — 打一个新名字就是新建一个部门"
+      onClick={() => {
+        setDraft(value === NO_DEPARTMENT ? '' : value)
+        setEditing(true)
       }}
-      style={{
-        backgroundImage:
-          "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'><path d='M0 0l4 5 4-5z' fill='%23a8a29a'/></svg>\")",
-        backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'right 2px center',
-      }}
-      className={`mono hidden w-full cursor-pointer appearance-none rounded-[2px] border-0 bg-transparent py-0.5 pl-1 pr-3.5 -ml-1 text-[12px] text-[var(--color-ink-2)] outline-none transition-[background-color,box-shadow] duration-150 hover:bg-[var(--color-active-bg)] hover:shadow-[inset_0_-1px_0_var(--color-border-strong)] focus:bg-[var(--color-active-bg)] focus:shadow-[inset_0_-1px_0_var(--color-ink)] md:block ${
+      className={`mono hidden w-full truncate rounded-[2px] px-1 -mx-1 py-0.5 text-left text-[12px] transition-colors hover:bg-[var(--color-active-bg)] hover:shadow-[inset_0_-1px_0_var(--color-border-strong)] md:block ${
         pending ? 'opacity-60' : ''
-      } ${value === NO_DEPARTMENT ? 'text-[var(--color-ink-4)]' : ''}`}
+      } ${
+        value === NO_DEPARTMENT
+          ? 'text-[var(--color-ink-4)]'
+          : 'text-[var(--color-ink-2)]'
+      }`}
     >
-      {[...deptPickerOptions(rules, value), NO_DEPARTMENT].map((d) => (
-        <option key={d} value={d}>
-          {d}
-        </option>
-      ))}
-    </select>
+      {value}
+    </button>
   )
 }
 

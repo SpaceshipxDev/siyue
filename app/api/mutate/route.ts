@@ -3094,11 +3094,17 @@ async function dispatch(
         return err('bad setPayrollDept args')
       const u = await requireUser()
       if (!canSeeExpenses(u)) return err('forbidden', 403)
-      // 认的部门 = 内置那一份 + 厂里自己加的 (存在制度里)。
+      // 认的部门 = 内置那一份 + 厂里自己加的 (存在制度里)。手填了一个还没
+      // 有的名字, 就当场把这个部门建出来 —— 厂里的组织架构是一边用一边长
+      // 的, 让人先去别处"新建部门"再回来选, 那一步纯属多余。
+      if (!isString(dept)) return err('bad setPayrollDept args')
+      const d = dept.trim()
       const rules = await getPayrollRules()
-      if (!allDepartments(rules).includes(dept as string) && dept !== NO_DEPARTMENT)
-        return err('没有这个部门')
-      await setPayrollDept(name.trim(), dept as string)
+      if (d !== NO_DEPARTMENT && !allDepartments(rules).includes(d)) {
+        if (!isValidDeptName(d)) return err('部门名要 1-8 个字')
+        await addPayrollDept(d)
+      }
+      await setPayrollDept(name.trim(), d || NO_DEPARTMENT)
       revalidatePath('/finance')
       return Response.json(ok())
     }
