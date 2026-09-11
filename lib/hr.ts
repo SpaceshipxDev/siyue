@@ -235,6 +235,53 @@ export async function addHrRecord(
   return row
 }
 
+/**
+ * 一次记一批 —— 考勤表导入走这里。
+ *
+ * 一个月一个分片, 所以整批按月分组, 一个月只读写一次文件: 三百条记录是三次
+ * 写, 不是三百次。名册也一样, 整批只补一次。
+ *
+ * 返回真正落下的条数。和 addHrRecord 一样, 时长只在"有时长"的类型上留着。
+ */
+export async function addHrRecords(
+  inputs: NewHrRecordInput[],
+  by: string,
+  deptOf: (name: string) => string,
+  nowIso: string,
+): Promise<number> {
+  const rows: HrRecord[] = inputs.map((input) => ({
+    id: crypto.randomUUID(),
+    name: input.name.trim(),
+    type: input.type,
+    date: input.date,
+    hours: hrHasHours(input.type) ? input.hours : undefined,
+    note: input.note?.trim() || undefined,
+    by,
+    dept: deptOf(input.name.trim()),
+    createdAt: nowIso,
+  }))
+  if (rows.length === 0) return 0
+
+  const byMonth = new Map<string, HrRecord[]>()
+  for (const r of rows) {
+    const m = r.date.slice(0, 7)
+    const list = byMonth.get(m) ?? []
+    list.push(r)
+    byMonth.set(m, list)
+  }
+
+  await withHrLock(async () => {
+    for (const [month, batch] of byMonth) {
+      const existing = await readShard(month)
+      await writeShard(month, [...existing, ...batch])
+    }
+    for (const name of new Set(rows.map((r) => r.name))) {
+      await rememberName(name)
+    }
+  })
+  return rows.length
+}
+
 export async function deleteHrRecord(
   month: string,
   recordId: string,

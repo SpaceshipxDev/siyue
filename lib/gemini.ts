@@ -261,3 +261,110 @@ export async function extractJobFromXlsx(input: ExtractInput): Promise<Extracted
     })),
   }
 }
+
+// === 考勤表导入 ===
+//
+// 厂里的考勤表是打卡机导出的那一张: 一人一行, 日期做成一排列, 格子里写着加
+// 班几小时、请假半天、迟到。谁也不会为了录系统再手敲一遍三百条 —— 所以这里
+// 让模型把那张表摊平成一条一条的人事记录, 人在预览里过一眼再落库。
+//
+// 只要"有事"的那些格子: 正常上班一天不产生记录 (人事本来就是异常簿加加班
+// 簿)。拿不准的宁可不输出 —— 漏一条人看得出来, 凭空多一条没人看得出来。
+
+export type ExtractedHrRecord = {
+  name: string
+  type: string
+  date: string
+  hours?: number
+  note?: string
+}
+
+const HR_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    records: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          type: { type: Type.STRING },
+          date: { type: Type.STRING },
+          hours: { type: Type.NUMBER, nullable: true },
+          note: { type: Type.STRING, nullable: true },
+        },
+        required: ['name', 'type', 'date'],
+        propertyOrdering: ['name', 'type', 'date', 'hours', 'note'],
+      },
+    },
+  },
+  required: ['records'],
+}
+
+type GeminiHrJson = { records: ExtractedHrRecord[] }
+
+export async function extractAttendanceFromXlsx(input: {
+  fileName: string
+  month: string
+  sheets: { name: string; aoa: (string | number | boolean | null)[][] }[]
+}): Promise<ExtractedHrRecord[]> {
+  const ai = client()
+
+  const system = `你是一名工厂人事助手，负责把考勤表整理成一条一条的人事记录。
+
+考勤表的样子不固定：常见的是一人一行、一个月的日期排成一排列，格子里写着当天的情况（加班小时数、请假、迟到、旷工）；也有一行就是一条记录的流水表。两种都要能读。
+
+只输出"有事"的格子，正常上班的日子不要输出任何东西。
+
+type 只能是这几个词之一，不要自造：
+- 加班 —— 格子里是加班小时数，或写着"加班 2h"、"OT2.5"
+- 事假 · 病假 · 工伤 —— 请假，注意区分是哪一种；只写"请假"按事假算
+- 迟到 —— 迟到、早退
+- 旷工 —— 旷工、缺勤、无故未到
+- 违纪 · 重大质量异常 —— 表上明确写了才输出
+
+date 一律输出 YYYY-MM-DD。表里只写"5"、"5日"、"3/5"这种，按这张表的月份 ${input.month} 补全年月。
+
+hours（时长，小时）：
+- 加班、事假、病假、工伤、旷工必须有时长。
+- 格子里是纯数字就当小时数（"2.5" = 2.5 小时）。
+- 写"半天"按 4 小时，"一天"、"1天"按 8 小时，"0.5天"按 4 小时。
+- 迟到、违纪、重大质量异常没有时长，留 null。
+
+name：员工姓名，去掉空格和工号前缀，只留名字。
+
+note：格子里除时长以外的说明，比如"事假 家里有事"里的"家里有事"。没有就 null。
+
+拿不准的宁可不输出。不要输出合计行、表头行、部门行。只给结构化 JSON，不要解释。`
+
+  const userPrompt = [
+    `文件名: ${input.fileName}`,
+    `这张考勤表的月份: ${input.month}`,
+    '',
+    'Excel 工作表内容（每个工作表为二维数组，按行/列）：',
+    JSON.stringify(input.sheets, null, 2),
+  ].join('\n')
+
+  const response = await ai.models.generateContent({
+    model: MODEL,
+    contents: userPrompt,
+    config: {
+      systemInstruction: system,
+      responseMimeType: 'application/json',
+      responseSchema: HR_SCHEMA,
+      temperature: 0.1,
+    },
+  })
+
+  const text = response.text
+  if (!text) throw new Error('Gemini returned empty response')
+  let parsed: GeminiHrJson
+  try {
+    parsed = JSON.parse(text) as GeminiHrJson
+  } catch (err) {
+    throw new Error(
+      `Gemini returned non-JSON output: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+  return Array.isArray(parsed.records) ? parsed.records : []
+}

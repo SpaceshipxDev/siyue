@@ -196,6 +196,7 @@ import {
 } from '@/lib/dorm'
 import {
   addHrRecord,
+  addHrRecords,
   deleteHrRecord as deleteHrRecordRow,
   isValidHrInput,
   isValidHrPatch,
@@ -2259,6 +2260,38 @@ async function dispatch(
       )
       revalidatePath('/hr')
       return Response.json(ok({ record: row }))
+    }
+
+    // 考勤表导入 —— 一次记一批。人已经在预览里过过一眼了 (见
+    // /api/hr-import), 这里只管落库, 校验和单条那一档完全一样: 每一条都要
+    // 过 isValidHrInput, 部门照样由被记的那个人决定, 不能跨部门记。
+    case 'addHrRecords': {
+      const inputs = body.inputs
+      if (!Array.isArray(inputs) || inputs.length === 0)
+        return err('bad addHrRecords args')
+      if (inputs.length > 2000) return err('一次最多 2000 条')
+      if (!inputs.every(isValidHrInput)) return err('有记录填得不全')
+      const u = await requireHrUser()
+      if (!canEditHrRecord(u)) return err('无权导入考勤表', 403)
+      const roster = await getActiveUsers()
+      const mine = hrDeptOf(u)
+      const deptOf = (name: string) => {
+        const target = roster.find((x) => x.name === name)
+        return target ? hrDeptOf(target) : mine
+      }
+      if (!canSeeAllHr(u)) {
+        const outsider = inputs.find((i) => deptOf(i.name.trim()) !== mine)
+        if (outsider) return err(`${outsider.name.trim()} 不是${mine}的人`, 403)
+      }
+      const count = await addHrRecords(
+        inputs,
+        u.name,
+        deptOf,
+        new Date().toISOString(),
+      )
+      revalidatePath('/hr')
+      revalidatePath('/finance')
+      return Response.json(ok({ count }))
     }
 
     // 改一条人事记录 — 类型 / 时长 / 说明。日期不能改: 它决定这条线归哪个月,

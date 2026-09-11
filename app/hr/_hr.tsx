@@ -8,6 +8,7 @@ import { SearchSelect } from '@/app/_search_select'
 import { EditableText } from '@/app/_editable'
 import { showToast } from '@/app/_toast'
 import { HR_TYPES, hrHasHours } from '@/lib/data'
+import { HrImport } from './_import'
 import type { HrRecord, HrType } from '@/lib/data'
 
 // 人事 — one screen, two halves.
@@ -292,6 +293,16 @@ export function HrBoard({
             记下
           </button>
         </div>
+        {/* 一张打卡机导出的月考勤表 —— 上传, 过一眼, 整月一次记进来。 */}
+        {canEdit && (
+          <div className="mt-2.5 flex flex-wrap items-center gap-2.5 border-t border-[var(--color-border)] pt-2.5">
+            <HrImport month={isYear ? today.slice(0, 7) : period} />
+            <span className="text-[11.5px] text-[var(--color-ink-4)]">
+              考勤表读出来先给你过一眼, 划掉不对的再记入 ·{' '}
+              {isYear ? monthLabel(today.slice(0, 7)) : monthLabel(period)}
+            </span>
+          </div>
+        )}
         {error && (
           <p className="mt-2 text-[12px] text-[var(--color-overdue)]">{error}</p>
         )}

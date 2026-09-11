@@ -105,10 +105,10 @@ export type PayrollRules = {
   //   基本工资(定额) · 加班费 · 餐补 · 岗位补助 · 话费补助 · 交通补助 ·
   //   绩效工资 · 安全补贴 · 保密补贴 · 内宿补贴 · 全勤 · 社保补贴 · 福利
   //
-  //   岗位补助 = (综合工资 − 加班费 − 餐补) × 8%
-  //   绩效工资 = (综合工资 − 加班费 − 餐补) × 30%
-  //   安全补贴 = 综合工资 × 8%
-  //   保密补贴 = 综合工资 × 8%
+  //   可分配额 = 综合工资 − 出勤工资
+  //   岗位补助 = 可分配额 × 8%   绩效工资 = 可分配额 × 30%
+  //   安全补贴 = 可分配额 × 8%   保密补贴 = 可分配额 × 8%
+  //   社保补贴 = 可分配额 × 9.6%
   //   话费/餐补/内宿/交通 = 按综合工资落在哪一档 (500 / 800 / 1000)
   //   社保补贴 = 综合工资 × 9.6%
   //   福利     = 综合工资 − 以上所有项目      ← 兜底, 所以永远加得回综合工资
@@ -119,10 +119,10 @@ export type PayrollRules = {
   // 拆法改了实发一分不变。
   baseSalaryCny: number // 基本工资 — 全厂一个数, 唯一的定额
   splitThresholdCny: number // 综合工资高过这个数才拆分
-  postRatePct: number // 岗位补助 %（乘「综合 − 加班费 − 餐补」）
+  postRatePct: number // 岗位补助 %（乘可分配额）
   perfRatePct: number // 绩效工资 %（同上）
-  safetyRatePct: number // 安全补贴 %（乘综合工资）
-  secretRatePct: number // 保密补贴 %（乘综合工资）
+  safetyRatePct: number // 安全补贴 %（乘可分配额）
+  secretRatePct: number // 保密补贴 %（乘可分配额）
   // === 补助档 ===
   //
   // 话费补助 / 餐补 / 内宿补贴 / 交通补助 —— 四项一张表, 按这个人的综合工资
@@ -136,7 +136,7 @@ export type PayrollRules = {
   tier2Cny: number
   tier3MinCny: number
   tier3Cny: number
-  socialRatePct: number // 社保补贴 %（乘综合工资）
+  socialRatePct: number // 社保补贴 %（乘可分配额）
   fullAttendanceCny: number // 全勤, 元 — 当月无事假/病假/旷工/迟到才给
 }
 
@@ -463,17 +463,17 @@ export type Payslip = {
   // 顺序就是工资条上那一列的顺序, 加起来正好是综合工资。
   baseSalaryCny: number // 基本工资 (定额)
   mealCny: number // 餐补 (手填)
-  postSubsidyCny: number // 岗位补助 = (综合 − 加班费 − 餐补) × postRatePct
+  postSubsidyCny: number // 岗位补助 = 可分配额 × postRatePct
   phoneAllowanceCny: number // 话费补助 (手填)
   transportAllowanceCny: number // 交通补助 (手填)
-  perfPayCny: number // 绩效工资 = (综合 − 加班费 − 餐补) × perfRatePct
-  safetyFeeCny: number // 安全补贴 = 综合工资 × safetyRatePct
-  secretFeeCny: number // 保密补贴 = 综合工资 × secretRatePct
+  perfPayCny: number // 绩效工资 = 可分配额 × perfRatePct
+  safetyFeeCny: number // 安全补贴 = 可分配额 × safetyRatePct
+  secretFeeCny: number // 保密补贴 = 可分配额 × secretRatePct
   housingCny: number // 内宿补贴 — 已按实际出勤天数折算过
   housingBaseCny: number // 折算前的内宿补贴 (满勤该有的数)
   fullAttendanceCny: number // 全勤 — 无事假/病假/旷工/迟到才有
-  socialSubsidyCny: number // 社保补贴 = 综合 × socialRatePct
-  /** 岗位补助 / 绩效工资 / 安全费的基数: 综合工资 − 加班费 − 餐补。 */
+  socialSubsidyCny: number // 社保补贴 = 可分配额 × socialRatePct
+  /** 可分配额 = 综合工资 − 出勤工资 —— 按比例那几项乘的都是它。 */
   ratedBaseCny: number
   /**
    * 福利 = 综合工资 − 以上所有项目。
@@ -666,21 +666,36 @@ export function computePayslip(
     ? Math.round(housingBaseCny * (workedDays / (standardDays || 1)))
     : 0
 
-  // 岗位补助 / 绩效工资 / 安全费的基数: 综合工资先减掉加班费和餐补 —— 那两
-  // 笔是专款, 不该再被摊进比例里。
-  const ratedBaseCny = splitApplies ? monthlyCny - otPay - mealCny : 0
+  // === 可分配额 ===
+  //
+  // 按比例分的那几项 (岗位补助 · 绩效工资 · 安全补贴 · 保密补贴 · 社保补贴)
+  // 乘的都是这一个数: **综合工资 − 出勤工资**。
+  //
+  // 出勤工资 = 基本工资 + 岗位补助 + 加班费, 而岗位补助自己又是从可分配额里
+  // 按比例分出来的 —— 算式绕回了自己。解开就是下面这一行:
+  //
+  //   B = 综合 − (基本 + B×岗位% + 加班费)
+  //     → B = (综合 − 基本工资 − 加班费) ÷ (1 + 岗位%)
+  //
+  // 这样条子上按计算器是对得上的: 综合工资 − 出勤工资 就是这个 B, 再乘 30%
+  // 正好是绩效那一格。
+  const ratedBaseCny = splitApplies
+    ? Math.round(
+        (monthlyCny - baseSalaryCny - otPay) /
+          (1 + rules.postRatePct / 100),
+      )
+    : 0
   const postSubsidyCny = on(ratedBaseCny * (rules.postRatePct / 100))
   const perfPayCny = on(ratedBaseCny * (rules.perfRatePct / 100))
-  // 安全补贴和保密补贴乘的是综合工资本身, 不是那个减过加班费的基数。
-  const safetyFeeCny = on(monthlyCny * (rules.safetyRatePct / 100))
-  const secretFeeCny = on(monthlyCny * (rules.secretRatePct / 100))
+  const safetyFeeCny = on(ratedBaseCny * (rules.safetyRatePct / 100))
+  const secretFeeCny = on(ratedBaseCny * (rules.secretRatePct / 100))
 
   // 全勤 —— 当月一次事假、病假、旷工、迟到都没有才有。工伤不算破全勤。
   const fullAttendance = isFullAttendance(attendance)
   const fullAttendanceCny =
     splitApplies && fullAttendance ? Math.round(rules.fullAttendanceCny) : 0
 
-  const socialSubsidyCny = on(monthlyCny * (rules.socialRatePct / 100))
+  const socialSubsidyCny = on(ratedBaseCny * (rules.socialRatePct / 100))
 
   // 前半段「出勤工资」= 基本工资 + 岗位补助 + 加班费 —— 人到岗才有的那几
   // 项。缺勤扣不在这里减: 它是扣款栏里的一行 (见下), 这样老板那句

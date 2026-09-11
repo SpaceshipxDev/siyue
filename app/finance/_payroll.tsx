@@ -269,9 +269,8 @@ export function PayrollBoard({
           <Sep />
           <Rule label="超过" unit="元才拆" value={rules.splitThresholdCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'splitThresholdCny', value: v })} />
           <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-            岗位和绩效乘的是「综合工资 − 加班费 − 餐补」· 安全补贴和保密补贴乘
-            综合工资 · 社保补贴乘综合工资 ·
-            福利 = 综合工资 − 出勤工资 − 后面全部
+            这几项乘的都是「综合工资 − 出勤工资」· 福利 = 综合工资 − 出勤工资
+            − 后面全部
           </span>
         </div>
 
@@ -336,7 +335,7 @@ export function PayrollBoard({
         >
           <span className="label">姓名</span>
           <span className="label">部门</span>
-          <span className="label text-right">月薪</span>
+          <span className="label text-right">综合工资</span>
           <span className="label text-center">事假</span>
           <span className="label text-center">病假</span>
           <span className="label text-center">旷工</span>
@@ -748,7 +747,25 @@ function Slip({
     <div className="border-t border-[var(--color-border)] bg-[#faf8f2] px-4 py-4 md:px-5">
       <div className="mx-auto max-w-[860px]">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
-          <p className="mono text-[12px] tabular-nums text-[var(--color-ink-3)]">
+          <p className="mono flex items-baseline gap-1.5 text-[12px] tabular-nums text-[var(--color-ink-3)]">
+            {/* 综合工资 —— 一切都从这个数分出去, 所以它就摆在条子顶上, 点着
+                就能改, 改完下面整张条子当场重算。 */}
+            <span className="text-[var(--color-ink-2)]">综合工资</span>
+            <span className="inline-block w-[72px]">
+              <Num
+                value={s.monthlyCny}
+                locked={locked}
+                onSave={(v) =>
+                  save({
+                    kind: 'setPayrollBase',
+                    name: s.name,
+                    monthlyCny: v,
+                    dept: s.dept,
+                  })
+                }
+              />
+            </span>
+            <span className="text-[var(--color-ink-4)]">·</span>
             {s.dept} · 应出勤 {s.standardDays} 天 (含周六 {s.saturdays} 天) ·
             实际出勤 {num(s.workedDays)} 天 · 平时每天 {num(s.hoursPerDay)} 小时
             · 周六 {num(s.saturdayHours)} 小时 · 应出勤 {num(s.standardHours)}{' '}
@@ -785,7 +802,17 @@ function Slip({
                 <Ln label="加班费" detail={otDetail(s)} v={s.otPay} />
               </>
             )}
-            <Ln label="出勤工资" v={s.attendancePayCny} strong divider />
+            <Ln
+              label="出勤工资"
+              detail={
+                s.splitApplies
+                  ? `余下 ${formatCny(s.ratedBaseCny)} 按比例分`
+                  : undefined
+              }
+              v={s.attendancePayCny}
+              strong
+              divider
+            />
 
             <p className="label mt-3 mb-1 text-[var(--color-ink-3)]">其他项目</p>
             {s.splitApplies && (
@@ -874,14 +901,13 @@ function Slip({
             <Ln label="扣款合计" v={-s.deductCny} strong divider />
             <p className="mt-3 text-[11px] text-[var(--color-ink-4)]">
               基本工资、岗位补助、加班费合起来是出勤工资；再加上后面这一串子
-              项目，就是应发工资。岗位补助和绩效工资的基数是综合工资先减掉加
-              班费和餐补
+              项目，就是应发工资。按比例的那几项——岗位补助、绩效工资、安全补
+              贴、保密补贴、社保补贴——乘的都是「综合工资 − 出勤工资」
               {s.splitApplies ? ` = ${formatCny(s.ratedBaseCny)}` : ''}
-              ；安全补贴、保密补贴、社保补贴按综合工资算；话费、餐补、内宿、
-              交通按综合工资的档位给（点着能给这个人单独填一个数）；全勤当月
-              没有事假、病假、旷工、迟到才有；福利 = 综合工资 − 出勤工资 − 后
-              面这一串，所以没有额外奖金时应发工资正好是综合工资。缺勤扣在右
-              边扣款栏里。
+              ；话费、餐补、内宿、交通按综合工资的档位给（点着能给这个人单独
+              填一个数）；全勤当月没有事假、病假、旷工、迟到才有；福利 = 综合
+              工资 − 出勤工资 − 后面这一串，所以没有额外奖金时应发工资正好是
+              综合工资。缺勤扣在右边扣款栏里。
             </p>
           </div>
         </div>
