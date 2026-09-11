@@ -846,66 +846,70 @@ function Slip({
             />
 
             <p className="label mt-3 mb-1 text-[var(--color-ink-3)]">其他项目</p>
+            {/* 手填的几项每个人都有 —— 有没有房补、住不住厂里, 跟综合工资够
+                不够拆没关系。按比例分出来的那几项才看门槛。 */}
+            <Edit
+              label="餐补"
+              value={s.mealCny}
+              locked={locked}
+              onSave={(v) => setLine({ mealCny: v })}
+            />
+            <Edit
+              label="话费补助"
+              value={s.phoneAllowanceCny}
+              locked={locked}
+              onSave={(v) => setLine({ phoneAllowanceCny: v })}
+            />
+            <Edit
+              label="交通补助"
+              value={s.transportAllowanceCny}
+              locked={locked}
+              onSave={(v) => setLine({ transportAllowanceCny: v })}
+            />
             {s.splitApplies && (
               <>
-                <Edit
-                  label="餐补"
-                  value={s.mealCny}
-                  locked={locked}
-                  onSave={(v) => setLine({ mealCny: v })}
-                />
-                <Edit
-                  label="话费补助"
-                  value={s.phoneAllowanceCny}
-                  locked={locked}
-                  onSave={(v) => setLine({ phoneAllowanceCny: v })}
-                />
-                <Edit
-                  label="交通补助"
-                  value={s.transportAllowanceCny}
-                  locked={locked}
-                  onSave={(v) => setLine({ transportAllowanceCny: v })}
-                />
                 <Ln label="绩效工资" v={s.perfPayCny} />
                 <Ln label="安全补贴" v={s.safetyFeeCny} />
                 <Ln label="保密补贴" v={s.secretFeeCny} />
-                {/* 内宿补贴按天折 —— 格子里填的是满勤该给的数, 条子上出
-                    来的是折算后的。 */}
-                <Edit
-                  label="内宿补贴"
-                  detail={
-                    s.workedDays < s.standardDays
-                      ? `出勤 ${num(s.workedDays)}/${s.standardDays} 天 → ${formatCny(s.housingCny)}`
-                      : undefined
-                  }
-                  value={s.housingBaseCny}
-                  locked={locked}
-                  onSave={(v) => setLine({ housingCny: v })}
-                />
-                {/* 房补 —— 在外面租房的那一份, 只手填, 空着就是没有。 */}
-                <Edit
-                  label="房补"
-                  value={s.housingAllowanceCny}
-                  locked={locked}
-                  onSave={(v) => setLine({ housingAllowanceCny: v })}
-                />
-                <Ln
-                  label="全勤"
-                  detail={s.fullAttendance ? undefined : '本月有缺勤'}
-                  v={s.fullAttendanceCny}
-                />
-                {/* 社保补贴按比例算, 点着能改 —— 清空就回到按比例。 */}
-                <Edit
-                  label="社保补贴"
-                  value={s.socialSubsidyCny}
-                  locked={locked}
-                  onSave={(v) => setLine({ socialSubsidyCny: v })}
-                />
-                {/* 兜底的那一格 —— 上面各项加起来永远等于综合工资。手填的几
-                    项填得太多, 它会变成负数, 那时候是红的。 */}
-                <Ln label="福利" v={s.welfareCny} />
               </>
             )}
+            {/* 内宿补贴按天折 —— 格子里填的是满勤该给的数, 条子上出来的是
+                折算后的。 */}
+            <Edit
+              label="内宿补贴"
+              detail={
+                s.workedDays < s.standardDays
+                  ? `出勤 ${num(s.workedDays)}/${s.standardDays} 天 → ${formatCny(s.housingCny)}`
+                  : undefined
+              }
+              value={s.housingBaseCny}
+              locked={locked}
+              onSave={(v) => setLine({ housingCny: v })}
+            />
+            {/* 房补 —— 在外面租房的那一份, 只手填, 空着就是没有。 */}
+            <Edit
+              label="房补"
+              value={s.housingAllowanceCny}
+              locked={locked}
+              onSave={(v) => setLine({ housingAllowanceCny: v })}
+            />
+            {s.splitApplies && (
+              <Ln
+                label="全勤"
+                detail={s.fullAttendance ? undefined : '本月有缺勤'}
+                v={s.fullAttendanceCny}
+              />
+            )}
+            {/* 社保补贴按比例算, 点着能改 —— 清空就回到按比例。 */}
+            <Edit
+              label="社保补贴"
+              value={s.socialSubsidyCny}
+              locked={locked}
+              onSave={(v) => setLine({ socialSubsidyCny: v })}
+            />
+            {/* 兜底的那一格 —— 上面各项加起来永远等于综合工资。手填的几项
+                填得太多, 它会变成负数, 那时候是红的。 */}
+            {s.splitApplies && <Ln label="福利" v={s.welfareCny} />}
             {PAYROLL_ADD_FIELDS.map(([k, label]) => (
               <Edit
                 key={k}

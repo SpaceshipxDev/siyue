@@ -106,28 +106,32 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
           <Row label="出勤工资" v={s.attendancePayCny} strong />
 
           <p className="label mt-2 mb-0.5">其他项目</p>
+          <Row label="餐补" v={s.mealCny} />
+          <Row label="话费补助" v={s.phoneAllowanceCny} />
+          <Row label="交通补助" v={s.transportAllowanceCny} />
           {s.splitApplies && (
             <>
-              <Row label="餐补" v={s.mealCny} />
-              <Row label="话费补助" v={s.phoneAllowanceCny} />
-              <Row label="交通补助" v={s.transportAllowanceCny} />
               <Row label="绩效工资" v={s.perfPayCny} />
               <Row label="安全补贴" v={s.safetyFeeCny} />
               <Row label="保密补贴" v={s.secretFeeCny} />
-              <Row
-                label={
-                  s.workedDays < s.standardDays
-                    ? `内宿补贴 · 出勤 ${fmt(s.workedDays)}/${s.standardDays} 天`
-                    : '内宿补贴'
-                }
-                v={s.housingCny}
-              />
-              <Row label="房补" v={s.housingAllowanceCny} />
-              <Row label="全勤" v={s.fullAttendanceCny} />
-              <Row label="社保补贴" v={s.socialSubsidyCny} />
-              <Row label="福利" v={s.welfareCny} />
             </>
           )}
+          <Row
+            label={
+              s.workedDays < s.standardDays
+                ? `内宿补贴 · 出勤 ${fmt(s.workedDays)}/${s.standardDays} 天`
+                : '内宿补贴'
+            }
+            v={s.housingCny}
+          />
+          <Row label="房补" v={s.housingAllowanceCny} />
+          {s.splitApplies && (
+            <>
+              <Row label="全勤" v={s.fullAttendanceCny} />
+            </>
+          )}
+          <Row label="社保补贴" v={s.socialSubsidyCny} />
+          {s.splitApplies && <Row label="福利" v={s.welfareCny} />}
           {PAYROLL_ADD_FIELDS.map(([k, label]) => (
             <Row key={k} label={label} v={s[k]} />
           ))}

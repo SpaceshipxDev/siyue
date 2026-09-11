@@ -699,18 +699,23 @@ export function computePayslip(
 
   // 基本工资是定额; 餐补、话费、交通、内宿按综合工资的档位自动给 —— 手填过
   // 的那个数优先 (有人不住厂里、有人跑客户跑得多), 清空就回到按档。
+  //
+  // 手填的这几项**不受拆分门槛管**: 一个人有没有房补、住不住厂里, 跟他的综
+  // 合工资够不够拆没关系。所以它们用 money 而不是 on —— 每个人的条子上都有
+  // 这几格, 填了就算。过了门槛的人从综合工资里拆 (福利那一格自动变少), 没过
+  // 门槛的人就是实打实多给的一笔。
   const baseSalaryCny = on(rules.baseSalaryCny)
   const tier = tierAllowanceCny(monthlyCny, rules)
-  const tiered = (v: number | undefined) => on(v ?? tier)
+  const tiered = (v: number | undefined) => Math.round(v ?? tier)
   const mealCny = tiered(line.mealCny)
   const phoneAllowanceCny = tiered(line.phoneAllowanceCny)
   const transportAllowanceCny = tiered(line.transportAllowanceCny)
   // 内宿补贴按天 —— 床位是住一天算一天的, 所以档位给的是满勤的数, 实发按
   // 「住房补贴 ÷ 应出勤天数 × 实际出勤天数」折。别的三项不折。
   const housingBaseCny = tiered(line.housingCny)
-  const housingCny = splitApplies
-    ? Math.round(housingBaseCny * (workedDays / (standardDays || 1)))
-    : 0
+  const housingCny = Math.round(
+    housingBaseCny * (workedDays / (standardDays || 1)),
+  )
 
   // === 可分配额 ===
   //
@@ -742,11 +747,12 @@ export function computePayslip(
     splitApplies && fullAttendance ? Math.round(rules.fullAttendanceCny) : 0
 
   // 社保补贴按比例算, 手填过就以手填的为准 (有人的社保基数跟别人不一样)。
-  const socialSubsidyCny = on(
-    line.socialSubsidyCny ?? ratedBaseCny * (rules.socialRatePct / 100),
+  const socialSubsidyCny = Math.round(
+    line.socialSubsidyCny ??
+      (splitApplies ? ratedBaseCny * (rules.socialRatePct / 100) : 0),
   )
   // 房补只手填 —— 在外面租房的才有, 系统猜不出来, 所以没有默认值。
-  const housingAllowanceCny = on(money(line.housingAllowanceCny))
+  const housingAllowanceCny = money(line.housingAllowanceCny)
 
   // 前半段「出勤工资」= 基本工资 + 岗位补助 + 加班费 —— 人到岗才有的那几
   // 项。缺勤扣不在这里减: 它是扣款栏里的一行 (见下), 这样老板那句
