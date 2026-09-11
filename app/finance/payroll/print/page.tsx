@@ -103,9 +103,6 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
               />
             </>
           )}
-          {s.attendanceCutCny > 0 && (
-            <Row label="缺勤扣" v={-s.attendanceCutCny} />
-          )}
           <Row label="出勤工资" v={s.attendancePayCny} strong />
 
           <p className="label mt-2 mb-0.5">其他项目</p>
@@ -115,8 +112,16 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
               <Row label="话费补助" v={s.phoneAllowanceCny} />
               <Row label="交通补助" v={s.transportAllowanceCny} />
               <Row label="绩效工资" v={s.perfPayCny} />
-              <Row label="安全费" v={s.safetyFeeCny} />
-              <Row label="房补" v={s.housingCny} />
+              <Row label="安全补贴" v={s.safetyFeeCny} />
+              <Row label="保密补贴" v={s.secretFeeCny} />
+              <Row
+                label={
+                  s.workedDays < s.standardDays
+                    ? `内宿补贴 · 出勤 ${fmt(s.workedDays)}/${s.standardDays} 天`
+                    : '内宿补贴'
+                }
+                v={s.housingCny}
+              />
               <Row label="全勤" v={s.fullAttendanceCny} />
               <Row label="社保补贴" v={s.socialSubsidyCny} />
               <Row label="福利" v={s.welfareCny} />
@@ -132,6 +137,9 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
         </div>
         <div>
           <p className="label mb-0.5">扣款</p>
+          {s.attendanceCutCny > 0 && (
+            <Row label="缺勤扣" v={s.attendanceCutCny} />
+          )}
           {PAYROLL_CUT_FIELDS.map(([k, label]) => (
             <Row key={k} label={label} v={s[k]} />
           ))}

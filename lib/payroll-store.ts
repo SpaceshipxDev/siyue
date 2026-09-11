@@ -468,6 +468,8 @@ function normalizeSheet(raw: unknown): PayrollSheet {
       welfareCny: typeof s.welfareCny === 'number' ? s.welfareCny : 0,
       mealCny: typeof s.mealCny === 'number' ? s.mealCny : 0,
       housingCny: typeof s.housingCny === 'number' ? s.housingCny : 0,
+      housingBaseCny:
+        typeof s.housingBaseCny === 'number' ? s.housingBaseCny : 0,
       phoneAllowanceCny:
         typeof s.phoneAllowanceCny === 'number' ? s.phoneAllowanceCny : 0,
       transportAllowanceCny:
@@ -480,6 +482,7 @@ function normalizeSheet(raw: unknown): PayrollSheet {
         typeof s.postSubsidyCny === 'number' ? s.postSubsidyCny : 0,
       perfPayCny: typeof s.perfPayCny === 'number' ? s.perfPayCny : 0,
       safetyFeeCny: typeof s.safetyFeeCny === 'number' ? s.safetyFeeCny : 0,
+      secretFeeCny: typeof s.secretFeeCny === 'number' ? s.secretFeeCny : 0,
       attendanceCutCny:
         typeof s.attendanceCutCny === 'number' ? s.attendanceCutCny : 0,
       baseSalaryCny:

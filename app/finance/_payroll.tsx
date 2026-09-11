@@ -259,7 +259,9 @@ export function PayrollBoard({
           <Sep />
           <Rule label="绩效工资" unit="%" value={rules.perfRatePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'perfRatePct', value: v })} />
           <Sep />
-          <Rule label="安全费" unit="%" value={rules.safetyRatePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'safetyRatePct', value: v })} />
+          <Rule label="安全补贴" unit="%" value={rules.safetyRatePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'safetyRatePct', value: v })} />
+          <Sep />
+          <Rule label="保密补贴" unit="%" value={rules.secretRatePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'secretRatePct', value: v })} />
           <Sep />
           <Rule label="社保补贴" unit="%" value={rules.socialRatePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'socialRatePct', value: v })} />
           <Sep />
@@ -267,9 +269,29 @@ export function PayrollBoard({
           <Sep />
           <Rule label="超过" unit="元才拆" value={rules.splitThresholdCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'splitThresholdCny', value: v })} />
           <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-            岗位、绩效、安全费乘的是「综合工资 − 加班费 − 餐补」· 社保补贴乘综合工资 ·
-            餐补/话费/交通/房补在工资条上一人一个数 · 福利 = 综合工资 − 以上全
-            部 · 只影响拆法, 不影响实发
+            岗位和绩效乘的是「综合工资 − 加班费 − 餐补」· 安全补贴和保密补贴乘
+            综合工资 · 社保补贴乘综合工资 ·
+            福利 = 综合工资 − 出勤工资 − 后面全部
+          </span>
+        </div>
+
+        {/* 补助档 —— 话费 / 餐补 / 内宿 / 交通 四项共用一张表, 按这个人的综
+            合工资落在哪一档给多少。工资条上那四格照样能一人一个数地改。 */}
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-1 gap-y-2 border-t border-[var(--color-border)] pt-2.5">
+          <span className="mr-2 w-[52px] shrink-0 font-medium text-[var(--color-ink-2)]">
+            补助档
+          </span>
+          <Rule label="综合工资满" unit="元 补" value={rules.tier1MinCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'tier1MinCny', value: v })} />
+          <Rule label="" unit="元" value={rules.tier1Cny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'tier1Cny', value: v })} />
+          <Sep />
+          <Rule label="满" unit="元 补" value={rules.tier2MinCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'tier2MinCny', value: v })} />
+          <Rule label="" unit="元" value={rules.tier2Cny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'tier2Cny', value: v })} />
+          <Sep />
+          <Rule label="满" unit="元 补" value={rules.tier3MinCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'tier3MinCny', value: v })} />
+          <Rule label="" unit="元" value={rules.tier3Cny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'tier3Cny', value: v })} />
+          <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
+            话费补助 · 餐补 · 内宿补贴 · 交通补助 四项各按这张表给 · 够不到第一
+            档的没有 · 工资条上填了数就以填的为准
           </span>
         </div>
 
@@ -763,9 +785,6 @@ function Slip({
                 <Ln label="加班费" detail={otDetail(s)} v={s.otPay} />
               </>
             )}
-            {s.attendanceCutCny > 0 && (
-              <Ln label="缺勤扣" detail="事假·病假·旷工·迟到" v={-s.attendanceCutCny} />
-            )}
             <Ln label="出勤工资" v={s.attendancePayCny} strong divider />
 
             <p className="label mt-3 mb-1 text-[var(--color-ink-3)]">其他项目</p>
@@ -790,10 +809,18 @@ function Slip({
                   onSave={(v) => setLine({ transportAllowanceCny: v })}
                 />
                 <Ln label="绩效工资" v={s.perfPayCny} />
-                <Ln label="安全费" v={s.safetyFeeCny} />
+                <Ln label="安全补贴" v={s.safetyFeeCny} />
+                <Ln label="保密补贴" v={s.secretFeeCny} />
+                {/* 内宿补贴按天折 —— 格子里填的是满勤该给的数, 条子上出
+                    来的是折算后的。 */}
                 <Edit
-                  label="房补"
-                  value={s.housingCny}
+                  label="内宿补贴"
+                  detail={
+                    s.workedDays < s.standardDays
+                      ? `出勤 ${num(s.workedDays)}/${s.standardDays} 天 → ${formatCny(s.housingCny)}`
+                      : undefined
+                  }
+                  value={s.housingBaseCny}
                   locked={locked}
                   onSave={(v) => setLine({ housingCny: v })}
                 />
@@ -826,6 +853,14 @@ function Slip({
           {/* 扣款 */}
           <div>
             <p className="label mb-1 text-[var(--color-ink-3)]">扣款</p>
+            {/* 缺勤扣 —— 一行合计, 不拆事假/病假/旷工/迟到。要明细去人事页。 */}
+            {s.attendanceCutCny > 0 && (
+              <Ln
+                label="缺勤扣"
+                detail="事假·病假·旷工·迟到"
+                v={-s.attendanceCutCny}
+              />
+            )}
             {PAYROLL_CUT_FIELDS.map(([k, label]) => (
               <Edit
                 key={k}
@@ -839,13 +874,14 @@ function Slip({
             <Ln label="扣款合计" v={-s.deductCny} strong divider />
             <p className="mt-3 text-[11px] text-[var(--color-ink-4)]">
               基本工资、岗位补助、加班费合起来是出勤工资；再加上后面这一串子
-              项目，就是应发工资。岗位补助、绩效工资、安全费的基数是综合工资
-              先减掉加班费和餐补
+              项目，就是应发工资。岗位补助和绩效工资的基数是综合工资先减掉加
+              班费和餐补
               {s.splitApplies ? ` = ${formatCny(s.ratedBaseCny)}` : ''}
-              ；社保补贴按综合工资算；全勤当月没有事假、病假、旷工、迟到才
-              有；福利 = 综合工资减掉前面所有项目，所以人到齐、没有额外奖金
-              时，应发工资正好是综合工资。餐补、话费、交通、房补点着就能给这
-              个人单独填一个数。
+              ；安全补贴、保密补贴、社保补贴按综合工资算；话费、餐补、内宿、
+              交通按综合工资的档位给（点着能给这个人单独填一个数）；全勤当月
+              没有事假、病假、旷工、迟到才有；福利 = 综合工资 − 出勤工资 − 后
+              面这一串，所以没有额外奖金时应发工资正好是综合工资。缺勤扣在右
+              边扣款栏里。
             </p>
           </div>
         </div>
@@ -920,12 +956,15 @@ function Ln({
 /** 一行能填的钱 —— 点着就改, 发放之后是死的。 */
 function Edit({
   label,
+  detail,
   value,
   locked,
   negative,
   onSave,
 }: {
   label: string
+  /** 算式那一句 —— 折算过的项 (内宿补贴) 靠它说清楚为什么不是整数。 */
+  detail?: string
   value: number
   locked: boolean
   negative?: boolean
@@ -935,6 +974,11 @@ function Edit({
     <div className="flex items-baseline justify-between gap-3 py-1">
       <span className="min-w-0 truncate text-[12.5px] text-[var(--color-ink-2)]">
         {label}
+        {detail && (
+          <span className="ml-2 text-[11.5px] text-[var(--color-ink-3)]">
+            {detail}
+          </span>
+        )}
       </span>
       <span className="w-[96px] shrink-0">
         <Num
