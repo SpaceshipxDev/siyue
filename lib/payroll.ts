@@ -963,8 +963,12 @@ export function matchesSalaryChange(c: SalaryChange, q: string): boolean {
 }
 
 // The month's run: one 工资条 per person who has a 月薪. Somebody with no 月薪
-// yet isn't on payroll — typing their 月薪 is what puts them on it. Sorted by
-// 部门 then name, so the sheet reads the way the floor is laid out.
+// yet isn't on payroll — typing their 月薪 is what puts them on it.
+//
+// 顺序就是录入顺序 —— 名册里先填谁就先排谁, 新加的人落在最后一行。系统不替
+// 人重排: 财务一个个填进去的那个顺序, 本身就是他脑子里那张表的顺序 (一个班
+// 组一段、老员工在前), 按部门或者按拼音重排一次, 他反而要重新找人。要按部门
+// 看, 表上方有部门筛。
 export function buildPayslips(
   base: Record<string, PayrollPerson>,
   attendance: Record<string, Attendance>,
@@ -984,11 +988,6 @@ export function buildPayslips(
         rules,
         month,
       ),
-    )
-    .sort((a, b) =>
-      a.dept !== b.dept
-        ? deptOrder(a.dept) - deptOrder(b.dept)
-        : a.name.localeCompare(b.name, 'zh'),
     )
 }
 

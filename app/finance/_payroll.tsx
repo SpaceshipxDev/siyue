@@ -76,10 +76,16 @@ export function PayrollBoard({
   const allOptions = [...deptPickerOptions(rules), NO_DEPARTMENT]
   const hoursDepts = allDepts || inUse.length === 0 ? allOptions : inUse
 
-  // 按部门筛 —— 一张表几十号人, 发工资是一个部门一个部门过的。
+  // 按部门筛 + 按姓名找 —— 一张表几十号人, 发工资是一个部门一个部门过的,
+  // 而要改某一个人的时候, 想的是他的名字。
   const [deptFilter, setDeptFilter] = useState<string | null>(null)
-  const shown =
-    deptFilter === null ? slips : slips.filter((s) => s.dept === deptFilter)
+  const [q, setQ] = useState('')
+  const needle = q.trim()
+  const shown = slips.filter(
+    (s) =>
+      (deptFilter === null || s.dept === deptFilter) &&
+      (needle === '' || s.name.includes(needle)),
+  )
 
   const locked = paid !== null
   const total = paid ? paid.total : payrollTotal(slips)
@@ -379,9 +385,15 @@ export function PayrollBoard({
         </div>
       </div>
 
-      {/* 按部门筛 —— 发工资是一个部门一个部门过的, 在册的部门才出现。 */}
-      {inUse.length > 1 && (
+      {/* 找人 + 按部门筛 —— 在册的部门才出现。 */}
+      {slips.length > 0 && (
         <div className="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1.5">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="找人"
+            className="w-[92px] border-b border-[var(--color-border)] bg-transparent py-0.5 text-[13px] text-[var(--color-ink)] placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-ink)] focus:outline-none"
+          />
           <button
             type="button"
             onClick={() => setDeptFilter(null)}
@@ -393,7 +405,7 @@ export function PayrollBoard({
           >
             全部 {slips.length}
           </button>
-          {inUse.map((d) => {
+          {inUse.length > 1 && inUse.map((d) => {
             const n = slips.filter((s) => s.dept === d).length
             return (
               <button
@@ -413,9 +425,9 @@ export function PayrollBoard({
               </button>
             )
           })}
-          {deptFilter !== null && (
+          {(deptFilter !== null || needle !== '') && (
             <span className="mono ml-auto text-[12px] tabular-nums text-[var(--color-ink-3)]">
-              {deptFilter} 应发 {formatCny(payrollTotal(shown))}
+              {shown.length} 人 · 应发 {formatCny(payrollTotal(shown))}
             </span>
           )}
         </div>
@@ -438,9 +450,11 @@ export function PayrollBoard({
           <span className="label text-right">实发</span>
         </div>
 
-        {shown.length === 0 && offRoster.length === 0 ? (
+        {shown.length === 0 ? (
           <p className="px-5 py-10 text-center text-[13px] text-[var(--color-ink-3)]">
-            名册还是空的 — 人事里记过一笔的人会出现在这里
+            {slips.length === 0
+              ? '名册还是空的 — 人事里记过一笔的人会出现在这里'
+              : '没有符合的人'}
           </p>
         ) : null}
 
@@ -844,15 +858,22 @@ function Dept({
   const [pending, setPending] = useState(false)
   if (locked) {
     return (
-      <span className="mono hidden truncate text-[12px] text-[var(--color-ink-2)] md:block">
+      <span
+        title="这个月已发放，先撤销发放才能改"
+        className="mono hidden truncate text-[12px] text-[var(--color-ink-2)] md:block"
+      >
         {value}
       </span>
     )
   }
+  // 一个 appearance-none 的 select 在表格里长得跟一行灰字一模一样, 没人知道
+  // 它能点。右边留出一个小三角 (背景画的, 不占 DOM), 一眼就看出这一格是能
+  // 换的 —— 部门换了, 这个人的每天工时、时薪、整张工资条跟着重算。
   return (
     <select
       value={value}
       disabled={pending}
+      title="换部门 — 每天工时和整张工资条跟着重算"
       onChange={async (e) => {
         setPending(true)
         try {
@@ -861,7 +882,13 @@ function Dept({
           setPending(false)
         }
       }}
-      className={`mono hidden w-full cursor-pointer appearance-none rounded-[2px] border-0 bg-transparent px-1 -mx-1 py-0.5 text-[12px] text-[var(--color-ink-2)] outline-none transition-[background-color,box-shadow] duration-150 hover:bg-[var(--color-active-bg)] hover:shadow-[inset_0_-1px_0_var(--color-border-strong)] focus:bg-[var(--color-active-bg)] focus:shadow-[inset_0_-1px_0_var(--color-ink)] md:block ${
+      style={{
+        backgroundImage:
+          "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'><path d='M0 0l4 5 4-5z' fill='%23a8a29a'/></svg>\")",
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'right 2px center',
+      }}
+      className={`mono hidden w-full cursor-pointer appearance-none rounded-[2px] border-0 bg-transparent py-0.5 pl-1 pr-3.5 -ml-1 text-[12px] text-[var(--color-ink-2)] outline-none transition-[background-color,box-shadow] duration-150 hover:bg-[var(--color-active-bg)] hover:shadow-[inset_0_-1px_0_var(--color-border-strong)] focus:bg-[var(--color-active-bg)] focus:shadow-[inset_0_-1px_0_var(--color-ink)] md:block ${
         pending ? 'opacity-60' : ''
       } ${value === NO_DEPARTMENT ? 'text-[var(--color-ink-4)]' : ''}`}
     >
