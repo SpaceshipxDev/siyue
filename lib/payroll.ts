@@ -436,8 +436,9 @@ export type PayrollLine = {
   // —— 工资构成里手填的几项 (一人一个数) ——
   phoneAllowanceCny?: number // 话费补助
   transportAllowanceCny?: number // 交通补助
-  housingCny?: number // 内宿补贴 (住厂里的床位, 按档 + 按出勤天数折)
-  housingAllowanceCny?: number // 房补 (在外面租房的那一份, 只手填, 没有默认)
+  /** 内宿补贴 —— 已停用, 老月份的数留着不动。 */
+  housingCny?: number
+  housingAllowanceCny?: number // 房补 (只手填, 没有默认; 按实际出勤天数折)
   socialSubsidyCny?: number // 社保补贴 — 填了就盖掉按比例算出来的那个数
   mealCny?: number // 餐补
   // —— 应发 (加) ——
@@ -478,7 +479,6 @@ export const PAYROLL_CUT_FIELDS = [
 export const PAYROLL_ALLOWANCE_FIELDS = [
   ['phoneAllowanceCny', '话费补助'],
   ['transportAllowanceCny', '交通补助'],
-  ['housingCny', '内宿补贴'],
   ['housingAllowanceCny', '房补'],
   ['socialSubsidyCny', '社保补贴'],
   ['mealCny', '餐补'],
@@ -558,9 +558,8 @@ export type Payslip = {
   perfPayCny: number // 绩效工资 = 可分配额 × perfRatePct
   safetyFeeCny: number // 安全补贴 = 可分配额 × safetyRatePct
   secretFeeCny: number // 保密补贴 = 可分配额 × secretRatePct
-  housingCny: number // 内宿补贴 — 已按实际出勤天数折算过
-  housingBaseCny: number // 折算前的内宿补贴 (满勤该有的数)
-  housingAllowanceCny: number // 房补 (手填, 没有默认)
+  housingAllowanceCny: number // 房补 — 已按实际出勤天数折算过
+  housingBaseCny: number // 折算前的房补 (满勤该有的数, 就是手填的那个)
   fullAttendanceCny: number // 全勤 — 无事假/病假/旷工/迟到才有
   /** 社保补贴 = 可分配额 × socialRatePct, 手填过就是手填的那个数。 */
   socialSubsidyCny: number
@@ -761,8 +760,10 @@ export function computePayslip(
   const transportAllowanceCny = tiered(line.transportAllowanceCny)
   // 内宿补贴按天 —— 床位是住一天算一天的, 所以档位给的是满勤的数, 实发按
   // 「住房补贴 ÷ 应出勤天数 × 实际出勤天数」折。别的三项不折。
-  const housingBaseCny = tiered(line.housingCny)
-  const housingCny = Math.round(
+  // 房补按天 —— 住的是一天算一天, 所以格子里填的是满勤该给的数, 落到条子上
+  // 的是「房补 ÷ 应出勤天数 × 实际出勤天数」。别的补助不折。
+  const housingBaseCny = money(line.housingAllowanceCny)
+  const housingAllowanceCny = Math.round(
     housingBaseCny * (workedDays / (standardDays || 1)),
   )
 
@@ -804,8 +805,7 @@ export function computePayslip(
     line.socialSubsidyCny ??
       (splitApplies ? ratedBaseCny * (rules.socialRatePct / 100) : 0),
   )
-  // 房补只手填 —— 在外面租房的才有, 系统猜不出来, 所以没有默认值。
-  const housingAllowanceCny = money(line.housingAllowanceCny)
+
 
   // 前半段「出勤工资」= 基本工资 + 岗位补助 + 加班费 —— 人到岗才有的那几
   // 项。缺勤扣不在这里减: 它是扣款栏里的一行 (见下), 这样老板那句
@@ -819,7 +819,6 @@ export function computePayslip(
       attendancePayCny -
       phoneAllowanceCny -
       mealCny -
-      housingCny -
       fullAttendanceCny -
       transportAllowanceCny -
       housingAllowanceCny -
@@ -847,7 +846,6 @@ export function computePayslip(
     perfPayCny +
     safetyFeeCny +
     secretFeeCny +
-    housingCny +
     housingAllowanceCny +
     fullAttendanceCny +
     socialSubsidyCny +
@@ -899,9 +897,8 @@ export function computePayslip(
     perfPayCny,
     safetyFeeCny,
     secretFeeCny,
-    housingCny,
-    housingBaseCny,
     housingAllowanceCny,
+    housingBaseCny,
     fullAttendanceCny,
     socialSubsidyCny,
     ratedBaseCny,
@@ -1047,7 +1044,6 @@ export const PAYROLL_EXPORT_HEADERS = [
   '绩效工资',
   '安全补贴',
   '保密补贴',
-  '内宿补贴',
   '房补',
   '全勤',
   '社保补贴',
@@ -1113,7 +1109,6 @@ export function buildPayrollExportAoa(
       p.perfPayCny,
       p.safetyFeeCny,
       p.secretFeeCny,
-      p.housingCny,
       p.housingAllowanceCny,
       p.fullAttendanceCny,
       p.socialSubsidyCny,

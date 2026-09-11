@@ -507,7 +507,6 @@ function normalizeSheet(raw: unknown): PayrollSheet {
       ratedBaseCny: typeof s.ratedBaseCny === 'number' ? s.ratedBaseCny : 0,
       welfareCny: typeof s.welfareCny === 'number' ? s.welfareCny : 0,
       mealCny: typeof s.mealCny === 'number' ? s.mealCny : 0,
-      housingCny: typeof s.housingCny === 'number' ? s.housingCny : 0,
       housingBaseCny:
         typeof s.housingBaseCny === 'number' ? s.housingBaseCny : 0,
       housingAllowanceCny:

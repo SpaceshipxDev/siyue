@@ -1139,23 +1139,16 @@ function Slip({
                 <Ln label="保密补贴" v={s.secretFeeCny} />
               </>
             )}
-            {/* 内宿补贴按天折 —— 格子里填的是满勤该给的数, 条子上出来的是
-                折算后的。 */}
+            {/* 房补按天折 —— 格子里填的是满勤该给的数, 条子上出来的是折算
+                后的。空着就是没有。 */}
             <Edit
-              label="内宿补贴"
+              label="房补"
               detail={
-                s.workedDays < s.standardDays
-                  ? `出勤 ${num(s.workedDays)}/${s.standardDays} 天 → ${formatCny(s.housingCny)}`
+                s.workedDays < s.standardDays && s.housingBaseCny > 0
+                  ? `出勤 ${num(s.workedDays)}/${s.standardDays} 天 → ${formatCny(s.housingAllowanceCny)}`
                   : undefined
               }
               value={s.housingBaseCny}
-              locked={locked}
-              onSave={(v) => setLine({ housingCny: v })}
-            />
-            {/* 房补 —— 在外面租房的那一份, 只手填, 空着就是没有。 */}
-            <Edit
-              label="房补"
-              value={s.housingAllowanceCny}
               locked={locked}
               onSave={(v) => setLine({ housingAllowanceCny: v })}
             />

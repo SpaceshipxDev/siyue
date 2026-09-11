@@ -102,13 +102,12 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
           )}
           <Row
             label={
-              s.workedDays < s.standardDays
-                ? `内宿补贴 · 出勤 ${fmt(s.workedDays)}/${s.standardDays} 天`
-                : '内宿补贴'
+              s.workedDays < s.standardDays && s.housingBaseCny > 0
+                ? `房补 · 出勤 ${fmt(s.workedDays)}/${s.standardDays} 天`
+                : '房补'
             }
-            v={s.housingCny}
+            v={s.housingAllowanceCny}
           />
-          <Row label="房补" v={s.housingAllowanceCny} />
           {s.splitApplies && (
             <>
               <Row label="全勤" v={s.fullAttendanceCny} />
