@@ -277,6 +277,8 @@ export function PayrollBoard({
           <Sep />
           <Rule label="绩效工资" unit="%" value={rules.perfRatePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'perfRatePct', value: v })} />
           <Sep />
+          <Rule label="门槛以下绩效" unit="%" value={rules.lowPerfRatePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'lowPerfRatePct', value: v })} />
+          <Sep />
           <Rule label="安全补贴" unit="%" value={rules.safetyRatePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'safetyRatePct', value: v })} />
           <Sep />
           <Rule label="保密补贴" unit="%" value={rules.secretRatePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'secretRatePct', value: v })} />
@@ -287,8 +289,8 @@ export function PayrollBoard({
           <Sep />
           <Rule label="超过" unit="元才拆" value={rules.splitThresholdCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'splitThresholdCny', value: v })} />
           <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-            这几项乘的都是「综合工资 − 出勤工资」· 福利 = 综合工资 − 出勤工资
-            − 后面全部
+            这几项乘的都是「综合工资 − 出勤工资」· 没过门槛的人只拆基本工资 /
+            加班费 / 绩效, 剩下的归福利 · 福利 = 综合工资 − 出勤工资 − 后面全部
           </span>
         </div>
 
@@ -1096,27 +1098,14 @@ function Slip({
           <div>
             <p className="label mb-1 text-[var(--color-ink-3)]">
               出勤工资
-              {!s.splitApplies && ' · 综合工资未过拆分门槛, 不拆'}
+              {!s.splitApplies && ' · 低薪档, 只拆基本工资/加班费/绩效'}
             </p>
-            {s.splitApplies ? (
-              <>
-                <Ln label="基本工资" v={s.baseSalaryCny} />
-                <Ln label="岗位补助" v={s.postSubsidyCny} />
-                <Ln label="加班费" detail={otDetail(s)} v={s.otPay} />
-              </>
-            ) : (
-              <>
-                <Ln label="综合工资" v={s.monthlyCny} />
-                <Ln label="加班费" detail={otDetail(s)} v={s.otPay} />
-              </>
-            )}
+            <Ln label="基本工资" v={s.baseSalaryCny} />
+            {s.splitApplies && <Ln label="岗位补助" v={s.postSubsidyCny} />}
+            <Ln label="加班费" detail={otDetail(s)} v={s.otPay} />
             <Ln
               label="出勤工资"
-              detail={
-                s.splitApplies
-                  ? `余下 ${formatCny(s.ratedBaseCny)} 按比例分`
-                  : undefined
-              }
+              detail={`余下 ${formatCny(s.ratedBaseCny)} 按比例分`}
               v={s.attendancePayCny}
               strong
               divider
@@ -1143,9 +1132,9 @@ function Slip({
               locked={locked}
               onSave={(v) => setLine({ transportAllowanceCny: v })}
             />
+            <Ln label="绩效工资" v={s.perfPayCny} />
             {s.splitApplies && (
               <>
-                <Ln label="绩效工资" v={s.perfPayCny} />
                 <Ln label="安全补贴" v={s.safetyFeeCny} />
                 <Ln label="保密补贴" v={s.secretFeeCny} />
               </>
@@ -1186,7 +1175,7 @@ function Slip({
             />
             {/* 兜底的那一格 —— 上面各项加起来永远等于综合工资。手填的几项
                 填得太多, 它会变成负数, 那时候是红的。 */}
-            {s.splitApplies && <Ln label="福利" v={s.welfareCny} />}
+            <Ln label="福利" v={s.welfareCny} />
             {PAYROLL_ADD_FIELDS.map(([k, label]) => (
               <Edit
                 key={k}
@@ -1232,7 +1221,8 @@ function Slip({
               ；话费、餐补、内宿、交通按综合工资的档位给（点着能给这个人单独
               填一个数）；全勤当月没有事假、病假、旷工、迟到才有；福利 = 综合
               工资 − 出勤工资 − 后面这一串，所以没有额外奖金时应发工资正好是
-              综合工资。缺勤扣在右边扣款栏里。
+              综合工资。综合工资没过拆分门槛的人只拆三样——基本工资、加班费、
+              绩效（比例另设），剩下的全归福利。缺勤扣在右边扣款栏里。
             </p>
           </div>
         </div>

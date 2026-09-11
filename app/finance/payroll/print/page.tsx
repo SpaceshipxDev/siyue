@@ -81,37 +81,21 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
       <div className="grid grid-cols-2 gap-x-8 py-2">
         <div>
           <p className="label mb-0.5">出勤工资</p>
-          {s.splitApplies ? (
-            <>
-              <Row label="基本工资" v={s.baseSalaryCny} />
-              <Row label="岗位补助" v={s.postSubsidyCny} />
-              <Row
-                label={
-                  s.otHours > 0 ? `加班费 · ${fmt(s.otHours)} 小时` : '加班费'
-                }
-                v={s.otPay}
-              />
-            </>
-          ) : (
-            <>
-              <Row label="综合工资" v={s.monthlyCny} />
-              <Row
-                label={
-                  s.otHours > 0 ? `加班费 · ${fmt(s.otHours)} 小时` : '加班费'
-                }
-                v={s.otPay}
-              />
-            </>
-          )}
+          <Row label="基本工资" v={s.baseSalaryCny} />
+          {s.splitApplies && <Row label="岗位补助" v={s.postSubsidyCny} />}
+          <Row
+            label={s.otHours > 0 ? `加班费 · ${fmt(s.otHours)} 小时` : '加班费'}
+            v={s.otPay}
+          />
           <Row label="出勤工资" v={s.attendancePayCny} strong />
 
           <p className="label mt-2 mb-0.5">其他项目</p>
           <Row label="餐补" v={s.mealCny} />
           <Row label="话费补助" v={s.phoneAllowanceCny} />
           <Row label="交通补助" v={s.transportAllowanceCny} />
+          <Row label="绩效工资" v={s.perfPayCny} />
           {s.splitApplies && (
             <>
-              <Row label="绩效工资" v={s.perfPayCny} />
               <Row label="安全补贴" v={s.safetyFeeCny} />
               <Row label="保密补贴" v={s.secretFeeCny} />
             </>
@@ -131,7 +115,7 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
             </>
           )}
           <Row label="社保补贴" v={s.socialSubsidyCny} />
-          {s.splitApplies && <Row label="福利" v={s.welfareCny} />}
+          <Row label="福利" v={s.welfareCny} />
           {PAYROLL_ADD_FIELDS.map(([k, label]) => (
             <Row key={k} label={label} v={s[k]} />
           ))}

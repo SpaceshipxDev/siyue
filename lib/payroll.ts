@@ -165,6 +165,11 @@ export type PayrollRules = {
   splitThresholdCny: number // 综合工资高过这个数才拆分
   postRatePct: number // 岗位补助 %（乘可分配额）
   perfRatePct: number // 绩效工资 %（同上）
+  /**
+   * 综合工资没过拆分门槛时的绩效 % —— 低薪那一档条子上只有三样东西:
+   * 基本工资 · 加班费 · 绩效, 剩下的归福利。比例比高薪档低。
+   */
+  lowPerfRatePct: number
   safetyRatePct: number // 安全补贴 %（乘可分配额）
   secretRatePct: number // 保密补贴 %（乘可分配额）
   // === 补助档 ===
@@ -206,6 +211,7 @@ export const DEFAULT_PAYROLL_RULES: PayrollRules = {
   splitThresholdCny: 6000,
   postRatePct: 8,
   perfRatePct: 30,
+  lowPerfRatePct: 10,
   safetyRatePct: 8,
   secretRatePct: 8,
   tier1MinCny: 8000,
@@ -233,6 +239,7 @@ const RULE_LIMITS: Record<string, [number, number]> = {
   splitThresholdCny: [0, 100000],
   postRatePct: [0, 100],
   perfRatePct: [0, 100],
+  lowPerfRatePct: [0, 100],
   safetyRatePct: [0, 100],
   secretRatePct: [0, 100],
   tier1MinCny: [0, 200000],
@@ -257,6 +264,7 @@ export type ScalarRuleKey =
   | 'splitThresholdCny'
   | 'postRatePct'
   | 'perfRatePct'
+  | 'lowPerfRatePct'
   | 'safetyRatePct'
   | 'secretRatePct'
   | 'tier1MinCny'
@@ -729,6 +737,8 @@ export function computePayslip(
   //
   // 福利是倒挤出来的 (综合工资 − 前面所有项), 所以只要人到齐、没有额外的奖
   // 金, 应发工资正好等于综合工资 —— 条子上加得起来, 这是它能拿去对账的前提。
+  // 过了门槛拆全套 (岗位 · 绩效 · 安全 · 保密 · 全勤 · 社保补贴); 没过门槛
+  // 也拆, 只是条子上只有三样: 基本工资 · 加班费 · 绩效, 剩下的归福利。
   const splitApplies = monthlyCny > rules.splitThresholdCny
   const on = (v: number) => (splitApplies ? Math.round(v) : 0)
 
@@ -741,7 +751,9 @@ export function computePayslip(
   // 合工资够不够拆没关系。所以它们用 money 而不是 on —— 每个人的条子上都有
   // 这几格, 填了就算。过了门槛的人从综合工资里拆 (福利那一格自动变少), 没过
   // 门槛的人就是实打实多给的一笔。
-  const baseSalaryCny = on(rules.baseSalaryCny)
+  // 基本工资是定额, 但不能超过这个人的综合工资本身 —— 综合工资比基本工资还
+  // 低的人 (临时工、试用期), 基本工资就是他的全部。
+  const baseSalaryCny = Math.min(Math.round(rules.baseSalaryCny), monthlyCny)
   const tier = tierAllowanceCny(monthlyCny, rules)
   const tiered = (v: number | undefined) => Math.round(v ?? tier)
   const mealCny = tiered(line.mealCny)
@@ -767,14 +779,18 @@ export function computePayslip(
   //
   // 这样条子上按计算器是对得上的: 综合工资 − 出勤工资 就是这个 B, 再乘 30%
   // 正好是绩效那一格。
+  // 没过门槛的那一档没有岗位补助, 所以不必解那个方程, 直接就是余下的钱。
   const ratedBaseCny = splitApplies
     ? Math.round(
         (monthlyCny - baseSalaryCny - otPay) /
           (1 + rules.postRatePct / 100),
       )
-    : 0
+    : Math.max(0, monthlyCny - baseSalaryCny - otPay)
   const postSubsidyCny = on(ratedBaseCny * (rules.postRatePct / 100))
-  const perfPayCny = on(ratedBaseCny * (rules.perfRatePct / 100))
+  const perfPayCny = Math.round(
+    ratedBaseCny *
+      ((splitApplies ? rules.perfRatePct : rules.lowPerfRatePct) / 100),
+  )
   const safetyFeeCny = on(ratedBaseCny * (rules.safetyRatePct / 100))
   const secretFeeCny = on(ratedBaseCny * (rules.secretRatePct / 100))
 
@@ -794,14 +810,12 @@ export function computePayslip(
   // 前半段「出勤工资」= 基本工资 + 岗位补助 + 加班费 —— 人到岗才有的那几
   // 项。缺勤扣不在这里减: 它是扣款栏里的一行 (见下), 这样老板那句
   // 「福利 = 综合工资 − 出勤工资 − …」在条子上按下去正好对得上。
-  const attendancePayCny = splitApplies
-    ? baseSalaryCny + postSubsidyCny + otPay
-    : monthlyCny + otPay
+  const attendancePayCny = baseSalaryCny + postSubsidyCny + otPay
 
   // 福利 = 综合工资 − 出勤工资 − 后面这一串。兜底的那一格, 所以工资条上各
   // 项加起来永远等于综合工资, 一分不差。
-  const welfareCny = splitApplies
-    ? monthlyCny -
+  const welfareCny =
+    monthlyCny -
       attendancePayCny -
       phoneAllowanceCny -
       mealCny -
@@ -813,7 +827,6 @@ export function computePayslip(
       secretFeeCny -
       perfPayCny -
       socialSubsidyCny
-    : 0
 
   const nightShiftCny = money(line.nightShiftCny)
   const holidayCny = money(line.holidayCny)
@@ -1087,25 +1100,24 @@ export function buildPayrollExportAoa(
 ): (string | number)[][] {
   const aoa: (string | number)[][] = [PAYROLL_EXPORT_HEADERS.slice() as string[]]
   for (const p of slips) {
-    const split = (v: number) => (p.splitApplies ? v : '')
     aoa.push([
       p.name,
       p.dept,
       p.monthlyCny,
-      split(p.baseSalaryCny),
+      p.baseSalaryCny,
       p.otPay,
-      split(p.mealCny),
-      split(p.postSubsidyCny),
-      split(p.phoneAllowanceCny),
-      split(p.transportAllowanceCny),
-      split(p.perfPayCny),
-      split(p.safetyFeeCny),
-      split(p.secretFeeCny),
-      split(p.housingCny),
-      split(p.housingAllowanceCny),
-      split(p.fullAttendanceCny),
-      split(p.socialSubsidyCny),
-      split(p.welfareCny),
+      p.mealCny,
+      p.postSubsidyCny,
+      p.phoneAllowanceCny,
+      p.transportAllowanceCny,
+      p.perfPayCny,
+      p.safetyFeeCny,
+      p.secretFeeCny,
+      p.housingCny,
+      p.housingAllowanceCny,
+      p.fullAttendanceCny,
+      p.socialSubsidyCny,
+      p.welfareCny,
       p.standardDays,
       p.workedDays,
       p.hoursPerDay,
