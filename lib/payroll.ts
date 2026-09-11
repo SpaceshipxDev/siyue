@@ -599,11 +599,11 @@ export type Payslip = {
   safetyDeductCny: number
   socialInsuranceCny: number
   taxCny: number
-  /** 应发工资 = 出勤工资 + 后面所有子项目 */
+  /** 应发工资 = 出勤工资 + 后面所有子项目, 不含房补 */
   grossCny: number
   /** 扣款合计 */
   deductCny: number
-  netCny: number // 实发
+  netCny: number // 实发 = 应发 − 扣款 + 房补
   note?: string
 }
 
@@ -837,7 +837,11 @@ export function computePayslip(
   const socialInsuranceCny = money(line.socialInsuranceCny)
   const taxCny = money(line.taxCny)
 
-  // 应发工资 = 前半段 + 后半段所有子项目。
+  // 应发工资 = 前半段 + 后半段所有子项目, **不含房补**。
+  //
+  // 房补是从综合工资里拆出来的一块 (福利那一格照样减掉它), 但它不进应发 ——
+  // 应发是计税、算社保的那个口径, 房补不在里面。到实发那一步再加回去, 所以
+  // 钱一分没少: 应发 + 房补 − 扣款 = 实发。
   const grossCny =
     attendancePayCny +
     mealCny +
@@ -846,7 +850,6 @@ export function computePayslip(
     perfPayCny +
     safetyFeeCny +
     secretFeeCny +
-    housingAllowanceCny +
     fullAttendanceCny +
     socialSubsidyCny +
     welfareCny +
@@ -918,7 +921,7 @@ export function computePayslip(
     taxCny,
     grossCny,
     deductCny,
-    netCny: grossCny - deductCny,
+    netCny: grossCny - deductCny + housingAllowanceCny,
     note: line.note,
   }
 }

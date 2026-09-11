@@ -100,14 +100,6 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
               <Row label="保密补贴" v={s.secretFeeCny} />
             </>
           )}
-          <Row
-            label={
-              s.workedDays < s.standardDays && s.housingBaseCny > 0
-                ? `房补 · 出勤 ${fmt(s.workedDays)}/${s.standardDays} 天`
-                : '房补'
-            }
-            v={s.housingAllowanceCny}
-          />
           {s.splitApplies && (
             <>
               <Row label="全勤" v={s.fullAttendanceCny} />
@@ -122,6 +114,15 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
             <Row label={s.adjustCny > 0 ? '奖' : '罚'} v={s.adjustCny} />
           )}
           <Row label="应发工资" v={s.grossCny} strong />
+          {/* 房补不进应发, 实发时加回去 —— 单独一行摆在应发下面。 */}
+          <Row
+            label={
+              s.workedDays < s.standardDays && s.housingBaseCny > 0
+                ? `房补 · 出勤 ${fmt(s.workedDays)}/${s.standardDays} 天`
+                : '房补'
+            }
+            v={s.housingAllowanceCny}
+          />
         </div>
         <div>
           <p className="label mb-0.5">扣款</p>
