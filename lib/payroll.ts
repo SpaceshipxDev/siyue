@@ -40,12 +40,49 @@ import type { HrRecord } from './data'
 // 人事, which sits in the office but keeps office hours of its own. Derived
 // from STAGES rather than a hand-copied literal — the 喷漆丝印 split showed
 // how a parallel stage list silently drifts.
-export const DEPARTMENTS = ['商务', '人事', ...STAGES] as const
+/**
+ * 操机拆成两个部门 —— 塑料件和金属件是两批人、两种机床、两种节奏, 工资上按
+ * 一个"操机"算就分不清谁是谁。
+ *
+ * 只拆在工资这一侧: 板子上的工段还是那一个「操机」(工序不分料), 所以 STAGES
+ * 一个字没动。老的「操机」保留在列表里 —— 名册上还挂着它的人不能凭空变成
+ * "未分部门", 工时也不能跟着跳。选择器里它不出现 (见 DEPT_PICKER_OPTIONS),
+ * 所以人只会往新的两个里选, 改完一个少一个。
+ */
+export const LEGACY_OPERATOR_DEPT = '操机'
+export const OPERATOR_DEPTS = ['塑料操机', '金属操机'] as const
+
+/**
+ * 工资这边自己多出来的部门 —— 板子上的工段里没有它们。
+ *
+ * 车件部就是车床那一摊: 零件走的工序还是「操机」, 但发工资时它是独立的一个
+ * 部门 (自己的每天工时、自己的一摊人)。同样只加在工资一侧, STAGES 不动。
+ */
+export const EXTRA_DEPTS = ['车件部'] as const
+
+export const DEPARTMENTS: readonly string[] = [
+  '商务',
+  '人事',
+  ...STAGES.flatMap((s) =>
+    s === LEGACY_OPERATOR_DEPT
+      ? [s, ...OPERATOR_DEPTS, ...EXTRA_DEPTS]
+      : [s],
+  ),
+]
+
+/**
+ * 下拉里该给的选项 —— 废掉的「操机」不出现, 除非这个人现在就挂在它上面
+ * (否则那一格会显示成空的, 人还以为部门丢了)。
+ */
+export function deptPickerOptions(current?: string): readonly string[] {
+  if (current === LEGACY_OPERATOR_DEPT) return DEPARTMENTS
+  return DEPARTMENTS.filter((d) => d !== LEGACY_OPERATOR_DEPT)
+}
 
 export const NO_DEPARTMENT = '未分部门'
 
 export function isDepartment(x: unknown): x is string {
-  return typeof x === 'string' && (DEPARTMENTS as readonly string[]).includes(x)
+  return typeof x === 'string' && DEPARTMENTS.includes(x)
 }
 
 // 每天工时 per 部门 — the boss's own list. 商务 10, 工程/编程/手工/打磨/喷漆
@@ -60,6 +97,9 @@ export const DEFAULT_HOURS_BY_DEPT: Record<string, number> = {
   采购: 8,
   编程: 11,
   操机: 12,
+  塑料操机: 12,
+  金属操机: 12,
+  车件部: 12,
   检验: 11,
   手工: 11,
   打磨: 11,
@@ -898,7 +938,7 @@ export function buildPayslips(
 // 商务 first, then the floor in stage order, unknowns last — DEPARTMENTS' own
 // order, which is STAGES' order.
 function deptOrder(dept: string): number {
-  const i = (DEPARTMENTS as readonly string[]).indexOf(dept)
+  const i = DEPARTMENTS.indexOf(dept)
   return i === -1 ? DEPARTMENTS.length : i
 }
 

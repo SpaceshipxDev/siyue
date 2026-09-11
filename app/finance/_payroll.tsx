@@ -15,7 +15,7 @@ import {
   payrollTotal,
   PAYROLL_ADD_FIELDS,
   PAYROLL_CUT_FIELDS,
-  DEPARTMENTS,
+  deptPickerOptions,
   NO_DEPARTMENT,
   type PayrollRules,
   type Payslip,
@@ -52,7 +52,9 @@ export type PayrollBoardProps = {
 const COLS =
   'grid-cols-[minmax(0,1fr)_92px] md:grid-cols-[minmax(0,1fr)_76px_84px_50px_50px_50px_44px_58px_74px_96px]'
 
-const DEPT_OPTIONS = [...DEPARTMENTS, NO_DEPARTMENT]
+// 「每天工时」那一行展开时列的部门 —— 废掉的「操机」不在里面; 真还有人挂在
+// 它上面时, 它会从 deptsInUse 那条路进来, 照样能改工时。
+const DEPT_OPTIONS = [...deptPickerOptions(), NO_DEPARTMENT]
 
 export function PayrollBoard({
   month,
@@ -643,7 +645,7 @@ function AddPerson({
         onChange={(e) => setDept(e.target.value)}
         className="border-b border-[var(--color-border-strong)] bg-transparent py-1 text-[13px] focus:border-[var(--color-ink)] focus:outline-none"
       >
-        {DEPT_OPTIONS.map((d) => (
+        {[...deptPickerOptions(), NO_DEPARTMENT].map((d) => (
           <option key={d} value={d}>
             {d}
           </option>
@@ -707,7 +709,7 @@ function Dept({
         pending ? 'opacity-60' : ''
       } ${value === NO_DEPARTMENT ? 'text-[var(--color-ink-4)]' : ''}`}
     >
-      {DEPT_OPTIONS.map((d) => (
+      {[...deptPickerOptions(value), NO_DEPARTMENT].map((d) => (
         <option key={d} value={d}>
           {d}
         </option>
