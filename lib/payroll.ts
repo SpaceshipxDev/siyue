@@ -388,10 +388,12 @@ export function summarizeAttendance(
 //   · 应发里的 (夜班 · 节假日 · 奖金) —— 综合工资之外真发下去的钱。
 export type PayrollLine = {
   adjustCny?: number // 奖罚, 正为奖 负为扣
-  // —— 工资构成里手填的四项 (一人一个数) ——
+  // —— 工资构成里手填的几项 (一人一个数) ——
   phoneAllowanceCny?: number // 话费补助
   transportAllowanceCny?: number // 交通补助
-  housingCny?: number // 房补
+  housingCny?: number // 内宿补贴 (住厂里的床位, 按档 + 按出勤天数折)
+  housingAllowanceCny?: number // 房补 (在外面租房的那一份, 只手填, 没有默认)
+  socialSubsidyCny?: number // 社保补贴 — 填了就盖掉按比例算出来的那个数
   mealCny?: number // 餐补
   // —— 应发 (加) ——
   nightShiftCny?: number // 夜班补贴
@@ -432,6 +434,8 @@ export const PAYROLL_ALLOWANCE_FIELDS = [
   ['phoneAllowanceCny', '话费补助'],
   ['transportAllowanceCny', '交通补助'],
   ['housingCny', '内宿补贴'],
+  ['housingAllowanceCny', '房补'],
+  ['socialSubsidyCny', '社保补贴'],
   ['mealCny', '餐补'],
 ] as const
 
@@ -511,8 +515,10 @@ export type Payslip = {
   secretFeeCny: number // 保密补贴 = 可分配额 × secretRatePct
   housingCny: number // 内宿补贴 — 已按实际出勤天数折算过
   housingBaseCny: number // 折算前的内宿补贴 (满勤该有的数)
+  housingAllowanceCny: number // 房补 (手填, 没有默认)
   fullAttendanceCny: number // 全勤 — 无事假/病假/旷工/迟到才有
-  socialSubsidyCny: number // 社保补贴 = 可分配额 × socialRatePct
+  /** 社保补贴 = 可分配额 × socialRatePct, 手填过就是手填的那个数。 */
+  socialSubsidyCny: number
   /** 可分配额 = 综合工资 − 出勤工资 —— 按比例那几项乘的都是它。 */
   ratedBaseCny: number
   /**
@@ -735,7 +741,12 @@ export function computePayslip(
   const fullAttendanceCny =
     splitApplies && fullAttendance ? Math.round(rules.fullAttendanceCny) : 0
 
-  const socialSubsidyCny = on(ratedBaseCny * (rules.socialRatePct / 100))
+  // 社保补贴按比例算, 手填过就以手填的为准 (有人的社保基数跟别人不一样)。
+  const socialSubsidyCny = on(
+    line.socialSubsidyCny ?? ratedBaseCny * (rules.socialRatePct / 100),
+  )
+  // 房补只手填 —— 在外面租房的才有, 系统猜不出来, 所以没有默认值。
+  const housingAllowanceCny = on(money(line.housingAllowanceCny))
 
   // 前半段「出勤工资」= 基本工资 + 岗位补助 + 加班费 —— 人到岗才有的那几
   // 项。缺勤扣不在这里减: 它是扣款栏里的一行 (见下), 这样老板那句
@@ -754,6 +765,7 @@ export function computePayslip(
       housingCny -
       fullAttendanceCny -
       transportAllowanceCny -
+      housingAllowanceCny -
       safetyFeeCny -
       secretFeeCny -
       perfPayCny -
@@ -780,6 +792,7 @@ export function computePayslip(
     safetyFeeCny +
     secretFeeCny +
     housingCny +
+    housingAllowanceCny +
     fullAttendanceCny +
     socialSubsidyCny +
     welfareCny +
@@ -832,6 +845,7 @@ export function computePayslip(
     secretFeeCny,
     housingCny,
     housingBaseCny,
+    housingAllowanceCny,
     fullAttendanceCny,
     socialSubsidyCny,
     ratedBaseCny,
@@ -978,6 +992,7 @@ export const PAYROLL_EXPORT_HEADERS = [
   '安全补贴',
   '保密补贴',
   '内宿补贴',
+  '房补',
   '全勤',
   '社保补贴',
   '福利',
@@ -1044,6 +1059,7 @@ export function buildPayrollExportAoa(
       split(p.safetyFeeCny),
       split(p.secretFeeCny),
       split(p.housingCny),
+      split(p.housingAllowanceCny),
       split(p.fullAttendanceCny),
       split(p.socialSubsidyCny),
       split(p.welfareCny),

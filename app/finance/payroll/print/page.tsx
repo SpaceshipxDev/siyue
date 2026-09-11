@@ -122,6 +122,7 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
                 }
                 v={s.housingCny}
               />
+              <Row label="房补" v={s.housingAllowanceCny} />
               <Row label="全勤" v={s.fullAttendanceCny} />
               <Row label="社保补贴" v={s.socialSubsidyCny} />
               <Row label="福利" v={s.welfareCny} />

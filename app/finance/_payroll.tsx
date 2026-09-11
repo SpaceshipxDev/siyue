@@ -882,12 +882,25 @@ function Slip({
                   locked={locked}
                   onSave={(v) => setLine({ housingCny: v })}
                 />
+                {/* 房补 —— 在外面租房的那一份, 只手填, 空着就是没有。 */}
+                <Edit
+                  label="房补"
+                  value={s.housingAllowanceCny}
+                  locked={locked}
+                  onSave={(v) => setLine({ housingAllowanceCny: v })}
+                />
                 <Ln
                   label="全勤"
                   detail={s.fullAttendance ? undefined : '本月有缺勤'}
                   v={s.fullAttendanceCny}
                 />
-                <Ln label="社保补贴" v={s.socialSubsidyCny} />
+                {/* 社保补贴按比例算, 点着能改 —— 清空就回到按比例。 */}
+                <Edit
+                  label="社保补贴"
+                  value={s.socialSubsidyCny}
+                  locked={locked}
+                  onSave={(v) => setLine({ socialSubsidyCny: v })}
+                />
                 {/* 兜底的那一格 —— 上面各项加起来永远等于综合工资。手填的几
                     项填得太多, 它会变成负数, 那时候是红的。 */}
                 <Ln label="福利" v={s.welfareCny} />

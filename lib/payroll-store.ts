@@ -470,6 +470,8 @@ function normalizeSheet(raw: unknown): PayrollSheet {
       housingCny: typeof s.housingCny === 'number' ? s.housingCny : 0,
       housingBaseCny:
         typeof s.housingBaseCny === 'number' ? s.housingBaseCny : 0,
+      housingAllowanceCny:
+        typeof s.housingAllowanceCny === 'number' ? s.housingAllowanceCny : 0,
       phoneAllowanceCny:
         typeof s.phoneAllowanceCny === 'number' ? s.phoneAllowanceCny : 0,
       transportAllowanceCny:
