@@ -35,6 +35,11 @@ import { DeletePartButton } from './_part_delete'
 // mainland users (the old "click add, wait, F5" experience). A reload folds
 // these rows into the server table at exactly the same place.
 //
+// 全站的自动刷新 (app/_auto_refresh) 会在后面补一次服务端数据, 于是同一行会
+// 从两头各来一遍 —— 屏幕上就是"点一下出来两行"。所以本地这份只认服务端还
+// 没有的那些 id: 服务端一旦渲染出这一行, 本地那一份当场让位 (见 kids)。谁先
+// 到都只有一行, 位置也不会跳。
+//
 // Rows inserted this visit can themselves be inserted under, so the local
 // model is a tree: anchorId → the ids inserted directly beneath it, in order.
 
@@ -132,6 +137,21 @@ export function PartInsertProvider({
   // label of its own (the tail append): it takes the next free number. A
   // sub-numbered row renders its label instead, so its entry is never read —
   // it exists only so a cleared field has something to fall back to.
+  // 服务端已经渲染出来的行, 本地这份就不再渲染一遍 —— 自动刷新一到, 本地那
+  // 一行悄悄让位给服务端的真行, 不用改 state, 也不会闪。
+  const serverIds = useMemo(
+    () => new Set(serverRows.map((r) => r.id)),
+    [serverRows],
+  )
+  const liveKids = useMemo(() => {
+    const out: Kids = {}
+    for (const [k, list] of Object.entries(kids)) {
+      const rest = list.filter((kid) => !serverIds.has(kid.id))
+      if (rest.length > 0) out[k] = rest
+    }
+    return out
+  }, [kids, serverIds])
+
   const ordinals = useMemo(() => {
     const m = new Map<string, number>()
     let next = 0
@@ -140,7 +160,7 @@ export function PartInsertProvider({
       if (row.base > next) next = row.base
     }
     const walk = (id: string) => {
-      for (const child of kids[id] ?? []) {
+      for (const child of liveKids[id] ?? []) {
         next += 1
         m.set(child.id, next)
         walk(child.id)
@@ -149,7 +169,7 @@ export function PartInsertProvider({
     for (const row of serverRows) walk(row.id)
     walk('') // rows added to an empty sheet, below everything
     return m
-  }, [serverRows, kids])
+  }, [serverRows, liveKids])
 
   const value = useMemo<Ctx>(
     () => ({
@@ -159,7 +179,7 @@ export function PartInsertProvider({
       canDeleteRow,
       showMoney,
       totalCols: countCols(canEdit, showMoney),
-      kids,
+      kids: liveKids,
       ordinals,
       insertAfter,
       dropRow,
@@ -170,7 +190,7 @@ export function PartInsertProvider({
       canAddRow,
       canDeleteRow,
       showMoney,
-      kids,
+      liveKids,
       ordinals,
       insertAfter,
       dropRow,
