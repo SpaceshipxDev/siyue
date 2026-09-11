@@ -6,6 +6,7 @@ import { BASE_PATH } from '@/lib/base-path'
 import { ToastHost } from './_toast'
 import { APP_TITLE } from '@/lib/brand'
 import { GaiHook } from './_gai'
+import { AutoRefresh } from './_auto_refresh'
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -53,6 +54,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-[var(--color-bg)] text-[var(--color-ink)]">
         {children}
         <ToastHost />
+        <AutoRefresh />
         <EnBoot />
         <GaiHook />
       </body>

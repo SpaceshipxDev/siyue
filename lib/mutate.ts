@@ -93,6 +93,14 @@ async function attempt<T>(
   return data as MutateResult<T>
 }
 
+/**
+ * 写成功之后派的那个事件 —— app/_auto_refresh 听着它刷新当前页面。
+ *
+ * 放在这里而不是每个调用点自己刷: 调用点有四十多处, 漏掉一处就是一个"要按
+ * F5 才出现"的角落, 而且从界面上看不出来是哪一处漏了。
+ */
+export const MUTATED_EVENT = 'siyue:mutated'
+
 export async function mutate<T = undefined>(
   body: Record<string, unknown> & { kind: string },
 ): Promise<MutateResult<T>> {
@@ -109,7 +117,13 @@ export async function mutate<T = undefined>(
   for (let i = 0; i <= RETRY_DELAYS_MS.length; i++) {
     if (i > 0) await sleep(RETRY_DELAYS_MS[i - 1])
     try {
-      return await attempt<T>(payload)
+      const result = await attempt<T>(payload)
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent(MUTATED_EVENT, { detail: { kind: body.kind } }),
+        )
+      }
+      return result
     } catch (e) {
       if (e instanceof TransientError) {
         lastTransient = e
