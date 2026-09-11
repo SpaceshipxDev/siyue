@@ -7,6 +7,7 @@ import { mutate } from '@/lib/mutate'
 import { withBase } from '@/lib/base-path'
 import { showToast } from '@/app/_toast'
 import { EditableText } from '@/app/_editable'
+import { SearchSelect } from '@/app/_search_select'
 import { formatCny } from '@/lib/data'
 import {
   deptsInUse,
@@ -80,6 +81,10 @@ export function PayrollBoard({
   // 而要改某一个人的时候, 想的是他的名字。
   const [deptFilter, setDeptFilter] = useState<string | null>(null)
   const [q, setQ] = useState('')
+  // 刚加进来的那个人 —— 表按录入顺序排, 新人落在最后一行, 而当时的筛选条件
+  // 还可能把他挡在外面。加完清掉筛选并把那一行点亮几秒: 人看见了, 就不会以
+  // 为没加上而再加一次。
+  const [justAdded, setJustAdded] = useState<string | null>(null)
   const needle = q.trim()
   const shown = slips.filter(
     (s) =>
@@ -464,8 +469,12 @@ export function PayrollBoard({
             className="border-b border-[var(--color-border)] last:border-b-0"
           >
             <div
-              className={`grid ${COLS} items-center gap-2 px-4 py-2.5 md:px-5 ${
-                open === s.name ? 'bg-[#faf8f2]' : 'hover:bg-[#faf8f2]'
+              className={`grid ${COLS} items-center gap-2 px-4 py-2.5 transition-colors md:px-5 ${
+                justAdded === s.name
+                  ? 'bg-[var(--color-active-bg)]'
+                  : open === s.name
+                    ? 'bg-[#faf8f2]'
+                    : 'hover:bg-[#faf8f2]'
               }`}
             >
               <button
@@ -657,9 +666,15 @@ export function PayrollBoard({
         {!locked && (
           <AddPerson
             rules={rules}
-            onAdd={(name, monthlyCny, dept) =>
-              save({ kind: 'setPayrollBase', name, monthlyCny, dept })
-            }
+            candidates={offRoster}
+            existing={new Set(slips.map((s) => s.name))}
+            onAdd={async (name, monthlyCny, dept) => {
+              await save({ kind: 'setPayrollBase', name, monthlyCny, dept })
+              setQ('')
+              setDeptFilter(null)
+              setJustAdded(name)
+              setTimeout(() => setJustAdded(null), 5000)
+            }}
           />
         )}
       </div>
@@ -735,13 +750,26 @@ function AddDept({ onAdd }: { onAdd: (dept: string) => Promise<void> }) {
   )
 }
 
-// 直接往工资表上加一个人。收起来只有一行字, 展开是三个格 —— 名字、月薪、
-// 部门。名字是这张表的钥匙, 所以填错了还能改 (见每一行名字上的「改名」)。
+// 直接往工资表上加一个人。
+//
+// 名字这一格是可以搜的 —— 系统已经知道厂里有谁 (开过账号的、人事里记过一笔
+// 的), 那些还没上工资表的人就摆在这个下拉里, 搜两个字点中就行。以前这一格是
+// 白手打字: 打错一个字就凭空多出一个人, 而表上又看不出哪个是打错的, 只好再
+// 加一次 —— 加几次才发现是同一个人。搜不到的 (临时工、刚来的) 照样直接打,
+// 打完那一行会写着"新名字"。
+//
+// 已经在表上的人不让再加一次: 那不是"加", 是悄悄把他的综合工资改掉。
 function AddPerson({
   rules,
+  candidates,
+  existing,
   onAdd,
 }: {
   rules: PayrollRules
+  /** 还没上工资表的人 —— 有账号的 + 人事里记过的。 */
+  candidates: { name: string; dept: string }[]
+  /** 已经在表上的名字 —— 重名挡住。 */
+  existing: Set<string>
   onAdd: (name: string, monthlyCny: number, dept: string) => Promise<void>
 }) {
   const [open, setOpen] = useState(false)
@@ -774,6 +802,10 @@ function AddPerson({
       setError('先填名字')
       return
     }
+    if (existing.has(n)) {
+      setError(`${n} 已经在表上了 — 直接改他那一行`)
+      return
+    }
     if (!Number.isFinite(v) || v <= 0) {
       setError('月薪要填一个数')
       return
@@ -793,13 +825,32 @@ function AddPerson({
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] bg-[#faf8f2] px-5 py-2.5">
-      <input
-        autoFocus
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="姓名"
-        className="w-[120px] border-b border-[var(--color-border-strong)] bg-transparent py-1 text-[13px] focus:border-[var(--color-ink)] focus:outline-none"
-      />
+      <div className="w-[150px]">
+        <SearchSelect
+          options={candidates.map((c) => ({
+            id: c.name,
+            label: c.dept && c.dept !== NO_DEPARTMENT ? `${c.name} · ${c.dept}` : c.name,
+          }))}
+          value={candidates.some((c) => c.name === name) ? name : ''}
+          onChange={(id) => {
+            setName(id)
+            setError(null)
+            const hit = candidates.find((c) => c.name === id)
+            if (hit && hit.dept !== NO_DEPARTMENT) setDept(hit.dept)
+          }}
+          placeholder="谁"
+          searchPlaceholder="搜名字，或直接打一个新的…"
+          createLabel="新名字"
+          onCreate={(v) => {
+            setName(v)
+            setError(null)
+          }}
+          triggerLabel={
+            name && !candidates.some((c) => c.name === name) ? name : undefined
+          }
+          triggerClass="w-full"
+        />
+      </div>
       <input
         value={pay}
         onChange={(e) => setPay(e.target.value)}
