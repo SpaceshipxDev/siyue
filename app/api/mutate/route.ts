@@ -203,8 +203,9 @@ import {
   updateHrRecord,
 } from '@/lib/hr'
 import {
-  isDepartment,
+  allDepartments,
   isPayrollMonth,
+  isValidDeptName,
   isRuleKey,
   isValidAdjust,
   isValidDeptHours,
@@ -225,6 +226,9 @@ import {
   recordSalaryChange,
   renamePayrollPerson,
   setPayrollBase,
+  addPayrollDept,
+  getPayrollRules,
+  removePayrollDept,
   setPayrollDept,
   setPayrollDeptHours,
   setPayrollLine,
@@ -2489,11 +2493,13 @@ async function dispatch(
     case 'setPayrollDeptHours': {
       const dept = body.dept
       const hours = body.hours
-      if (!isString(dept) || (!isDepartment(dept) && dept !== NO_DEPARTMENT))
-        return err('bad setPayrollDeptHours args')
+      if (!isString(dept)) return err('bad setPayrollDeptHours args')
       if (!isValidDeptHours(hours)) return err('一天只能是 1 到 16 小时')
       const u = await requireUser()
       if (!canSeeExpenses(u)) return err('forbidden', 403)
+      const hoursRules = await getPayrollRules()
+      if (!allDepartments(hoursRules).includes(dept) && dept !== NO_DEPARTMENT)
+        return err('没有这个部门')
       await setPayrollDeptHours(dept, hours)
       revalidatePath('/finance')
       return Response.json(ok())
@@ -2523,10 +2529,13 @@ async function dispatch(
       const u = await requireUser()
       if (!canSeeExpenses(u)) return err('forbidden', 403)
       // A real move between two 月薪 files a 调薪记录 in the same write.
+      const baseRules = await getPayrollRules()
       await setPayrollBase(
         name.trim(),
         monthlyCny,
-        isDepartment(dept) ? dept : NO_DEPARTMENT,
+        isString(dept) && allDepartments(baseRules).includes(dept)
+          ? dept
+          : NO_DEPARTMENT,
         u.name,
         today(),
       )
@@ -3083,11 +3092,42 @@ async function dispatch(
       const dept = body.dept
       if (!isString(name) || !name.trim())
         return err('bad setPayrollDept args')
-      if (!isDepartment(dept) && dept !== NO_DEPARTMENT)
-        return err('没有这个部门')
       const u = await requireUser()
       if (!canSeeExpenses(u)) return err('forbidden', 403)
+      // 认的部门 = 内置那一份 + 厂里自己加的 (存在制度里)。
+      const rules = await getPayrollRules()
+      if (!allDepartments(rules).includes(dept as string) && dept !== NO_DEPARTMENT)
+        return err('没有这个部门')
       await setPayrollDept(name.trim(), dept as string)
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    // 加一个部门 / 删一个部门 —— 工资这一侧的组织架构财务自己维护。
+    case 'addPayrollDept': {
+      const dept = body.dept
+      if (!isValidDeptName(dept)) return err('部门名要 1-8 个字')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      try {
+        await addPayrollDept((dept as string).trim())
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '加不上')
+      }
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    case 'removePayrollDept': {
+      const dept = body.dept
+      if (!isString(dept) || !dept.trim()) return err('bad removePayrollDept args')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      try {
+        await removePayrollDept(dept.trim())
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '删不掉')
+      }
       revalidatePath('/finance')
       return Response.json(ok())
     }

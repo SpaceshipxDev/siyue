@@ -74,9 +74,13 @@ export const DEPARTMENTS: readonly string[] = [
  * 下拉里该给的选项 —— 废掉的「操机」不出现, 除非这个人现在就挂在它上面
  * (否则那一格会显示成空的, 人还以为部门丢了)。
  */
-export function deptPickerOptions(current?: string): readonly string[] {
-  if (current === LEGACY_OPERATOR_DEPT) return DEPARTMENTS
-  return DEPARTMENTS.filter((d) => d !== LEGACY_OPERATOR_DEPT)
+export function deptPickerOptions(
+  rules: PayrollRules,
+  current?: string,
+): string[] {
+  const all = allDepartments(rules)
+  if (current === LEGACY_OPERATOR_DEPT) return all
+  return all.filter((d) => d !== LEGACY_OPERATOR_DEPT)
 }
 
 export const NO_DEPARTMENT = '未分部门'
@@ -178,6 +182,15 @@ export type PayrollRules = {
   tier3Cny: number
   socialRatePct: number // 社保补贴 %（乘可分配额）
   fullAttendanceCny: number // 全勤, 元 — 当月无事假/病假/旷工/迟到才给
+  /**
+   * 厂里自己加的部门 —— 工资这一侧的组织架构是会长的 (操机拆成塑料/金属、
+   * 又多出一个车件部), 每次都改代码等不起。这里存的是内置那一份之外, 财务
+   * 在工资页上自己加的那些, 和内置的一样能定每天工时。
+   *
+   * 有人挂着的部门删不掉 —— 删了他就变成"未分部门", 工时跟着跳, 工资当场
+   * 就错了。
+   */
+  extraDepts: string[]
 }
 
 export const DEFAULT_PAYROLL_RULES: PayrollRules = {
@@ -203,6 +216,7 @@ export const DEFAULT_PAYROLL_RULES: PayrollRules = {
   tier3Cny: 1000,
   socialRatePct: 9.6,
   fullAttendanceCny: 500,
+  extraDepts: [],
 }
 
 // Bounds are sanity rails, not policy: they stop a slipped keystroke (a 500x
@@ -290,7 +304,30 @@ export function normalizeRules(raw: unknown): PayrollRules {
       if (isValidDeptHours(v)) out.hoursByDept[dept] = v
     }
   }
+  if (Array.isArray(o.extraDepts)) {
+    out.extraDepts = [
+      ...new Set(
+        (o.extraDepts as unknown[])
+          .filter(isValidDeptName)
+          .map((d) => (d as string).trim())
+          // 跟内置重名的丢掉 —— 同一个名字在下拉里出现两次, 选哪个都对不上。
+          .filter((d) => !DEPARTMENTS.includes(d)),
+      ),
+    ]
+  }
   return out
+}
+
+/** 部门名: 一到八个字, 不许空 —— 再长下拉就排不下了。 */
+export function isValidDeptName(x: unknown): x is string {
+  if (typeof x !== 'string') return false
+  const t = x.trim()
+  return t.length > 0 && t.length <= 8
+}
+
+/** 内置的 + 厂里自己加的 —— 全厂认哪些部门, 只此一处。 */
+export function allDepartments(rules: PayrollRules): string[] {
+  return [...DEPARTMENTS, ...rules.extraDepts]
 }
 
 export function hoursForDept(rules: PayrollRules, dept?: string): number {
@@ -959,6 +996,7 @@ export function buildPayslips(
 // order, which is STAGES' order.
 function deptOrder(dept: string): number {
   const i = DEPARTMENTS.indexOf(dept)
+  // 自己加的部门排在内置的后面, 按名字稳定排 (deptsInUse 再按这个序)。
   return i === -1 ? DEPARTMENTS.length : i
 }
 

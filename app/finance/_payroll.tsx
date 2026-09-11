@@ -52,9 +52,6 @@ export type PayrollBoardProps = {
 const COLS =
   'grid-cols-[minmax(0,1fr)_92px] md:grid-cols-[minmax(0,1fr)_76px_84px_50px_50px_50px_44px_58px_74px_96px]'
 
-// 「每天工时」那一行展开时列的部门 —— 废掉的「操机」不在里面; 真还有人挂在
-// 它上面时, 它会从 deptsInUse 那条路进来, 照样能改工时。
-const DEPT_OPTIONS = [...deptPickerOptions(), NO_DEPARTMENT]
 
 export function PayrollBoard({
   month,
@@ -74,7 +71,15 @@ export function PayrollBoard({
   // org chart is one click away, and shows itself while the sheet is empty.
   const [allDepts, setAllDepts] = useState(slips.length === 0)
   const inUse = deptsInUse(slips)
-  const hoursDepts = allDepts || inUse.length === 0 ? DEPT_OPTIONS : inUse
+  // 「每天工时」那一行展开时列的部门 —— 废掉的「操机」不在里面; 真还有人挂
+  // 在它上面时, 它会从 deptsInUse 那条路进来, 照样能改工时。
+  const allOptions = [...deptPickerOptions(rules), NO_DEPARTMENT]
+  const hoursDepts = allDepts || inUse.length === 0 ? allOptions : inUse
+
+  // 按部门筛 —— 一张表几十号人, 发工资是一个部门一个部门过的。
+  const [deptFilter, setDeptFilter] = useState<string | null>(null)
+  const shown =
+    deptFilter === null ? slips : slips.filter((s) => s.dept === deptFilter)
 
   const locked = paid !== null
   const total = paid ? paid.total : payrollTotal(slips)
@@ -323,12 +328,98 @@ export function PayrollBoard({
           >
             {allDepts ? '只看在册部门' : '全部部门'}
           </button>
+          {/* 厂里自己加的部门 —— 组织架构是会长的, 不必等改代码。 */}
+          {!locked && (
+            <>
+              <Sep />
+              <AddDept
+                onAdd={(d) => save({ kind: 'addPayrollDept', dept: d })}
+              />
+              {rules.extraDepts.length > 0 && (
+                <>
+                  <Sep />
+                  <span className="text-[11.5px] text-[var(--color-ink-4)]">
+                    自己加的
+                  </span>
+                  {rules.extraDepts.map((d) => (
+                    <span
+                      key={d}
+                      className="ml-1.5 inline-flex items-baseline gap-1 text-[11.5px] text-[var(--color-ink-3)]"
+                    >
+                      {d}
+                      <button
+                        type="button"
+                        title={`删掉「${d}」— 还有人在这个部门就删不掉`}
+                        onClick={() => {
+                          if (!confirm(`删掉部门「${d}」？`)) return
+                          void save({
+                            kind: 'removePayrollDept',
+                            dept: d,
+                          }).catch((e) =>
+                            showToast(
+                              e instanceof Error ? e.message : '删不掉',
+                              'warning',
+                            ),
+                          )
+                        }}
+                        className="text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                </>
+              )}
+            </>
+          )}
           <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
             平时按本部门这个数, 周六按上面那个数 —— 两个加起来就是当月应出勤
             工时
           </span>
         </div>
       </div>
+
+      {/* 按部门筛 —— 发工资是一个部门一个部门过的, 在册的部门才出现。 */}
+      {inUse.length > 1 && (
+        <div className="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1.5">
+          <button
+            type="button"
+            onClick={() => setDeptFilter(null)}
+            className={`text-[13px] transition-colors ${
+              deptFilter === null
+                ? 'font-semibold text-[var(--color-ink)]'
+                : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+            }`}
+          >
+            全部 {slips.length}
+          </button>
+          {inUse.map((d) => {
+            const n = slips.filter((s) => s.dept === d).length
+            return (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDeptFilter(deptFilter === d ? null : d)}
+                className={`text-[13px] transition-colors ${
+                  deptFilter === d
+                    ? 'font-semibold text-[var(--color-ink)]'
+                    : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+                }`}
+              >
+                {d}{' '}
+                <span className="mono text-[11.5px] tabular-nums text-[var(--color-ink-4)]">
+                  {n}
+                </span>
+              </button>
+            )
+          })}
+          {deptFilter !== null && (
+            <span className="mono ml-auto text-[12px] tabular-nums text-[var(--color-ink-3)]">
+              {deptFilter} 应发 {formatCny(payrollTotal(shown))}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* 工资表 */}
       <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
@@ -347,13 +438,13 @@ export function PayrollBoard({
           <span className="label text-right">实发</span>
         </div>
 
-        {slips.length === 0 && offRoster.length === 0 ? (
+        {shown.length === 0 && offRoster.length === 0 ? (
           <p className="px-5 py-10 text-center text-[13px] text-[var(--color-ink-3)]">
             名册还是空的 — 人事里记过一笔的人会出现在这里
           </p>
         ) : null}
 
-        {slips.map((s) => (
+        {shown.map((s) => (
           <div
             key={s.name}
             className="border-b border-[var(--color-border)] last:border-b-0"
@@ -437,6 +528,7 @@ export function PayrollBoard({
 
               <Dept
                 value={s.dept}
+                rules={rules}
                 locked={locked}
                 onSave={(d) =>
                   save({ kind: 'setPayrollDept', name: s.name, dept: d })
@@ -550,6 +642,7 @@ export function PayrollBoard({
             来。填个名字和月薪, 这个人就上表了。 */}
         {!locked && (
           <AddPerson
+            rules={rules}
             onAdd={(name, monthlyCny, dept) =>
               save({ kind: 'setPayrollBase', name, monthlyCny, dept })
             }
@@ -569,11 +662,72 @@ export function PayrollBoard({
   )
 }
 
+// 加一个部门 —— 收起来是一行小字, 点开是一个输入框。部门加完就出现在下拉
+// 和「每天工时」里, 跟内置的那些没有区别。
+function AddDept({ onAdd }: { onAdd: (dept: string) => Promise<void> }) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [pending, setPending] = useState(false)
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-ink-2)]"
+      >
+        ＋ 部门
+      </button>
+    )
+  }
+
+  const submit = () => {
+    const n = name.trim()
+    if (!n) {
+      setOpen(false)
+      return
+    }
+    setPending(true)
+    onAdd(n)
+      .then(() => {
+        setName('')
+        setOpen(false)
+      })
+      .catch((e) =>
+        showToast(e instanceof Error ? e.message : '加不上', 'warning'),
+      )
+      .finally(() => setPending(false))
+  }
+
+  return (
+    <span className="inline-flex items-baseline gap-1">
+      <input
+        autoFocus
+        value={name}
+        disabled={pending}
+        onChange={(e) => setName(e.target.value)}
+        onBlur={submit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') submit()
+          if (e.key === 'Escape') {
+            setName('')
+            setOpen(false)
+          }
+        }}
+        placeholder="部门名"
+        className="w-[72px] border-b border-[var(--color-border-strong)] bg-transparent py-0.5 text-[12.5px] text-[var(--color-ink)] focus:border-[var(--color-ink)] focus:outline-none"
+      />
+    </span>
+  )
+}
+
 // 直接往工资表上加一个人。收起来只有一行字, 展开是三个格 —— 名字、月薪、
 // 部门。名字是这张表的钥匙, 所以填错了还能改 (见每一行名字上的「改名」)。
 function AddPerson({
+  rules,
   onAdd,
 }: {
+  rules: PayrollRules
   onAdd: (name: string, monthlyCny: number, dept: string) => Promise<void>
 }) {
   const [open, setOpen] = useState(false)
@@ -645,7 +799,7 @@ function AddPerson({
         onChange={(e) => setDept(e.target.value)}
         className="border-b border-[var(--color-border-strong)] bg-transparent py-1 text-[13px] focus:border-[var(--color-ink)] focus:outline-none"
       >
-        {[...deptPickerOptions(), NO_DEPARTMENT].map((d) => (
+        {[...deptPickerOptions(rules), NO_DEPARTMENT].map((d) => (
           <option key={d} value={d}>
             {d}
           </option>
@@ -678,10 +832,12 @@ function AddPerson({
 // person actually asks: 为什么是这个数.
 function Dept({
   value,
+  rules,
   onSave,
   locked,
 }: {
   value: string
+  rules: PayrollRules
   onSave: (dept: string) => Promise<void>
   locked: boolean
 }) {
@@ -709,7 +865,7 @@ function Dept({
         pending ? 'opacity-60' : ''
       } ${value === NO_DEPARTMENT ? 'text-[var(--color-ink-4)]' : ''}`}
     >
-      {[...deptPickerOptions(value), NO_DEPARTMENT].map((d) => (
+      {[...deptPickerOptions(rules, value), NO_DEPARTMENT].map((d) => (
         <option key={d} value={d}>
           {d}
         </option>

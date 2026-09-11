@@ -4,6 +4,7 @@ import { hrDeptOf } from './auth'
 import { getActiveUsers } from './db'
 import { getHrMonth, getHrRoster } from './hr'
 import {
+  allDepartments,
   buildPayslips,
   normalizeRules,
   summarizeAttendance,
@@ -110,6 +111,45 @@ export async function setPayrollDeptHours(
   await withPayrollLock(async () => {
     const rules = normalizeRules(await readJson(RULES_KEY))
     rules.hoursByDept = { ...rules.hoursByDept, [dept]: hours }
+    await writeJson(RULES_KEY, rules)
+  })
+}
+
+/**
+ * 加一个部门 / 删一个部门 —— 工资这一侧的组织架构由财务自己维护, 不用等改
+ * 代码。
+ *
+ * 删的时候挡一道: 还有人挂在上面就不许删。删了那些人会掉成"未分部门", 每天
+ * 工时跟着回落, 当月工资当场就算错了 —— 这种错误没人会当场发现。
+ */
+export async function addPayrollDept(dept: string): Promise<void> {
+  await withPayrollLock(async () => {
+    const rules = normalizeRules(await readJson(RULES_KEY))
+    if (allDepartments(rules).includes(dept)) {
+      throw new Error(`已经有「${dept}」这个部门了`)
+    }
+    rules.extraDepts = [...rules.extraDepts, dept]
+    await writeJson(RULES_KEY, rules)
+  })
+}
+
+export async function removePayrollDept(dept: string): Promise<void> {
+  const base = await getPayrollBase()
+  const holders = Object.entries(base)
+    .filter(([, p]) => p.dept === dept)
+    .map(([name]) => name)
+  if (holders.length > 0) {
+    throw new Error(
+      `${holders.slice(0, 3).join('、')}${holders.length > 3 ? ' 等' : ''}还在「${dept}」，先把人调走`,
+    )
+  }
+  await withPayrollLock(async () => {
+    const rules = normalizeRules(await readJson(RULES_KEY))
+    if (!rules.extraDepts.includes(dept)) {
+      throw new Error('内置的部门删不掉')
+    }
+    rules.extraDepts = rules.extraDepts.filter((d) => d !== dept)
+    delete rules.hoursByDept[dept]
     await writeJson(RULES_KEY, rules)
   })
 }
