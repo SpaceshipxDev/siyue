@@ -392,6 +392,35 @@ export function PayrollBoard({
                     改名
                   </span>
                 )}
+                {!locked && (
+                  // 人走了就从工资表上拿下来。只动名册和往后的月份: 已经发放
+                  // 过的月份是凭据, 一个字不动; 系统同时在调薪记录里留一条
+                  // "停发", 所以这个人什么时候、由谁拿下来的, 事后查得到。
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    title="移出工资表 — 已发放月份的工资条不动"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (
+                        !confirm(
+                          `把「${s.name}」移出工资表？\n已发放月份的工资条不动，调薪记录里会留一条停发。`,
+                        )
+                      )
+                        return
+                      void save({
+                        kind: 'setPayrollBase',
+                        name: s.name,
+                        monthlyCny: 0,
+                        dept: s.dept,
+                      })
+                    }}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    className="shrink-0 text-[11px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+                  >
+                    移出
+                  </span>
+                )}
                 {s.attendance.disciplineTimes > 0 && (
                   <span className="shrink-0 text-[11.5px] text-[var(--color-overdue)]">
                     违纪{s.attendance.disciplineTimes}
