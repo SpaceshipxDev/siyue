@@ -31,43 +31,80 @@ export function HrImport({ month }: { month: string }) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [rows, setRows] = useState<Row[] | null>(null)
   const [fileName, setFileName] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   const pick = () => fileRef.current?.click()
 
-  const onFile = async (file: File) => {
+  // 一次可以选好几张 —— 一个车间一张表、一个班组一张表是常事, 没道理让人一
+  // 张一张传、一张一张确认。整批读完并成一份预览, 划掉不对的, 一次记入。
+  //
+  // 一张一张读 (不并发): 读表这一步是在服务端算的, 五张表一起冲只会互相拖
+  // 慢, 而且进度条能一张一张往前走, 人知道它在动。
+  const onFiles = async (files: File[]) => {
     setError(null)
     setBusy(true)
-    setFileName(file.name)
+    setProgress({ done: 0, total: files.length })
+    setFileName(
+      files.length === 1 ? files[0].name : `${files.length} 张表`,
+    )
+    const all: Row[] = []
+    const failed: string[] = []
     try {
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('month', month)
-      const res = await fetch(withBase('/api/hr-import'), {
-        method: 'POST',
-        body: fd,
+      for (const file of files) {
+        try {
+          const fd = new FormData()
+          fd.append('file', file)
+          fd.append('month', month)
+          const res = await fetch(withBase('/api/hr-import'), {
+            method: 'POST',
+            body: fd,
+          })
+          const data = (await res.json()) as {
+            ok?: boolean
+            error?: string
+            records?: Row[]
+          }
+          if (!data.ok || !data.records || data.records.length === 0) {
+            failed.push(file.name)
+          } else {
+            all.push(...data.records)
+          }
+        } catch {
+          failed.push(file.name)
+        }
+        setProgress((p) => ({ ...p, done: p.done + 1 }))
+      }
+
+      // 同一个人、同一天、同一类型、同样的时长 —— 当成同一条 (同一张表被传
+      // 了两遍是最常见的手滑)。时长不一样的都留着: 那是真的加了两段班。
+      const seen = new Set<string>()
+      const merged = all.filter((r) => {
+        const k = `${r.name}|${r.date}|${r.type}|${r.hours ?? ''}`
+        if (seen.has(k)) return false
+        seen.add(k)
+        return true
       })
-      const data = (await res.json()) as {
-        ok?: boolean
-        error?: string
-        records?: Row[]
-        dropped?: number
-      }
-      if (!data.ok || !data.records) {
-        setError(data.error ?? '读不出来')
+
+      if (merged.length === 0) {
+        setError(
+          failed.length > 0
+            ? `${failed.join('、')} 没读出加班或请假的记录`
+            : '这几张表里没读到加班或请假的记录',
+        )
         return
       }
-      if (data.records.length === 0) {
-        setError('这张表里没读到加班或请假的记录')
-        return
-      }
-      setRows(data.records)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '读不出来')
+      merged.sort(
+        (a, b) =>
+          a.date.localeCompare(b.date) || a.name.localeCompare(b.name, 'zh'),
+      )
+      setRows(merged)
+      if (failed.length > 0) setError(`${failed.join('、')} 没读出来`)
     } finally {
       setBusy(false)
+      setProgress({ done: 0, total: 0 })
       if (fileRef.current) fileRef.current.value = ''
     }
   }
@@ -101,11 +138,12 @@ export function HrImport({ month }: { month: string }) {
       <input
         ref={fileRef}
         type="file"
+        multiple
         accept=".xlsx,.xls,.csv"
         className="hidden"
         onChange={(e) => {
-          const f = e.target.files?.[0]
-          if (f) void onFile(f)
+          const fs = Array.from(e.target.files ?? [])
+          if (fs.length > 0) void onFiles(fs)
         }}
       />
       <button
@@ -114,7 +152,11 @@ export function HrImport({ month }: { month: string }) {
         disabled={busy}
         className="rounded-[2px] border border-[var(--color-border)] px-3 py-1 text-[12.5px] font-medium text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)] disabled:opacity-50"
       >
-        {busy && !rows ? '读表中…' : '导入考勤表'}
+        {busy && !rows
+          ? progress.total > 1
+            ? `读表中… ${progress.done}/${progress.total}`
+            : '读表中…'
+          : '导入考勤表'}
       </button>
 
       {error && !rows ? (
@@ -196,7 +238,7 @@ export function HrImport({ month }: { month: string }) {
                 </span>
               ) : (
                 <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-                  不对的划掉再记 · 加班会自动分平时和周末
+                  不对的划掉再记 · 加班会自动分平时和周末 · 重复的已并掉
                 </span>
               )}
             </div>

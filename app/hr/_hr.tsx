@@ -298,7 +298,8 @@ export function HrBoard({
           <div className="mt-2.5 flex flex-wrap items-center gap-2.5 border-t border-[var(--color-border)] pt-2.5">
             <HrImport month={isYear ? today.slice(0, 7) : period} />
             <span className="text-[11.5px] text-[var(--color-ink-4)]">
-              考勤表读出来先给你过一眼, 划掉不对的再记入 ·{' '}
+              一次可以选好几张, 读出来并成一份先给你过一眼, 划掉不对的再记
+              入 ·{' '}
               {isYear ? monthLabel(today.slice(0, 7)) : monthLabel(period)}
             </span>
           </div>
