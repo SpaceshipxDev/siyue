@@ -558,7 +558,8 @@ export type Payslip = {
   perfPayCny: number // 绩效工资 = 可分配额 × perfRatePct
   safetyFeeCny: number // 安全补贴 = 可分配额 × safetyRatePct
   secretFeeCny: number // 保密补贴 = 可分配额 × secretRatePct
-  housingAllowanceCny: number // 房补 — 已按实际出勤天数折算过
+  /** 房补 —— 综合工资之外额外发的一笔, 已按实际出勤天数折算过。 */
+  housingAllowanceCny: number
   housingBaseCny: number // 折算前的房补 (满勤该有的数, 就是手填的那个)
   fullAttendanceCny: number // 全勤 — 无事假/病假/旷工/迟到才有
   /** 社保补贴 = 可分配额 × socialRatePct, 手填过就是手填的那个数。 */
@@ -821,7 +822,6 @@ export function computePayslip(
       mealCny -
       fullAttendanceCny -
       transportAllowanceCny -
-      housingAllowanceCny -
       safetyFeeCny -
       secretFeeCny -
       perfPayCny -
@@ -839,9 +839,9 @@ export function computePayslip(
 
   // 应发工资 = 前半段 + 后半段所有子项目, **不含房补**。
   //
-  // 房补是从综合工资里拆出来的一块 (福利那一格照样减掉它), 但它不进应发 ——
-  // 应发是计税、算社保的那个口径, 房补不在里面。到实发那一步再加回去, 所以
-  // 钱一分没少: 应发 + 房补 − 扣款 = 实发。
+  // 房补压根不在综合工资里 —— 它既不参与拆分 (福利那一格不减它), 也不进应
+  // 发 (应发是计税、算社保的那个口径)。它是综合工资之外额外发的一笔, 只在最
+  // 后一步落到手上: 应发 + 房补 − 扣款 = 实发。
   const grossCny =
     attendancePayCny +
     mealCny +
