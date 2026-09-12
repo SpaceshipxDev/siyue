@@ -9306,6 +9306,71 @@ export async function getProcurements(): Promise<Procurement[]> {
   return (data ?? []).map(fromProcurement)
 }
 
+/**
+ * 同一工单、同一规格材料, 只该请购一次。
+ *
+ * 这张表上最常见的重复是两头各报一次同一块料: 工程在需求里点了一次, 车间又
+ * 自己请购了一次 —— 于是一块料买两回, 钱花了, 料堆在仓库, 谁也没发现。
+ *
+ * 认"同一样东西"看两处: 挂着物料库的比物料 id, 手打的比那一行采购项文本 (它
+ * 本身就是「名称 + 长×宽×高」, 见 joinSpec)。空格和大小写不算数。
+ *
+ * 驳回掉的那条不算 —— 它已经废了, 本来就该重新请。
+ *
+ * 找到就把已有那条的请购人和日期带回去, 让人自己判断是重复还是真要补料; 拦
+ * 不拦得住由调用方决定 (补料、做坏了重买都是真事, 硬拦只会把人逼到系统外面
+ * 去)。查不动的老库直接返回 null: 查不了就不拦。
+ */
+export async function findDuplicateProcurement(
+  jobId: string,
+  item: string,
+  productId?: string,
+): Promise<{
+  id: string
+  item: string
+  requester: string
+  reqDate: string
+  status: string
+} | null> {
+  const key = (s: string) => s.replace(/\s+/g, '').toLowerCase()
+  const want = key(item)
+  type Row = {
+    id: string
+    item: string | null
+    product_id: string | null
+    status: string | null
+    requester: string | null
+    buyer: string | null
+    req_date: string | null
+    order_date: string | null
+  }
+  const { data, error } = (await supabase
+    .from('procurements')
+    .select(
+      'id, item, product_id, status, requester, buyer, req_date, order_date',
+    )
+    .eq('job_id', jobId)) as unknown as {
+    data: Row[] | null
+    error: { code?: string } | null
+  }
+  if (error || !data) return null
+  for (const r of data) {
+    if (r.status === 'rejected') continue
+    const same = productId
+      ? r.product_id === productId
+      : key(r.item ?? '') === want
+    if (!same) continue
+    return {
+      id: r.id,
+      item: r.item ?? item,
+      requester: r.requester ?? r.buyer ?? '',
+      reqDate: r.req_date ?? r.order_date ?? '',
+      status: r.status ?? '',
+    }
+  }
+  return null
+}
+
 export async function createProcurement(
   input: NewProcurementInput,
   createdBy: string,

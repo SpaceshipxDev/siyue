@@ -775,24 +775,30 @@ function NeedRow({
   function confirmNeed() {
     setError(null)
     start(async () => {
+      const input = {
+        // What gets bought is the 材料; the 零件名 rides in 备注 so the
+        // approver reads what it's for — and so the 需求 list can tell
+        // this one has been asked for.
+        item: (n.material?.trim() || n.part).trim(),
+        qty: n.qty,
+        orderDate: today,
+        reqDate: today,
+        requester: currentUser,
+        notes: n.part,
+        jobId: n.jobId,
+        jobNo: n.jobNo,
+        status: 'requested',
+      }
       try {
-        await mutate({
+        const r = await mutate<{ id?: string; duplicate?: Dup }>({
           kind: 'createProcurement',
-          input: {
-            // What gets bought is the 材料; the 零件名 rides in 备注 so the
-            // approver reads what it's for — and so the 需求 list can tell
-            // this one has been asked for.
-            item: (n.material?.trim() || n.part).trim(),
-            qty: n.qty,
-            orderDate: today,
-            reqDate: today,
-            requester: currentUser,
-            notes: n.part,
-            jobId: n.jobId,
-            jobNo: n.jobNo,
-            status: 'requested',
-          },
+          input,
         })
+        // 同一工单同一规格材料已经请购过 —— 问一句再落。
+        if (r.data?.duplicate) {
+          if (!dupAsk(r.data.duplicate, n.jobNo)) return
+          await mutate({ kind: 'createProcurement', input, force: true })
+        }
         onFiled()
       } catch (e) {
         setError(e instanceof Error ? e.message : '请购失败')
@@ -1773,6 +1779,33 @@ function splitSpec(item: string): Spec {
 // All three or nothing — 「200××20mm」 would read as a typo, and a partial
 // size is one the buyer can't order from anyway. The 品名 shown on the card
 // updates live, so a half-filled 规格 is visibly not in the name yet.
+// 撞上重复时问的那一句 —— 把已有那条是谁、什么时候、走到哪一步说清楚, 人才
+// 判断得了这是手滑重报还是真要补料。
+type Dup = {
+  item: string
+  requester: string
+  reqDate: string
+  status: string
+}
+
+const DUP_STATUS_CN: Record<string, string> = {
+  requested: '待审批',
+  approved: '待采购',
+  ordered: '待到货',
+  arrived: '待领料',
+  done: '已领料',
+}
+
+function dupAsk(dup: Dup, jobNo: string): boolean {
+  const who = dup.requester ? `${dup.requester} ` : ''
+  const when = dup.reqDate ? `${dup.reqDate} ` : ''
+  const st = DUP_STATUS_CN[dup.status] ?? dup.status
+  return confirm(
+    `${jobNo} 这块料已经请购过了：\n\n${dup.item}\n${who}${when}· ${st}\n\n` +
+      `补料、做坏了重买可以继续；只是重复报的就点取消。\n仍要请购？`,
+  )
+}
+
 function joinSpec(name: string, s: Spec): string {
   const n = name.trim()
   const l = s.l.trim()
@@ -2006,25 +2039,39 @@ function ProcurementModal({
         try {
           while (rest.length > 0) {
             const l = rest[0]
-            const created = await mutate<{ id: string }>({
+            const input = {
+              item: joinSpec(l.name, l),
+              productId: l.productId || undefined,
+              supplier: l.supplier.trim() || undefined,
+              link: l.link.trim() || undefined,
+              qty: parseNum(l.qty),
+              unitPriceCny: parseNum(l.unitPrice),
+              orderDate: today,
+              reqDate: today,
+              notes: notes.trim() || undefined,
+              status,
+              jobId: jobPick?.id || undefined,
+              jobNo: jobPick?.jobNo || undefined,
+              picker: picker.trim() || undefined,
+              requester: requester.trim() || undefined,
+            }
+            let created = await mutate<{ id?: string; duplicate?: Dup }>({
               kind: 'createProcurement',
-              input: {
-                item: joinSpec(l.name, l),
-                productId: l.productId || undefined,
-                supplier: l.supplier.trim() || undefined,
-                link: l.link.trim() || undefined,
-                qty: parseNum(l.qty),
-                unitPriceCny: parseNum(l.unitPrice),
-                orderDate: today,
-                reqDate: today,
-                notes: notes.trim() || undefined,
-                status,
-                jobId: jobPick?.id || undefined,
-                jobNo: jobPick?.jobNo || undefined,
-                picker: picker.trim() || undefined,
-                requester: requester.trim() || undefined,
-              },
+              input,
             })
+            // 同一工单同一规格材料已经请购过 —— 问一句。取消就把这一行留在
+            // 单子里 (后面几行照样提交), 人回头自己删。
+            if (created.data?.duplicate) {
+              if (!dupAsk(created.data.duplicate, jobPick?.jobNo ?? '这个工单')) {
+                rest.shift()
+                continue
+              }
+              created = await mutate<{ id?: string; duplicate?: Dup }>({
+                kind: 'createProcurement',
+                input,
+                force: true,
+              })
+            }
             // Pictures ride up after the row exists. Best-effort: the 采购 is
             // filed either way, and a photo that didn't make it can be added
             // again from the row's own panel.

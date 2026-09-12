@@ -18,6 +18,7 @@ import {
   createOutsourceBlockAt,
   createProcurement,
   createProcurementProduct,
+  findDuplicateProcurement,
   createReturn,
   createVendor,
   deleteDailyFocusItem,
@@ -2193,6 +2194,16 @@ async function dispatch(
       // Every request is born 待审批 — approvers included; there is no
       // 免审批 path, whatever the client claims.
       input.status = 'requested'
+      // 同一工单同一规格材料只请购一次 —— 撞上了先把已有那条报回去, 由人决
+      // 定是重复还是真要补料 (带 force 再来一次就照办)。
+      if (body.force !== true && input.jobId) {
+        const dup = await findDuplicateProcurement(
+          input.jobId,
+          input.item,
+          input.productId,
+        )
+        if (dup) return Response.json(ok({ duplicate: dup }))
+      }
       const id = await createProcurement(input, u.name)
       revalidatePath('/procurement')
       return Response.json(ok({ id }))
