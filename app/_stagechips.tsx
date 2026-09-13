@@ -166,23 +166,32 @@ export function StageChips({
     void apply(next, false)
   }
 
-  // 把眼前这条路线推到本单其余零件上。逐个走服务端那道 setPartRoute, 所以
-  // 外协锁、出货锁、"这道工序已经报过工"全都照旧拦得住 —— 拦下来的跳过, 不
-  // 强制。
-  const others = (siblings ?? []).filter((c) => c.id !== component.id)
-  const applyToAll = async () => {
+  // 把眼前这条路线往下刷几个零件。逐个走服务端那道 setPartRoute, 所以外协
+  // 锁、出货锁、"这道工序已经报过工"全都照旧拦得住 —— 拦下来的跳过, 不强制。
+  //
+  // 顺序是**从这个零件的下一个往后数**, 数到末尾再从头接上。工程的习惯就是
+  // "在这一行设好, 往下刷几个": 按单子的自然顺序走, 数字填几就刷几个, 不填
+  // 就是其余全部。
+  const idx = siblings?.findIndex((c) => c.id === component.id) ?? -1
+  const others =
+    siblings && idx >= 0
+      ? [...siblings.slice(idx + 1), ...siblings.slice(0, idx)]
+      : (siblings ?? []).filter((c) => c.id !== component.id)
+
+  const applyToAll = async (count: number) => {
     const stages = STAGES.filter((s) => currentRoute.has(s))
-    if (others.length === 0 || stages.length === 0) return
+    const targets = others.slice(0, Math.max(0, Math.min(count, others.length)))
+    if (targets.length === 0 || stages.length === 0) return
     if (
       !confirm(
-        `把这条工序套到本单其余 ${others.length} 个零件？\n${stages.join(' → ')}`,
+        `把这条工序套到下面 ${targets.length} 个零件？\n${stages.join(' → ')}`,
       )
     )
       return
     setBulkPending(true)
     let done = 0
     let skipped = 0
-    for (const o of others) {
+    for (const o of targets) {
       try {
         const r = await mutate<SetPartRouteResult>({
           kind: 'setPartRoute',
@@ -392,7 +401,7 @@ function RoutePicker({
   /** 本单其余零件的个数 —— 0 就不出现那一行。 */
   othersCount: number
   bulkPending: boolean
-  onApplyAll?: () => void
+  onApplyAll?: (count: number) => void
 }) {
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -512,16 +521,12 @@ function RoutePicker({
       <div className="shrink-0 border-t border-[var(--color-border)] px-1.5 py-1.5">
         {/* 一张单十几个零件多半走同一条路线 —— 设好一个, 一下推到全单。 */}
         {onApplyAll ? (
-          <button
-            type="button"
-            disabled={pending || bulkPending}
-            onClick={onApplyAll}
-            className="mb-0.5 w-full rounded-[2px] py-1.5 text-[12px] tracking-wider text-[var(--color-ink-2)] transition-colors hover:bg-[var(--color-active-bg)] hover:text-[var(--color-ink)] disabled:opacity-40"
-          >
-            {bulkPending
-              ? '套用中…'
-              : `套用到本单其余 ${othersCount} 个零件`}
-          </button>
+          <ApplyAllRow
+            max={othersCount}
+            pending={pending || bulkPending}
+            busy={bulkPending}
+            onApply={onApplyAll}
+          />
         ) : null}
         <button
           type="button"
@@ -533,6 +538,50 @@ function RoutePicker({
       </div>
     </div>,
     document.body,
+  )
+}
+
+// 「套用到下面 N 个零件」—— N 是可以改的。
+//
+// 一张单里常常是前几个零件一条路线、后几个另一条, 所以"其余全部"不总是对
+// 的。数字点着就能改 (默认是其余全部), 改完按下去就从这个零件的下一个往后
+// 刷 N 个 —— 刷到末尾会从头接上, 单子上没有"刷不到"的零件。
+function ApplyAllRow({
+  max,
+  pending,
+  busy,
+  onApply,
+}: {
+  max: number
+  pending: boolean
+  busy: boolean
+  onApply: (count: number) => void
+}) {
+  const [raw, setRaw] = useState(String(max))
+  const n = Math.max(1, Math.min(Number(raw) || 0, max))
+
+  return (
+    <div className="mb-0.5 flex items-center gap-1 rounded-[2px] px-2 py-1 text-[12px] tracking-wider text-[var(--color-ink-2)]">
+      <span className="shrink-0">套用到下面</span>
+      <input
+        value={raw}
+        disabled={pending}
+        inputMode="numeric"
+        onChange={(e) => setRaw(e.target.value.replace(/[^0-9]/g, ''))}
+        onFocus={(e) => e.currentTarget.select()}
+        title={`最多 ${max} 个`}
+        className="mono w-[34px] shrink-0 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-1 py-0.5 text-center text-[12px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]"
+      />
+      <span className="shrink-0">个零件</span>
+      <button
+        type="button"
+        disabled={pending || n <= 0}
+        onClick={() => onApply(n)}
+        className="ml-auto shrink-0 rounded-[2px] bg-[var(--color-ink)] px-2.5 py-1 text-[11.5px] tracking-wider text-[var(--color-surface)] transition-opacity hover:opacity-85 disabled:opacity-40"
+      >
+        {busy ? '套用中…' : '套用'}
+      </button>
+    </div>
   )
 }
 
