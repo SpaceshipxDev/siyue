@@ -165,11 +165,16 @@ export default async function ShippingDocPage(
           <Field
             label="合同编号"
             value={
-              <JobShippingText
-                jobId={job.id}
-                field="contractNo"
-                value={job.contractNo}
-              />
+              // 跟工单是同一个合同号 —— 在这张单子上填, 工单的「合同」那一
+              // 栏和客户对账单上一起有; 反过来也一样, 那边填过这里就带出来。
+              // 一份合同号只存一处, 不会出现两张纸对不上。
+              <span title="点一下填 · 跟工单和对账单上的合同号是同一个">
+                <JobShippingText
+                  jobId={job.id}
+                  field="contractNo"
+                  value={job.contractNo}
+                />
+              </span>
             }
           />
           <Field
@@ -308,7 +313,9 @@ function Field({
       className={`flex items-baseline gap-3 ${colSpan === 2 ? 'col-span-2' : ''}`}
     >
       <span className="shrink-0 min-w-[72px] text-[var(--color-ink)]">{label}</span>
-      <span className="flex-1 border-b border-[var(--color-border)] pb-0.5 min-h-[18px]">
+      {/* 填空线深一档 —— 这张纸要打出来交到客户手上, 浅灰的线在纸上几乎
+          没有。 */}
+      <span className="flex-1 border-b border-[var(--color-border-strong)] pb-0.5 min-h-[18px]">
         {value || <span>&nbsp;</span>}
       </span>
     </div>

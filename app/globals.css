@@ -502,8 +502,11 @@ input[type="number"] {
  * 居中: 短字段 (序号/图片/料号/材质/数量) 横竖都居中; 产品名称和备注是整句
  * 话, 居中读起来要一行一行找头, 所以留左对齐。 */
 .doc table.doc-grid { border: 1px solid #14130f; table-layout: fixed; }
+/* 内线和外框一样深 —— 这张纸是交到客户手上、当场拿笔核对签收的。浅灰的内线
+ * 在屏幕上还看得见, 打印出来几乎没有, 一行里哪个数属于哪一栏又得靠眼睛往上
+ * 对。满格深实线, 一栏是一栏。 */
 .doc table.doc-grid th, .doc table.doc-grid td {
-  border: 1px solid #c4c1b8;
+  border: 1px solid #14130f;
   text-align: center;
   vertical-align: middle;
   overflow-wrap: anywhere;
