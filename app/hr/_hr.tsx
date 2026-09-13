@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useId, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { mutate } from '@/lib/mutate'
@@ -8,6 +8,7 @@ import { SearchSelect } from '@/app/_search_select'
 import { EditableText } from '@/app/_editable'
 import { showToast } from '@/app/_toast'
 import { HR_TYPES, hrHasHours } from '@/lib/data'
+import { DEPARTMENTS } from '@/lib/payroll'
 import { HrImport } from './_import'
 import type { HrRecord, HrType } from '@/lib/data'
 
@@ -164,6 +165,12 @@ export function HrBoard({
         setError(e instanceof Error ? e.message : '记不上')
       }
     })
+  }
+
+  // 改一个人的部门 —— 当期他名下的记录一起改。
+  async function patchDept(person: string, dept: string) {
+    await mutate({ kind: 'setHrPersonDept', name: person, period, dept })
+    router.refresh()
   }
 
   // 改一条 — 类型 / 时长 / 说明 原地改, 不用删了重记 (重记会把 记录人 换成
@@ -391,12 +398,20 @@ export function HrBoard({
                   openName === r.name ? 'bg-[#faf8f2]' : 'hover:bg-[#faf8f2]'
                 }`}
               >
-                <span className="truncate text-[14.5px] font-medium tracking-tight text-[var(--color-ink)]">
+                <span className="flex min-w-0 items-baseline gap-2 truncate text-[14.5px] font-medium tracking-tight text-[var(--color-ink)]">
                   {r.name}
-                  {scope === null && r.dept && (
-                    <span className="ml-2 text-[11.5px] font-normal text-[var(--color-ink-3)]">
-                      {r.dept}
-                    </span>
+                  {/* 部门 —— 记的时候按那个人的账号盖上去的, 盖错了 (换了工
+                      段、共用账号、临时工跟着记录人走) 就在这儿改。一次改这
+                      个人当期的全部记录, 不用一条条点。 */}
+                  {scope === null && (
+                    <DeptCell
+                      value={r.dept}
+                      onSave={(d) =>
+                        patchDept(r.name, d).then(() => {
+                          showToast(`${r.name} 已归到${d}`, 'success')
+                        })
+                      }
+                    />
                   )}
                 </span>
                 {r.cells.map((c, i) => (
@@ -523,6 +538,85 @@ export function HrBoard({
         )}
       </div>
     </div>
+  )
+}
+
+// 部门那一格 —— 点一下就能打字, 下面给内置部门的提示 (原生 datalist), 想选
+// 的两个字点中, 没有的接着打完。空着不改。
+function DeptCell({
+  value,
+  onSave,
+}: {
+  value?: string
+  onSave: (dept: string) => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value ?? '')
+  const [pending, setPending] = useState(false)
+  const listId = useId()
+
+  if (editing) {
+    return (
+      <span onClick={(e) => e.stopPropagation()}>
+        <input
+          autoFocus
+          list={listId}
+          value={draft}
+          disabled={pending}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            e.stopPropagation()
+            if (e.key === 'Escape') {
+              setDraft(value ?? '')
+              setEditing(false)
+            }
+            if (e.key === 'Enter') e.currentTarget.blur()
+          }}
+          onBlur={async () => {
+            const d = draft.trim()
+            setEditing(false)
+            if (!d || d === value) {
+              setDraft(value ?? '')
+              return
+            }
+            setPending(true)
+            try {
+              await onSave(d)
+            } catch (err) {
+              setDraft(value ?? '')
+              showToast(err instanceof Error ? err.message : '改不上', 'warning')
+            } finally {
+              setPending(false)
+            }
+          }}
+          className="w-[80px] rounded-[2px] border-0 bg-[var(--color-active-bg)] px-1 py-0.5 text-[11.5px] font-normal text-[var(--color-ink)] shadow-[inset_0_-1px_0_var(--color-ink)] outline-none"
+        />
+        <datalist id={listId}>
+          {DEPARTMENTS.map((d) => (
+            <option key={d} value={d} />
+          ))}
+        </datalist>
+      </span>
+    )
+  }
+
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      title="点一下改部门 — 这个人当期的记录一起改"
+      onClick={(e) => {
+        e.stopPropagation()
+        setDraft(value ?? '')
+        setEditing(true)
+      }}
+      onKeyDown={(e) => e.stopPropagation()}
+      className={`shrink-0 rounded-[2px] px-1 -mx-1 text-[11.5px] font-normal transition-colors hover:bg-[var(--color-active-bg)] ${
+        value ? 'text-[var(--color-ink-3)]' : 'text-[var(--color-ink-4)]'
+      } ${pending ? 'opacity-60' : ''}`}
+    >
+      {value || '未分部门'}
+    </span>
   )
 }
 

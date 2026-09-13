@@ -198,6 +198,7 @@ import {
 import {
   addHrRecord,
   addHrRecords,
+  setHrPersonDept,
   deleteHrRecord as deleteHrRecordRow,
   isValidHrInput,
   isValidHrPatch,
@@ -2307,6 +2308,25 @@ async function dispatch(
       revalidatePath('/hr')
       revalidatePath('/finance')
       return Response.json(ok({ count }))
+    }
+
+    // 改一个人的部门 —— 当期他名下的记录一起改。只有看得到全厂的人能改:
+    // 部门是这张表的分界线, 让只看本部门的人改它, 等于给了他一把"把记录挪
+    // 出自己视野"的钥匙。
+    case 'setHrPersonDept': {
+      const name = body.name
+      const period = body.period
+      const dept = body.dept
+      if (!isString(name) || !name.trim()) return err('bad setHrPersonDept args')
+      if (!isString(period) || !/^\d{4}(-\d{2})?$/.test(period))
+        return err('bad setHrPersonDept args')
+      if (!isValidDeptName(dept)) return err('部门名要 1-8 个字')
+      const u = await requireHrUser()
+      if (!canSeeAllHr(u)) return err('只有看得到全厂的人能改部门', 403)
+      const n = await setHrPersonDept(name.trim(), period, dept.trim())
+      revalidatePath('/hr')
+      revalidatePath('/finance')
+      return Response.json(ok({ count: n }))
     }
 
     // 改一条人事记录 — 类型 / 时长 / 说明。日期不能改: 它决定这条线归哪个月,

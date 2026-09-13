@@ -324,6 +324,45 @@ export function isValidHrPatch(x: unknown): x is HrRecordPatch {
 // between files. A line filed against the wrong day is rare and stays a
 // 删 + 重记.
 //
+/**
+ * 改一个人的部门 —— 当期 (一个月, 或者一整年) 他名下所有记录一起改。
+ *
+ * 记录上的部门是记的时候按那个人的账号盖上去的, 盖错的情形很实在: 人换了工
+ * 段、账号是共用的、临时工压根没账号 (于是跟着记录人的部门走)。而部门是这张
+ * 表的分界线 —— 工段长只看得到自己部门的人, 部门错了那条线就在错的人眼前。
+ *
+ * 一条一条改没意义: 同一个人这个月的几条记录只可能是同一个部门。所以按人改,
+ * 一次改完当期的全部。
+ */
+export async function setHrPersonDept(
+  name: string,
+  period: string,
+  dept: string,
+): Promise<number> {
+  const months = /^\d{4}$/.test(period)
+    ? Array.from(
+        { length: 12 },
+        (_, i) => `${period}-${String(i + 1).padStart(2, '0')}`,
+      )
+    : [period]
+  const who = name.trim()
+  let changed = 0
+  await withHrLock(async () => {
+    for (const month of months) {
+      const rows = await readShard(month)
+      let touched = false
+      for (const r of rows) {
+        if (r.name !== who || r.dept === dept) continue
+        r.dept = dept
+        touched = true
+        changed += 1
+      }
+      if (touched) await writeShard(month, rows)
+    }
+  })
+  return changed
+}
+
 // Switching to a kind that carries no 时长 drops the hours rather than leaving
 // an orphan number nothing adds up; switching INTO one without giving hours is
 // refused, because 事假 with no length is a line payroll can't use.
