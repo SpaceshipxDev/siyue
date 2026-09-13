@@ -29,9 +29,53 @@ function getClient(): SupabaseClient {
   return cached
 }
 
+// Storage reads of *.json go around the Supabase Smart CDN. Every 改一下-built
+// ledger (人事/宿舍/工资/质量/仓库/退货/沟通单…) is a JSON file in Storage that
+// is read-modified-written per entry. The CDN serves object downloads with
+// `public, max-age=3600` and its invalidation on upsert is not reliable:
+// measured 2026-09-13, prod read a 23-hour-old hr/2026-09.json (cf-cache-status
+// HIT) right after a write landed — so entries "didn't show" until the TTL ran
+// out. `cacheNonce` becomes ?cacheNonce=<ts> on the download URL, which the CDN
+// keys on (verified MISS), so JSON reads always come from origin. Images and
+// other binaries keep the CDN.
+type DownloadOpts = { transform?: unknown; cacheNonce?: string | number }
+function freshJsonStorage(client: SupabaseClient): SupabaseClient['storage'] {
+  const storage = client.storage
+  return new Proxy(storage, {
+    get(target, prop) {
+      if (prop === 'from') {
+        return (bucket: string) => {
+          const api = target.from(bucket)
+          const orig = api.download.bind(api) as (
+            path: string,
+            options?: DownloadOpts,
+            parameters?: unknown,
+          ) => ReturnType<typeof api.download>
+          ;(api as unknown as { download: unknown }).download = (
+            path: string,
+            options?: DownloadOpts,
+            parameters?: unknown,
+          ) =>
+            orig(
+              path,
+              /\.json$/i.test(path)
+                ? { ...(options ?? {}), cacheNonce: Date.now() }
+                : options,
+              parameters,
+            )
+          return api
+        }
+      }
+      const value = Reflect.get(target, prop, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+}
+
 export const supabase = new Proxy({} as SupabaseClient, {
   get(_target, prop) {
     const client = getClient()
+    if (prop === 'storage') return freshJsonStorage(client)
     const value = Reflect.get(client, prop, client)
     return typeof value === 'function' ? value.bind(client) : value
   },
