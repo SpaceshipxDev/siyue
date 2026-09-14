@@ -710,7 +710,11 @@ export function PayrollBoard({
           人事
         </Link>
         ，在那边记，这边自动算。加班费按厂里定的小时价：周六周日一个价、平时
-        一个价，哪天加的就按哪天的。点名字看工资条。
+        一个价，哪天加的就按哪天的。
+        {rules.attendanceCounts >= 1
+          ? '请假、迟到、旷工按制度扣钱。'
+          : '请假、事假、病假、旷工、迟到目前只记录，一分不扣，房补也不按出勤天数折。'}
+        点名字看工资条。
       </p>
     </div>
   )
@@ -1202,7 +1206,8 @@ function Slip({
             <Edit
               label="房补"
               detail={
-                s.workedDays < s.standardDays && s.housingBaseCny > 0
+                s.housingBaseCny > 0 &&
+                s.housingAllowanceCny !== s.housingBaseCny
                   ? `综合工资外 · 出勤 ${num(s.workedDays)}/${s.standardDays} 天 → ${formatCny(s.housingAllowanceCny)}`
                   : '综合工资之外，实发时加上'
               }

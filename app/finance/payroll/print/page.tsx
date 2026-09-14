@@ -117,7 +117,8 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
           {/* 房补不进应发, 实发时加回去 —— 单独一行摆在应发下面。 */}
           <Row
             label={
-              s.workedDays < s.standardDays && s.housingBaseCny > 0
+              s.housingBaseCny > 0 &&
+              s.housingAllowanceCny !== s.housingBaseCny
                 ? `房补 · 出勤 ${fmt(s.workedDays)}/${s.standardDays} 天`
                 : '房补'
             }

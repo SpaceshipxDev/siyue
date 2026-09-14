@@ -782,10 +782,13 @@ export function computePayslip(
   // 「住房补贴 ÷ 应出勤天数 × 实际出勤天数」折。别的三项不折。
   // 房补按天 —— 住的是一天算一天, 所以格子里填的是满勤该给的数, 落到条子上
   // 的是「房补 ÷ 应出勤天数 × 实际出勤天数」。别的补助不折。
+  //
+  // 考勤不参与核算时不折: 那时候请假本来就不扣钱, 再从房补上折一道, 请假还
+  // 是变相扣了工资 —— 那就不叫"只做记录"了。
   const housingBaseCny = money(line.housingAllowanceCny)
-  const housingAllowanceCny = Math.round(
-    housingBaseCny * (workedDays / (standardDays || 1)),
-  )
+  const housingAllowanceCny = counts
+    ? Math.round(housingBaseCny * (workedDays / (standardDays || 1)))
+    : housingBaseCny
 
   // === 可分配额 ===
   //
