@@ -134,6 +134,17 @@ export type PayrollRules = {
   sickPct: number // 病假扣薪比例 %（0 = 病假照发, 100 = 全扣）
   absentPct: number // 旷工扣薪比例 %（200 = 旷工一小时扣两小时）
   latePerTime: number // 迟到每次扣款, 元
+  /**
+   * 考勤要不要参与工资核算 —— 1 参与, 0 只做记录。
+   *
+   * 人事那本考勤簿一直在记 (事假 · 病假 · 工伤 · 旷工 · 迟到), 记归记, 扣不
+   * 扣钱是另一件事。老板 2026-09 定的是**先只记录**: 缺勤一律不扣, 全勤照
+   * 给。哪天要按记录扣了, 把这个数改回 1, 上面那几条扣薪比例当场生效 —— 规
+   * 则一直在, 只是关着。
+   *
+   * 加班不受这个开关管: 加班费是实打实发的钱, 跟"扣不扣"是两回事。
+   */
+  attendanceCounts: number
   // === 加班费 ===
   //
   // 一小时多少钱是厂里定死的价, 不再从月薪折算 —— 同一个小时, 谁加都是这个
@@ -205,6 +216,7 @@ export const DEFAULT_PAYROLL_RULES: PayrollRules = {
   sickPct: 50,
   absentPct: 200,
   latePerTime: 0,
+  attendanceCounts: 0,
   otWeekdayCny: 22.94,
   otWeekendCny: 30.57,
   baseSalaryCny: 2660,
@@ -233,6 +245,7 @@ const RULE_LIMITS: Record<string, [number, number]> = {
   sickPct: [0, 100],
   absentPct: [0, 300],
   latePerTime: [0, 1000],
+  attendanceCounts: [0, 1],
   otWeekdayCny: [0, 500],
   otWeekendCny: [0, 500],
   baseSalaryCny: [0, 100000],
@@ -258,6 +271,7 @@ export type ScalarRuleKey =
   | 'sickPct'
   | 'absentPct'
   | 'latePerTime'
+  | 'attendanceCounts'
   | 'otWeekdayCny'
   | 'otWeekendCny'
   | 'baseSalaryCny'
@@ -683,18 +697,23 @@ export function computePayslip(
   const hourlyCny = monthlyCny / standardHours
   const adjustCny = Math.round(line.adjustCny ?? 0)
 
-  // 缺勤扣还是按这个人自己的时薪 (综合工资 ÷ 应出勤工时) —— 少上一个小时,
-  // 扣的就是那一个小时。
-  const leaveCut = Math.round(attendance.leaveHours * hourlyCny)
-  const sickCut = Math.round(
-    attendance.sickHours * hourlyCny * (rules.sickPct / 100),
-  )
+  // 考勤参不参与核算, 由制度那一格说了算 (attendanceCounts)。关着的时候人事
+  // 照记, 工资这边一分不扣 —— 记录和扣钱是两件事。
+  const counts = rules.attendanceCounts >= 1
+  // 缺勤扣按这个人自己的时薪 (综合工资 ÷ 应出勤工时) —— 少上一个小时, 扣的
+  // 就是那一个小时。
+  const leaveCut = counts ? Math.round(attendance.leaveHours * hourlyCny) : 0
+  const sickCut = counts
+    ? Math.round(attendance.sickHours * hourlyCny * (rules.sickPct / 100))
+    : 0
   // 工伤 is deliberately absent: the hours are lost to the factory, not to the
   // person. It still shows on the payslip so nobody thinks it was forgotten.
-  const absentCut = Math.round(
-    attendance.absentHours * hourlyCny * (rules.absentPct / 100),
-  )
-  const lateCut = Math.round(attendance.lateTimes * rules.latePerTime)
+  const absentCut = counts
+    ? Math.round(attendance.absentHours * hourlyCny * (rules.absentPct / 100))
+    : 0
+  const lateCut = counts
+    ? Math.round(attendance.lateTimes * rules.latePerTime)
+    : 0
 
   // 加班费 —— 厂里定死的小时价, 跟月薪无关。周六周日一个价, 平时一个价; 是
   // 哪种由 人事 那条记录的日期决定 (见 summarizeAttendance)。
@@ -797,7 +816,8 @@ export function computePayslip(
   const secretFeeCny = on(ratedBaseCny * (rules.secretRatePct / 100))
 
   // 全勤 —— 当月一次事假、病假、旷工、迟到都没有才有。工伤不算破全勤。
-  const fullAttendance = isFullAttendance(attendance)
+  // 考勤不参与核算时全勤照给: 那本簿子这会儿只是记录, 不该单从这一项上扣。
+  const fullAttendance = counts ? isFullAttendance(attendance) : true
   const fullAttendanceCny =
     splitApplies && fullAttendance ? Math.round(rules.fullAttendanceCny) : 0
 

@@ -245,8 +245,31 @@ export function PayrollBoard({
           <Sep />
           <Rule label="迟到每次扣" unit="元" value={rules.latePerTime} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'latePerTime', value: v })} />
           <Sep />
+          <Sep />
+          {/* 考勤参不参与核算 —— 人事那本簿子照记, 扣不扣钱是另一件事。 */}
+          <button
+            type="button"
+            disabled={locked}
+            onClick={() =>
+              save({
+                kind: 'setPayrollRule',
+                key: 'attendanceCounts',
+                value: rules.attendanceCounts >= 1 ? 0 : 1,
+              })
+            }
+            title="人事的考勤记录要不要扣钱 — 只记录时缺勤不扣、全勤照给"
+            className={`rounded-[2px] px-2 py-0.5 text-[12px] transition-colors disabled:opacity-50 ${
+              rules.attendanceCounts >= 1
+                ? 'bg-[var(--color-ink)] text-[var(--color-surface)]'
+                : 'border border-[var(--color-border-strong)] text-[var(--color-ink-2)] hover:text-[var(--color-ink)]'
+            }`}
+          >
+            考勤{rules.attendanceCounts >= 1 ? '参与核算' : '只记录不扣钱'}
+          </button>
           <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-            事假全扣 · 工伤不扣 · 违纪和质量异常自己定奖罚
+            {rules.attendanceCounts >= 1
+              ? '事假全扣 · 工伤不扣 · 违纪和质量异常自己定奖罚'
+              : '缺勤一律不扣 · 全勤照给 · 加班费照发 · 人事那边照常记'}
           </span>
         </div>
 
@@ -1079,7 +1102,7 @@ function Slip({
             {s.dept} · 应出勤 {s.standardDays} 天 (含周六 {s.saturdays} 天) ·
             实际出勤 {num(s.workedDays)} 天 · 平时每天 {num(s.hoursPerDay)} 小时
             · 周六 {num(s.saturdayHours)} 小时 · 应出勤 {num(s.standardHours)}{' '}
-            小时 · 时薪 ¥{num(s.hourlyCny)}（缺勤按它扣）
+            小时 · 时薪 ¥{num(s.hourlyCny)}
           </p>
           <a
             href={withBase(`/finance/payroll/print?m=${month}&name=${encodeURIComponent(s.name)}`)}
