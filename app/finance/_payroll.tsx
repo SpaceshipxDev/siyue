@@ -1146,9 +1146,13 @@ function Slip({
                 v={s.fullAttendanceCny}
               />
             )}
-            {/* 社保补贴按比例算, 点着能改 —— 清空就回到按比例。 */}
+            {/* 社保补贴按比例算, 点着能改。改小改大差额都落在福利上 —— 福
+                利是倒挤的那一格, 所以这一列加起来永远还是综合工资。 */}
             <Edit
               label="社保补贴"
+              detail={
+                s.splitApplies ? '改了差额自动进福利' : undefined
+              }
               value={s.socialSubsidyCny}
               locked={locked}
               onSave={(v) => setLine({ socialSubsidyCny: v })}

@@ -552,12 +552,16 @@ export async function setPayrollLine(
       if (patch.adjustCny !== 0) line.adjustCny = patch.adjustCny
       else delete line.adjustCny
     }
-    // 手填的钱格子: 0 就是清空 (格子留白), 其余照存。
+    // 手填的钱格子: 填什么存什么, **0 也存住**。
+    //
+    // 以前 0 当成"清空", 于是有默认值的那几项 (社保补贴按比例、餐补/话费/
+    // 交通按档) 被改成 0 之后, 存进去是"没填过", 读出来又回到默认值 —— 界
+    // 面上看就是"这一格改不动"。没上社保的人、不给餐补的人是实在存在的, 0
+    // 必须是一个能落下去的数。
     for (const k of PAYROLL_MONEY_KEYS) {
       const v = patch[k]
       if (v === undefined) continue
-      if (v > 0) line[k] = v
-      else delete line[k]
+      line[k] = v
     }
     if (patch.note !== undefined) {
       if (patch.note.trim()) line.note = patch.note.trim()
