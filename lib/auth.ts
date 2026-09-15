@@ -176,6 +176,11 @@ const WAREHOUSE_EDITOR_USER_IDS = new Set<string>([
   'u-mose7y1k-r91xn7', // 涂明杰 — 工程
   'u-mose8blz-dnkt24', // 工程003
   'u-mose8mdn-c8m695', // 工程004
+  // 质量的两位 — 老板 2026-09-15 开通。她们本来就在质量/检验工位上报工, 客
+  // 诉和制程不良也是她们经手的, 只是以前填下去就改不动了 (处理方式、责任
+  // 人、纠正预防措施常常是几天后才定下来的, 得能回头补)。
+  'u-mpkkcscl-9aoza0', // 刘敏敏
+  'u-mpkkghqt-p8qrvy', // 李佳怡
   'u-mounqsw2-5g86hh', // harry 2 (dev/test account)
 ])
 
@@ -241,6 +246,11 @@ const QUALITY_EDITOR_USER_IDS = new Set<string>([
   'u-mose7y1k-r91xn7', // 涂明杰 — 工程
   'u-mose8blz-dnkt24', // 工程003
   'u-mose8mdn-c8m695', // 工程004
+  // 质量的两位 — 老板 2026-09-15 开通。她们本来就在质量/检验工位上报工, 客
+  // 诉和制程不良也是她们经手的, 只是以前填下去就改不动了 (处理方式、责任
+  // 人、纠正预防措施常常是几天后才定下来的, 得能回头补)。
+  'u-mpkkcscl-9aoza0', // 刘敏敏
+  'u-mpkkghqt-p8qrvy', // 李佳怡
   'u-mounqsw2-5g86hh', // harry 2 (dev/test account)
 ])
 
