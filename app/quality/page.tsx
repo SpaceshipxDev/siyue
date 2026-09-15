@@ -12,15 +12,17 @@ import { getComplaints } from '@/lib/complaints'
 import { getProcessDefects } from '@/lib/process-defects'
 import { getDefectActions } from '@/lib/defect-actions'
 import { getImprovements } from '@/lib/improvements'
+import { getIncomingDefects } from '@/lib/incoming-defects'
 import { today } from '@/lib/today'
 import { DefectsBoard } from './_defects'
 import { ComplaintsBoard } from './_complaints'
 import { ProcessBoard } from './_process'
 import { ImprovementsBoard } from './_improvements'
+import { IncomingBoard } from './_incoming'
 
 export const dynamic = 'force-dynamic'
 
-// 质量 — 四张表。前三张是一个问题的三段, 第四张是问题的反面。
+// 质量 — 五张表。前三张是一个问题的三段, 第四张管上游, 第五张是问题的反面。
 //
 //   制程不良 — 生产过程中出的不良, 质量落笔。判定之外还要交代的那几件事:
 //     直接责任人、间接责任人、纠正预防措施 —— 工单上装不下的那一半。
@@ -30,10 +32,13 @@ export const dynamic = 'force-dynamic'
 //     工位上按得出来的。
 //   客诉异常 — 客户反馈回来的。系统无从知道, 只能商务落笔; 带损失金额, 因为
 //     质量问题只有换算成钱才谈得上跟谁算账。
+//   来料异常 — 料一进厂就不对: 哪一单、哪家供应商、什么品名、几个、为什么、
+//     怎么处理、损失多少。责任在厂外, 所以单独一张 —— 它按供应商汇总损失, 是
+//     跟供应商谈价、索赔、换一家的依据。
 //   改善建议 — 唯一一张不是记问题的表: 谁提的、改善前什么样、改善后什么样、
 //     对效率/质量/成本有什么影响。看得见问题的是站在机床边上的那个人。
 //
-// 四张都按月看 (质量是按月复盘的), 都能按屏幕上那一批导出 Excel。
+// 五张都按月看 (质量是按月复盘的), 都能按屏幕上那一批导出 Excel。
 //
 // 权限分两档 (lib/auth 的 质量 那一段)。整个模块对全厂的账号开着: 质
 // 量问题是谁碰上谁知道, 让他等一个有权限的人来代录, 就是让这条记录不存在。
@@ -53,14 +58,22 @@ export default async function QualityPage({
       ? 'complaint'
       : sp?.v === 'process'
         ? 'process'
-        : sp?.v === 'improve'
-          ? 'improve'
-          : 'defects'
+        : sp?.v === 'incoming'
+          ? 'incoming'
+          : sp?.v === 'improve'
+            ? 'improve'
+            : 'defects'
   const todayStr = today()
 
   // 只读切到的那一张 — 另一张要扫的表不小, 没人看的时候不去扫。
-  const [defects, defectActions, complaints, processDefects, improvements] =
-    await Promise.all([
+  const [
+    defects,
+    defectActions,
+    complaints,
+    processDefects,
+    improvements,
+    incoming,
+  ] = await Promise.all([
       view === 'defects' ? getDefectRows() : Promise.resolve([]),
       view === 'defects'
         ? getDefectActions()
@@ -68,7 +81,13 @@ export default async function QualityPage({
       view === 'complaint' ? getComplaints() : Promise.resolve([]),
       view === 'process' ? getProcessDefects() : Promise.resolve([]),
       view === 'improve' ? getImprovements() : Promise.resolve([]),
+      view === 'incoming' ? getIncomingDefects() : Promise.resolve([]),
     ])
+
+  // 录入那一格的联想 —— 打过交道的供应商, 少打几个字也少打错一个名。
+  const incomingSuppliers = [
+    ...new Set(incoming.map((r) => r.supplier).filter(Boolean)),
+  ].sort((a, b) => a.localeCompare(b, 'zh'))
 
   const customers = [
     ...new Set(complaints.map((c) => c.customer).filter(Boolean)),
@@ -89,9 +108,11 @@ export default async function QualityPage({
             ? '客诉异常'
             : view === 'process'
               ? '制程不良记录'
-              : view === 'improve'
-                ? '改善建议'
-                : '质量异常'
+              : view === 'incoming'
+                ? '来料异常登记'
+                : view === 'improve'
+                  ? '改善建议'
+                  : '质量异常'
         }
         currentTab="质量"
         role={user.role}
@@ -111,6 +132,11 @@ export default async function QualityPage({
             href="/quality?v=process"
             label="制程不良"
             active={view === 'process'}
+          />
+          <ViewTab
+            href="/quality?v=incoming"
+            label="来料异常"
+            active={view === 'incoming'}
           />
           <ViewTab
             href="/quality?v=complaint"
@@ -145,6 +171,13 @@ export default async function QualityPage({
             depts={depts}
             canEdit={canEdit}
           />
+        ) : view === 'incoming' ? (
+          <IncomingBoard
+            rows={incoming}
+            todayStr={todayStr}
+            suppliers={incomingSuppliers}
+            canEdit={canEdit}
+          />
         ) : view === 'process' ? (
           <ProcessBoard
             rows={processDefects}
@@ -164,7 +197,7 @@ export default async function QualityPage({
   )
 }
 
-// 质量异常 / 制程不良 / 客诉异常 / 改善建议 — same underline-active idiom the
+// 质量异常 / 制程不良 / 来料异常 / 客诉异常 / 改善建议 — same idiom the
 // 财务 sub-tabs use.
 function ViewTab({
   href,

@@ -6,6 +6,7 @@ import { getComplaints } from '@/lib/complaints'
 import { getProcessDefects } from '@/lib/process-defects'
 import { getDefectActions } from '@/lib/defect-actions'
 import { getImprovements } from '@/lib/improvements'
+import { getIncomingDefects } from '@/lib/incoming-defects'
 import { today } from '@/lib/today'
 
 // 质量异常 / 制程不良 / 客诉 → .xlsx. 导的就是屏幕上那一批 (同一个月份 + 同一个搜索
@@ -14,6 +15,7 @@ import { today } from '@/lib/today'
 //   ?v=defects  质量异常 — 厂里自己检出来的 (检验 + 成品检), 带纠正预防措施
 //   ?v=process  制程不良 — 质量落笔的那一份, 带责任人和纠正预防措施
 //   ?v=complaint 客诉 — 客户反馈回来的, 带损失金额
+//   ?v=incoming 来料异常 — 供应商送进来就不对的, 带损失金额
 //   ?v=improve  改善建议 — 谁提的, 改善前 / 改善后 / 对效率·质量·成本的影响
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -72,6 +74,19 @@ const IMPROVE_HEADERS = [
 ]
 const IMPROVE_WIDTHS = [12, 12, 12, 40, 30, 30, 34, 24, 12]
 
+const INCOMING_HEADERS = [
+  '日期',
+  '单号',
+  '供应商',
+  '品名',
+  '数量',
+  '不良原因',
+  '处理方式',
+  '损失金额',
+  '记录人',
+]
+const INCOMING_WIDTHS = [12, 18, 22, 24, 10, 30, 26, 12, 12]
+
 export async function GET(request: NextRequest): Promise<Response> {
   const sp = request.nextUrl.searchParams
   // 三张表全厂都记得了、看得见, 但导出跟改是同一档 — 工程 + 商务于海伟
@@ -86,13 +101,53 @@ export async function GET(request: NextRequest): Promise<Response> {
   const complaints = view === 'complaint'
   const process = view === 'process'
   const improve = view === 'improve'
+  const incoming = view === 'incoming'
   const aoa: (string | number)[][] = []
   let widths: number[]
   let sheetName: string
   let base: string
   let file: string
 
-  if (improve) {
+  if (incoming) {
+    const rows = (await getIncomingDefects())
+      .filter((r) => r.date.slice(0, 7) === month)
+      .filter((r) =>
+        !q
+          ? true
+          : [r.docNo, r.supplier, r.item, r.reason, r.handling, r.by]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase()
+              .includes(q),
+      )
+    aoa.push(INCOMING_HEADERS.slice())
+    for (const r of rows) {
+      aoa.push([
+        r.date,
+        r.docNo,
+        r.supplier,
+        r.item,
+        r.qty,
+        r.reason,
+        r.handling,
+        r.lossCny,
+        r.by ?? '',
+      ])
+    }
+    // 合计 —— 这个月来料坏了多少件、赔了多少钱。跟供应商对账时先看这两个数。
+    const total: (string | number)[] = INCOMING_HEADERS.map(() => '')
+    total[0] = '合计'
+    total[INCOMING_HEADERS.indexOf('数量')] = rows.reduce((s, r) => s + r.qty, 0)
+    total[INCOMING_HEADERS.indexOf('损失金额')] = rows.reduce(
+      (s, r) => s + r.lossCny,
+      0,
+    )
+    aoa.push(total)
+    widths = INCOMING_WIDTHS
+    sheetName = '来料异常'
+    base = `来料异常_${month}`
+    file = `incoming_defects_${month}.xlsx`
+  } else if (improve) {
     const rows = (await getImprovements())
       .filter((r) => r.date.slice(0, 7) === month)
       .filter((r) =>

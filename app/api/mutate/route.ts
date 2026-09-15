@@ -1,6 +1,11 @@
 import { NextRequest } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import {
+  addIncomingDefect,
+  updateIncomingDefect,
+  deleteIncomingDefect,
+} from '@/lib/incoming-defects'
+import {
   addOutsourceBlockMembers,
   appendComponent,
   assignJobToStage,
@@ -2745,6 +2750,80 @@ async function dispatch(
       const u = await requireUser()
       if (!canEditQuality(u)) return err('删记录要找工程或于海伟', 403)
       await deleteProcessDefect(defectId)
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    // 来料异常 — 供应商送进来的料就不对。跟制程不良同一档权限: 谁碰上谁
+    // 记, 空着的格谁都能补, 改已经填下去的和删是 canEditQuality 那一档。
+    case 'addIncomingDefect': {
+      const input = body.input
+      if (typeof input !== 'object' || input === null)
+        return err('bad addIncomingDefect args')
+      const i = input as Record<string, unknown>
+      if (!isString(i.supplier) || !i.supplier.trim()) return err('先填供应商')
+      if (!isString(i.reason) || !i.reason.trim()) return err('填一下不良原因')
+      if (!isString(i.date) || !/^\d{4}-\d{2}-\d{2}$/.test(i.date))
+        return err('bad addIncomingDefect args')
+      for (const k of ['docNo', 'item', 'handling']) {
+        if (i[k] !== undefined && !isString(i[k]))
+          return err('bad addIncomingDefect args')
+      }
+      const u = await requireUser()
+      await addIncomingDefect(
+        {
+          date: i.date,
+          docNo: isString(i.docNo) ? i.docNo : '',
+          supplier: i.supplier,
+          item: isString(i.item) ? i.item : '',
+          qty: typeof i.qty === 'number' ? i.qty : 0,
+          reason: i.reason,
+          handling: isString(i.handling) ? i.handling : '',
+          lossCny: typeof i.lossCny === 'number' ? i.lossCny : 0,
+        },
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'updateIncomingDefect': {
+      const defectId = body.defectId
+      const patch = body.patch
+      if (!isString(defectId)) return err('bad updateIncomingDefect args')
+      if (typeof patch !== 'object' || patch === null)
+        return err('bad updateIncomingDefect args')
+      const p = patch as Record<string, unknown>
+      for (const k of [
+        'date',
+        'docNo',
+        'supplier',
+        'item',
+        'reason',
+        'handling',
+      ]) {
+        if (p[k] !== undefined && !isString(p[k]))
+          return err('bad updateIncomingDefect args')
+      }
+      for (const k of ['qty', 'lossCny']) {
+        if (p[k] !== undefined && typeof p[k] !== 'number')
+          return err('数量或金额不对')
+      }
+      const u = await requireUser()
+      await updateIncomingDefect(defectId, p, {
+        fillBlanksOnly: !canEditQuality(u),
+      })
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'deleteIncomingDefect': {
+      const defectId = body.defectId
+      if (!isString(defectId)) return err('bad deleteIncomingDefect args')
+      const u = await requireUser()
+      if (!canEditQuality(u)) return err('删记录要找质量或于海伟', 403)
+      await deleteIncomingDefect(defectId)
       revalidatePath('/quality')
       return Response.json(ok())
     }
