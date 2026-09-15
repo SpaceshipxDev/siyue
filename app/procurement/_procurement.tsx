@@ -162,20 +162,26 @@ export function ProcurementBoard({
       byJob.set(p.jobId, l)
     }
     return needs.map((n) => {
+      // 零件名和材料两边都比 —— 单子是按材料开的 (buyItem), 而这一条需求认得
+      // 出自己的是零件名。只比一边, 零件名和材料写得不一样的那些就会永远显示
+      // "待确认", 于是同一块料被请购两回。
       const part = key(n.part)
-      const asked =
-        part.length > 0 &&
-        (byJob.get(n.jobId) ?? []).some((p) => {
-          const item = key(p.item)
-          // The reverse direction (零件 "6061铝板-A" bought as 物料 "6061铝板")
-          // needs a real name to lean on — a one-character 物料 would match
-          // half the job.
-          return (
-            item.includes(part) ||
-            (item.length > 1 && part.includes(item)) ||
-            key(p.notes ?? '').includes(part)
-          )
-        })
+      const mat = key(n.material ?? '')
+      const hit = (p: Procurement, needle: string) => {
+        if (needle.length === 0) return false
+        const item = key(p.item)
+        // The reverse direction (零件 "6061铝板-A" bought as 物料 "6061铝板")
+        // needs a real name to lean on — a one-character 物料 would match
+        // half the job.
+        return (
+          item.includes(needle) ||
+          (item.length > 1 && needle.includes(item)) ||
+          key(p.notes ?? '').includes(needle)
+        )
+      }
+      const asked = (byJob.get(n.jobId) ?? []).some(
+        (p) => hit(p, part) || hit(p, mat),
+      )
       return { need: n, asked }
     })
   }, [needs, procurements])
@@ -779,7 +785,7 @@ function NeedRow({
         // What gets bought is the 材料; the 零件名 rides in 备注 so the
         // approver reads what it's for — and so the 需求 list can tell
         // this one has been asked for.
-        item: (n.material?.trim() || n.part).trim(),
+        item: buyItem(n),
         qty: n.qty,
         orderDate: today,
         reqDate: today,
@@ -836,12 +842,20 @@ function NeedRow({
         asked ? 'opacity-55' : ''
       }`}
     >
+      {/* 第一行是**将要请购的那一项**, 第二行才是零件名 —— 这一页是采购在
+          看, 他关心的是"买什么料"。
+          以前反过来: 大字是零件名, 按下请购却拿 材料 那一栏去开单, 于是零件
+          名和材料写得不一样的那些 (工程常把下料尺寸写进零件名), 一保存标题
+          就"变"成另一个规格。现在屏幕上第一行是什么, 开出来的单子就是什么。*/}
       <div className="min-w-0">
-        <div className="truncate text-[14.5px] font-medium tracking-tight text-[var(--color-ink)]">
-          {n.part}
+        <div
+          className="truncate text-[14.5px] font-medium tracking-tight text-[var(--color-ink)]"
+          title={buyItem(n)}
+        >
+          {buyItem(n)}
         </div>
         <div className="mt-0.5 truncate text-[12px] text-[var(--color-ink-3)]">
-          {n.material?.trim() || '材料未注'}
+          {n.material?.trim() ? n.part : '材料未注 · 按零件名请购'}
           <span className="md:hidden"> · {n.qty} 件</span>
         </div>
       </div>
@@ -1804,6 +1818,16 @@ function dupAsk(dup: Dup, jobNo: string): boolean {
     `${jobNo} 这块料已经请购过了：\n\n${dup.item}\n${who}${when}· ${st}\n\n` +
       `补料、做坏了重买可以继续；只是重复报的就点取消。\n仍要请购？`,
   )
+}
+
+/**
+ * 这一条需求真正要买的那一项 —— 屏幕上显示它, 请购也开它, 两处同一个来源。
+ *
+ * 材料那一栏才是"买什么料"; 没注材料的 (工程把料直接写进了零件名) 退回零件
+ * 名, 总比开一张空单强。
+ */
+function buyItem(n: ProcurementNeed): string {
+  return (n.material?.trim() || n.part).trim()
 }
 
 function joinSpec(name: string, s: Spec): string {
