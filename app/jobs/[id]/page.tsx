@@ -52,6 +52,7 @@ import {
   canSeeReport,
   canSeeOrderLedger,
   requireUser,
+  canClickStage,
   stageScopeFor,
   canUndoFinishedStage,
 } from '@/lib/auth'
@@ -1067,10 +1068,16 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                       // 工程 + commerce can flip any stage cell from anywhere
                       // on the job detail page — 工程 routinely fixes routing
                       // mistakes by stepping parts forward/back across stages.
-                      // Pure-floor production users (焊接, 喷塑, etc.) still
-                      // only get their own stage column.
+                      //
+                      // 车间的人按**报工范围**来, 不是按 defaultStage 那一个
+                      // 工段 (lib/auth canClickStage)。厂里不少人一个人管两三
+                      // 道 —— 质量那两位是 质量 + 检验, 打磨喷漆是后道四道 ——
+                      // 他们的 defaultStage 只写得下一个, 按它判等于把另外几
+                      // 道锁死: 面板打得开, 里面只有一句"待检"和一个关闭。
                       const interactive =
-                        !isProduction || canEditFields || stage === myStage
+                        !isProduction ||
+                        canEditFields ||
+                        canClickStage(user, stage)
                       return (
                         <td key={stage} className="p-0 h-[60px]">
                           <EffectiveStageCell

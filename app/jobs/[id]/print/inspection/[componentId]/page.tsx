@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { requireUser } from '@/lib/auth'
+import { canClickStage, requireUser } from '@/lib/auth'
 import { getInspectionReport, getJob } from '@/lib/db'
 import { emptyReport } from '@/lib/inspection-report'
 import { BRAND } from '@/lib/brand'
@@ -28,11 +28,13 @@ export default async function InspectionReportPage(
   const component = job.components.find((c) => c.id === decodedComponentId)
   if (!component) notFound()
 
+  // 谁能填这张报告 —— 按**报工范围**算, 不是按 defaultStage 那一个工段: 一个
+  // 人管两三道是常事 (质量那两位是 质量 + 检验), 按单个工段判会把另一道锁死。
   const editable =
     user.role === 'commerce' ||
     user.defaultStage === '工程' ||
-    user.defaultStage === '检验' ||
-    user.defaultStage === '质量'
+    canClickStage(user, '检验') ||
+    canClickStage(user, '质量')
 
   return (
     <>
