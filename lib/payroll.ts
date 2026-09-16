@@ -781,11 +781,13 @@ export function computePayslip(
 
   // === 实际出勤工时 ===
   //
-  // 这个数是出勤工资的分子, 所以得说清楚它从哪儿来, 三级:
-  //   1. 打卡机汇总里的「出勤小时」—— 刷卡刷出来的, 最准
-  //   2. 没有汇总就自己推: 应出勤工时 − 人事记下的缺勤小时
-  //   3. 考勤不参与核算时 (制度那一格关着) 一律按满勤 —— 那时候请假本来就
-  //      不扣钱, 出勤工资自然也不该因为请假变少
+  // 这个数是出勤工资的分子, 所以得说清楚它从哪儿来, 按这个先后:
+  //
+  //   1. 打卡机汇总里的「出勤小时」—— **一律以它为准**。那是刷卡刷出来的事
+  //      实, 跟"请假扣不扣钱"是两回事: 人没在厂里的那几个小时, 本来就不该
+  //      按在厂里算。所以它不受下面那个开关管。
+  //   2. 没有打卡数据时才看开关: 开着就自己推 (应出勤工时 − 人事记的缺勤小
+  //      时), 关着就按满勤 —— 那时候人事那本簿子只是记录, 不该悄悄折工资。
   //
   // 加班不算进来: 加班费按厂里定的小时价另算, 算进出勤工时就成了双份。
   const absentHours =
@@ -793,19 +795,20 @@ export function computePayslip(
     attendance.sickHours +
     attendance.injuryHours +
     attendance.absentHours
-  const workedHours = counts
-    ? (summary?.workedHours ?? Math.max(0, standardHours - absentHours))
-    : standardHours
+  const workedHours =
+    summary?.workedHours ??
+    (counts ? Math.max(0, standardHours - absentHours) : standardHours)
 
   // 实际出勤天数 —— 打卡机汇总里有就用它 (那是刷卡刷出来的); 没有就拿应出勤
   // 天数减掉缺勤折成的天 (半天假是常事, 留一位小数)。加班不算进出勤天数, 它
   // 自己有一行。房补按它折算, 所以要先算出来。
-  const workedDays = !counts
-    ? standardDays
-    : (summary?.workedDays ??
-      Math.round(
-        Math.max(0, standardDays - absentHours / (hoursPerDay || 1)) * 10,
-      ) / 10)
+  const workedDays =
+    summary?.workedDays ??
+    (counts
+      ? Math.round(
+          Math.max(0, standardDays - absentHours / (hoursPerDay || 1)) * 10,
+        ) / 10
+      : standardDays)
 
   // === 工资条的两段 ===
   //
@@ -844,9 +847,9 @@ export function computePayslip(
   // 考勤不参与核算时不折: 那时候请假本来就不扣钱, 再从房补上折一道, 请假还
   // 是变相扣了工资 —— 那就不叫"只做记录"了。
   const housingBaseCny = money(line.housingAllowanceCny)
-  const housingAllowanceCny = counts
-    ? Math.round(housingBaseCny * (workedDays / (standardDays || 1)))
-    : housingBaseCny
+  const housingAllowanceCny = Math.round(
+    housingBaseCny * (workedDays / (standardDays || 1)),
+  )
 
   // === 出勤工资 ===
   //

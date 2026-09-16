@@ -261,7 +261,7 @@ export function PayrollBoard({
                 value: rules.attendanceCounts >= 1 ? 0 : 1,
               })
             }
-            title="人事的考勤记录要不要扣钱 — 只记录时缺勤不扣、全勤照给"
+            title="人事里手记的缺勤要不要折出勤工时 — 打卡导入的实际工时不受这个开关管"
             className={`rounded-[2px] px-2 py-0.5 text-[12px] transition-colors disabled:opacity-50 ${
               rules.attendanceCounts >= 1
                 ? 'bg-[var(--color-ink)] text-[var(--color-surface)]'
@@ -273,7 +273,7 @@ export function PayrollBoard({
           <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
             {rules.attendanceCounts >= 1
               ? '事假全扣 · 工伤不扣 · 违纪和质量异常自己定奖罚'
-              : '缺勤一律不扣 · 全勤照给 · 加班费照发 · 人事那边照常记'}
+              : '人事记的缺勤不折工时 · 全勤照给 · 打卡导入的实际出勤工时照用'}
           </span>
         </div>
 
@@ -732,8 +732,8 @@ export function PayrollBoard({
         ，在那边记，这边自动算。加班费按厂里定的小时价：周六周日一个价、平时
         一个价，哪天加的就按哪天的。
         {rules.attendanceCounts >= 1
-          ? '请假、迟到、旷工按制度扣钱。'
-          : '请假、事假、病假、旷工、迟到目前只记录，一分不扣，房补也不按出勤天数折。'}
+          ? '请假、迟到、旷工按制度折算出勤工时。'
+          : '人事里记的请假、迟到、旷工目前只做记录，不折工时；但导入的实际出勤工时照用——出勤工资按它算。'}
         点名字看工资条。
       </p>
     </div>
