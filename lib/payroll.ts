@@ -612,10 +612,10 @@ export type Payslip = {
   fullAttendanceCny: number // 全勤 — 无事假/病假/旷工/迟到才有
   /** 社保补贴 = 可分配额 × socialRatePct, 手填过就是手填的那个数。 */
   socialSubsidyCny: number
-  /** 可分配额 = 综合工资 − 出勤工资 —— 按比例那几项乘的都是它。 */
+  /** 可分配额 = 出勤工资 − 基本工资 —— 按比例那几项乘的都是它。 */
   ratedBaseCny: number
   /**
-   * 福利 = 综合工资 − 以上所有项目。
+   * 福利 = 出勤工资 − 以上所有项目。
    *
    * 它是兜底的那一格: 比例是死的, 人的工资是活的, 两边不可能正好凑齐, 差的
    * 和多的都落在这里 —— 所以拆出来的几项永远加得回综合工资, 一分不差。
@@ -631,11 +631,10 @@ export type Payslip = {
   /** 缺勤扣合计 = 事假 + 病假 + 旷工 + 迟到 —— 在扣款栏里, 一行, 不拆明细。 */
   attendanceCutCny: number
   /**
-   * 出勤工资 —— 工资条前半段那一小计: 基本工资 + 岗位补助 + 加班费。这三项
-   * 是"人到岗才有"的那部分, 所以它们合起来叫出勤工资。
+   * 出勤工资 = 综合工资 ÷ 应出勤工时 × 实际出勤工时。
    *
-   * 综合工资没过拆分门槛的人不拆构成, 这一格就退回老口径 (综合工资 + 加班
-   * 费) —— 条子上只有这一行, 后面那一串是空的。
+   * 干满了就是综合工资, 少干几个小时按小时折。加班费不在里面 (另有小时价)。
+   * 下面的工资构成拆的就是它 —— 那一列加起来正好等于这个数。
    */
   attendancePayCny: number
   // === 后半段里手填的几项 (综合工资之外, 真加上去的钱) ===
@@ -648,7 +647,7 @@ export type Payslip = {
   safetyDeductCny: number
   socialInsuranceCny: number
   taxCny: number
-  /** 应发工资 = 出勤工资 + 后面所有子项目, 不含房补 */
+  /** 应发工资 = 出勤工资 + 加班费 + 夜班/节假日/奖金/奖罚, 不含房补 */
   grossCny: number
   /** 扣款合计 */
   deductCny: number
@@ -778,32 +777,35 @@ export function computePayslip(
     otWeekdayHours * rules.otWeekdayCny + otWeekendHours * rules.otWeekendCny,
   )
 
-  const workedHours =
-    standardHours -
-    attendance.leaveHours -
-    attendance.sickHours -
-    attendance.injuryHours -
-    attendance.absentHours +
-    otHours
-
   const attendanceCutCny = leaveCut + sickCut + absentCut + lateCut
+
+  // === 实际出勤工时 ===
+  //
+  // 这个数是出勤工资的分子, 所以得说清楚它从哪儿来, 三级:
+  //   1. 打卡机汇总里的「出勤小时」—— 刷卡刷出来的, 最准
+  //   2. 没有汇总就自己推: 应出勤工时 − 人事记下的缺勤小时
+  //   3. 考勤不参与核算时 (制度那一格关着) 一律按满勤 —— 那时候请假本来就
+  //      不扣钱, 出勤工资自然也不该因为请假变少
+  //
+  // 加班不算进来: 加班费按厂里定的小时价另算, 算进出勤工时就成了双份。
+  const absentHours =
+    attendance.leaveHours +
+    attendance.sickHours +
+    attendance.injuryHours +
+    attendance.absentHours
+  const workedHours = counts
+    ? (summary?.workedHours ?? Math.max(0, standardHours - absentHours))
+    : standardHours
 
   // 实际出勤天数 —— 打卡机汇总里有就用它 (那是刷卡刷出来的); 没有就拿应出勤
   // 天数减掉缺勤折成的天 (半天假是常事, 留一位小数)。加班不算进出勤天数, 它
   // 自己有一行。房补按它折算, 所以要先算出来。
-  const workedDays =
-    summary?.workedDays ??
-    Math.round(
-      Math.max(
-        0,
-        standardDays -
-          (attendance.leaveHours +
-            attendance.sickHours +
-            attendance.injuryHours +
-            attendance.absentHours) /
-            (hoursPerDay || 1),
-      ) * 10,
-    ) / 10
+  const workedDays = !counts
+    ? standardDays
+    : (summary?.workedDays ??
+      Math.round(
+        Math.max(0, standardDays - absentHours / (hoursPerDay || 1)) * 10,
+      ) / 10)
 
   // === 工资条的两段 ===
   //
@@ -846,26 +848,24 @@ export function computePayslip(
     ? Math.round(housingBaseCny * (workedDays / (standardDays || 1)))
     : housingBaseCny
 
+  // === 出勤工资 ===
+  //
+  //   出勤工资 = 综合工资 ÷ 应出勤工时 × 实际出勤工时
+  //
+  // 这一行是整张条子的分母: 干满了就是综合工资, 少干几个小时就按小时折。加
+  // 班费不在里面 —— 它按厂里定的小时价另算, 算进来就成了双份。
+  //
+  // 考勤不参与核算时实际工时按满勤走, 所以这一格就是综合工资, 请假不影响。
+  const attendancePayCny = Math.round(hourlyCny * workedHours)
+
   // === 可分配额 ===
   //
   // 按比例分的那几项 (岗位补助 · 绩效工资 · 安全补贴 · 保密补贴 · 社保补贴)
-  // 乘的都是这一个数: **综合工资 − 出勤工资**。
+  // 乘的都是这一个数: **出勤工资 − 基本工资**。
   //
-  // 出勤工资 = 基本工资 + 岗位补助 + 加班费, 而岗位补助自己又是从可分配额里
-  // 按比例分出来的 —— 算式绕回了自己。解开就是下面这一行:
-  //
-  //   B = 综合 − (基本 + B×岗位% + 加班费)
-  //     → B = (综合 − 基本工资 − 加班费) ÷ (1 + 岗位%)
-  //
-  // 这样条子上按计算器是对得上的: 综合工资 − 出勤工资 就是这个 B, 再乘 30%
-  // 正好是绩效那一格。
-  // 没过门槛的那一档没有岗位补助, 所以不必解那个方程, 直接就是余下的钱。
-  const ratedBaseCny = splitApplies
-    ? Math.round(
-        (monthlyCny - baseSalaryCny - otPay) /
-          (1 + rules.postRatePct / 100),
-      )
-    : Math.max(0, monthlyCny - baseSalaryCny - otPay)
+  // 拆的是出勤工资而不是综合工资: 这个月实际拿到手的那个数才是要分的盘子,
+  // 少干了几小时, 各项跟着一起薄, 而不是只薄一格。
+  const ratedBaseCny = Math.max(0, attendancePayCny - baseSalaryCny)
   const postSubsidyCny = on(ratedBaseCny * (rules.postRatePct / 100))
   const perfPayCny = Math.round(
     ratedBaseCny *
@@ -886,25 +886,20 @@ export function computePayslip(
       (splitApplies ? ratedBaseCny * (rules.socialRatePct / 100) : 0),
   )
 
-
-  // 前半段「出勤工资」= 基本工资 + 岗位补助 + 加班费 —— 人到岗才有的那几
-  // 项。缺勤扣不在这里减: 它是扣款栏里的一行 (见下), 这样老板那句
-  // 「福利 = 综合工资 − 出勤工资 − …」在条子上按下去正好对得上。
-  const attendancePayCny = baseSalaryCny + postSubsidyCny + otPay
-
-  // 福利 = 综合工资 − 出勤工资 − 后面这一串。兜底的那一格, 所以工资条上各
-  // 项加起来永远等于综合工资, 一分不差。
+  // 福利 = 出勤工资 − 后面这一串。兜底的那一格, 所以工资构成那一列加起来永
+  // 远等于出勤工资, 一分不差。
   const welfareCny =
-    monthlyCny -
-      attendancePayCny -
-      phoneAllowanceCny -
-      mealCny -
-      fullAttendanceCny -
-      transportAllowanceCny -
-      safetyFeeCny -
-      secretFeeCny -
-      perfPayCny -
-      socialSubsidyCny
+    attendancePayCny -
+    baseSalaryCny -
+    phoneAllowanceCny -
+    mealCny -
+    transportAllowanceCny -
+    postSubsidyCny -
+    perfPayCny -
+    safetyFeeCny -
+    secretFeeCny -
+    fullAttendanceCny -
+    socialSubsidyCny
 
   const nightShiftCny = money(line.nightShiftCny)
   const holidayCny = money(line.holidayCny)
@@ -923,23 +918,14 @@ export function computePayslip(
   // 后一步落到手上: 应发 + 房补 − 扣款 = 实发。
   const grossCny =
     attendancePayCny +
-    mealCny +
-    phoneAllowanceCny +
-    transportAllowanceCny +
-    perfPayCny +
-    safetyFeeCny +
-    secretFeeCny +
-    fullAttendanceCny +
-    socialSubsidyCny +
-    welfareCny +
+    otPay +
     nightShiftCny +
     holidayCny +
     bonusCny +
     adjustCny
-  // 缺勤扣进扣款栏 —— 一行合计, 不列事假/病假/旷工/迟到的明细 (条子上那四
-  // 行只会换来当场对着条子争"那天不算旷工")。
+  // 缺勤不在扣款栏里扣 —— 它已经在出勤工资那一步按小时折掉了 (少干几小时
+  // 就少几小时的钱), 再扣一道就是扣两遍。attendanceCutCny 留着只作参考。
   const deductCny =
-    attendanceCutCny +
     advanceCny +
     otherDeductCny +
     perfDeductCny +
@@ -1154,6 +1140,7 @@ export const PAYROLL_EXPORT_HEADERS = [
   '每天工时',
   '周六天',
   '应出勤工时',
+  '实际出勤工时',
   '时薪',
   '事假h',
   '病假h',
@@ -1219,6 +1206,7 @@ export function buildPayrollExportAoa(
       p.hoursPerDay,
       p.saturdays,
       p.standardHours,
+      p.workedHours,
       Math.round(p.hourlyCny * 100) / 100,
       p.attendance.leaveHours,
       p.attendance.sickHours,
