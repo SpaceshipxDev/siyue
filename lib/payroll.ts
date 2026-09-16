@@ -647,7 +647,7 @@ export type Payslip = {
   safetyDeductCny: number
   socialInsuranceCny: number
   taxCny: number
-  /** 应发工资 = 出勤工资 + 加班费 + 夜班/节假日/奖金/奖罚, 不含房补 */
+  /** 应发工资 = 出勤工资 + 夜班/节假日/奖金/奖罚, 不含房补 (加班费已在出勤工资内) */
   grossCny: number
   /** 扣款合计 */
   deductCny: number
@@ -892,11 +892,16 @@ export function computePayslip(
       (splitApplies ? ratedBaseCny * (rules.socialRatePct / 100) : 0),
   )
 
-  // 福利 = 出勤工资 − 后面这一串。兜底的那一格, 所以工资构成那一列加起来永
-  // 远等于出勤工资, 一分不差。
+  // 福利 = 出勤工资 − 后面这一串 (加班费也在里面减)。兜底的那一格, 所以工资
+  // 构成那一列加起来永远等于出勤工资, 一分不差。
+  //
+  // 加班费算在出勤工资内部, 不再是额外加的一笔 —— 老板两处都要求从出勤工资
+  // 里减掉它 (可分配额一处, 福利一处)。于是加班多的月份福利薄一些, 总数还是
+  // 出勤工资。
   const welfareCny =
     attendancePayCny -
     baseSalaryCny -
+    otPay -
     phoneAllowanceCny -
     mealCny -
     transportAllowanceCny -
@@ -917,14 +922,14 @@ export function computePayslip(
   const socialInsuranceCny = money(line.socialInsuranceCny)
   const taxCny = money(line.taxCny)
 
-  // 应发工资 = 前半段 + 后半段所有子项目, **不含房补**。
+  // 应发工资 = 出勤工资 + 额外发的那几笔, **不含房补**。加班费不在这儿另
+  // 加 —— 它是出勤工资的一部分 (见福利那一段)。
   //
   // 房补压根不在综合工资里 —— 它既不参与拆分 (福利那一格不减它), 也不进应
   // 发 (应发是计税、算社保的那个口径)。它是综合工资之外额外发的一笔, 只在最
   // 后一步落到手上: 应发 + 房补 − 扣款 = 实发。
   const grossCny =
     attendancePayCny +
-    otPay +
     nightShiftCny +
     holidayCny +
     bonusCny +

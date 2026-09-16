@@ -76,7 +76,7 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
       </div>
 
       {/* 出勤工资 = 综合工资 ÷ 应出勤工时 × 实际出勤工时; 下面「工资构成」
-          拆的就是它, 那一列加起来正好等于出勤工资。加班费和补贴另加。顺序和
+          拆的就是它 (加班费也在里面), 那一列加起来正好等于出勤工资。顺序和
           屏幕上、导出的工资表完全一样 —— 三处读到的是同一张表。 */}
       <div className="grid grid-cols-2 gap-x-8 py-2">
         <div>
@@ -89,6 +89,10 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
 
           <p className="label mt-2 mb-0.5">工资构成</p>
           <Row label="基本工资" v={s.baseSalaryCny} />
+          <Row
+            label={s.otHours > 0 ? `加班费 · ${fmt(s.otHours)} 小时` : '加班费'}
+            v={s.otPay}
+          />
           {s.splitApplies && <Row label="岗位补助" v={s.postSubsidyCny} />}
           <Row label="餐补" v={s.mealCny} />
           <Row label="话费补助" v={s.phoneAllowanceCny} />
@@ -105,10 +109,6 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
           <Row label="福利" v={s.welfareCny} />
 
           <p className="label mt-2 mb-0.5">另加</p>
-          <Row
-            label={s.otHours > 0 ? `加班费 · ${fmt(s.otHours)} 小时` : '加班费'}
-            v={s.otPay}
-          />
           {PAYROLL_ADD_FIELDS.map(([k, label]) => (
             <Row key={k} label={label} v={s[k]} />
           ))}
