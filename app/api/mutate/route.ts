@@ -241,6 +241,7 @@ import {
   removePayrollDept,
   setPayrollDept,
   setPayrollDeptHours,
+  setPayrollDeptSaturdayHours,
   setPayrollHousing,
   setPayrollLine,
   setPayrollRule,
@@ -3272,6 +3273,22 @@ async function dispatch(
         await addPayrollDept(d)
       }
       await setPayrollDept(name.trim(), d || NO_DEPARTMENT)
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    // 一个部门周六上几个小时 — 操机那几个周六照上满。
+    case 'setPayrollDeptSaturdayHours': {
+      const dept = body.dept
+      const hours = body.hours
+      if (!isString(dept)) return err('bad setPayrollDeptSaturdayHours args')
+      if (!isValidDeptHours(hours)) return err('一天只能是 1 到 16 小时')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      const satRules = await getPayrollRules()
+      if (!allDepartments(satRules).includes(dept) && dept !== NO_DEPARTMENT)
+        return err('没有这个部门')
+      await setPayrollDeptSaturdayHours(dept, hours)
       revalidatePath('/finance')
       return Response.json(ok())
     }

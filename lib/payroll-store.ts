@@ -103,7 +103,7 @@ export async function setPayrollRule(
   })
 }
 
-// 一个部门一天算几个小时 — 商务 10, 车间 11, 操机 12, 人事/采购 8.
+// 一个部门平时一天算几个小时 — 商务 10, 车间 11, 人事/采购 8.
 export async function setPayrollDeptHours(
   dept: string,
   hours: number,
@@ -111,6 +111,21 @@ export async function setPayrollDeptHours(
   await withPayrollLock(async () => {
     const rules = normalizeRules(await readJson(RULES_KEY))
     rules.hoursByDept = { ...rules.hoursByDept, [dept]: hours }
+    await writeJson(RULES_KEY, rules)
+  })
+}
+
+// 一个部门周六上几个小时 — 多数是半天 8, 操机那几个照上满。
+export async function setPayrollDeptSaturdayHours(
+  dept: string,
+  hours: number,
+): Promise<void> {
+  await withPayrollLock(async () => {
+    const rules = normalizeRules(await readJson(RULES_KEY))
+    rules.saturdayHoursByDept = {
+      ...rules.saturdayHoursByDept,
+      [dept]: hours,
+    }
     await writeJson(RULES_KEY, rules)
   })
 }

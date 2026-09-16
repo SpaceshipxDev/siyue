@@ -97,13 +97,13 @@ export function isDepartment(x: unknown): x is string {
 export const DEFAULT_HOURS_BY_DEPT: Record<string, number> = {
   商务: 10,
   人事: 8,
-  工程: 11,
   采购: 8,
+  工程: 11,
   编程: 11,
-  操机: 12,
-  塑料操机: 12,
-  金属操机: 12,
-  车件部: 12,
+  操机: 11,
+  塑料操机: 11,
+  金属操机: 11,
+  车件部: 11,
   检验: 11,
   手工: 11,
   打磨: 11,
@@ -112,6 +112,19 @@ export const DEFAULT_HOURS_BY_DEPT: Record<string, number> = {
   丝印: 11,
   质量: 11,
   出货: 11,
+}
+
+/**
+ * 周六上几个小时 —— 也是一个部门一个数。
+ *
+ * 全厂周六是半天班 (8 小时), 只有操机那几个部门周六照上满: 机床一开就是一整
+ * 天, 没有"上半天"这回事。这里只写跟全厂不一样的那几个, 其余的回落到制度里
+ * 那个 saturdayHours。
+ */
+export const DEFAULT_SATURDAY_HOURS_BY_DEPT: Record<string, number> = {
+  操机: 11,
+  塑料操机: 11,
+  金属操机: 11,
 }
 
 // Somebody whose 部门 nobody has said yet works the commonest day in the shop.
@@ -131,6 +144,8 @@ export type PayrollRules = {
    * hoursByDept 里: 应出勤工时 = 平日 × 本部门每天工时 + 周六 × 这个数。
    */
   saturdayHours: number
+  /** 周六工时跟全厂不一样的那几个部门 —— 操机那几个周六照上满。 */
+  saturdayHoursByDept: Record<string, number>
   sickPct: number // 病假扣薪比例 %（0 = 病假照发, 100 = 全扣）
   absentPct: number // 旷工扣薪比例 %（200 = 旷工一小时扣两小时）
   latePerTime: number // 迟到每次扣款, 元
@@ -213,6 +228,7 @@ export const DEFAULT_PAYROLL_RULES: PayrollRules = {
   restDays: 4,
   hoursByDept: DEFAULT_HOURS_BY_DEPT,
   saturdayHours: 8,
+  saturdayHoursByDept: DEFAULT_SATURDAY_HOURS_BY_DEPT,
   sickPct: 50,
   absentPct: 200,
   latePerTime: 0,
@@ -316,6 +332,7 @@ export function normalizeRules(raw: unknown): PayrollRules {
   const out: PayrollRules = {
     ...DEFAULT_PAYROLL_RULES,
     hoursByDept: { ...DEFAULT_HOURS_BY_DEPT },
+    saturdayHoursByDept: { ...DEFAULT_SATURDAY_HOURS_BY_DEPT },
   }
   for (const k of RULE_KEYS) {
     if (isValidRuleValue(k, o[k])) out[k] = o[k] as number
@@ -324,6 +341,12 @@ export function normalizeRules(raw: unknown): PayrollRules {
   if (typeof h === 'object' && h !== null) {
     for (const [dept, v] of Object.entries(h as Record<string, unknown>)) {
       if (isValidDeptHours(v)) out.hoursByDept[dept] = v
+    }
+  }
+  const sh = o.saturdayHoursByDept
+  if (typeof sh === 'object' && sh !== null) {
+    for (const [dept, v] of Object.entries(sh as Record<string, unknown>)) {
+      if (isValidDeptHours(v)) out.saturdayHoursByDept[dept] = v
     }
   }
   if (Array.isArray(o.extraDepts)) {
@@ -355,6 +378,15 @@ export function allDepartments(rules: PayrollRules): string[] {
 export function hoursForDept(rules: PayrollRules, dept?: string): number {
   const h = dept ? rules.hoursByDept[dept] : undefined
   return isValidDeptHours(h) ? h : FALLBACK_HOURS
+}
+
+/** 这个部门周六上几个小时 —— 没单独设过的就是全厂那个数。 */
+export function saturdayHoursForDept(
+  rules: PayrollRules,
+  dept?: string,
+): number {
+  const h = dept ? rules.saturdayHoursByDept[dept] : undefined
+  return isValidDeptHours(h) ? h : rules.saturdayHours
 }
 
 // === 考勤汇总 ===
@@ -650,7 +682,8 @@ export function saturdaysInMonth(month: string): number {
  * 当月该上多少小时 —— 加班费和每一笔缺勤扣都是从它算出来的。
  *
  *   应出勤天数 = 当月天数 − 月休
- *   其中周六按 rules.saturdayHours 算 (半天班), 其余按本部门每天工时
+ *   其中周六按**本部门的**周六工时算 (多数部门是半天 8 小时, 操机那几个照上
+ *   满 11), 其余按本部门每天工时
  *
  * 月休默认 4 天, 正好是四个周日; 遇到有五个周日的月份, 周六天数会被应出勤天
  * 数夹住, 不会算出比上班天数还多的周六。
@@ -659,11 +692,12 @@ export function standardHoursOf(
   month: string,
   rules: PayrollRules,
   hoursPerDay: number,
+  saturdayHours: number,
 ): { standardDays: number; saturdays: number; standardHours: number } {
   const standardDays = standardDaysOf(month, rules)
   const saturdays = Math.min(saturdaysInMonth(month), standardDays)
   const standardHours =
-    (standardDays - saturdays) * hoursPerDay + saturdays * rules.saturdayHours
+    (standardDays - saturdays) * hoursPerDay + saturdays * saturdayHours
   return { standardDays, saturdays, standardHours: Math.max(1, standardHours) }
 }
 
@@ -705,10 +739,12 @@ export function computePayslip(
   summary?: PayrollAttendanceSummary,
 ): Payslip {
   const hoursPerDay = hoursForDept(rules, dept)
+  const satHours = saturdayHoursForDept(rules, dept)
   const { standardDays, saturdays, standardHours } = standardHoursOf(
     month,
     rules,
     hoursPerDay,
+    satHours,
   )
   const hourlyCny = monthlyCny / standardHours
   const adjustCny = Math.round(line.adjustCny ?? 0)
@@ -918,7 +954,7 @@ export function computePayslip(
     hoursPerDay,
     standardDays,
     saturdays,
-    saturdayHours: rules.saturdayHours,
+    saturdayHours: satHours,
     standardHours,
     hourlyCny,
     attendance,

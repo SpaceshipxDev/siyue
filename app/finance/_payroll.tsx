@@ -13,6 +13,7 @@ import { formatCny } from '@/lib/data'
 import {
   deptsInUse,
   hoursForDept,
+  saturdayHoursForDept,
   monthLabel,
   payrollTotal,
   PAYROLL_ADD_FIELDS,
@@ -240,7 +241,7 @@ export function PayrollBoard({
           </span>
           <Rule label="月休" unit="天" value={rules.restDays} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'restDays', value: v })} />
           <Sep />
-          <Rule label="周六" unit="小时" value={rules.saturdayHours} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'saturdayHours', value: v })} />
+          <Rule label="周六默认" unit="小时" value={rules.saturdayHours} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'saturdayHours', value: v })} />
           <Sep />
           <Rule label="病假扣" unit="%" value={rules.sickPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'sickPct', value: v })} />
           <Sep />
@@ -344,6 +345,8 @@ export function PayrollBoard({
           <span className="mr-2 w-[52px] shrink-0 font-medium text-[var(--color-ink-2)]">
             每天工时
           </span>
+          {/* 一个部门两个数: 平时 / 周六。周六多数部门是半天 8 小时, 操机那
+              几个照上满 —— 机床一开就是一整天, 没有"上半天"这回事。 */}
           {hoursDepts.map((d, i) => (
             <span key={d} className="inline-flex items-baseline">
               {i > 0 && <Sep />}
@@ -355,6 +358,20 @@ export function PayrollBoard({
                 locked={locked}
                 onSave={(v) =>
                   save({ kind: 'setPayrollDeptHours', dept: d, hours: v })
+                }
+              />
+              <span className="text-[var(--color-ink-4)]">/周六</span>
+              <Rule
+                label=""
+                unit=""
+                value={saturdayHoursForDept(rules, d)}
+                locked={locked}
+                onSave={(v) =>
+                  save({
+                    kind: 'setPayrollDeptSaturdayHours',
+                    dept: d,
+                    hours: v,
+                  })
                 }
               />
             </span>
@@ -412,8 +429,8 @@ export function PayrollBoard({
             </>
           )}
           <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-            平时按本部门这个数, 周六按上面那个数 —— 两个加起来就是当月应出勤
-            工时
+            应出勤工时 = 平日 × 平时工时 + 周六 × 周六工时 · 周六那一格没单独
+            设的部门, 用上面的「周六默认」
           </span>
         </div>
       </div>
