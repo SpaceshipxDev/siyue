@@ -89,16 +89,26 @@ async function writeShard(month: string, rows: HrRecord[]): Promise<void> {
   if (upR.error) throw upR.error
 }
 
-// Newest first — the page reads as a diary, most recent at the top.
-function byDateDesc(a: HrRecord, b: HrRecord): number {
-  if (a.date !== b.date) return a.date < b.date ? 1 : -1
-  return (a.createdAt ?? '') < (b.createdAt ?? '') ? 1 : -1
+/**
+ * 按填写顺序 —— 先记下的排在前面。
+ *
+ * 原来是按日期倒序 (最近的在最上面), 读起来像日记。但人记录的时候是照着一张
+ * 假条、一份考勤单一条一条往下敲的, 敲完一看顺序全反了 —— 手上那张纸和屏幕
+ * 上这一列对不起来, 核对时得一条条找。
+ *
+ * 所以认落笔的先后 (createdAt), 早年没有这个字段的老记录退回按日期排。
+ */
+function byEntryOrder(a: HrRecord, b: HrRecord): number {
+  const ak = a.createdAt || a.date
+  const bk = b.createdAt || b.date
+  if (ak !== bk) return ak < bk ? -1 : 1
+  return 0
 }
 
 // 月度 — one shard.
 export async function getHrMonth(month: string): Promise<HrRecord[]> {
   const rows = await readShard(month)
-  return rows.sort(byDateDesc)
+  return rows.sort(byEntryOrder)
 }
 
 // 年度 — twelve shards in parallel. Absent months cost one 404 each and
@@ -109,7 +119,7 @@ export async function getHrYear(year: string): Promise<HrRecord[]> {
     (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`,
   )
   const all = await Promise.all(months.map((m) => readShard(m)))
-  return all.flat().sort(byDateDesc)
+  return all.flat().sort(byEntryOrder)
 }
 
 // === 月度考勤汇总 ===
