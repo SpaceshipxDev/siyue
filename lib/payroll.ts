@@ -555,7 +555,9 @@ export type Payslip = {
   otWeekdayCny: number // 平时加班单价
   otWeekendCny: number // 周末加班单价
   otPay: number // 加班费 = 平时h×平时价 + 周末h×周末价
-  workedHours: number // 实际工时 = 应出勤 − 缺勤 + 加班
+  workedHours: number // 实际工时 — 打卡机给的出勤工时, 或者应出勤 − 缺勤 + 加班
+  /** 出勤工时来自打卡机汇总 (而不是推算的)。 */
+  workedHoursFromClock: boolean
   leaveCut: number // 事假扣
   sickCut: number // 病假扣
   absentCut: number // 旷工扣
@@ -679,6 +681,19 @@ export function tierAllowanceCny(
   return 0
 }
 
+/**
+ * 打卡机月报那一行 —— 有它就以它为准。
+ *
+ * 加班小时和出勤工时是打卡机算出来的, 比谁在人事里一条条记的准; 有汇总的月
+ * 份, 工资读汇总, 没有的月份照旧回落到逐条记录。
+ */
+export type PayrollAttendanceSummary = {
+  workedDays?: number
+  workedHours?: number
+  otWeekdayHours: number
+  otWeekendHours: number
+}
+
 export function computePayslip(
   name: string,
   dept: string,
@@ -687,6 +702,7 @@ export function computePayslip(
   line: PayrollLine,
   rules: PayrollRules,
   month: string,
+  summary?: PayrollAttendanceSummary,
 ): Payslip {
   const hoursPerDay = hoursForDept(rules, dept)
   const { standardDays, saturdays, standardHours } = standardHoursOf(
@@ -717,8 +733,10 @@ export function computePayslip(
 
   // 加班费 —— 厂里定死的小时价, 跟月薪无关。周六周日一个价, 平时一个价; 是
   // 哪种由 人事 那条记录的日期决定 (见 summarizeAttendance)。
-  const otWeekdayHours = attendance.otWeekdayHours
-  const otWeekendHours = attendance.otWeekendHours
+  // 有打卡机汇总就用汇总的加班小时 —— 人事那边一条条记的加班是给没有打卡机
+  // 数据的月份兜底的。
+  const otWeekdayHours = summary?.otWeekdayHours ?? attendance.otWeekdayHours
+  const otWeekendHours = summary?.otWeekendHours ?? attendance.otWeekendHours
   const otHours = otWeekdayHours + otWeekendHours
   const otPay = Math.round(
     otWeekdayHours * rules.otWeekdayCny + otWeekendHours * rules.otWeekendCny,
@@ -734,9 +752,11 @@ export function computePayslip(
 
   const attendanceCutCny = leaveCut + sickCut + absentCut + lateCut
 
-  // 实际出勤天数 —— 应出勤天数减掉缺勤折成的天 (半天假是常事, 留一位小数)。
-  // 加班不算进出勤天数, 它自己有一行。住房补贴按它折算, 所以要先算出来。
+  // 实际出勤天数 —— 打卡机汇总里有就用它 (那是刷卡刷出来的); 没有就拿应出勤
+  // 天数减掉缺勤折成的天 (半天假是常事, 留一位小数)。加班不算进出勤天数, 它
+  // 自己有一行。房补按它折算, 所以要先算出来。
   const workedDays =
+    summary?.workedDays ??
     Math.round(
       Math.max(
         0,
@@ -908,7 +928,10 @@ export function computePayslip(
     otWeekdayCny: rules.otWeekdayCny,
     otWeekendCny: rules.otWeekendCny,
     otPay,
-    workedHours: Math.max(0, Math.round(workedHours * 10) / 10),
+    workedHours:
+      summary?.workedHours ?? Math.max(0, Math.round(workedHours * 10) / 10),
+    /** 出勤工时是不是打卡机给的 —— 条子上标一下出处。 */
+    workedHoursFromClock: summary?.workedHours !== undefined,
     workedDays,
     leaveCut,
     sickCut,
@@ -1011,6 +1034,7 @@ export function buildPayslips(
   lines: Record<string, PayrollLine>,
   rules: PayrollRules,
   month: string,
+  summaries: Record<string, PayrollAttendanceSummary> = {},
 ): Payslip[] {
   return Object.entries(base)
     .filter(([, p]) => p.monthlyCny > 0)
@@ -1023,6 +1047,7 @@ export function buildPayslips(
         lines[name] ?? {},
         rules,
         month,
+        summaries[name],
       ),
     )
 }

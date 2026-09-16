@@ -5118,6 +5118,25 @@ export async function updateShipmentPartQty(
   })
 }
 
+/**
+ * 这一道是谁报完的 —— 撤销前要问的那一句。
+ *
+ * 自己报错了自己撤, 别人报的不能动 (见 /api/mutate 的 undoStage)。返回 null
+ * 表示这一道压根不是「已完成」, 或者是很早以前完成的、没留下经手人。
+ */
+export async function getStageDoneBy(
+  jobId: string,
+  componentId: string,
+  stage: Stage,
+): Promise<string | null> {
+  const snap = await loadJobSnapshot(jobId)
+  const partId = findPartIdInSnap(snap, jobId, componentId)
+  if (!partId) return null
+  const row = snap.idx.stageByPartStage.get(stageKey(partId, stage))
+  if (!row || row.status !== 'done') return null
+  return row.by ?? null
+}
+
 export async function undoStage(
   jobId: string,
   componentId: string,

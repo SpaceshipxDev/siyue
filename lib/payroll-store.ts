@@ -2,7 +2,7 @@ import 'server-only'
 import { supabase, STORAGE_BUCKET } from './supabase'
 import { hrDeptOf } from './auth'
 import { getActiveUsers } from './db'
-import { getHrMonth, getHrRoster } from './hr'
+import { getAttendanceSummary, getHrMonth, getHrRoster } from './hr'
 import {
   allDepartments,
   buildPayslips,
@@ -526,6 +526,7 @@ function normalizeSheet(raw: unknown): PayrollSheet {
       secretFeeCny: typeof s.secretFeeCny === 'number' ? s.secretFeeCny : 0,
       attendanceCutCny:
         typeof s.attendanceCutCny === 'number' ? s.attendanceCutCny : 0,
+      workedHoursFromClock: s.workedHoursFromClock === true,
       baseSalaryCny:
         typeof s.baseSalaryCny === 'number' ? s.baseSalaryCny : 0,
     })),
@@ -620,14 +621,17 @@ export type PayrollView = {
 }
 
 export async function loadPayroll(month: string): Promise<PayrollView> {
-  const [rules, base, sheet, hrRecords, users, extraNames] = await Promise.all([
-    getPayrollRules(),
-    getPayrollBase(),
-    getPayrollSheet(month),
-    getHrMonth(month),
-    getActiveUsers(),
-    getHrRoster(),
-  ])
+  const [rules, base, sheet, hrRecords, users, extraNames, summaries] =
+    await Promise.all([
+      getPayrollRules(),
+      getPayrollBase(),
+      getPayrollSheet(month),
+      getHrMonth(month),
+      getActiveUsers(),
+      getHrRoster(),
+      // 打卡机月报 —— 有就以它为准 (加班小时和出勤工时)。
+      getAttendanceSummary(month),
+    ])
 
   const guessDept = (name: string): string => {
     const account = users.find((u) => u.name === name)
@@ -645,7 +649,14 @@ export async function loadPayroll(month: string): Promise<PayrollView> {
   // A paid-out month renders what was handed over, not a fresh computation.
   const slips = sheet.paid
     ? sheet.paid.slips
-    : buildPayslips(resolved, summarizeAttendance(hrRecords), sheet.lines, rules, month)
+    : buildPayslips(
+        resolved,
+        summarizeAttendance(hrRecords),
+        sheet.lines,
+        rules,
+        month,
+        summaries,
+      )
 
   const onPayroll = new Set(slips.map((s) => s.name))
   const offRoster = [...new Set([...users.map((u) => u.name), ...extraNames])]

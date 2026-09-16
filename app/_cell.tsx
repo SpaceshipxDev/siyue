@@ -66,7 +66,8 @@ export function StageCellButton({
     }
   }
 
-  const canUndoDone = useCanUndoDone()
+  // 自己报的那一格自己能撤; 别人报的还是名单那一档 (见 _stage_scope)。
+  const canUndoDone = useCanUndoDone(state.by)
   const display = optimistic ?? state
   const padding = size === 'lg' ? 'py-3' : 'py-2'
 
@@ -318,7 +319,7 @@ export function StageCellButton({
         title={
           canUndoDone
             ? (attribution ?? '点击撤销 · 退回到进行中')
-            : `${attribution ? `${attribution} · ` : ''}撤销已完成的报工要找 于海伟`
+            : `${attribution ? `${attribution} · ` : ''}只能撤自己报的 — 别人报的找 于海伟`
         }
         aria-label={`${stage} · ${
           error ? '失败 · 重试' : canUndoDone ? '撤销完成' : '已完成'

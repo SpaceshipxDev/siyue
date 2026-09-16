@@ -33,6 +33,7 @@ import {
   deleteProcurementProduct,
   dismissProcurementNeed,
   getActiveUsers,
+  getStageDoneBy,
   deleteComponent,
   deleteOutsourceBlock,
   deletePartPhoto,
@@ -203,6 +204,7 @@ import {
 import {
   addHrRecord,
   addHrRecords,
+  saveAttendanceSummary,
   setHrPersonDept,
   deleteHrRecord as deleteHrRecordRow,
   isValidHrInput,
@@ -1042,7 +1044,20 @@ async function dispatch(
       const u = await requireOwnStage(stage)
       const isVerdictStage = stage === '检验' || stage === '质量'
       if (!isVerdictStage && !canUndoFinishedStage(u)) {
-        return err('撤销已完成的报工要找 于海伟', 403)
+        // 自己报错了自己撤 —— 报工按错一格是当天最常见的事, 让人去找于海伟才
+        // 是真的会让错误留在账上 (没人为一格去麻烦老板, 于是就这么错着)。
+        //
+        // 只限自己那一格: 完成时间和经手人是工资、交期、产能都在读的数, 别人
+        // 报的那一格要动, 还是得找于海伟。共用账号上认的是报工人姓名 (车间半
+        // 数账号是共用的, 账号名认不出人)。
+        const doneBy = await getStageDoneBy(jobId, componentId, stage)
+        const me = reportActor(u, body)
+        if (!doneBy) {
+          return err('这一道没有经手人记录，撤销要找 于海伟', 403)
+        }
+        if (doneBy !== me) {
+          return err(`这一道是 ${doneBy} 报的，只能撤自己报的`, 403)
+        }
       }
       await undoStage(jobId, componentId, stage)
       revalidateStage(jobId, stage)
@@ -2313,6 +2328,46 @@ async function dispatch(
       revalidatePath('/hr')
       revalidatePath('/finance')
       return Response.json(ok({ count }))
+    }
+
+    // 考勤汇总导入 —— 打卡机月报那一张: 一人一行, 出勤天数 / 出勤小时 /
+    // 平时加班 / 周末加班。覆盖式写入, 同一张表导两遍不会翻倍。
+    case 'saveAttendanceSummary': {
+      const month = body.month
+      const rows = body.rows
+      if (!isPayrollMonth(month)) return err('月份不对')
+      if (!Array.isArray(rows) || rows.length === 0)
+        return err('bad saveAttendanceSummary args')
+      if (rows.length > 2000) return err('一次最多 2000 行')
+      const clean: {
+        name: string
+        workedDays?: number
+        workedHours?: number
+        otWeekdayHours: number
+        otWeekendHours: number
+      }[] = []
+      const h = (v: unknown): number | undefined =>
+        typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 999
+          ? v
+          : undefined
+      for (const r of rows) {
+        if (typeof r !== 'object' || r === null) return err('有一行填得不全')
+        const o = r as Record<string, unknown>
+        if (!isString(o.name) || !o.name.trim()) return err('有一行没有姓名')
+        clean.push({
+          name: o.name.trim(),
+          workedDays: h(o.workedDays),
+          workedHours: h(o.workedHours),
+          otWeekdayHours: h(o.otWeekdayHours) ?? 0,
+          otWeekendHours: h(o.otWeekendHours) ?? 0,
+        })
+      }
+      const u = await requireHrUser()
+      if (!canEditHrRecord(u)) return err('无权导入考勤表', 403)
+      const n = await saveAttendanceSummary(month, clean)
+      revalidatePath('/hr')
+      revalidatePath('/finance')
+      return Response.json(ok({ count: n }))
     }
 
     // 改一个人的部门 —— 当期他名下的记录一起改。只有看得到全厂的人能改:

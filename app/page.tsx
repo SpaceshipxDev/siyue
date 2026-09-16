@@ -233,6 +233,7 @@ export default async function MasterBoard(
     <StageScopeProvider
       scope={stageScopeFor(user)}
       canUndoDone={canUndoFinishedStage(user)}
+      me={user.name}
     >
     <div className="flex-1 flex flex-col">
       <TopBar

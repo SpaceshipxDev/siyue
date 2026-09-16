@@ -1104,7 +1104,9 @@ function Slip({
             </span>
             <span className="text-[var(--color-ink-4)]">·</span>
             {s.dept} · 应出勤 {s.standardDays} 天 (含周六 {s.saturdays} 天) ·
-            实际出勤 {num(s.workedDays)} 天 · 平时每天 {num(s.hoursPerDay)} 小时
+            实际出勤 {num(s.workedDays)} 天
+            {s.workedHoursFromClock ? ` / ${num(s.workedHours)} 小时（打卡）` : ''}{' '}
+            · 平时每天 {num(s.hoursPerDay)} 小时
             · 周六 {num(s.saturdayHours)} 小时 · 应出勤 {num(s.standardHours)}{' '}
             小时 · 时薪 ¥{num(s.hourlyCny)}
           </p>

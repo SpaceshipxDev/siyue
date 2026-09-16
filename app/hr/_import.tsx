@@ -27,12 +27,22 @@ type Row = {
   note?: string
 }
 
+/** 汇总表的一行 —— 一人一个月, 没有日期。 */
+type Sum = {
+  name: string
+  workedDays?: number
+  workedHours?: number
+  otWeekdayHours: number
+  otWeekendHours: number
+}
+
 export function HrImport({ month }: { month: string }) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [rows, setRows] = useState<Row[] | null>(null)
+  const [sums, setSums] = useState<Sum[] | null>(null)
   const [fileName, setFileName] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -51,6 +61,7 @@ export function HrImport({ month }: { month: string }) {
       files.length === 1 ? files[0].name : `${files.length} 张表`,
     )
     const all: Row[] = []
+    const allSums: Sum[] = []
     const failed: string[] = []
     try {
       for (const file of files) {
@@ -66,11 +77,15 @@ export function HrImport({ month }: { month: string }) {
             ok?: boolean
             error?: string
             records?: Row[]
+            summaries?: Sum[]
           }
-          if (!data.ok || !data.records || data.records.length === 0) {
+          const got =
+            (data.records?.length ?? 0) + (data.summaries?.length ?? 0)
+          if (!data.ok || got === 0) {
             failed.push(file.name)
           } else {
-            all.push(...data.records)
+            all.push(...(data.records ?? []))
+            allSums.push(...(data.summaries ?? []))
           }
         } catch {
           failed.push(file.name)
@@ -88,11 +103,19 @@ export function HrImport({ month }: { month: string }) {
         return true
       })
 
-      if (merged.length === 0) {
+      // 汇总表也去重: 同一个人在两张表里出现, 后一张说了算 (多半是补传的
+      // 更新版)。
+      const sumByName = new Map<string, Sum>()
+      for (const r of allSums) sumByName.set(r.name, r)
+      const mergedSums = [...sumByName.values()].sort((a, b) =>
+        a.name.localeCompare(b.name, 'zh'),
+      )
+
+      if (merged.length === 0 && mergedSums.length === 0) {
         setError(
           failed.length > 0
-            ? `${failed.join('、')} 没读出加班或请假的记录`
-            : '这几张表里没读到加班或请假的记录',
+            ? `${failed.join('、')} 没读出考勤`
+            : '这几张表里没读到考勤',
         )
         return
       }
@@ -100,7 +123,8 @@ export function HrImport({ month }: { month: string }) {
         (a, b) =>
           a.date.localeCompare(b.date) || a.name.localeCompare(b.name, 'zh'),
       )
-      setRows(merged)
+      setRows(merged.length > 0 ? merged : [])
+      setSums(mergedSums.length > 0 ? mergedSums : null)
       if (failed.length > 0) setError(`${failed.join('、')} 没读出来`)
     } finally {
       setBusy(false)
@@ -110,21 +134,36 @@ export function HrImport({ month }: { month: string }) {
   }
 
   const commit = async () => {
-    if (!rows || rows.length === 0) return
+    const hasRows = rows && rows.length > 0
+    const hasSums = sums && sums.length > 0
+    if (!hasRows && !hasSums) return
     setBusy(true)
     try {
-      const r = await mutate<{ count: number }>({
-        kind: 'addHrRecords',
-        inputs: rows.map((x) => ({
-          name: x.name,
-          type: x.type,
-          date: x.date,
-          hours: hrHasHours(x.type) ? x.hours : undefined,
-          note: x.note,
-        })),
-      })
+      let done = 0
+      if (hasSums) {
+        const r = await mutate<{ count: number }>({
+          kind: 'saveAttendanceSummary',
+          month,
+          rows: sums,
+        })
+        done += r.data.count
+      }
+      if (hasRows) {
+        const r = await mutate<{ count: number }>({
+          kind: 'addHrRecords',
+          inputs: rows!.map((x) => ({
+            name: x.name,
+            type: x.type,
+            date: x.date,
+            hours: hrHasHours(x.type) ? x.hours : undefined,
+            note: x.note,
+          })),
+        })
+        done += r.data.count
+      }
       setRows(null)
-      showToast(`已记入 ${r.data.count} 条`, 'success')
+      setSums(null)
+      showToast(`已记入 ${done} 条`, 'success')
       router.refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : '记不上')
@@ -163,12 +202,17 @@ export function HrImport({ month }: { month: string }) {
         <span className="text-[12px] text-[var(--color-overdue)]">{error}</span>
       ) : null}
 
-      {rows ? (
+      {rows || sums ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 px-4">
           <div className="flex max-h-[82vh] w-full max-w-2xl flex-col rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
             <div className="flex items-baseline justify-between gap-4 border-b border-[var(--color-border)] px-5 py-3">
               <span className="text-[14px] font-semibold tracking-tight">
-                读到 {rows.length} 条 · {monthLabel(month)}
+                读到{' '}
+                {sums ? `${sums.length} 人的月度汇总` : `${rows?.length ?? 0} 条`}
+                {sums && rows && rows.length > 0
+                  ? ` + ${rows.length} 条明细`
+                  : ''}{' '}
+                · {monthLabel(month)}
               </span>
               <span className="min-w-0 truncate text-[11.5px] text-[var(--color-ink-4)]">
                 {fileName}
@@ -176,7 +220,43 @@ export function HrImport({ month }: { month: string }) {
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-1">
-              {rows.map((r, i) => (
+              {/* 汇总表 —— 一人一行: 出勤 / 平时加班 / 周末加班。工资那边要的
+                  就是这几个数。 */}
+              {sums?.map((r, i) => (
+                <div
+                  key={`s-${r.name}-${i}`}
+                  className="flex items-baseline gap-3 border-b border-[var(--color-border)] py-2 last:border-b-0"
+                >
+                  <span className="w-[76px] shrink-0 truncate text-[13px] font-medium">
+                    {r.name}
+                  </span>
+                  <span className="mono w-[104px] shrink-0 text-[12.5px] text-[var(--color-ink-2)]">
+                    {r.workedDays !== undefined ? `${r.workedDays}天` : ''}
+                    {r.workedHours !== undefined ? ` ${r.workedHours}h` : ''}
+                  </span>
+                  <span className="mono w-[92px] shrink-0 text-[12.5px] text-[var(--color-ink-2)]">
+                    {r.otWeekdayHours > 0 ? `平时 ${r.otWeekdayHours}h` : ''}
+                  </span>
+                  <span className="mono w-[92px] shrink-0 text-[12.5px] text-[var(--color-ink-2)]">
+                    {r.otWeekendHours > 0 ? `周末 ${r.otWeekendHours}h` : ''}
+                  </span>
+                  <span className="min-w-0 flex-1" />
+                  <button
+                    type="button"
+                    title="不记这一行"
+                    onClick={() =>
+                      setSums((cur) => {
+                        const next = (cur ?? []).filter((_, j) => j !== i)
+                        return next.length > 0 ? next : null
+                      })
+                    }
+                    className="shrink-0 px-1 text-[12px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              {rows?.map((r, i) => (
                 <div
                   key={`${r.name}-${r.date}-${r.type}-${i}`}
                   className="flex items-baseline gap-3 border-b border-[var(--color-border)] py-2 last:border-b-0"
@@ -216,15 +296,20 @@ export function HrImport({ month }: { month: string }) {
               <button
                 type="button"
                 onClick={commit}
-                disabled={busy || rows.length === 0}
+                disabled={
+                  busy || ((rows?.length ?? 0) === 0 && (sums?.length ?? 0) === 0)
+                }
                 className="rounded-[2px] bg-[var(--color-ink)] px-4 py-1.5 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-40"
               >
-                {busy ? '记入中…' : `记入 ${rows.length} 条`}
+                {busy
+                  ? '记入中…'
+                  : `记入 ${(rows?.length ?? 0) + (sums?.length ?? 0)} 条`}
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setRows(null)
+                  setSums(null)
                   setError(null)
                 }}
                 disabled={busy}
@@ -238,7 +323,9 @@ export function HrImport({ month }: { month: string }) {
                 </span>
               ) : (
                 <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-                  不对的划掉再记 · 加班会自动分平时和周末 · 重复的已并掉
+                  {sums
+                    ? '不对的划掉再记 · 同一个月再导一次是覆盖, 不会翻倍'
+                    : '不对的划掉再记 · 加班会自动分平时和周末 · 重复的已并掉'}
                 </span>
               )}
             </div>

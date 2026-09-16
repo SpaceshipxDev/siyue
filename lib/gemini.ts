@@ -271,6 +271,15 @@ export async function extractJobFromXlsx(input: ExtractInput): Promise<Extracted
 // 只要"有事"的那些格子: 正常上班一天不产生记录 (人事本来就是异常簿加加班
 // 簿)。拿不准的宁可不输出 —— 漏一条人看得出来, 凭空多一条没人看得出来。
 
+/** 汇总表的一行 —— 一人一个月, 没有日期。 */
+export type ExtractedAttendanceSummary = {
+  name: string
+  workedDays?: number | null
+  workedHours?: number | null
+  otWeekdayHours?: number | null
+  otWeekendHours?: number | null
+}
+
 export type ExtractedHrRecord = {
   name: string
   type: string
@@ -282,6 +291,27 @@ export type ExtractedHrRecord = {
 const HR_SCHEMA = {
   type: Type.OBJECT,
   properties: {
+    summaries: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          workedDays: { type: Type.NUMBER, nullable: true },
+          workedHours: { type: Type.NUMBER, nullable: true },
+          otWeekdayHours: { type: Type.NUMBER, nullable: true },
+          otWeekendHours: { type: Type.NUMBER, nullable: true },
+        },
+        required: ['name'],
+        propertyOrdering: [
+          'name',
+          'workedDays',
+          'workedHours',
+          'otWeekdayHours',
+          'otWeekendHours',
+        ],
+      },
+    },
     records: {
       type: Type.ARRAY,
       items: {
@@ -301,18 +331,39 @@ const HR_SCHEMA = {
   required: ['records'],
 }
 
-type GeminiHrJson = { records: ExtractedHrRecord[] }
+type GeminiHrJson = {
+  records: ExtractedHrRecord[]
+  summaries?: ExtractedAttendanceSummary[]
+}
 
 export async function extractAttendanceFromXlsx(input: {
   fileName: string
   month: string
   sheets: { name: string; aoa: (string | number | boolean | null)[][] }[]
-}): Promise<ExtractedHrRecord[]> {
+}): Promise<{
+  records: ExtractedHrRecord[]
+  summaries: ExtractedAttendanceSummary[]
+}> {
   const ai = client()
 
-  const system = `你是一名工厂人事助手，负责把考勤表整理成一条一条的人事记录。
+  const system = `你是一名工厂人事助手，负责读厂里的考勤表。
 
-考勤表的样子不固定：常见的是一人一行、一个月的日期排成一排列，格子里写着当天的情况（加班小时数、请假、迟到、旷工）；也有一行就是一条记录的流水表。两种都要能读。
+厂里的考勤表有两种，先判断手上这张是哪一种，再按对应的方式输出：
+
+**第一种：汇总表**（打卡机导出的月报最常见）
+一人一行，没有日期，只有这个月的合计：出勤天数、出勤小时（也叫上班工时/总工时）、平时加班、周末加班（也叫双休加班/休息日加班）。
+这一种输出到 summaries，每人一行：
+- name 姓名
+- workedDays 出勤天数
+- workedHours 出勤小时 / 上班总工时
+- otWeekdayHours 平时加班小时
+- otWeekendHours 周末加班小时
+表里没有的列留 null。有一列叫"加班时长"而同时又有"平时加班""周末加班"两列时，以后两列为准（"加班时长"常常是空的或者重复计的）。
+汇总表的 records 输出空数组。
+
+**第二种：流水表**
+一人一行、一个月的日期排成一排列（格子里写着当天的加班小时数、请假、迟到），或者一行就是一条记录。
+这一种输出到 records，一条一条拆开，summaries 输出空数组。
 
 只输出"有事"的格子，正常上班的日子不要输出任何东西。
 
@@ -366,5 +417,8 @@ note：格子里除时长以外的说明，比如"事假 家里有事"里的"家
       `Gemini returned non-JSON output: ${err instanceof Error ? err.message : String(err)}`,
     )
   }
-  return Array.isArray(parsed.records) ? parsed.records : []
+  return {
+    records: Array.isArray(parsed.records) ? parsed.records : [],
+    summaries: Array.isArray(parsed.summaries) ? parsed.summaries : [],
+  }
 }

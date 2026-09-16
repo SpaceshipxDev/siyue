@@ -112,6 +112,105 @@ export async function getHrYear(year: string): Promise<HrRecord[]> {
   return all.flat().sort(byDateDesc)
 }
 
+// === 月度考勤汇总 ===
+//
+// 打卡机导出的那张表不是流水, 是**汇总**: 一人一行, 没有日期, 只有这个月的
+// 出勤天数、出勤小时、平时加班、周末加班。厂里真正在用的就是这张。
+//
+// 所以它不走上面那条"一条一条记"的路 —— 拆不出日期, 也没必要拆: 工资要的本
+// 来就是这四个数。一个月一个文件, 覆盖式写入 (同一个月再导一次就是重来一
+// 遍, 不会翻倍)。
+//
+// 跟逐条记录并存, 各管各的: 请假、迟到那些还是一条一条记 (要看是哪天、什么
+// 缘由); 加班小时**以汇总为准** —— 打卡机算出来的比人手记的准。当月没有汇总
+// 时, 工资那边照旧回落到逐条记录 (见 lib/payroll)。
+export type AttendanceSummary = {
+  name: string
+  workedDays?: number // 出勤天数
+  workedHours?: number // 出勤小时 — 上班总工时
+  otWeekdayHours: number // 平时加班
+  otWeekendHours: number // 周末加班
+}
+
+function summaryKey(month: string): string {
+  return `hr/summary-${month.replace(/[^0-9-]/g, '')}.json`
+}
+
+function hrHours(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return 0
+  return Math.round(Math.min(v, 999) * 10) / 10
+}
+
+export async function getAttendanceSummary(
+  month: string,
+): Promise<Record<string, AttendanceSummary>> {
+  const { data, error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .download(summaryKey(month))
+  if (error || !data) return {}
+  try {
+    const arr = JSON.parse(await data.text())
+    if (!Array.isArray(arr)) return {}
+    const out: Record<string, AttendanceSummary> = {}
+    for (const v of arr as unknown[]) {
+      if (typeof v !== 'object' || v === null) continue
+      const r = v as Record<string, unknown>
+      const name = typeof r.name === 'string' ? r.name.trim() : ''
+      if (!name) continue
+      out[name] = {
+        name,
+        workedDays:
+          typeof r.workedDays === 'number' ? hrHours(r.workedDays) : undefined,
+        workedHours:
+          typeof r.workedHours === 'number'
+            ? hrHours(r.workedHours)
+            : undefined,
+        otWeekdayHours: hrHours(r.otWeekdayHours),
+        otWeekendHours: hrHours(r.otWeekendHours),
+      }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * 存一个月的考勤汇总 —— 覆盖式: 名单里有的人整行替换, 没提到的人原样留着。
+ *
+ * 覆盖而不是累加: 同一张表导第二遍 (网络断了、不放心再传一次) 不该把加班翻
+ * 倍。要改某一个人, 单独导他那一行也行。
+ */
+export async function saveAttendanceSummary(
+  month: string,
+  rows: AttendanceSummary[],
+): Promise<number> {
+  const clean = rows
+    .map((r) => ({
+      name: r.name.trim(),
+      workedDays: r.workedDays,
+      workedHours: r.workedHours,
+      otWeekdayHours: hrHours(r.otWeekdayHours),
+      otWeekendHours: hrHours(r.otWeekendHours),
+    }))
+    .filter((r) => r.name.length > 0)
+  if (clean.length === 0) return 0
+  await withHrLock(async () => {
+    const existing = await getAttendanceSummary(month)
+    for (const r of clean) existing[r.name] = r
+    const body = Buffer.from(JSON.stringify(Object.values(existing)), 'utf8')
+    const upR = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(summaryKey(month), body, {
+        contentType: 'application/json',
+        upsert: true,
+      })
+    if (upR.error) throw upR.error
+    for (const r of clean) await rememberName(r.name)
+  })
+  return clean.length
+}
+
 // Which periods have anything in them, so the picker only offers real months.
 // Derived from the bucket listing rather than a scan of the files themselves.
 export async function getHrMonths(): Promise<string[]> {

@@ -44,11 +44,42 @@ export async function POST(request: NextRequest) {
     const wb = parseWorkbook(buf, file.name)
     // 整本读进去，让模型自己认哪张是考勤表；一张月考勤表的格子数对它不算多。
     const sheets = wb.sheets.map((s) => ({ name: s.name, aoa: s.aoa }))
-    const raw = await extractAttendanceFromXlsx({
+    const parsed = await extractAttendanceFromXlsx({
       fileName: file.name,
       month,
       sheets,
     })
+    const raw = parsed.records
+
+    // 汇总表 —— 一人一行, 没有日期, 只有这个月的合计。厂里打卡机导出的就是
+    // 这一种, 工资那边要的也正是这四个数。
+    const num = (v: unknown): number | undefined =>
+      typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 999
+        ? Math.round(v * 10) / 10
+        : undefined
+    const summaries = (parsed.summaries ?? [])
+      .map((r) => {
+        const name = String(r.name ?? '').trim()
+        if (!name) return null
+        const row = {
+          name,
+          workedDays: num(r.workedDays),
+          workedHours: num(r.workedHours),
+          otWeekdayHours: num(r.otWeekdayHours) ?? 0,
+          otWeekendHours: num(r.otWeekendHours) ?? 0,
+        }
+        // 四个数全是空的那一行不是人, 是表头或者小计行。
+        if (
+          row.workedDays === undefined &&
+          row.workedHours === undefined &&
+          row.otWeekdayHours === 0 &&
+          row.otWeekendHours === 0
+        )
+          return null
+        return row
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
 
     // 模型输出照单全收是不行的：类型必须是人事认的那几个词，时长必须是正
     // 数，日期必须落在这张表的月份里 —— 落在别的月份多半是它把"3/5"读串了。
@@ -79,7 +110,12 @@ export async function POST(request: NextRequest) {
       .filter((r): r is NonNullable<typeof r> => r !== null)
       .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name, 'zh'))
 
-    return Response.json({ ok: true, records, dropped: raw.length - records.length })
+    return Response.json({
+      ok: true,
+      records,
+      summaries,
+      dropped: raw.length - records.length,
+    })
   } catch (err) {
     return Response.json({ ok: false, error: errMessage(err) }, { status: 500 })
   }

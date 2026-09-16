@@ -10,6 +10,7 @@ import {
 } from 'react'
 import type { ReactNode } from 'react'
 import type { Stage } from '@/lib/data'
+import { getReporterName } from '@/app/_reporter'
 
 // 报工工段范围, server-computed (lib/auth stageScopeFor) and mounted by the
 // pages that render stage cells (master board / station workbench / job
@@ -23,8 +24,10 @@ type StageScopeValue = 'all' | readonly Stage[]
 type Ctx = {
   scope: StageScopeValue
   deny: (stage: Stage) => void
-  /** 能不能把一道「已完成」退回去 — 名单制, 见 lib/auth canUndoFinishedStage。 */
+  /** 能不能把**别人**报的那一道「已完成」退回去 — 名单制, 见 canUndoFinishedStage。 */
   canUndoDone: boolean
+  /** 当前账号的名字 — 判"这一道是不是我自己报的"用。 */
+  me: string
 }
 
 // Default is fail-open ('all'): a cell rendered outside any provider behaves
@@ -34,11 +37,24 @@ const StageScopeContext = createContext<Ctx>({
   scope: 'all',
   deny: () => {},
   canUndoDone: true,
+  me: '',
 })
 
-/** 撤销「已完成」的权限 — 服务端会再查一次, 这层只是别让人白点。 */
-export function useCanUndoDone(): boolean {
-  return useContext(StageScopeContext).canUndoDone
+/**
+ * 这一格的「已完成」能不能撤 — 服务端会再查一次, 这层只是别让人白点。
+ *
+ * 两条路: 名单里的人谁报的都能撤; 其余的人**只能撤自己报的那一格** —— 报工
+ * 按错一格是当天最常见的事, 让人去找老板改, 结果就是错着不管了。
+ *
+ * "自己"认的是报工人姓名 (车间半数账号是共用的, 账号名认不出人); 没设报工人
+ * 的就认账号名。
+ */
+export function useCanUndoDone(doneBy?: string): boolean {
+  const { canUndoDone, me } = useContext(StageScopeContext)
+  if (canUndoDone) return true
+  if (!doneBy) return false
+  const reporter = getReporterName()
+  return doneBy === (reporter || me)
 }
 
 /** Pure read — used by the workbench to keep foreign stations read-only. */
@@ -80,18 +96,21 @@ export function useStageGuard(stage: Stage): {
 export function StageScopeProvider({
   scope,
   canUndoDone = true,
+  me = '',
   children,
 }: {
   scope: StageScopeValue
-  /** 撤销「已完成」 — 默认放行, 服务端才是真的边界。 */
+  /** 撤销**别人**报的「已完成」 — 默认放行, 服务端才是真的边界。 */
   canUndoDone?: boolean
+  /** 当前账号的名字 — 判"这一道是不是我自己报的"。 */
+  me?: string
   children: ReactNode
 }) {
   const [denied, setDenied] = useState<Stage | null>(null)
   const deny = useCallback((s: Stage) => setDenied(s), [])
   const value = useMemo(
-    () => ({ scope, deny, canUndoDone }),
-    [scope, deny, canUndoDone],
+    () => ({ scope, deny, canUndoDone, me }),
+    [scope, deny, canUndoDone, me],
   )
   return (
     <StageScopeContext.Provider value={value}>
