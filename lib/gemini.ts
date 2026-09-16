@@ -437,6 +437,12 @@ export type ExtractedPayrollRow = {
   dept?: string | null
   monthlyCny?: number | null
   housingAllowanceCny?: number | null
+  // —— 按月变的那几样。厂里的工资表常常把考勤也抄在同一张表上, 顺手读进来,
+  //    省得再单独传一份考勤表。
+  workedDays?: number | null
+  workedHours?: number | null
+  otWeekdayHours?: number | null
+  otWeekendHours?: number | null
 }
 
 const PAYROLL_SCHEMA = {
@@ -451,6 +457,10 @@ const PAYROLL_SCHEMA = {
           dept: { type: Type.STRING, nullable: true },
           monthlyCny: { type: Type.NUMBER, nullable: true },
           housingAllowanceCny: { type: Type.NUMBER, nullable: true },
+          workedDays: { type: Type.NUMBER, nullable: true },
+          workedHours: { type: Type.NUMBER, nullable: true },
+          otWeekdayHours: { type: Type.NUMBER, nullable: true },
+          otWeekendHours: { type: Type.NUMBER, nullable: true },
         },
         required: ['name'],
         propertyOrdering: [
@@ -458,6 +468,10 @@ const PAYROLL_SCHEMA = {
           'dept',
           'monthlyCny',
           'housingAllowanceCny',
+          'workedDays',
+          'workedHours',
+          'otWeekdayHours',
+          'otWeekendHours',
         ],
       },
     },
@@ -478,6 +492,13 @@ export async function extractPayrollFromXlsx(input: {
 - dept 部门。列名常见的有"部门""岗位""工段""车间"。找不到留 null。
 - monthlyCny 综合工资。列名常见的有"综合工资""月薪""工资""基本工资+补贴合计""月工资总额"。只要那个总数，单位元，去掉 ¥ 和逗号。找不到留 null。
 - housingAllowanceCny 房补。列名常见的有"房补""住房补贴""租房补贴""住宿补贴"。找不到留 null。
+
+这张表上如果还抄了考勤，一并读出来（没有就全留 null）：
+- workedDays 出勤天数
+- workedHours 实际出勤小时。列名常见的有"出勤小时""实际出勤小时""上班工时""出勤工时""总工时"。
+- otWeekdayHours 平时加班小时
+- otWeekendHours 周末加班小时。列名常见的有"周末加班""双休加班""休息日加班"。
+同时有"加班时长"和"平时加班/周末加班"时，以后两列为准。
 
 注意：
 - 跳过表头行、合计行、小计行、空行、部门分隔行。

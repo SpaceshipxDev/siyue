@@ -210,7 +210,7 @@ export function PayrollBoard({
             导出工资表
           </Link>
           {/* Excel 上定好的那张表 —— 姓名/部门/综合工资/房补 一次导进来。 */}
-          <PayrollImport locked={locked} />
+          <PayrollImport month={month} locked={locked} />
           {paid ? (
             <button
               type="button"

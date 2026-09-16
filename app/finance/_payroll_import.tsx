@@ -12,9 +12,12 @@ import { formatCny } from '@/lib/data'
 // 三步，中间那一步是关键：
 //   选文件 → **预览、划掉不对的** → 导入
 //
-// 只读**跟着人走**的那四样：姓名 · 部门 · 综合工资 · 房补。它们定一次管往后
-// 每个月。按月变的东西（加班、餐补、社保、个税）不在这儿：加班来自考勤，其余
-// 在工资条上一个月填一次。
+// 读两类东西，各归各的地方：
+//   跟着人走的四样（姓名 · 部门 · 综合工资 · 房补）→ 名册，定一次管往后每月
+//   按月变的（实际出勤小时 · 出勤天数 · 平时/周末加班）→ 当月的考勤汇总
+//
+// 厂里的工资表常常把考勤也抄在同一张表上，那就顺手一起读进来，省得再单独传
+// 一份考勤表。表上没有的列一概不动。
 //
 // 表里没给的那一列不动：只有部门那一列的表，不会把谁的工资清成 0。已经在表
 // 上的人是更新，没有的人是新加。
@@ -24,9 +27,31 @@ type Row = {
   dept?: string
   monthlyCny?: number
   housingAllowanceCny?: number
+  // 按月变的那几样 —— 写进当月的考勤汇总, 不进名册。
+  workedDays?: number
+  workedHours?: number
+  otWeekdayHours?: number
+  otWeekendHours?: number
 }
 
-export function PayrollImport({ locked }: { locked: boolean }) {
+/** 这一行带没带考勤 —— 带了就顺手把当月的出勤和加班也写了。 */
+function hasAttendance(r: Row): boolean {
+  return (
+    r.workedDays !== undefined ||
+    r.workedHours !== undefined ||
+    r.otWeekdayHours !== undefined ||
+    r.otWeekendHours !== undefined
+  )
+}
+
+export function PayrollImport({
+  month,
+  locked,
+}: {
+  /** 当前看的那个月 — 表上抄来的考勤写进这个月。 */
+  month: string
+  locked: boolean
+}) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
@@ -71,9 +96,28 @@ export function PayrollImport({ locked }: { locked: boolean }) {
         kind: 'importPayrollBase',
         rows,
       })
+      // 表上抄了考勤的那几行 —— 出勤小时和加班写进这个月的考勤汇总。名册那
+      // 边只管跟着人走的四样, 按月变的东西不该躺在名册里。
+      const att = rows.filter(hasAttendance)
+      let attCount = 0
+      if (att.length > 0) {
+        const a = await mutate<{ count: number }>({
+          kind: 'saveAttendanceSummary',
+          month,
+          rows: att.map((x) => ({
+            name: x.name,
+            workedDays: x.workedDays,
+            workedHours: x.workedHours,
+            otWeekdayHours: x.otWeekdayHours ?? 0,
+            otWeekendHours: x.otWeekendHours ?? 0,
+          })),
+        })
+        attCount = a.data.count
+      }
       setRows(null)
       showToast(
-        `已导入 · 新增 ${r.data.added} 人 · 更新 ${r.data.updated} 人`,
+        `已导入 · 新增 ${r.data.added} 人 · 更新 ${r.data.updated} 人` +
+          (attCount > 0 ? ` · 考勤 ${attCount} 人` : ''),
         'success',
       )
       router.refresh()
@@ -139,7 +183,11 @@ export function PayrollImport({ locked }: { locked: boolean }) {
                       ? `房补 ${formatCny(r.housingAllowanceCny)}`
                       : ''}
                   </span>
-                  <span className="min-w-0 flex-1" />
+                  <span className="mono min-w-0 flex-1 truncate text-[12px] text-[var(--color-ink-3)]">
+                    {r.workedHours !== undefined ? `出勤 ${r.workedHours}h` : ''}
+                    {r.otWeekdayHours ? ` 平时 ${r.otWeekdayHours}h` : ''}
+                    {r.otWeekendHours ? ` 周末 ${r.otWeekendHours}h` : ''}
+                  </span>
                   <button
                     type="button"
                     title="不导这一行"
@@ -183,7 +231,8 @@ export function PayrollImport({ locked }: { locked: boolean }) {
                 </span>
               ) : (
                 <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-                  表里没给的那一列不动 · 工资真的动了会记一条调薪
+                  表里没给的那一列不动 · 工资真的动了会记一条调薪 · 出勤和加
+                  班写进当月
                 </span>
               )}
             </div>

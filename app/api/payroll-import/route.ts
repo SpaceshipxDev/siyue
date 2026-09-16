@@ -40,6 +40,11 @@ export async function POST(request: NextRequest) {
       typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 200000
         ? Math.round(v)
         : undefined
+    // 工时按小时, 留一位小数 —— 249.5 这种是常态。
+    const hours = (v: unknown): number | undefined =>
+      typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 999
+        ? Math.round(v * 10) / 10
+        : undefined
 
     const rows = raw
       .map((r) => {
@@ -51,12 +56,21 @@ export async function POST(request: NextRequest) {
           dept: dept || undefined,
           monthlyCny: money(r.monthlyCny),
           housingAllowanceCny: money(r.housingAllowanceCny),
+          // 按月变的那几样 —— 写进当月的考勤汇总, 不进名册。
+          workedDays: hours(r.workedDays),
+          workedHours: hours(r.workedHours),
+          otWeekdayHours: hours(r.otWeekdayHours),
+          otWeekendHours: hours(r.otWeekendHours),
         }
-        // 三样全空的那一行不是人, 是表头或者分隔行。
+        // 什么都没读到的那一行不是人, 是表头或者分隔行。
         if (
           row.dept === undefined &&
           row.monthlyCny === undefined &&
-          row.housingAllowanceCny === undefined
+          row.housingAllowanceCny === undefined &&
+          row.workedDays === undefined &&
+          row.workedHours === undefined &&
+          row.otWeekdayHours === undefined &&
+          row.otWeekendHours === undefined
         )
           return null
         return row
