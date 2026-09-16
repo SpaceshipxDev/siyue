@@ -612,7 +612,7 @@ export type Payslip = {
   fullAttendanceCny: number // 全勤 — 无事假/病假/旷工/迟到才有
   /** 社保补贴 = 可分配额 × socialRatePct, 手填过就是手填的那个数。 */
   socialSubsidyCny: number
-  /** 可分配额 = 出勤工资 − 基本工资 —— 按比例那几项乘的都是它。 */
+  /** 可分配额 = 出勤工资 − 基本工资 − 加班费 —— 按比例那几项乘的都是它。 */
   ratedBaseCny: number
   /**
    * 福利 = 出勤工资 − 以上所有项目。
@@ -864,11 +864,14 @@ export function computePayslip(
   // === 可分配额 ===
   //
   // 按比例分的那几项 (岗位补助 · 绩效工资 · 安全补贴 · 保密补贴 · 社保补贴)
-  // 乘的都是这一个数: **出勤工资 − 基本工资**。
+  // 乘的都是这一个数: **出勤工资 − 基本工资 − 加班费**。
   //
   // 拆的是出勤工资而不是综合工资: 这个月实际拿到手的那个数才是要分的盘子,
   // 少干了几小时, 各项跟着一起薄, 而不是只薄一格。
-  const ratedBaseCny = Math.max(0, attendancePayCny - baseSalaryCny)
+  //
+  // 基本工资是定额、加班费是专款, 两样都先拿走再分 —— 加班那几个小时的钱是
+  // 按厂里定的小时价另算的, 不该再被摊进岗位和绩效的比例里。
+  const ratedBaseCny = Math.max(0, attendancePayCny - baseSalaryCny - otPay)
   const postSubsidyCny = on(ratedBaseCny * (rules.postRatePct / 100))
   const perfPayCny = Math.round(
     ratedBaseCny *
