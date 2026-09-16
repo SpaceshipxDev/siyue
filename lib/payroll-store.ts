@@ -178,6 +178,9 @@ function normalizeBase(raw: unknown): Record<string, PayrollPerson> {
       monthlyCny: p.monthlyCny,
       dept:
         typeof p.dept === 'string' && p.dept.trim() ? p.dept : NO_DEPARTMENT,
+      housingAllowanceCny: isValidPayrollMoney(p.housingAllowanceCny)
+        ? p.housingAllowanceCny
+        : undefined,
     }
   }
   return out
@@ -185,6 +188,25 @@ function normalizeBase(raw: unknown): Record<string, PayrollPerson> {
 
 export async function getPayrollBase(): Promise<Record<string, PayrollPerson>> {
   return normalizeBase(await readJson(BASE_KEY))
+}
+
+/**
+ * 一个人的房补 —— 定一次, 以后每个月都是这个数。
+ *
+ * 0 就是没有 (在外面不租房的人)。存在名册上而不是某个月的表里: 月月都要填
+ * 一遍的东西, 总有一个月会漏, 而漏了没人看得出来。
+ */
+export async function setPayrollHousing(
+  name: string,
+  cny: number,
+): Promise<void> {
+  await withPayrollLock(async () => {
+    const base = normalizeBase(await readJson(BASE_KEY))
+    const row = base[name]
+    if (!row) throw new Error(`${name} 不在工资表上`)
+    base[name] = { ...row, housingAllowanceCny: cny > 0 ? cny : 0 }
+    await writeJson(BASE_KEY, base)
+  })
 }
 
 // 0 (or a cleared field) takes the person OFF payroll — one number is the whole
@@ -210,6 +232,8 @@ export async function setPayrollBase(
       base[name] = {
         monthlyCny,
         dept: had && had !== NO_DEPARTMENT ? had : dept,
+        // 房补跟着人走, 改月薪不该把它抹掉。
+        housingAllowanceCny: before?.housingAllowanceCny,
       }
     } else delete base[name]
     await writeJson(BASE_KEY, base)

@@ -977,6 +977,14 @@ export function computePayslip(
 export type PayrollPerson = {
   monthlyCny: number
   dept: string
+  /**
+   * 房补 —— 跟着人走, 不是跟着月份走。
+   *
+   * 在外面租房的人月月都租, 数也是谈好的那一个, 没道理每个月重填一遍 (漏填
+   * 一个月就是少发一笔, 而且没人看得出来)。定一次, 以后每个月都带出来; 要
+   * 改就改这一个数, 往后的月份一起变。已发放的月份是冻住的, 不受影响。
+   */
+  housingAllowanceCny?: number
 }
 
 // === 调薪记录 ===
@@ -1038,18 +1046,24 @@ export function buildPayslips(
 ): Payslip[] {
   return Object.entries(base)
     .filter(([, p]) => p.monthlyCny > 0)
-    .map(([name, p]) =>
-      computePayslip(
+    .map(([name, p]) => {
+      // 房补跟着人走 —— 名册上定了就以名册为准, 每个月一样。名册上没定过的
+      // (这一项还按月填那会儿留下的老数据) 照旧读那个月自己的。
+      const line = { ...(lines[name] ?? {}) }
+      if (p.housingAllowanceCny !== undefined) {
+        line.housingAllowanceCny = p.housingAllowanceCny
+      }
+      return computePayslip(
         name,
         p.dept,
         p.monthlyCny,
         attendance[name] ?? EMPTY_ATTENDANCE,
-        lines[name] ?? {},
+        line,
         rules,
         month,
         summaries[name],
-      ),
-    )
+      )
+    })
 }
 
 // 商务 first, then the floor in stage order, unknowns last — DEPARTMENTS' own

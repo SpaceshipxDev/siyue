@@ -240,6 +240,7 @@ import {
   removePayrollDept,
   setPayrollDept,
   setPayrollDeptHours,
+  setPayrollHousing,
   setPayrollLine,
   setPayrollRule,
   setSalaryChangeReason,
@@ -3298,6 +3299,24 @@ async function dispatch(
         await removePayrollDept(dept.trim())
       } catch (e) {
         return err(e instanceof Error ? e.message : '删不掉')
+      }
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    // 房补 —— 跟着人走, 一次定好, 往后每个月都一样。
+    case 'setPayrollHousing': {
+      const name = body.name
+      const cny = body.housingAllowanceCny
+      if (!isString(name) || !name.trim())
+        return err('bad setPayrollHousing args')
+      if (!isValidPayrollMoney(cny)) return err('房补这个数不对')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      try {
+        await setPayrollHousing(name.trim(), cny)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '改不上')
       }
       revalidatePath('/finance')
       return Response.json(ok())

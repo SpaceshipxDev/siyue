@@ -1210,12 +1210,18 @@ function Slip({
               detail={
                 s.housingBaseCny > 0 &&
                 s.housingAllowanceCny !== s.housingBaseCny
-                  ? `综合工资外 · 出勤 ${num(s.workedDays)}/${s.standardDays} 天 → ${formatCny(s.housingAllowanceCny)}`
-                  : '综合工资之外，实发时加上'
+                  ? `每月一样 · 出勤 ${num(s.workedDays)}/${s.standardDays} 天 → ${formatCny(s.housingAllowanceCny)}`
+                  : '每月一样，综合工资之外，实发时加上'
               }
               value={s.housingBaseCny}
               locked={locked}
-              onSave={(v) => setLine({ housingAllowanceCny: v })}
+              onSave={(v) =>
+                save({
+                  kind: 'setPayrollHousing',
+                  name: s.name,
+                  housingAllowanceCny: v,
+                })
+              }
             />
           </div>
 
