@@ -100,9 +100,9 @@ export const DEFAULT_HOURS_BY_DEPT: Record<string, number> = {
   采购: 8,
   工程: 11,
   编程: 11,
-  操机: 11,
-  塑料操机: 11,
-  金属操机: 11,
+  操机: 12,
+  塑料操机: 12,
+  金属操机: 12,
   车件部: 11,
   检验: 11,
   手工: 11,
@@ -122,9 +122,9 @@ export const DEFAULT_HOURS_BY_DEPT: Record<string, number> = {
  * 那个 saturdayHours。
  */
 export const DEFAULT_SATURDAY_HOURS_BY_DEPT: Record<string, number> = {
-  操机: 11,
-  塑料操机: 11,
-  金属操机: 11,
+  操机: 12,
+  塑料操机: 12,
+  金属操机: 12,
 }
 
 // Somebody whose 部门 nobody has said yet works the commonest day in the shop.
