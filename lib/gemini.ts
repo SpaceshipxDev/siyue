@@ -422,3 +422,97 @@ note：格子里除时长以外的说明，比如"事假 家里有事"里的"家
     summaries: Array.isArray(parsed.summaries) ? parsed.summaries : [],
   }
 }
+
+// === 工资名册导入 ===
+//
+// 厂里定工资是在 Excel 上定的: 一人一行, 综合工资、房补、部门。定完再一个个
+// 敲进系统, 五十个人敲一遍, 敲错一个数没人看得出来。
+//
+// 所以这里把那张表读成名册行。只读**跟着人走**的那几样 —— 姓名、部门、综合
+// 工资、房补: 它们定一次管往后每个月。按月变的东西 (加班、餐补、社保、个税)
+// 不在这儿, 那些要么来自考勤, 要么在工资条上一个月填一次。
+
+export type ExtractedPayrollRow = {
+  name: string
+  dept?: string | null
+  monthlyCny?: number | null
+  housingAllowanceCny?: number | null
+}
+
+const PAYROLL_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    rows: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          dept: { type: Type.STRING, nullable: true },
+          monthlyCny: { type: Type.NUMBER, nullable: true },
+          housingAllowanceCny: { type: Type.NUMBER, nullable: true },
+        },
+        required: ['name'],
+        propertyOrdering: [
+          'name',
+          'dept',
+          'monthlyCny',
+          'housingAllowanceCny',
+        ],
+      },
+    },
+  },
+  required: ['rows'],
+}
+
+export async function extractPayrollFromXlsx(input: {
+  fileName: string
+  sheets: { name: string; aoa: (string | number | boolean | null)[][] }[]
+}): Promise<ExtractedPayrollRow[]> {
+  const ai = client()
+
+  const system = `你是一名工厂人事助手，负责把工资表读成一行一行的员工名册。
+
+每个员工一行，输出这四样：
+- name 姓名。去掉空格和工号前缀，只留名字。
+- dept 部门。列名常见的有"部门""岗位""工段""车间"。找不到留 null。
+- monthlyCny 综合工资。列名常见的有"综合工资""月薪""工资""基本工资+补贴合计""月工资总额"。只要那个总数，单位元，去掉 ¥ 和逗号。找不到留 null。
+- housingAllowanceCny 房补。列名常见的有"房补""住房补贴""租房补贴""住宿补贴"。找不到留 null。
+
+注意：
+- 跳过表头行、合计行、小计行、空行、部门分隔行。
+- 一张表里如果同时有"综合工资"和"实发工资"，要的是**综合工资**（发之前那个总盘子），不是实发。
+- 同时有"基本工资"和"综合工资"时，要综合工资；只有基本工资那一列时，那一列就当综合工资。
+- 数字就是数字，不要带单位。拿不准的留 null，不要猜。
+
+只给结构化 JSON，不要解释。`
+
+  const userPrompt = [
+    `文件名: ${input.fileName}`,
+    '',
+    'Excel 工作表内容（每个工作表为二维数组，按行/列）：',
+    JSON.stringify(input.sheets, null, 2),
+  ].join('\n')
+
+  const response = await ai.models.generateContent({
+    model: MODEL,
+    contents: userPrompt,
+    config: {
+      systemInstruction: system,
+      responseMimeType: 'application/json',
+      responseSchema: PAYROLL_SCHEMA,
+      temperature: 0.1,
+    },
+  })
+
+  const text = response.text
+  if (!text) throw new Error('Gemini returned empty response')
+  try {
+    const parsed = JSON.parse(text) as { rows?: ExtractedPayrollRow[] }
+    return Array.isArray(parsed.rows) ? parsed.rows : []
+  } catch (err) {
+    throw new Error(
+      `Gemini returned non-JSON output: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+}

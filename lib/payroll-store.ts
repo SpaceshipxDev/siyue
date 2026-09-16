@@ -191,6 +191,70 @@ export async function getPayrollBase(): Promise<Record<string, PayrollPerson>> {
 }
 
 /**
+ * 从 Excel 导一批人进名册 —— 姓名 · 部门 · 综合工资 · 房补。
+ *
+ * 这四样都是**跟着人走**的, 定一次管往后每个月; 按月变的 (加班、餐补、社
+ * 保、个税) 不在这儿。
+ *
+ * 一次读、一次写: 五十行不该变成一百次读写整本名册。月薪真的动了照样记一条
+ * 调薪 —— 那是导进来的还是手敲的, 对调薪记录来说没区别。
+ *
+ * 表里没给的那一列不动: 只有部门那一列的表, 不会把谁的工资清成 0。
+ */
+export async function importPayrollBase(
+  rows: {
+    name: string
+    dept?: string
+    monthlyCny?: number
+    housingAllowanceCny?: number
+  }[],
+  by: string,
+  date: string,
+): Promise<{ added: number; updated: number }> {
+  let added = 0
+  let updated = 0
+  await withPayrollLock(async () => {
+    const base = normalizeBase(await readJson(BASE_KEY))
+    const changes: SalaryChange[] = []
+    for (const r of rows) {
+      const name = r.name.trim()
+      if (!name) continue
+      const before = base[name]
+      const monthlyCny = r.monthlyCny ?? before?.monthlyCny ?? 0
+      if (monthlyCny <= 0) continue
+      const dept = r.dept?.trim() || before?.dept || NO_DEPARTMENT
+      const housing =
+        r.housingAllowanceCny ?? before?.housingAllowanceCny ?? undefined
+      base[name] = { monthlyCny, dept, housingAllowanceCny: housing }
+      if (!before) added += 1
+      else updated += 1
+      // 建档不算调薪 (第一次给一个人定工资是建档); 真的从一个数动到另一个数
+      // 才记, 跟手改那一格同一条规矩。
+      const from = before?.monthlyCny ?? 0
+      if (from > 0 && from !== monthlyCny) {
+        changes.push({
+          id: crypto.randomUUID(),
+          name,
+          dept,
+          fromCny: from,
+          toCny: monthlyCny,
+          date,
+          by,
+          reason: '导入工资表',
+          createdAt: new Date().toISOString(),
+        })
+      }
+    }
+    await writeJson(BASE_KEY, base)
+    if (changes.length > 0) {
+      const all = normalizeChanges(await readJson(CHANGES_KEY))
+      await writeJson(CHANGES_KEY, [...changes, ...all])
+    }
+  })
+  return { added, updated }
+}
+
+/**
  * 一个人的房补 —— 定一次, 以后每个月都是这个数。
  *
  * 0 就是没有 (在外面不租房的人)。存在名册上而不是某个月的表里: 月月都要填

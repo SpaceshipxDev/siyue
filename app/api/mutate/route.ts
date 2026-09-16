@@ -237,6 +237,7 @@ import {
   setPayrollBase,
   addPayrollDept,
   getPayrollRules,
+  importPayrollBase,
   removePayrollDept,
   setPayrollDept,
   setPayrollDeptHours,
@@ -3302,6 +3303,50 @@ async function dispatch(
       }
       revalidatePath('/finance')
       return Response.json(ok())
+    }
+
+    // 导入工资表 —— 姓名 · 部门 · 综合工资 · 房补, 一次一批。人已经在预览
+    // 里过过一眼了 (见 /api/payroll-import), 这里只管落库。
+    case 'importPayrollBase': {
+      const rows = body.rows
+      if (!Array.isArray(rows) || rows.length === 0)
+        return err('bad importPayrollBase args')
+      if (rows.length > 1000) return err('一次最多 1000 行')
+      const clean: {
+        name: string
+        dept?: string
+        monthlyCny?: number
+        housingAllowanceCny?: number
+      }[] = []
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      const rules = await getPayrollRules()
+      const known = allDepartments(rules)
+      const money = (v: unknown): number | undefined =>
+        isValidMonthlyCny(v) ? (v as number) : undefined
+      for (const r of rows) {
+        if (typeof r !== 'object' || r === null) return err('有一行填得不全')
+        const o = r as Record<string, unknown>
+        if (!isString(o.name) || !o.name.trim()) return err('有一行没有姓名')
+        const dept = isString(o.dept) ? o.dept.trim() : ''
+        // 表里写了一个还没有的部门, 就当场把这个部门建出来 —— 跟工资表上手
+        // 填部门是同一条规矩。
+        if (dept && !known.includes(dept) && isValidDeptName(dept)) {
+          await addPayrollDept(dept)
+          known.push(dept)
+        }
+        clean.push({
+          name: o.name.trim(),
+          dept: dept && known.includes(dept) ? dept : undefined,
+          monthlyCny: money(o.monthlyCny),
+          housingAllowanceCny: isValidPayrollMoney(o.housingAllowanceCny)
+            ? (o.housingAllowanceCny as number)
+            : undefined,
+        })
+      }
+      const r = await importPayrollBase(clean, u.name, today())
+      revalidatePath('/finance')
+      return Response.json(ok(r))
     }
 
     // 房补 —— 跟着人走, 一次定好, 往后每个月都一样。

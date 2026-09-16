@@ -8,6 +8,7 @@ import { withBase } from '@/lib/base-path'
 import { showToast } from '@/app/_toast'
 import { EditableText } from '@/app/_editable'
 import { SearchSelect } from '@/app/_search_select'
+import { PayrollImport } from './_payroll_import'
 import { formatCny } from '@/lib/data'
 import {
   deptsInUse,
@@ -207,6 +208,8 @@ export function PayrollBoard({
           >
             导出工资表
           </Link>
+          {/* Excel 上定好的那张表 —— 姓名/部门/综合工资/房补 一次导进来。 */}
+          <PayrollImport locked={locked} />
           {paid ? (
             <button
               type="button"
