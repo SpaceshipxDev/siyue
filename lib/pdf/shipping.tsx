@@ -50,6 +50,10 @@ const CENTER = { textAlign: 'center' } as const
 // 缩略图本地放大 — lib/pdf/styles.ts 的 thumb 是外协单和检验报告共用的。
 const THUMB = { width: 56, height: 56 } as const
 
+// 满格线, 全是 1pt 深色 —— 这张纸是打出来交到客户手上、当场拿笔核对签收
+// 的。原来内线是 0.5pt 的浅灰: 屏幕上看得见, 喷墨/激光打出来几乎没有, 一行
+// 里哪个数属于哪一栏又得靠眼睛往上对。网页预览那一版 (app/globals.css 的
+// doc-grid) 是同一套画法, 两处看到的必须是同一张纸。
 const GRID = StyleSheet.create({
   headRow: {
     flexDirection: 'row',
@@ -66,8 +70,8 @@ const GRID = StyleSheet.create({
     alignItems: 'stretch',
     borderLeftWidth: 1,
     borderLeftColor: COLOR.ink,
-    borderBottomWidth: 0.5,
-    borderBottomColor: COLOR.borderStrong,
+    borderBottomWidth: 1,
+    borderBottomColor: COLOR.ink,
     minHeight: 30,
   },
   totalRow: {
@@ -75,7 +79,7 @@ const GRID = StyleSheet.create({
     alignItems: 'stretch',
     borderLeftWidth: 1,
     borderLeftColor: COLOR.ink,
-    borderTopWidth: 0.5,
+    borderTopWidth: 1,
     borderTopColor: COLOR.ink,
     borderBottomWidth: 1,
     borderBottomColor: COLOR.ink,
@@ -83,8 +87,8 @@ const GRID = StyleSheet.create({
   // 每一格: 右边一条竖线 (最后一格那条就是右外框), 内容上下居中 —— 一行里
   // 图片 36pt 高、数量只有一行字, 贴顶排会显得整行是歪的。
   cell: {
-    borderRightWidth: 0.5,
-    borderRightColor: COLOR.borderStrong,
+    borderRightWidth: 1,
+    borderRightColor: COLOR.ink,
     paddingVertical: 6,
     justifyContent: 'center',
   },
@@ -96,8 +100,8 @@ const GRID = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   thumbCell: {
-    borderRightWidth: 0.5,
-    borderRightColor: COLOR.borderStrong,
+    borderRightWidth: 1,
+    borderRightColor: COLOR.ink,
     paddingVertical: 4,
     alignItems: 'center',
     justifyContent: 'center',

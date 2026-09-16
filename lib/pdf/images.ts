@@ -20,7 +20,13 @@ import { supabase, STORAGE_BUCKET } from '@/lib/supabase'
 // silently 404'd for private buckets — both modes ended up "no image" in
 // the printed PDF.
 
-const IMAGE_TIMEOUT_MS = 4_000
+// 4 秒太紧: 一张单六张图一起发, 互相抢带宽, 慢的那几张就超时 —— 打出来的
+// 纸上是几个破折号, 而客户核对的就是那几张图。放宽到 12 秒, 再限并发。
+const IMAGE_TIMEOUT_MS = 12_000
+
+// 一次最多抓四张 —— 图是几十上百 KB 的 PNG, 六张齐发只会让每一张都变慢, 慢
+// 到超时。四张一批, 总时间反而更短, 而且不会有人"刚好排在第六个"就没图。
+const IMAGE_CONCURRENCY = 4
 
 export type ImageSource = { data: Buffer; format: 'png' | 'jpg' }
 
@@ -29,12 +35,16 @@ export async function fetchImages(
 ): Promise<Map<string, ImageSource>> {
   const out = new Map<string, ImageSource>()
   const unique = Array.from(new Set(urls.filter((u): u is string => Boolean(u))))
-  await Promise.all(
-    unique.map(async (url) => {
-      const img = await fetchOne(url)
-      if (img) out.set(url, img)
-    }),
-  )
+  for (let i = 0; i < unique.length; i += IMAGE_CONCURRENCY) {
+    const batch = unique.slice(i, i + IMAGE_CONCURRENCY)
+    await Promise.all(
+      batch.map(async (url) => {
+        // 超时/抖动再来一次 —— 纸上缺一张图, 客户当场就要问, 比多等一秒贵。
+        const img = (await fetchOne(url)) ?? (await fetchOne(url))
+        if (img) out.set(url, img)
+      }),
+    )
+  }
   return out
 }
 
