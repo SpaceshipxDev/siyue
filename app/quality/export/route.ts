@@ -7,6 +7,7 @@ import { getProcessDefects } from '@/lib/process-defects'
 import { getDefectActions } from '@/lib/defect-actions'
 import { getImprovements } from '@/lib/improvements'
 import { getIncomingDefects } from '@/lib/incoming-defects'
+import { getChangeRecords } from '@/lib/changes'
 import { today } from '@/lib/today'
 
 // 质量异常 / 制程不良 / 客诉 → .xlsx. 导的就是屏幕上那一批 (同一个月份 + 同一个搜索
@@ -16,6 +17,7 @@ import { today } from '@/lib/today'
 //   ?v=process  制程不良 — 质量落笔的那一份, 带责任人和纠正预防措施
 //   ?v=complaint 客诉 — 客户反馈回来的, 带损失金额
 //   ?v=incoming 来料异常 — 供应商送进来就不对的, 带损失金额
+//   ?v=change   变更管理 — 客户改了要求, 带图的张数
 //   ?v=improve  改善建议 — 谁提的, 改善前 / 改善后 / 对效率·质量·成本的影响
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -87,6 +89,17 @@ const INCOMING_HEADERS = [
 ]
 const INCOMING_WIDTHS = [12, 18, 22, 24, 10, 30, 26, 12, 12]
 
+const CHANGE_HEADERS = [
+  '变更日期',
+  '客户',
+  '工号',
+  '发起部门',
+  '变更内容',
+  '图片张数',
+  '记录人',
+]
+const CHANGE_WIDTHS = [12, 24, 18, 12, 48, 10, 12]
+
 export async function GET(request: NextRequest): Promise<Response> {
   const sp = request.nextUrl.searchParams
   // 三张表全厂都记得了、看得见, 但导出跟改是同一档 — 工程 + 商务于海伟
@@ -102,13 +115,42 @@ export async function GET(request: NextRequest): Promise<Response> {
   const process = view === 'process'
   const improve = view === 'improve'
   const incoming = view === 'incoming'
+  const change = view === 'change'
   const aoa: (string | number)[][] = []
   let widths: number[]
   let sheetName: string
   let base: string
   let file: string
 
-  if (incoming) {
+  if (change) {
+    const rows = (await getChangeRecords())
+      .filter((r) => r.date.slice(0, 7) === month)
+      .filter((r) =>
+        !q
+          ? true
+          : [r.customer, r.jobNo, r.dept, r.content, r.by]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase()
+              .includes(q),
+      )
+    aoa.push(CHANGE_HEADERS.slice())
+    for (const r of rows) {
+      aoa.push([
+        r.date,
+        r.customer,
+        r.jobNo,
+        r.dept,
+        r.content,
+        r.photos.length,
+        r.by ?? '',
+      ])
+    }
+    widths = CHANGE_WIDTHS
+    sheetName = '变更管理'
+    base = `变更管理_${month}`
+    file = `changes_${month}.xlsx`
+  } else if (incoming) {
     const rows = (await getIncomingDefects())
       .filter((r) => r.date.slice(0, 7) === month)
       .filter((r) =>

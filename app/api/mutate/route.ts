@@ -1,6 +1,12 @@
 import { NextRequest } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import {
+  addChangeRecord,
+  updateChangeRecord,
+  deleteChangeRecord,
+  deleteChangePhoto,
+} from '@/lib/changes'
+import {
   addIncomingDefect,
   updateIncomingDefect,
   deleteIncomingDefect,
@@ -2808,6 +2814,79 @@ async function dispatch(
       const u = await requireUser()
       if (!canEditQuality(u)) return err('删记录要找工程或于海伟', 403)
       await deleteProcessDefect(defectId)
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    // 变更管理 — 客户把要求改了。跟质量那几张表同一档权限: 谁接到通知谁
+    // 记 (商务接客户电话、工程收到新图), 空着的格谁都能补, 改已经填下去的和
+    // 删是 canEditQuality 那一档。
+    case 'addChangeRecord': {
+      const input = body.input
+      if (typeof input !== 'object' || input === null)
+        return err('bad addChangeRecord args')
+      const i = input as Record<string, unknown>
+      if (!isString(i.customer) || !i.customer.trim()) return err('先填客户')
+      if (!isString(i.content) || !i.content.trim()) return err('填一下变更内容')
+      if (!isString(i.date) || !/^\d{4}-\d{2}-\d{2}$/.test(i.date))
+        return err('bad addChangeRecord args')
+      for (const k of ['dept', 'jobNo']) {
+        if (i[k] !== undefined && !isString(i[k]))
+          return err('bad addChangeRecord args')
+      }
+      const u = await requireUser()
+      const id = await addChangeRecord(
+        {
+          date: i.date,
+          customer: i.customer,
+          dept: isString(i.dept) ? i.dept : '',
+          jobNo: isString(i.jobNo) ? i.jobNo : '',
+          content: i.content,
+        },
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath('/quality')
+      return Response.json(ok({ id }))
+    }
+
+    case 'updateChangeRecord': {
+      const changeId = body.changeId
+      const patch = body.patch
+      if (!isString(changeId)) return err('bad updateChangeRecord args')
+      if (typeof patch !== 'object' || patch === null)
+        return err('bad updateChangeRecord args')
+      const p = patch as Record<string, unknown>
+      for (const k of ['date', 'customer', 'dept', 'jobNo', 'content']) {
+        if (p[k] !== undefined && !isString(p[k]))
+          return err('bad updateChangeRecord args')
+      }
+      const u = await requireUser()
+      await updateChangeRecord(changeId, p, {
+        fillBlanksOnly: !canEditQuality(u),
+      })
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'deleteChangeRecord': {
+      const changeId = body.changeId
+      if (!isString(changeId)) return err('bad deleteChangeRecord args')
+      const u = await requireUser()
+      if (!canEditQuality(u)) return err('删记录要找质量或于海伟', 403)
+      await deleteChangeRecord(changeId)
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'deleteChangePhoto': {
+      const changeId = body.changeId
+      const photoId = body.photoId
+      if (!isString(changeId) || !isString(photoId))
+        return err('bad deleteChangePhoto args')
+      const u = await requireUser()
+      if (!canEditQuality(u)) return err('删图要找质量或于海伟', 403)
+      await deleteChangePhoto(changeId, photoId)
       revalidatePath('/quality')
       return Response.json(ok())
     }
