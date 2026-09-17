@@ -786,3 +786,72 @@ export function landingPathFor(user: AuthUser): string {
     ? `/?stage=${encodeURIComponent(user.defaultStage)}`
     : '/'
 }
+
+// ─── 权限一览 (管理员工 → 每个账号能干什么) ──────────────────────────────
+//
+// 上面几十条规则是散的 —— 有的看角色, 有的看工段, 有的是一张写死的名单。
+// 管人的人要调权限, 得先看得见现在是什么样。这里把一个账号的所有权限摊成
+// 一张只读的单子, 按「报工 / 看 / 改 / 删」四栏, 全是人话。
+//
+// 只读: 加一条权限还是改上面那些名单, 这里只负责照实说。新加一条 can* 的
+// 时候顺手在下面补一行, 否则这张单子就开始骗人了。
+export type PermissionDigest = {
+  /** 报工范围 — 已经写成人话 (全部工段 / 检验·质量·出货 / 不报工) */
+  stages: string
+  see: string[]
+  edit: string[]
+  remove: string[]
+}
+
+function pick(entries: [boolean, string][]): string[] {
+  return entries.filter(([on]) => on).map(([, label]) => label)
+}
+
+export function permissionDigest(u: AuthUser): PermissionDigest {
+  const scope = stageScopeFor(u)
+  const stages =
+    scope === 'all' ? '全部工段' : scope.length === 0 ? '不报工' : scope.join('·')
+
+  return {
+    stages,
+    see: pick([
+      [canSeeMoney(u), '钱·单价'],
+      [canSeeExpenses(u), '工资·支出'],
+      [canSeeOrderLedger(u), '财务·订单'],
+      [canSeeReport(u), '报工看板'],
+      [canSeeCustomerData(u), '客户资料'],
+      [canSeeVendor(u), '供应商'],
+      [canSeeFactoryPulse(u), '现场'],
+      [canSeeAllHr(u), '人事·全厂'],
+      [canSeeDorm(u), '住宿'],
+    ]),
+    edit: pick([
+      [canEditJob(u), '建单·改单'],
+      [canEditPartRoute(u), '工序路线'],
+      [canCreatePartRow(u), '加零件行'],
+      [canRenameUploadedJob(u), '改工号'],
+      [canManageOutsource(u), '外协'],
+      [canApproveProcurement(u), '采购审批'],
+      [canEditShipment(u), '出货单'],
+      [canSeeReturnsDesk(u), '退货台'],
+      [canWriteCommSheet(u), '沟通单'],
+      [canUploadDrawing(u), '传图纸'],
+      [canWriteNcProgram(u), '程序单'],
+      [canEditHrRecord(u), '人事·改'],
+      [canEditWarehouse(u), '仓库·改'],
+      [canEditQuality(u), '质量·改'],
+      [canEditDorm(u), '住宿·改'],
+      [canUseNotes(u), '笔记'],
+      [canExportJobs(u), '导出工单'],
+      [canExportProductionOrder(u), '导出生产单'],
+      [canGai(u), '改一下'],
+    ]),
+    remove: pick([
+      [canUndoFinishedStage(u), '撤销已完成'],
+      [canDeletePartRow(u), '删零件行'],
+      [canDeleteJob(u), '删草稿单'],
+      [canDeleteOrder(u), '删订单'],
+      [canDeleteHrRecord(u), '删人事记录'],
+    ]),
+  }
+}

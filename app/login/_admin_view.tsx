@@ -1,18 +1,21 @@
 import { logoutAction } from './actions'
 import { UserAdmin } from './_user_admin'
 import type { AppUser } from '@/lib/db'
+import type { PermissionDigest } from '@/lib/auth'
 
 export function AdminView({
   bossName,
   bossId,
   adminIds,
   users,
+  digests,
   stages,
 }: {
   bossName: string
   bossId: string
   adminIds: string[]
   users: AppUser[]
+  digests: Record<string, PermissionDigest>
   stages: readonly string[]
 }) {
   const active = users.filter((u) => u.active).length
@@ -42,7 +45,13 @@ export function AdminView({
         </div>
       </header>
       <main className="w-full max-w-[1100px] px-4 md:px-10 py-8 md:py-12 flex-1">
-        <UserAdmin users={users} bossId={bossId} adminIds={adminIds} stages={stages} />
+        <UserAdmin
+          users={users}
+          digests={digests}
+          bossId={bossId}
+          adminIds={adminIds}
+          stages={stages}
+        />
       </main>
     </div>
   )

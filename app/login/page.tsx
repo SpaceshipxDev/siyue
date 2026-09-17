@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { STAGES } from '@/lib/data'
 import { getActiveUsers, getAllUsers, getBossUser, isAdminUser } from '@/lib/db'
-import { currentUser, landingPathFor } from '@/lib/auth'
+import { currentUser, landingPathFor, permissionDigest } from '@/lib/auth'
 import { LoginClient } from './_login_client'
 import { AdminView } from './_admin_view'
 
@@ -22,6 +22,9 @@ export default async function LoginPage(props: PageProps<'/login'>) {
         bossId={boss.id}
         adminIds={allUsers.filter((x) => isAdminUser(x.id)).map((x) => x.id)}
         users={allUsers}
+        digests={Object.fromEntries(
+          allUsers.map((x) => [x.id, permissionDigest(x)]),
+        )}
         stages={STAGES as readonly string[]}
       />
     )

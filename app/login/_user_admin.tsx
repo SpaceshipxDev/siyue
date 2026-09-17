@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { Fragment, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import type { AppUser } from '@/lib/db'
+import type { PermissionDigest } from '@/lib/auth'
 import {
   createUserFormAction,
   deleteUserAction,
@@ -15,11 +16,13 @@ import {
 
 export function UserAdmin({
   users,
+  digests,
   bossId,
   adminIds,
   stages,
 }: {
   users: AppUser[]
+  digests: Record<string, PermissionDigest>
   bossId: string
   adminIds: string[]
   stages: readonly string[]
@@ -27,7 +30,12 @@ export function UserAdmin({
   return (
     <div className="space-y-10">
       <NewUserForm stages={stages} />
-      <UserList users={users} bossId={bossId} adminIds={adminIds} />
+      <UserList
+        users={users}
+        digests={digests}
+        bossId={bossId}
+        adminIds={adminIds}
+      />
     </div>
   )
 }
@@ -152,13 +160,17 @@ function Field({
 
 function UserList({
   users,
+  digests,
   bossId,
   adminIds,
 }: {
   users: AppUser[]
+  digests: Record<string, PermissionDigest>
   bossId: string
   adminIds: string[]
 }) {
+  // 一次只摊开一个人 —— 权限是拿来一个个看的, 全摊开就又变成一堵墙了。
+  const [open, setOpen] = useState<string | null>(null)
   return (
     <section>
       <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)] mb-3">
@@ -167,12 +179,13 @@ function UserList({
       <div className="border border-[var(--color-border)] bg-[var(--color-surface)] rounded-[2px]">
         <table className="sheet w-full text-left text-[13px]">
           <colgroup>
-            <col style={{ width: 220 }} />
-            <col style={{ width: 100 }} />
-            <col style={{ width: 100 }} />
-            <col style={{ width: 100 }} />
-            <col style={{ width: 96 }} />
-            <col style={{ minWidth: 220 }} />
+            <col style={{ width: 190 }} />
+            <col style={{ width: 88 }} />
+            <col style={{ width: 84 }} />
+            <col style={{ width: 80 }} />
+            <col style={{ width: 84 }} />
+            <col style={{ width: 170 }} />
+            <col style={{ minWidth: 190 }} />
           </colgroup>
           <thead>
             <tr className="text-[var(--color-ink-2)]">
@@ -181,6 +194,9 @@ function UserList({
               <th className="px-4 py-3 label">工段</th>
               <th className="px-4 py-3 label">状态</th>
               <th className="px-4 py-3 label" title="能在页面上「改一下」并上线">改一下</th>
+              <th className="px-4 py-3 label" title="这个账号能报哪几道工；点开看他全部权限">
+                权限
+              </th>
               <th className="px-4 py-3 label text-right">操作</th>
             </tr>
           </thead>
@@ -188,7 +204,7 @@ function UserList({
             {users.length === 0 ? (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={7}
                   className="px-4 py-8 text-center text-[12px] text-[var(--color-ink-3)]"
                 >
                   暂无员工
@@ -196,12 +212,21 @@ function UserList({
               </tr>
             ) : (
               users.map((u) => (
-                <UserRow
-                  key={u.id}
-                  user={u}
-                  bossId={bossId}
-                  locked={adminIds.includes(u.id)}
-                />
+                <Fragment key={u.id}>
+                  <UserRow
+                    user={u}
+                    digest={digests[u.id]}
+                    open={open === u.id}
+                    onTogglePerms={() =>
+                      setOpen((cur) => (cur === u.id ? null : u.id))
+                    }
+                    bossId={bossId}
+                    locked={adminIds.includes(u.id)}
+                  />
+                  {open === u.id && digests[u.id] && (
+                    <PermissionRow digest={digests[u.id]} />
+                  )}
+                </Fragment>
               ))
             )}
           </tbody>
@@ -211,12 +236,46 @@ function UserList({
   )
 }
 
+// 摊开的那一行 —— 一个账号的全部权限, 只读。
+function PermissionRow({ digest }: { digest: PermissionDigest }) {
+  const groups: [string, string[]][] = [
+    ['报工', [digest.stages]],
+    ['看', digest.see],
+    ['改', digest.edit],
+    ['删', digest.remove],
+  ]
+  return (
+    <tr>
+      <td colSpan={7} className="px-4 pb-5 pt-0">
+        <div className="grid grid-cols-[40px_1fr] gap-x-4 gap-y-1.5">
+          {groups.map(([label, items]) =>
+            items.length === 0 ? null : (
+              <Fragment key={label}>
+                <span className="label pt-[2px]">{label}</span>
+                <span className="text-[12px] leading-[1.7] text-[var(--color-ink-2)]">
+                  {items.join(' · ')}
+                </span>
+              </Fragment>
+            ),
+          )}
+        </div>
+      </td>
+    </tr>
+  )
+}
+
 function UserRow({
   user,
+  digest,
+  open,
+  onTogglePerms,
   bossId,
   locked,
 }: {
   user: AppUser
+  digest?: PermissionDigest
+  open: boolean
+  onTogglePerms: () => void
   bossId: string
   // 老板-level account (bootstrap 老板 or a promoted owner): protected from
   // deactivation / 财务 revocation / deletion, so those controls are hidden.
@@ -432,6 +491,33 @@ function UserRow({
               }`}
             />
           </button>
+        )}
+      </td>
+      <td className="px-4 py-3">
+        {digest ? (
+          <button
+            type="button"
+            onClick={onTogglePerms}
+            aria-expanded={open}
+            title="点开看这个账号的全部权限"
+            className="inline-flex items-center gap-1.5 text-[12px] text-[var(--color-ink-2)] hover:text-[var(--color-ink)] cursor-pointer text-left"
+          >
+            <span>{digest.stages}</span>
+            <svg
+              viewBox="0 0 16 16"
+              className={`w-3 h-3 shrink-0 opacity-40 transition-transform ${open ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M4 6.5 8 10.5l4-4" />
+            </svg>
+          </button>
+        ) : (
+          <span className="label text-[var(--color-ink-3)]">—</span>
         )}
       </td>
       <td className="px-4 py-3 text-right">
