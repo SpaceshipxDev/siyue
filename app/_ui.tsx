@@ -113,17 +113,27 @@ function tabsForRole(
     // station before them, the station after — is one tab away. 采购 stays:
     // the boss's rule is everyone on the floor buys things and must be able
     // to log/see what's on the way, regardless of station.
+    // 质量站 — 老板 2026-09-17: 只开放质量模块。
+    //
+    // 质量这几个人一天的活是判定、记异常、跟退货, 采购/仓库/人事那几个入口
+    // 他们从来不用, 摆在导航上只是让人点错。所以这一份短: 看板 (报工要用) ·
+    // 各工段的队列 · 质量模块 · 退货。
+    //
+    // 「质量」那个 tab 指到质量模块 (六张表), 工段队列从「全部」或者质量模块
+    // 页上那个「质量工段看板 →」进 —— 他们看「质量」两个字想的是那六张表。
+    if (defaultStage === '质量') {
+      return [
+        { key: '工单', label: '全部', href: '/' },
+        ...officeQuality(stageTabs()),
+        { key: '退货', label: '退货', href: '/returns' },
+      ]
+    }
     return [
       { key: '工单', label: '全部', href: '/' },
       ...programmingDesk(stageTabs()),
       { key: '采购', label: '采购', href: '/procurement' },
       { key: '仓库', label: '仓库', href: '/warehouse' },
       { key: '人事', label: '人事', href: '/hr' },
-      // 退货 — 只给质量站。退货流转单上「原因调查」那一格是质量签的, 没有入
-      // 口他们就得等别人喊。别的单工段账号不出现这个 tab。
-      ...(defaultStage === '质量'
-        ? [{ key: '退货' as TabKey, label: '退货', href: '/returns' }]
-        : []),
     ]
   }
   return [

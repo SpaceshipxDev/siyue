@@ -642,6 +642,11 @@ const COMMERCE_STAGE_SCOPE: readonly Stage[] = ['采购', '表处', '出货']
 // 从这个账号上报。(喷涂 = 喷漆，厂里两种叫法，系统里只有 喷漆 这一个工段。)
 const FINISHING_STAGE_SCOPE: readonly Stage[] = ['打磨', '喷漆', '丝印']
 
+// 质量那三道 — 检验 · 质量 · 出货。检验和质量是判定 (一进一出两道关), 出货
+// 是发货前最后一眼, 厂里一直是质量的人在按。表处不在里面: 那一道是外协出去
+// 做的, 回厂归外协那条线收。
+const QUALITY_STAGE_SCOPE: readonly Stage[] = ['检验', '质量', '出货']
+
 const STAGE_SCOPE_BY_USER_ID: Record<string, StageScope> = {
   // — full access —
   'u-bootstrap-commerce': 'all', // 老板
@@ -679,20 +684,18 @@ const STAGE_SCOPE_BY_USER_ID: Record<string, StageScope> = {
   'u-mpdgjma9-lgyznp': ['编程', '操机'], // 编程005戴棵
   'u-mpdgjtj2-nzx055': ['编程', '操机'], // 编程006宋跃文
   'u-mpdg0tcr-beaxrv': ['手工', '打磨'], // 手工001潘健 — 299 real 打磨 taps/45d
-  // 打磨喷漆 — 老板 2026-09-14 定的四道：打磨 · 喷漆 · 丝印 · 质量。
+  // 打磨喷漆 — 老板 2026-09-17 定的三道：打磨 · 喷漆 · 丝印。
   //
-  // 后道那条线 (打磨 → 喷漆 → 丝印) 本来就是这批人接着做的；质量是因为做完
-  // 当场自检，也归他们报。手工 和 表处 不在里面：手工是别人的工位，表处是
-  // 外协出去做的，从这个账号上报会把工时和进度记到错的地方。
-  //
-  // 单独写死这一行，不跟 FINISHING_STAGE_SCOPE 走 —— 那个常量还管着新开的
-  // 打磨账号 (见 fallbackStageScope)，两件事别绑在一起。
-  'u-mpdgdq8f-fn7k40': ['打磨', '喷漆', '丝印', '质量'], // 打磨喷漆
+  // 后道那条线本来就是这批人接着做的。质量去掉了：自检归自检，判定那一道是
+  // 质量的人签的字，不该从后道账号上按下去。手工 和 表处 更早就去掉了：手工
+  // 是别人的工位，表处是外协出去做的，从这个账号上报会把工时和进度记到错的
+  // 地方。
+  'u-mpdgdq8f-fn7k40': FINISHING_STAGE_SCOPE, // 打磨喷漆
   'u-mpdg1xc0-w221oi': ['手工', '打磨', '喷漆'], // 批量组001夏
-  'u-mpdgqdy0-twnhmy': ['质量', '检验', '出货'], // 质量周中华 — de facto shipper (2,105 出货 taps/45d)
-  // 质量倪伟群 — 老板 2026-09 定的四道: 检验 · 表处 · 质量 · 出货。表处是外协
-  // 出去做的那一道, 回厂由质量这边收, 所以归他报。
-  'u-mpdgra00-srf0qm': ['检验', '表处', '质量', '出货'],
+  'u-mpdgqdy0-twnhmy': QUALITY_STAGE_SCOPE, // 质量周中华 — de facto shipper (2,105 出货 taps/45d)
+  // 质量倪伟群 — 老板 2026-09-17 收到三道: 检验 · 质量 · 出货。表处去掉了
+  // (那一道是外协出去做的, 回厂该由外协那条线收)。跟周中华同一份。
+  'u-mpdgra00-srf0qm': QUALITY_STAGE_SCOPE, // 质量倪伟群
   'u-mpkkcscl-9aoza0': ['质量', '检验'], // 刘敏敏
   'u-mpkkghqt-p8qrvy': ['质量', '检验'], // 李佳怡
   'u-mqoj62uq-olmh4c': ['采购'], // 采购人事
