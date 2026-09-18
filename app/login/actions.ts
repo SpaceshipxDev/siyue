@@ -1,9 +1,9 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { isAdminUser, verifyUserPin } from '@/lib/db'
+import { verifyUserPin } from '@/lib/db'
 import { createSession, deleteSession } from '@/lib/session'
-import { landingPathFor } from '@/lib/auth'
+import { canManageUsersById, landingPathFor } from '@/lib/auth'
 
 // In-process brute-force counter. Five wrong PINs in five minutes locks the
 // user id out for five minutes from this serverless instance. Cross-instance
@@ -89,16 +89,17 @@ export async function logoutAction(): Promise<void> {
   redirect('/login')
 }
 
-// Admin entry from /login → 管理员工. Authenticates an account with 老板-level
-// authority by id (isAdminUser — the bootstrap 老板 or a promoted owner like
-// Harry); any other user is rejected even if they share commerce role. On
-// success the cookie is set and we land back on /login?admin=1 — the admin
-// stays on the login screen until they hit 完成 (logoutAction).
+// Admin entry from /login → 管理员工. 谁能进由 canManageUsers 那张名单说了算
+// (老板 + 于海伟的商务号) —— 别的账号就算也是商务也进不来。On success the
+// cookie is set and we land back on /login?admin=1 — the manager stays on the
+// login screen until they hit 完成 (logoutAction).
 export async function loginAdminAction(
   userId: string,
   pin: string,
 ): Promise<LoginResult> {
-  if (!isAdminUser(userId)) return { ok: false, error: '仅老板可管理员工' }
+  if (!canManageUsersById(userId)) {
+    return { ok: false, error: '这个账号不能管理员工' }
+  }
   if (!pin) return { ok: false, error: '请输入 PIN' }
   if (!/^\d{4}$/.test(pin)) return { ok: false, error: 'PIN 必须为 4 位数字' }
 
@@ -108,7 +109,7 @@ export async function loginAdminAction(
   }
 
   const user = await verifyUserPin(userId, pin)
-  if (!user || user.role !== 'commerce') {
+  if (!user) {
     recordFailure(userId)
     return { ok: false, error: 'PIN 错误' }
   }

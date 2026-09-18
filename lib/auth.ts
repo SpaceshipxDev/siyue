@@ -71,14 +71,10 @@ export function canSeeMoney(s: Scope): boolean {
 // per-person allowlist. These pages carry every person's pay, so this is
 // deliberately narrower than canSeeMoney (which every 商务 holds).
 //
-// The allowlist is the same shape as REPORT_VIEWER_USER_IDS and
-// ORDER_LEDGER_VIEWER_USER_IDS below, and exists for the same reason: 于海伟
-// runs the shop's people (he's the only account that may edit or delete a
-// 人事 line, see HR_EDITOR_USER_IDS) and 工资 is his to settle, but he signs in on a
-// 工程 production account whose role would otherwise stop at the 订单 book.
-// A grant by name, not by role — 工资 is not something a whole 工段 gets.
+// 于海伟管厂里的人, 工资是他结的, 所以他有这一档 —— 但只在他自己的商务号上。
+// 工程号 (u-mose92lt-a0cutz) 2026-09-18 收掉了: 那是个车间账号, 密码在车间
+// 里传过, 钱不该挂在这种号上。同一个人, 看工资就用商务号登。
 const EXPENSE_VIEWER_USER_IDS = new Set<string>([
-  'u-mose92lt-a0cutz', // 于海伟 — 生产号 (工程)
   'u-ms45yjq9-2kbdi1', // 于海伟 — 商务号
 ])
 
@@ -738,13 +734,13 @@ export function canSeeReport(u: AuthUser): boolean {
 
 // 财务·订单 viewers: every 商务, plus a per-person allowlist. Same shape as
 // REPORT_VIEWER_USER_IDS and for the same reason — the grant is by name, not
-// by stage (于海伟 sees the order money book; the rest of 工程 does not). A
-// production grantee sees the 订单 tab on /finance — 记账/看钱 stay
-// commerce-wide and 支出/工资/月度 go by canSeeExpenses (which a production
-// account can hold by name); the page enforces both separately.
-const ORDER_LEDGER_VIEWER_USER_IDS = new Set<string>([
-  'u-mose92lt-a0cutz', // 于海伟 (production / 工程) — his 商务号 qualifies via role
-])
+// by stage. A production grantee sees the 订单 tab on /finance — 记账/看钱
+// stay commerce-wide and 支出/工资/月度 go by canSeeExpenses; the page
+// enforces both separately.
+//
+// 现在是空的。于海伟的工程号 2026-09-18 收掉了 (跟支出那一档同一个理由: 车
+// 间账号不挂钱), 他的商务号本来就凭 role 进。要给谁 = 加一行。
+const ORDER_LEDGER_VIEWER_USER_IDS = new Set<string>([])
 
 export function canSeeOrderLedger(u: AuthUser): boolean {
   // canSeeExpenses implies this one: /finance's door is the 订单 grant, and
@@ -785,6 +781,38 @@ export function landingPathFor(user: AuthUser): string {
   return user.defaultStage
     ? `/?stage=${encodeURIComponent(user.defaultStage)}`
     : '/'
+}
+
+// ─── 管账号 (管理员工: 建号 · 改名 · 停用 · 重置 PIN · 删号) ──────────────
+//
+// 这张表以前的门是 role === 'commerce' —— 办公室每一个商务号都能进去重置任
+// 何人的 PIN、删任何人的账号, 只是没人知道路怎么走 (登录页那个入口另有一道
+// 老板 PIN)。没人走过的后门还是后门。
+//
+// 管账号是管人那一档, 不是"在办公室上班"那一档。所以收成名单: 老板, 加于海
+// 伟 —— 厂里管人、管工资、管纪律的那个人 (人事改删、工资、撤销完成都已经是
+// 他, 见上面几张名单)。
+//
+// 只给他的商务号。工程号是车间账号, 密码在车间里传过 —— 钱和账号都不挂在那
+// 种号上 (同一天收掉的还有它的财务, 见 EXPENSE_VIEWER_USER_IDS)。加人减人 =
+// 改一行。
+const USER_MANAGER_USER_IDS = new Set<string>([
+  'u-ms45yjq9-2kbdi1', // 商务于海伟
+])
+
+// 按 id 判断 —— 登录页那一步还没有 session, 手上只有点中的那张牌。
+export function canManageUsersById(id: string): boolean {
+  return isAdminUser(id) || USER_MANAGER_USER_IDS.has(id)
+}
+
+export function canManageUsers(u: AuthUser): boolean {
+  return canManageUsersById(u.id)
+}
+
+export async function requireUserManager(): Promise<AuthUser> {
+  const u = await requireUser()
+  if (canManageUsers(u)) return u
+  redirect(landingPathFor(u))
 }
 
 // ─── 权限一览 (管理员工 → 每个账号能干什么) ──────────────────────────────
@@ -845,6 +873,7 @@ export function permissionDigest(u: AuthUser): PermissionDigest {
       [canExportJobs(u), '导出工单'],
       [canExportProductionOrder(u), '导出生产单'],
       [canGai(u), '改一下'],
+      [canManageUsers(u), '管账号'],
     ]),
     remove: pick([
       [canUndoFinishedStage(u), '撤销已完成'],

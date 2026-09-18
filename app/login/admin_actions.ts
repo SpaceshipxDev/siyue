@@ -9,7 +9,7 @@ import {
   updateUser,
   type Role,
 } from '@/lib/db'
-import { requireCommerce } from '@/lib/auth'
+import { requireUserManager } from '@/lib/auth'
 
 export type CreateUserResult =
   | { ok: true }
@@ -18,7 +18,7 @@ export type CreateUserResult =
 export async function createUserFormAction(
   formData: FormData,
 ): Promise<CreateUserResult> {
-  await requireCommerce()
+  await requireUserManager()
   const name = String(formData.get('name') ?? '').trim()
   const pin = String(formData.get('pin') ?? '')
   const role = String(formData.get('role') ?? '') as Role
@@ -49,7 +49,7 @@ export async function setActiveAction(
   userId: string,
   active: boolean,
 ): Promise<SetActiveResult> {
-  await requireCommerce()
+  await requireUserManager()
   try {
     await updateUser(userId, { active })
     revalidatePath('/login')
@@ -66,7 +66,7 @@ export async function setFinanceAction(
   userId: string,
   isFinance: boolean,
 ): Promise<SetActiveResult> {
-  await requireCommerce()
+  await requireUserManager()
   try {
     await updateUser(userId, { isFinance })
     revalidatePath('/login')
@@ -82,7 +82,7 @@ export async function setGaiAction(
   userId: string,
   canGai: boolean,
 ): Promise<SetActiveResult> {
-  await requireCommerce()
+  await requireUserManager()
   try {
     await updateUser(userId, { canGai })
     revalidatePath('/login')
@@ -98,7 +98,7 @@ export async function renameUserAction(
   userId: string,
   name: string,
 ): Promise<SetActiveResult> {
-  await requireCommerce()
+  await requireUserManager()
   const trimmed = name.trim()
   if (!trimmed) return { ok: false, error: '姓名不能为空' }
   if (trimmed.length > 32) return { ok: false, error: '姓名过长' }
@@ -115,7 +115,7 @@ export async function resetPinAction(
   userId: string,
   pin: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireCommerce()
+  await requireUserManager()
   try {
     await resetUserPin(userId, pin)
     return { ok: true }
@@ -133,7 +133,7 @@ export type DeleteUserResult = { ok: true } | { ok: false; error: string }
 export async function deleteUserAction(
   userId: string,
 ): Promise<DeleteUserResult> {
-  await requireCommerce()
+  await requireUserManager()
   try {
     await deleteUser(userId)
     revalidatePath('/login')

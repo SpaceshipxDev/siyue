@@ -21,9 +21,8 @@ export function LoginClient({
 }: {
   users: AppUser[]
   boss: AppUser
-  // Accounts with 老板-level authority (bootstrap 老板 + promoted owners).
-  // With more than one, 管理员工 asks which admin is signing in; with just
-  // the boss it jumps straight to his keypad (the original behaviour).
+  // 能管账号的人 (canManageUsers: 老板 + 于海伟的商务号)。不止一个的时候,
+  // 「管理员工」先问一句是谁在管; 只有老板一个人时直接跳到他的键盘。
   admins: AppUser[]
 }) {
   const [view, setView] = useState<View>({ kind: 'grid' })
