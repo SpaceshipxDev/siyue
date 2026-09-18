@@ -694,9 +694,8 @@ function ActionCell({
 
   if (tab === 'upstream') {
     // The part often arrives at the bench before the upstream head's ✓ does.
-    // The tap is the truth signal: ▶ here starts THIS stage and the server
-    // closes the un-ticked upstream stages behind it (cascadeBackStart), so
-    // a missed upstream tap can't freeze the queue. Rows with nothing
+    // 这里照样点得下去 —— ▶ 只开自己这一道, 前道漏点的就留着空, 由该点的人
+    // 自己补 (谁点谁的那一道, 见 lib/db)。Rows with nothing
     // startable here (e.g. this stage fully outsourced) — and every row on
     // a station the viewer can't mutate — keep the plain view link.
     const cnts = rowStageCounts(row, stage)

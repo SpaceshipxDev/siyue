@@ -10,7 +10,6 @@ import {
   jobIntakeDate,
   jobNoSortKey,
   procurementTotalCny,
-  stageStartImpliesUpstreamDone,
 } from './data'
 import { shanghaiWindow, today, todayMMDD } from './today'
 import type {
@@ -1692,91 +1691,20 @@ function canStartInSnap(snap: DbSnapshot, partId: string, stage: Stage): boolean
   return row ? row.status === 'pending' : false
 }
 
-// Starting a stage IS physical evidence the part reached this station — every
-// prior in-route stage already happened in the real world, whether or not its
-// head remembered to tap ✓. Close them at the same instant as the start, so a
-// missed upstream tap can't strand the part in every queue behind it (the
-// 上游-forever failure: 编程 forgets to tick, 操机 can see the part on their
-// bench but their station page files the job under 上游 with no action).
+// 报工只记自己这一道 —— 点后道不会把前道顺手补上。
 //
-// Attribution: `by` = the starter, so the board/job hover can answer 谁完成
-// (their ▶ is the click that closed these rows). Reporting stays honest the
-// same way the 出货 cascade does — these rows share finished_at with the
-// downstream row's started_at, and worker_output/worker_stage_events (0092)
-// exclude any finish stamped at the instant another stage on the same part
-// started. Genuinely-tapped stages are 'done' and untouched, same rule as
-// cascadeBackFinish.
+// 以前是反过来的: 点了 操机 就默认 编程 一定做完了, 系统替编程点了个 ✓;
+// 整单出货更狠, 前面每一道全部标完成。理由是"件都到这儿了, 前面当然做过"。
 //
-// Vendor-covered stages are skipped entirely: the outsource block lifecycle
-// (回厂 / 出货 sweep) owns their truth, and every rollup reads them through
-// the block, not the part_stages row.
-function cascadeBackStart(
-  snap: DbSnapshot,
-  partId: string,
-  atStage: Stage,
-  date: string,
-  startedAtIso: string,
-  actor: string,
-): PartStageRow[] {
-  const idx = STAGES.indexOf(atStage)
-  if (idx <= 0) return []
-  const blocks = partBlocksInSnap(snap, partId)
-  const changed: PartStageRow[] = []
-  for (let i = 0; i < idx; i++) {
-    const s = STAGES[i]
-    if (blocks.some((b) => b.stages.includes(s))) continue
-    if (!stageStartImpliesUpstreamDone(atStage, s)) continue
-    const row = snap.idx.stageByPartStage.get(stageKey(partId, s))
-    if (!row) continue
-    if (row.status === 'done') continue
-    changed.push({
-      ...row,
-      status: 'done',
-      completedAt: date,
-      finishedAt: startedAtIso,
-      by: actor,
-      doneQty: undefined,
-    })
-  }
-  return changed
-}
+// 可是这个 ✓ 上写着谁的名字、哪一天完成的, 工资和绩效就是按这个数发的。替
+// 别人点下去的那一下, 记的是点的人不知道的活: 前道到底做没做、谁做的、什么
+// 时候做完的, 全是猜的。猜出来的数进了工资表, 就是实打实的错账。
+//
+// 所以现在的规矩只有一条: 谁点谁的那一道, 前道没点就空着。空着不挡人 ——
+// 工位看板上件照样在「上游」那一栏, 「到手可开始」, 后道随时能点自己的 ▶。
+// 前道漏点了就让它看得见地空着, 由该点的人补, 而不是被别人悄悄盖掉。
 
-function cascadeBackFinish(
-  snap: DbSnapshot,
-  partId: string,
-  upToStage: Stage,
-  date: string,
-  finishedAtIso: string,
-  actor: string,
-): PartStageRow[] {
-  // Only 出货 cascades back. Confirming finish at any other station applies
-  // strictly to that station — heads sign off on their own work, not their
-  // upstream's. 出货 is the exception: shipping a part implies everything
-  // earlier was done, and we let the shipping head close out the row in one
-  // click rather than chasing missed taps at prior stations. That includes
-  // stages covered by an outsource block: if the part physically shipped,
-  // the vendor's work is over, whether or not anyone logged the 回厂.
-  if (upToStage !== '出货') return []
-  const idx = STAGES.indexOf(upToStage)
-  const changed: PartStageRow[] = []
-  for (let i = 0; i < idx; i++) {
-    const s = STAGES[i]
-    const row = snap.idx.stageByPartStage.get(stageKey(partId, s))
-    if (!row) continue
-    if (row.status === 'done') continue
-    changed.push({
-      ...row,
-      status: 'done',
-      completedAt: date,
-      finishedAt: finishedAtIso,
-      by: actor,
-      doneQty: undefined,
-    })
-  }
-  return changed
-}
-
-// 出货 sweep of vendor lines — the physical counterpart of cascadeBackFinish.
+// 出货 sweep of vendor lines — 发货那一刻的另一半。
 // Shipping means the parts exist and left the building, so any still-open
 // outsource-block member for them is de facto returned: stamp returned_qty
 // to the member qty so blockClosedAt derives a close and the board's
@@ -4415,8 +4343,6 @@ export async function startStage(
         startedBy: actor,
         doneQty: undefined,
       },
-      // Part is physically here ⇒ close any upstream stage that missed its tap.
-      ...cascadeBackStart(snap, partId, stage, todayMMDD(), now, actor),
     ])
   })
 }
@@ -4444,9 +4370,9 @@ export async function finishStage(
       by: actor,
       doneQty: undefined,
     }
-    const cascaded = cascadeBackFinish(snap, partId, stage, date, finishedAt, actor)
-    await upsertStages([main, ...cascaded])
-    // Shipping settles the part's vendor lines too (see cascadeBackFinish).
+    await upsertStages([main])
+    // 出货 还要顺手把这个件未结的外协行结掉 —— 那是物流事实 (东西发出去了,
+    // 就不可能还在供应商手上), 不是替别人报工。
     if (stage === '出货') {
       await closeOpenOutsourceMembersForParts(snap, [partId], today())
     }
@@ -4492,8 +4418,7 @@ export async function setInspectionVerdict(
         verdictAt: now,
         verdictBy: actor,
       }
-      const cascaded = cascadeBackFinish(snap, partId, stage, date, now, actor)
-      await upsertStages([main, ...cascaded])
+      await upsertStages([main])
       return
     }
     await upsertStages([
@@ -4730,19 +4655,16 @@ export async function setStageDoneQty(
         by: actor,
         doneQty: undefined,
       }
-      const cascaded = cascadeBackFinish(snap, partId, stage, date, finishedAt, actor)
-      await upsertStages([main, ...cascaded])
-      // Shipping settles the part's vendor lines too (see cascadeBackFinish).
+      await upsertStages([main])
+      // 出货 还要结掉未结的外协行 (见 finishStage)。
       if (stage === '出货') {
         await closeOpenOutsourceMembersForParts(snap, [partId], today())
       }
       return undefined
     }
     // Falling through from a 'done' row (qty < max) flips it back to
-    // in_progress with the new partial. Upstream cascade rows stay done —
-    // the shipping head already verified them when they originally finished
-    // this stage; we're just amending the shipped count, not re-opening the
-    // production trail.
+    // in_progress with the new partial. 只动这一格 —— 改的是发了多少, 不是
+    // 前面那几道做没做。
     await upsertStages([
       {
         ...row,
@@ -4878,9 +4800,7 @@ export async function prepareShipping(
       const newCumulative = (cumulative.get(partId) ?? 0) + delta
       const max = Math.max(0, Math.floor(part.qty))
       if (newCumulative >= max && max > 0) {
-        // Fully shipped — close out the row and let 出货's cascade-back finish
-        // any upstream stages that hadn't been ticked yet (same finishStage
-        // semantics; commerce shouldn't have to chase missed station taps).
+        // 发完了 — 只关 出货 这一格。前面哪几道没点就空着。
         stageUpdates.push({
           ...row,
           status: 'done',
@@ -4890,8 +4810,6 @@ export async function prepareShipping(
           by: actor,
           doneQty: undefined,
         })
-        const cascaded = cascadeBackFinish(snap, partId, '出货', date, createdAt, actor)
-        stageUpdates.push(...cascaded)
         fullyShippedPartIds.push(partId)
       } else {
         stageUpdates.push({
@@ -4918,7 +4836,7 @@ export async function prepareShipping(
       if (insP.error) throw insP.error
     }
     if (stageUpdates.length > 0) await upsertStages(stageUpdates)
-    // Shipping settles the parts' vendor lines too (see cascadeBackFinish).
+    // 发完的件, 未结的外协行一起结掉 (见 finishStage)。
     if (fullyShippedPartIds.length > 0) {
       await closeOpenOutsourceMembersForParts(snap, fullyShippedPartIds, today())
     }
@@ -4933,10 +4851,11 @@ export async function prepareShipping(
 // 已完成。所以撤销不能只删行, 得把工段状态按剩下的单子重算一遍, 否则零件在
 // 看板上还挂着"已出货", 数字却回去了。
 //
-// 有一件事故意不回退: 整单出完时 出货 会级联把上游没点的工段一起标完成
-// (cascadeBackFinish), 还会关掉未结的外协行。删一张出货单不会把那些倒回去
-// —— 东西确实做完过, 而且无从分辨哪些是级联标的、哪些本来就是工段自己点的。
-// 界面上把这点说清楚, 比悄悄猜要好。
+// 有一件事故意不回退: 整单出完时会把未结的外协行一起关掉。删一张出货单不会
+// 把那些倒回去 —— 东西确实回过厂。界面上把这点说清楚, 比悄悄猜要好。
+//
+// (以前 出货 还会级联把上游没点的工段一起标完成, 那一条已经去掉了 —— 谁点
+// 谁的那一道。)
 async function resyncShippingStages(
   jobId: string,
   actor: string,
@@ -5302,7 +5221,6 @@ export async function startJobStage(
     const snap = await loadJobSnapshot(jobId)
     const parts = snap.idx.partsByJob.get(jobId) ?? []
     const now = new Date().toISOString()
-    const date = todayMMDD()
     const updates: PartStageRow[] = []
     for (const part of parts) {
       if (!canStartInSnap(snap, part.id, stage)) continue
@@ -5317,8 +5235,6 @@ export async function startJobStage(
         startedBy: actor,
         doneQty: undefined,
       })
-      // Parts are physically here ⇒ close upstream stages that missed their tap.
-      updates.push(...cascadeBackStart(snap, part.id, stage, date, now, actor))
     }
     await upsertStages(updates)
   })
@@ -5335,10 +5251,10 @@ export async function finishJobStage(
     const finishedAt = new Date().toISOString()
     const parts = snap.idx.partsByJob.get(jobId) ?? []
     // 出货 is terminal: ticking it for the JOB means "this order left the
-    // building", so it sweeps every not-yet-done part — pending ones included
-    // — and cascadeBackFinish closes all their earlier stations (外协-covered
-    // ones too). Every other stage keeps the strict rule: finish only what's
-    // actually in flight, pending parts wait for their own ▶.
+    // building", so it sweeps every not-yet-done part — pending ones included.
+    // 前面那几道照旧不动 —— 谁点谁的那一道。Every other stage keeps the
+    // strict rule: finish only what's actually in flight, pending parts wait
+    // for their own ▶.
     const isShipping = stage === '出货'
     const updates: PartStageRow[] = []
     for (const part of parts) {
@@ -5355,12 +5271,6 @@ export async function finishJobStage(
             doneQty: undefined,
           })
         }
-        // Cascade for EVERY part — including ones whose 出货 was already
-        // ticked earlier — so the invariant holds job-wide: shipped means
-        // every station before 出货 is ✓, no stragglers from partial ships.
-        updates.push(
-          ...cascadeBackFinish(snap, part.id, stage, date, finishedAt, actor),
-        )
         continue
       }
       if (row.status !== 'in_progress') continue
@@ -5372,9 +5282,6 @@ export async function finishJobStage(
         by: actor,
         doneQty: undefined,
       })
-      updates.push(
-        ...cascadeBackFinish(snap, part.id, stage, date, finishedAt, actor),
-      )
     }
     await upsertStages(updates)
     // …and settle any vendor lines still open on this job's parts.

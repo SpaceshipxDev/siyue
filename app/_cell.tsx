@@ -534,8 +534,8 @@ export function JobStageActionButton({
     // which is a lie.
     //
     // 出货 is the exception to the start-remaining detour: it's terminal, and
-    // finishJobStage sweeps pending parts (+ cascades all prior stations,
-    // 外协 included) for 出货 — so one tap always means "this order shipped".
+    // finishJobStage sweeps this job's still-pending parts for 出货 — so one
+    // tap always means "this order shipped". 前面那几道工段不跟着动。
     const hasInFlight = counts.inProgress > 0
     const finishes = hasInFlight || stage === '出货'
     const onAdvance = finishes ? onFinish : onStart

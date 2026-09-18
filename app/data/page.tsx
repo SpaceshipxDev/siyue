@@ -370,9 +370,10 @@ export default async function DataPage() {
               不是当周产出。所有趋势口径已剔除。
             </li>
             <li>
-              <b className="font-medium text-[var(--color-ink-2)]">出货会级联关闭工序。</b>
-              一张出货单会自动把该工单剩余工序标记完成,因此「报工完成数」被高估,且这些完成会记在出货的人名下。
-              <b className="font-medium text-[var(--color-ink-2)]">看采用情况应以「每周报工人数」为准。</b>
+              <b className="font-medium text-[var(--color-ink-2)]">出货曾会级联关闭工序。</b>
+              2026-09-18 之前,一张出货单会自动把该工单剩余工序标记完成,因此那之前的「报工完成数」被高估,
+              且这些完成记在出货的人名下。该规则已取消(现在谁点谁的那一道),此后的数不再受影响。
+              <b className="font-medium text-[var(--color-ink-2)]">看历史采用情况应以「每周报工人数」为准。</b>
             </li>
             <li>
               <b className="font-medium text-[var(--color-ink-2)]">页面埋点 2026-07-08 才上线。</b>

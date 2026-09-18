@@ -847,8 +847,9 @@ export type StationFinishes = {
 
 // Every finish event at `stage` within the window, grouped into the per-worker
 // (→ per-job → per-component) tree the cockpit renders, plus the per-job flow
-// list and headline totals. Reads worker_stage_events (cascade-excluded post
-// 0071); capped so a huge month can't ship an unbounded payload to the client.
+// list and headline totals. Reads worker_stage_events (历史上被级联补出来的
+// 完成已排除, 见 0071; 级联本身已取消); capped so a huge month can't ship an
+// unbounded payload to the client.
 export async function getStationFinishes(
   stage: Stage,
   window: { from: string; to: string },

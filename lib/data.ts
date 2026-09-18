@@ -27,21 +27,6 @@ export type Stage = (typeof STAGES)[number]
 // leaves the building after polishing and must be back before paint).
 export const OPT_IN_STAGES: Stage[] = ['采购', '表处']
 
-// Starting a stage cascades every upstream stage closed (lib/db
-// cascadeBackStart) — "if I'm working on it, everything before me is done"
-// holds for in-house work, where each stage is a person here touching the
-// part. 采购 is the exception: it means material physically ARRIVED, a fact
-// from outside the building. 编程 is desk work on a computer that needs no
-// material at all, so a programmer pressing ▶ must never claim the steel
-// landed. Everything from 操机 on does touch the metal, so those still
-// cascade 采购 closed for free.
-export function stageStartImpliesUpstreamDone(
-  atStage: Stage,
-  upstream: Stage,
-): boolean {
-  return !(upstream === '采购' && atStage === '编程')
-}
-
 // The route every new part is born with — everything except the opt-ins.
 // Single source of truth for server seeding (lib/db DEFAULT_NEW_PART_STAGES)
 // and the client's optimistic new-row mirror.
@@ -1463,9 +1448,8 @@ export function canStartStage(component: Component, stage: Stage): boolean {
     }
   }
   // Permissive: any pending in-house stage can be started — workers can grab
-  // a part at any point. Finish only marks this stage; earlier stages stay
-  // pending until their own heads sign off (出货 is the exception — see
-  // cascadeBackFinish in lib/db.ts).
+  // a part at any point. 点哪一道就只记哪一道: 前面没点的一直空着, 等该点的
+  // 人自己补 (出货 也不例外)。
   return st.status === 'pending'
 }
 
@@ -1756,8 +1740,8 @@ export function isComponentDone(component: Component): boolean {
 
 // "Mine" = the head genuinely owes this work TODAY. A part qualifies when
 // it's in_progress here, or pending here AND every prior in-route stage is
-// effectively done. Permissive cascade-from-pending starts don't count —
-// upstream has to actually hand off first.
+// effectively done. 前道没点完的件不算"我的", 但它在「上游」那一栏照样能点
+// ▶ —— 点下去就是 in_progress, 下一眼就落到「在此」。
 export function jobIsMineAtStage(job: Job, stage: Stage): boolean {
   const stageIdx = STAGES.indexOf(stage)
   for (const c of job.components) {
@@ -1942,8 +1926,8 @@ export function jobTimerAtStage(
 // (earliest startedAt across the job's in-route components) to the last
 // finish click (latest finishedAt). One sample per job, only when every
 // in-route component for the stage is done with both timestamps set;
-// cascade-back-filled stages skip startedAt and would skew the number, and
-// partial completion would understate the flow time.
+// 早期被级联补上的工段没有 startedAt (那条规则已经取消), 跳过不算; partial
+// completion would understate the flow time.
 //
 // Returns null when sample size < 3 — better than rendering noise as a
 // load-bearing number on day one of rollout.
