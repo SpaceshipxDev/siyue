@@ -514,6 +514,19 @@ export type VoucherFile = {
   createdAt: string
 }
 
+// 请假条 — 员工递上来的那张纸 (事假条 / 病历 / 工伤的诊断证明), 拍一张挂在
+// 那条人事记录上。跟 凭证 同一个形状、同一个道理: 时长和事由是打进去的字,
+// 那张纸才是原始依据 —— 月底对工资、事后追责, 翻的都是它。
+export type HrNoteFile = {
+  id: string
+  url: string
+  filename: string
+  filesize?: number
+  contentType?: string
+  uploadedBy?: string
+  createdAt: string
+}
+
 // 请购图片 — a picture hung on one 采购 row: the broken tool, the 淘宝 listing,
 // the shape a plate has to be cut to. Same shape as a 凭证, stored table-free
 // in the bucket alongside the purchase (see lib/procurement-photo.ts).

@@ -10,7 +10,12 @@ import { showToast } from '@/app/_toast'
 import { HR_TYPES, hrHasHours } from '@/lib/data'
 import { DEPARTMENTS } from '@/lib/payroll'
 import { HrImport } from './_import'
-import type { HrRecord, HrType } from '@/lib/data'
+import { LeaveNoteCell } from './_leave_note'
+import type { HrNoteFile, HrRecord, HrType } from '@/lib/data'
+
+// 有假条可挂的那几种 —— 请假的三档。迟到旷工违纪没有一张纸递上来, 那一栏摆
+// 在那儿只是让人多看一眼。
+const LEAVE_TYPES = new Set<HrType>(['事假', '病假', '工伤'])
 
 // 人事 — one screen, two halves.
 //
@@ -37,6 +42,7 @@ import type { HrRecord, HrType } from '@/lib/data'
 
 export function HrBoard({
   records,
+  notes,
   period,
   months,
   roster,
@@ -46,6 +52,8 @@ export function HrBoard({
   today,
 }: {
   records: HrRecord[]
+  /** 请假条 — 按记录 id 分好, 服务端一次把当期读出来 (lib/hr-note-file)。 */
+  notes: Record<string, HrNoteFile[]>
   period: string
   months: string[]
   roster: string[]
@@ -138,6 +146,9 @@ export function HrBoard({
       return
     }
     setError(null)
+    // 记的是一条请假 —— 记完把这个人的明细摊开, 刚落的那条就在眼前, 手上那
+    // 张假条顺手拍上去。不然假条钮藏在一次点击后面, 等于没有。
+    const filedLeave = LEAVE_TYPES.has(type) ? name.trim() : null
     start(async () => {
       try {
         await mutate({
@@ -161,6 +172,7 @@ export function HrBoard({
         const m = date.slice(0, 7)
         if (!isYear && m !== period) go(m)
         else router.refresh()
+        if (filedLeave) setOpenName(filedLeave)
       } catch (e) {
         setError(e instanceof Error ? e.message : '记不上')
       }
@@ -515,6 +527,14 @@ export function HrBoard({
                         <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--color-ink-2)]">
                           {rec.note}
                         </span>
+                      )}
+                      {LEAVE_TYPES.has(rec.type) && (
+                        <LeaveNoteCell
+                          month={rec.date.slice(0, 7)}
+                          recordId={rec.id}
+                          initial={notes[rec.id] ?? []}
+                          canDelete={canDelete}
+                        />
                       )}
                       <span className="shrink-0 text-[11.5px] text-[var(--color-ink-4)]">
                         {rec.by}

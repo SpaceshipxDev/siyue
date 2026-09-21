@@ -13,6 +13,7 @@ import {
 } from '@/lib/auth'
 import { getActiveUsers } from '@/lib/db'
 import { getHrMonth, getHrMonths, getHrRoster, getHrYear } from '@/lib/hr'
+import { getHrNotesForMonth, getHrNotesForYear } from '@/lib/hr-note-file'
 import { today } from '@/lib/today'
 import { getDormEntries } from '@/lib/dorm'
 import { DormBoard } from './_dorm'
@@ -47,9 +48,12 @@ export default async function HrPage({
   const period = /^\d{4}(-\d{2})?$/.test(raw) ? raw : now.slice(0, 7)
   const isYear = period.length === 4
 
-  const [allRecords, months, users, extraNames, dormEntries] =
+  const [allRecords, notes, months, users, extraNames, dormEntries] =
     await Promise.all([
       isYear ? getHrYear(period) : getHrMonth(period),
+      // 请假条 — 跟记录同一个分片口径, 所以跟着同一趟读: 月度一个文件, 年度
+      // 十二个并行。
+      isYear ? getHrNotesForYear(period) : getHrNotesForMonth(period),
       getHrMonths(),
       getActiveUsers(),
       getHrRoster(),
@@ -111,6 +115,7 @@ export default async function HrPage({
         ) : (
           <HrBoard
             records={records}
+            notes={notes}
             period={period}
             months={months}
             roster={roster}

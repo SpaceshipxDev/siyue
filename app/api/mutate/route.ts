@@ -217,6 +217,7 @@ import {
   isValidHrPatch,
   updateHrRecord,
 } from '@/lib/hr'
+import { deleteHrNote, deleteHrNotesForRecord } from '@/lib/hr-note-file'
 import {
   allDepartments,
   isPayrollMonth,
@@ -2428,6 +2429,24 @@ async function dispatch(
       const u = await requireHrUser()
       if (!canDeleteHrRecord(u)) return err('无权删除人事记录', 403)
       await deleteHrRecordRow(month, recordId)
+      // 挂在这条线上的假条跟着走 —— 线没了, 那张纸也没人找得到了。
+      await deleteHrNotesForRecord(month, recordId)
+      revalidatePath('/hr')
+      return Response.json(ok())
+    }
+
+    // 请假条 removal. 传走 /api/upload-hr-note (multipart), 删是普通的 JSON
+    // mutation。传是全厂那一档 (谁收到假条谁拍), 删收到 人事改删 那一档 ——
+    // 跟「填过的格子谁能动」是同一个信任。
+    case 'deleteHrNote': {
+      const month = body.month
+      const recordId = body.recordId
+      const noteId = body.noteId
+      if (!isString(month) || !isString(recordId) || !isString(noteId))
+        return err('bad deleteHrNote args')
+      const u = await requireHrUser()
+      if (!canDeleteHrRecord(u)) return err('删假条要找于海伟', 403)
+      await deleteHrNote(month, recordId, noteId)
       revalidatePath('/hr')
       return Response.json(ok())
     }
