@@ -14,10 +14,14 @@ import type { Complaint } from '@/lib/complaints'
 // 跟隔壁那张「质量异常」是两回事: 那张是厂里自己检出来的, 一条都不用录 (检
 // 验员按下判定就有了); 这张是客户打电话过来的, 系统无从知道, 只能商务落笔。
 //
-// 一条客诉回答七件事: 谁家的 · 坏了几个 · 为什么 · 怎么处理 · 谁的责任 · 赔
-// 了多少 · 以后怎么不再犯。那个钱数是这张表存在的理由 —— 质量问题只有换算成
-// 钱, 才谈得上跟谁算账、值不值得改; 而措施定下来, 这条客诉才算完, 所以顶上
-// 数着还没定措施的条数。
+// 一条客诉回答八件事: 谁家的 · 坏了几个 · 为什么坏 · 为什么没拦住 · 怎么处
+// 理 · 谁的责任 · 赔了多少 · 以后怎么不再犯。那个钱数是这张表存在的理由 ——
+// 质量问题只有换算成钱, 才谈得上跟谁算账、值不值得改; 而措施定下来, 这条客
+// 诉才算完, 所以顶上数着还没定措施的条数。
+//
+// 不良原因 和 流出原因 是两栏, 因为是两个问题: 一个问这批件怎么做坏的, 一
+// 个问它怎么走出厂门的 (首件没检 / 全检漏了 / 包装没对图号)。只追前一个,
+// 下次换个做坏的花样照样流出去。
 //
 // 一行录入, 之后每一格都能点着改 —— 客诉是拖着办的, 今天先记下"客户说坏了
 // 20 个", 处理方式和损失金额可能一周后才定。
@@ -28,7 +32,7 @@ const MONTHS = [
 ]
 
 const COLS =
-  'grid-cols-[64px_minmax(0,0.7fr)_108px_48px_minmax(0,1.1fr)_minmax(0,0.9fr)_64px_minmax(0,1.1fr)_80px_28px]'
+  'grid-cols-[56px_minmax(0,0.62fr)_96px_44px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.85fr)_60px_minmax(0,1fr)_76px_26px]'
 
 export function ComplaintsBoard({
   rows,
@@ -59,6 +63,7 @@ export function ComplaintsBoard({
   const [jobNo, setJobNo] = useState('')
   const [qty, setQty] = useState('')
   const [reason, setReason] = useState('')
+  const [outflow, setOutflow] = useState('')
   const [handling, setHandling] = useState('')
   const [owner, setOwner] = useState('')
   const [action, setAction] = useState('')
@@ -77,6 +82,7 @@ export function ComplaintsBoard({
               r.customer,
               r.jobNo,
               r.reason,
+              r.outflowReason,
               r.handling,
               r.owner,
               r.action,
@@ -115,6 +121,7 @@ export function ComplaintsBoard({
             jobNo: jobNo.trim() || undefined,
             qty: Number(qty.trim()) || 0,
             reason: reason.trim(),
+            outflowReason: outflow.trim(),
             handling: handling.trim(),
             owner: owner.trim(),
             action: action.trim(),
@@ -125,6 +132,7 @@ export function ComplaintsBoard({
         setJobNo('')
         setQty('')
         setReason('')
+        setOutflow('')
         setHandling('')
         setOwner('')
         setAction('')
@@ -202,6 +210,12 @@ export function ComplaintsBoard({
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             placeholder="不良原因"
+            className={`${inp} min-w-[140px] flex-1`}
+          />
+          <input
+            value={outflow}
+            onChange={(e) => setOutflow(e.target.value)}
+            placeholder="流出原因 · 可后补"
             className={`${inp} min-w-[140px] flex-1`}
           />
           <input
@@ -319,6 +333,7 @@ export function ComplaintsBoard({
           <span className="label">工号</span>
           <span className="label text-right">不良数</span>
           <span className="label">不良原因</span>
+          <span className="label">流出原因</span>
           <span className="label">处理方式</span>
           <span className="label">责任人</span>
           <span className="label">纠正预防措施</span>
@@ -360,6 +375,12 @@ export function ComplaintsBoard({
                 canEdit={canEdit || !r.reason}
                 value={r.reason}
                 onSave={(v) => patch(r.id, { reason: v })}
+              />
+              <Cell
+                canEdit={canEdit || !r.outflowReason}
+                value={r.outflowReason}
+                placeholder="待查…"
+                onSave={(v) => patch(r.id, { outflowReason: v })}
               />
               <Cell
                 canEdit={canEdit || !r.handling}
@@ -412,9 +433,9 @@ export function ComplaintsBoard({
       </div>
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
-        客诉是拖着办的——先记下客户说坏了几个，处理方式、损失金额和纠正预防措施
-        定下来再回来补，还空着的格谁都填得上；填过的要改，找工程或于海伟。导出
-        的就是屏幕上这一批。
+        客诉是拖着办的——先记下客户说坏了几个，流出原因、处理方式、损失金额和
+        纠正预防措施定下来再回来补，还空着的格谁都填得上；填过的要改，找工程或
+        于海伟。导出的就是屏幕上这一批。
       </p>
     </div>
   )

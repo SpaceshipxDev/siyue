@@ -2655,7 +2655,7 @@ async function dispatch(
       if (!isString(i.reason) || !i.reason.trim()) return err('填一下不良原因')
       if (!isString(i.date) || !/^\d{4}-\d{2}-\d{2}$/.test(i.date))
         return err('bad addComplaint args')
-      for (const k of ['handling', 'owner', 'action']) {
+      for (const k of ['outflowReason', 'handling', 'owner', 'action']) {
         if (i[k] !== undefined && !isString(i[k]))
           return err('bad addComplaint args')
       }
@@ -2669,6 +2669,7 @@ async function dispatch(
           jobNo: isString(i.jobNo) ? i.jobNo : undefined,
           qty: typeof i.qty === 'number' ? i.qty : 0,
           reason: i.reason,
+          outflowReason: isString(i.outflowReason) ? i.outflowReason : '',
           handling: isString(i.handling) ? i.handling : '',
           owner: isString(i.owner) ? i.owner : '',
           action: isString(i.action) ? i.action : '',
@@ -2693,6 +2694,7 @@ async function dispatch(
         'customer',
         'jobNo',
         'reason',
+        'outflowReason',
         'handling',
         'owner',
         'action',

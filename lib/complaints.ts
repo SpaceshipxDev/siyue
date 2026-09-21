@@ -8,9 +8,15 @@ import { supabase, STORAGE_BUCKET } from './supabase'
  * 成品检), 一条都不用手录, 检验员按下判定就有了; 客诉是客户打电话过来的, 系
  * 统无从知道, 只能商务落笔。
  *
- * 一条客诉要回答七件事: 谁家的、坏了几个、为什么坏、怎么处理的、谁的责任、
- * 赔了多少钱、以后怎么不再犯。那个钱数是这张表存在的理由 —— 质量问题只有换
- * 算成钱, 才谈得上跟谁算账、值不值得改; 而措施定下来, 这条客诉才算完。
+ * 一条客诉要回答八件事: 谁家的、坏了几个、为什么坏、为什么没拦住、怎么处理
+ * 的、谁的责任、赔了多少钱、以后怎么不再犯。那个钱数是这张表存在的理由 ——
+ * 质量问题只有换算成钱, 才谈得上跟谁算账、值不值得改; 而措施定下来, 这条客
+ * 诉才算完。
+ *
+ * 「为什么坏」和「为什么没拦住」是两个问题, 所以是两栏。不良原因说的是这批
+ * 件怎么做坏的 (刀补打错了), 流出原因说的是它怎么走出厂门的 (首件没检、全
+ * 检漏了、包装时没对图号)。只改前一个, 下次换个做坏的花样照样流出去 —— 拦
+ * 不住才是客诉之所以成为客诉的原因。
  *
  * Table-free, 跟 人事 / 工资 / 住宿 一个路子: 没有 migration 要人去应用。一
  * 个厂一年几十条客诉, 一个 JSON 绰绰有余。
@@ -31,7 +37,8 @@ export type Complaint = {
   customer: string // 客户
   jobNo?: string // 工号 — 有就填, 追溯用
   qty: number // 不良数量
-  reason: string // 不良原因
+  reason: string // 不良原因 — 怎么做坏的
+  outflowReason: string // 流出原因 — 怎么没拦住、流到客户手上的
   handling: string // 处理方式
   owner: string // 责任人
   action: string // 纠正预防措施
@@ -46,6 +53,7 @@ export type ComplaintPatch = {
   jobNo?: string
   qty?: number
   reason?: string
+  outflowReason?: string
   handling?: string
   owner?: string
   action?: string
@@ -80,6 +88,8 @@ function normalize(raw: unknown): Complaint[] {
       jobNo: str(r.jobNo) || undefined,
       qty: count(r.qty),
       reason: str(r.reason),
+      // 2026-09-21 加的栏 —— 那之前记的客诉读出来是空的, 空格谁都能补。
+      outflowReason: str(r.outflowReason),
       handling: str(r.handling),
       owner: str(r.owner),
       action: str(r.action),
@@ -127,6 +137,7 @@ export type NewComplaint = {
   jobNo?: string
   qty: number
   reason: string
+  outflowReason: string
   handling: string
   owner: string
   action: string
@@ -147,6 +158,7 @@ export async function addComplaint(
       jobNo: input.jobNo?.trim() || undefined,
       qty: count(input.qty),
       reason: input.reason.trim(),
+      outflowReason: input.outflowReason.trim(),
       handling: input.handling.trim(),
       owner: input.owner.trim(),
       action: input.action.trim(),
@@ -186,6 +198,8 @@ export async function updateComplaint(
     if (patch.jobNo !== undefined) row.jobNo = patch.jobNo.trim() || undefined
     if (patch.qty !== undefined) row.qty = count(patch.qty)
     if (patch.reason !== undefined) row.reason = patch.reason.trim()
+    if (patch.outflowReason !== undefined)
+      row.outflowReason = patch.outflowReason.trim()
     if (patch.handling !== undefined) row.handling = patch.handling.trim()
     if (patch.owner !== undefined) row.owner = patch.owner.trim()
     if (patch.action !== undefined) row.action = patch.action.trim()

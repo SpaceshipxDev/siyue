@@ -55,13 +55,14 @@ const COMPLAINT_HEADERS = [
   '工号',
   '不良数量',
   '不良原因',
+  '流出原因',
   '处理方式',
   '责任人',
   '纠正预防措施',
   '损失金额',
   '记录人',
 ]
-const COMPLAINT_WIDTHS = [12, 22, 16, 10, 30, 24, 12, 34, 12, 12]
+const COMPLAINT_WIDTHS = [12, 22, 16, 10, 28, 28, 22, 12, 32, 12, 12]
 
 const IMPROVE_HEADERS = [
   '日期',
@@ -275,6 +276,7 @@ export async function GET(request: NextRequest): Promise<Response> {
               r.customer,
               r.jobNo,
               r.reason,
+              r.outflowReason,
               r.handling,
               r.owner,
               r.action,
@@ -293,6 +295,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         r.jobNo ?? '',
         r.qty,
         r.reason,
+        r.outflowReason,
         r.handling,
         r.owner,
         r.action,
