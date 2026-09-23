@@ -80,6 +80,7 @@ import {
   updateDailyFocusItem,
   updateExpense,
   updateHandover,
+  getProcurementStatus,
   updateProcurement,
   updateProcurementProduct,
   updateJob,
@@ -126,6 +127,7 @@ import {
 } from '@/lib/db'
 import {
   canApproveProcurement,
+  canDeleteProcurement,
   canClickStage,
   canCreatePartRow,
   canDeleteHrRecord,
@@ -2248,33 +2250,58 @@ async function dispatch(
       const u = await requireUser()
       // pre-0089 clients still say 'pending' for 待下单
       if ((patch.status as string) === 'pending') patch.status = 'approved'
-      if (
-        (patch.status === 'approved' || patch.status === 'rejected') &&
-        !canApproveProcurement(u)
-      )
+      const isApproval =
+        patch.status === 'approved' || patch.status === 'rejected'
+      if (isApproval && !canApproveProcurement(u))
         return err('只有审批人可以批准或驳回')
+      // 待审批 那一档的改 —— 单子还没批之前, 内容只有 商务于海伟 动得了
+      // (老板永远算一个)。批出去以后是另一回事: 供应商、单价、到货日是下单
+      // 的人边办边填的, 那一档照旧开着。
+      //
+      // 批准 / 驳回 本身放行 —— 那是 canApproveProcurement 那一档 (商务 +
+      // 采购站), 不该被这条挡住。但只放行审批这一下: 允许一起带的字段就
+      // status 和 rejectNote 两样, 不然借着批准夹带改数量就又绕回来了。
+      if (!canDeleteProcurement(u)) {
+        const current = await getProcurementStatus(procurementId)
+        if (current === 'requested') {
+          const touched = Object.entries(patch)
+            .filter(([, v]) => v !== undefined)
+            .map(([k]) => k)
+          const approvalOnly =
+            isApproval &&
+            touched.every((k) => k === 'status' || k === 'rejectNote')
+          if (!approvalOnly) {
+            return err('待审批的单子要改找于海伟', 403)
+          }
+        }
+      }
       await updateProcurement(procurementId, patch, u.name)
       revalidatePath('/procurement')
       return Response.json(ok())
     }
 
+    // 删一条请购/采购 — 名单制, 只有 商务于海伟 (老板永远算一个)。记和改
+    // 照旧全厂开着, 见 lib/auth 采购·删 那一段。
     case 'deleteProcurement': {
       const procurementId = body.procurementId
       if (!isString(procurementId)) return err('bad deleteProcurement args')
-      await requireUser()
+      const u = await requireUser()
+      if (!canDeleteProcurement(u)) return err('删采购要找于海伟', 403)
       await deleteProcurement(procurementId)
       revalidatePath('/procurement')
       return Response.json(ok())
     }
 
-    // Deleting a 需求 takes 采购 off the part's route, so it's a routing edit
-    // and carries the routing right (商务 + 工程) — not merely "signed in".
+    // 删一条需求 —— 采购页上那个「删除」。它同时也是一次改路线 (采购从这个
+    // 零件上摘掉), 但在这一页上它就是个删, 所以跟着采购·删那一档走。工程要
+    // 撤掉自己点错的采购, 去零件的工序选择器里关。
     case 'dismissProcurementNeed': {
       const partId = body.partId
       const jobId = body.jobId
       if (!isString(partId) || !isString(jobId))
         return err('bad dismissProcurementNeed args')
-      await requirePartRouteEditor()
+      const u = await requireUser()
+      if (!canDeleteProcurement(u)) return err('删需求要找于海伟', 403)
       const result = await dismissProcurementNeed(partId)
       revalidatePath('/procurement')
       if (result.ok) revalidateJob(jobId)
@@ -2476,7 +2503,8 @@ async function dispatch(
     case 'deleteProcurementProduct': {
       const productId = body.productId
       if (!isString(productId)) return err('bad deleteProcurementProduct args')
-      await requireUser()
+      const u = await requireUser()
+      if (!canDeleteProcurement(u)) return err('删物料要找于海伟', 403)
       await deleteProcurementProduct(productId)
       revalidatePath('/procurement')
       return Response.json(ok())

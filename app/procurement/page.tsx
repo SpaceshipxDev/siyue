@@ -4,7 +4,7 @@ import {
   canSeeReport,
   canSeeOrderLedger,
   canApproveProcurement,
-  canEditPartRoute,
+  canDeleteProcurement,
 } from '@/lib/auth'
 import {
   getProcurements,
@@ -57,7 +57,7 @@ export default async function ProcurementPage() {
           roster={users.map((u) => u.name)}
           currentUser={user.name}
           canApprove={canApproveProcurement(user)}
-          canEditRoute={canEditPartRoute(user)}
+          canDelete={canDeleteProcurement(user)}
           today={today()}
         />
       </main>

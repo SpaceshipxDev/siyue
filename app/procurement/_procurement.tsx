@@ -98,7 +98,7 @@ export function ProcurementBoard({
   roster,
   currentUser,
   canApprove,
-  canEditRoute,
+  canDelete,
   today,
 }: {
   procurements: Procurement[]
@@ -108,7 +108,11 @@ export function ProcurementBoard({
   roster: string[]
   currentUser: string
   canApprove: boolean
-  canEditRoute: boolean
+  /**
+   * 采购页上四个「删」都归这一档 —— 请购/采购、需求、物料、请购图。
+   * 老板 + 商务于海伟, 见 lib/auth canDeleteProcurement。记和改照旧全厂开着。
+   */
+  canDelete: boolean
   today: string
 }) {
   const router = useRouter()
@@ -463,7 +467,7 @@ export function ProcurementBoard({
                       asked={asked}
                       today={today}
                       currentUser={currentUser}
-                      canEditRoute={canEditRoute}
+                      canDelete={canDelete}
                       onFiled={() => {
                         setTab('requested')
                         router.refresh()
@@ -533,6 +537,7 @@ export function ProcurementBoard({
                       open={openId === p.id}
                       onToggle={() => setOpenId(openId === p.id ? null : p.id)}
                       canApprove={canApprove}
+                      canDelete={canDelete}
                       jobOptions={jobOptions}
                       roster={roster}
                       pastPicks={(
@@ -553,6 +558,7 @@ export function ProcurementBoard({
                   open={openId === p.id}
                   onToggle={() => setOpenId(openId === p.id ? null : p.id)}
                   canApprove={canApprove}
+                  canDelete={canDelete}
                   jobOptions={jobOptions}
                   roster={roster}
                   pastPicks={(
@@ -574,6 +580,7 @@ export function ProcurementBoard({
           jobOptions={jobOptions}
           roster={roster}
           currentUser={currentUser}
+          canDelete={canDelete}
           today={today}
           onDone={(created) => {
             if (created) setTab('requested')
@@ -763,14 +770,15 @@ function NeedRow({
   asked,
   today,
   currentUser,
-  canEditRoute,
+  canDelete,
   onFiled,
 }: {
   n: ProcurementNeed
   asked: boolean
   today: string
   currentUser: string
-  canEditRoute: boolean
+  /** 删掉一条需求 —— 归采购·删那一档 (lib/auth canDeleteProcurement)。 */
+  canDelete: boolean
   onFiled: () => void
 }) {
   const router = useRouter()
@@ -896,7 +904,7 @@ function NeedRow({
               >
                 确认
               </button>
-              {canEditRoute && (
+              {canDelete && (
                 <button
                   type="button"
                   onClick={() => setArmDelete(true)}
@@ -925,6 +933,7 @@ function Row({
   open,
   onToggle,
   canApprove,
+  canDelete,
   jobOptions,
   roster,
   pastPicks,
@@ -936,6 +945,7 @@ function Row({
   open: boolean
   onToggle: () => void
   canApprove: boolean
+  canDelete: boolean
   jobOptions: ProcurementJobOption[]
   roster: string[]
   pastPicks: Procurement[]
@@ -1002,6 +1012,7 @@ function Row({
           p={p}
           today={today}
           canApprove={canApprove}
+          canDelete={canDelete}
           jobOptions={jobOptions}
           roster={roster}
           pastPicks={pastPicks}
@@ -1123,6 +1134,7 @@ function Panel({
   p,
   today,
   canApprove,
+  canDelete,
   jobOptions,
   roster,
   pastPicks,
@@ -1132,6 +1144,7 @@ function Panel({
   p: Procurement
   today: string
   canApprove: boolean
+  canDelete: boolean
   jobOptions: ProcurementJobOption[]
   roster: string[]
   pastPicks: Procurement[]
@@ -1483,7 +1496,7 @@ function Panel({
         </>
       )}
 
-      <PhotoStrip procurementId={p.id} />
+      <PhotoStrip procurementId={p.id} canDelete={canDelete} />
 
       {/* Quiet corrections — every stage. */}
       <div className="mt-2.5 flex items-center justify-end gap-3">
@@ -1507,20 +1520,24 @@ function Panel({
           </>
         ) : (
           <>
-            <button
-              type="button"
-              onClick={onEdit}
-              className="text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
-            >
-              编辑
-            </button>
-            <button
-              type="button"
-              onClick={() => setArmDelete(true)}
-              className="text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
-            >
-              删除
-            </button>
+            {(canDelete || p.status !== 'requested') && (
+              <button
+                type="button"
+                onClick={onEdit}
+                className="text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
+              >
+                编辑
+              </button>
+            )}
+            {canDelete && (
+              <button
+                type="button"
+                onClick={() => setArmDelete(true)}
+                className="text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+              >
+                删除
+              </button>
+            )}
           </>
         )}
       </div>
@@ -1848,6 +1865,7 @@ function ProcurementModal({
   jobOptions,
   roster,
   currentUser,
+  canDelete,
   today,
   onDone,
   onCancel,
@@ -1858,6 +1876,8 @@ function ProcurementModal({
   jobOptions: ProcurementJobOption[]
   roster: string[]
   currentUser: string
+  /** 删物料 —— 跟删采购同一档 (lib/auth canDeleteProcurement)。 */
+  canDelete: boolean
   today: string
   onDone: (created?: ProcurementStatus) => void
   onCancel: () => void
@@ -2192,6 +2212,7 @@ function ProcurementModal({
           <ProductForm
             seedName={createSeedName}
             editing={editing}
+            canDelete={canDelete}
             onSaved={(p) => {
               setCatalog((c) => {
                 const without = c.filter((x) => x.id !== p.id)
@@ -2410,8 +2431,15 @@ function ProcurementModal({
 // saw when they decided to buy it. Fetched when the panel opens rather than
 // rendered with the board — see /api/procurement-photos for why. Anyone
 // looking at the row can add one; the shop notices the missing photo at the
-// moment it's needed, which is rarely the moment of 请购.
-function PhotoStrip({ procurementId }: { procurementId: string }) {
+// moment it's needed, which is rarely the moment of 请购. 删掉一张是另一档
+// (canDeleteProcurement) —— 别人拍的那张不该谁看见都能抹掉。
+function PhotoStrip({
+  procurementId,
+  canDelete,
+}: {
+  procurementId: string
+  canDelete: boolean
+}) {
   const zoneRef = useRef<HTMLDivElement>(null)
   const [photos, setPhotos] = useState<ProcurementPhoto[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -2505,7 +2533,7 @@ function PhotoStrip({ procurementId }: { procurementId: string }) {
           key={ph.id}
           photo={ph}
           onOpen={() => setViewing(ph)}
-          onRemove={() => remove(ph.id)}
+          onRemove={canDelete ? () => remove(ph.id) : undefined}
         />
       ))}
       <label
@@ -2588,7 +2616,8 @@ function PhotoTile({
 }: {
   photo: ProcurementPhoto
   onOpen: () => void
-  onRemove: () => void
+  /** 没给就是这个人删不了 —— 角上那个 × 直接不长出来。 */
+  onRemove?: () => void
 }) {
   // A PDF still goes to its own tab — that's the browser's reader, and a tab
   // is where people expect a document to land. Pictures stay in the page.
@@ -2624,14 +2653,16 @@ function PhotoTile({
           />
         </button>
       )}
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label="删掉这张图"
-        className="absolute -right-1.5 -top-1.5 hidden h-[16px] w-[16px] items-center justify-center rounded-full border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[11px] leading-none text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] group-hover/ph:flex"
-      >
-        ×
-      </button>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label="删掉这张图"
+          className="absolute -right-1.5 -top-1.5 hidden h-[16px] w-[16px] items-center justify-center rounded-full border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[11px] leading-none text-[var(--color-ink-3)] hover:text-[var(--color-overdue)] group-hover/ph:flex"
+        >
+          ×
+        </button>
+      )}
     </span>
   )
 }
@@ -2991,12 +3022,14 @@ function ProductPicker({
 function ProductForm({
   seedName,
   editing,
+  canDelete,
   onSaved,
   onDeleted,
   onCancel,
 }: {
   seedName: string
   editing: ProcurementProduct | null
+  canDelete: boolean
   onSaved: (p: ProcurementProduct) => void
   onDeleted: (id: string) => void
   onCancel: () => void
@@ -3164,6 +3197,7 @@ function ProductForm({
       <div className="flex items-center justify-between gap-3 border-t border-[var(--color-border)] px-5 py-3.5">
         <div>
           {editing &&
+            canDelete &&
             (confirmingDelete ? (
               <div className="flex items-center gap-2">
                 <button

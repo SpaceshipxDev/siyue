@@ -9382,6 +9382,21 @@ async function splitPartialPick(
   return true
 }
 
+// 这一条现在是什么状态 —— 一个字段的窄读。改一条采购之前得先知道它批没批
+// (待审批那一档的改是名单制, 见 app/api/mutate 的 updateProcurement), 为这
+// 一个字把整张台账拉回来不值当。
+export async function getProcurementStatus(
+  procurementId: string,
+): Promise<string | undefined> {
+  const { data, error } = await supabase
+    .from('procurements')
+    .select('status')
+    .eq('id', procurementId)
+    .maybeSingle()
+  if (error) throw error
+  return (data?.status as string | undefined) ?? undefined
+}
+
 export async function updateProcurement(
   procurementId: string,
   patch: ProcurementPatch,

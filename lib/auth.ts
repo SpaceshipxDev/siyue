@@ -337,6 +337,34 @@ export function canApproveProcurement(s: Scope): boolean {
   return s.role === 'commerce' || s.defaultStage === '采购'
 }
 
+// ─── 采购 · 删 ──────────────────────────────────────────────────────────
+//
+// 采购页上四个「删」: 删一条请购/采购、删物料库里的一个物料、删一条需求 (把
+// 采购从这个零件的路线上摘掉)、删请购图片。四个以前的门都太松 —— 前两个是
+// "有账号就行", 也就是全厂; 需求那个是 商务 + 工程, 而库里半个车间被种在
+// 工程 上 (见 零件行 那一段), 等于也是全厂。
+//
+// 老板 2026-09-23 收掉: 采购里的删只留 商务于海伟 一个人。删掉一条请购, 这
+// 笔要买的东西就从"还有什么没买"里消失了, 没人会发现少了一样, 直到车间等着
+// 的料一直不来。记和改照旧对全厂开着 —— 东西是当场要买的, 让人等一个有权限
+// 的人来代录, 就是让这笔账不存在 (跟仓库、质量同一个道理)。
+//
+// 工程点错了采购想撤: 到零件的工序选择器里把 采购 关掉 —— 那是改路线, 不是
+// 删单子, 那一档照旧 (canEditPartRoute)。
+const PROCUREMENT_DELETER_USER_IDS = new Set<string>([
+  'u-ms45yjq9-2kbdi1', // 商务于海伟
+])
+
+export function canDeleteProcurement(u: AuthUser): boolean {
+  return PROCUREMENT_DELETER_USER_IDS.has(u.id) || isAdminUser(u.id)
+}
+
+export async function requireProcurementDeleter(): Promise<AuthUser> {
+  const u = await requireUser()
+  if (canDeleteProcurement(u)) return u
+  redirect(landingPathFor(u))
+}
+
 // Stage chips on import draft (商务) and job detail (工程) pages. 商务 owns
 // the initial route; 工程 keeps editing rights post-import because they
 // catch routing mistakes once the part actually hits the floor. Other
@@ -881,6 +909,7 @@ export function permissionDigest(u: AuthUser): PermissionDigest {
       [canDeleteJob(u), '删草稿单'],
       [canDeleteOrder(u), '删订单'],
       [canDeleteHrRecord(u), '删人事记录'],
+      [canDeleteProcurement(u), '删采购'],
     ]),
   }
 }
