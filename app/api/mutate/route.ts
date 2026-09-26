@@ -219,7 +219,11 @@ import {
   isValidHrPatch,
   updateHrRecord,
 } from '@/lib/hr'
-import { deleteHrNote, deleteHrNotesForRecord } from '@/lib/hr-note-file'
+import {
+  deleteHrNote,
+  deleteHrNotesForRecord,
+  moveHrNotes,
+} from '@/lib/hr-note-file'
 import {
   allDepartments,
   isPayrollMonth,
@@ -2437,13 +2441,31 @@ async function dispatch(
       if (!isValidHrPatch(patch)) return err('bad updateHrRecord args')
       const u = await requireHrUser()
       if (!canEditHrRecord(u)) return err('无权修改人事记录', 403)
+      // 换人 —— 部门跟着新的那个人走, 跟「记一笔」同一个口径: 有账号的按他
+      // 自己的工段盖; 名单上没账号的 (临时工), 原来那条线在哪个部门就还在
+      // 哪个部门。不看全厂的人只能换到自己部门的人头上, 不然改完这条线就
+      // 从他眼前消失了。
+      let dept: string | undefined
+      if (patch.name !== undefined) {
+        const roster = await getActiveUsers()
+        const target = roster.find((x) => x.name === patch.name!.trim())
+        if (target) dept = hrDeptOf(target)
+        if (dept && !canSeeAllHr(u) && dept !== hrDeptOf(u)) {
+          return err(`${patch.name.trim()} 不是${hrDeptOf(u)}的人`, 403)
+        }
+      }
+      let movedTo: string | null
       try {
-        await updateHrRecord(month, recordId, patch)
+        movedTo = await updateHrRecord(month, recordId, patch, { dept })
       } catch (e) {
         return err(e instanceof Error ? e.message : '改不上')
       }
+      // 日子改到了别的月份 —— 假条跟着这条线一起搬。
+      if (movedTo && movedTo !== month) {
+        await moveHrNotes(month, movedTo, recordId)
+      }
       revalidatePath('/hr')
-      return Response.json(ok())
+      return Response.json(ok({ month: movedTo ?? month }))
     }
 
     case 'deleteHrRecord': {

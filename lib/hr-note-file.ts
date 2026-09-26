@@ -19,8 +19,9 @@ import type { HrNoteFile } from './data'
  *   hr/notes/<YYYY-MM>/<recordId>/<uuid>.<ext>  那张纸本身
  *
  * 分片就是查询: 月度视图读一个文件, 年度读十二个 —— 跟记录本身走的是同一趟。
- * 一条记录的日期是不给改的 (见 updateHrRecord), 所以一条记录永远待在同一个
- * 月里, 清单不用跟着搬家。
+ * 记录的日期改到别的月份时, 它名下的假条条目跟着搬到那个月的清单里
+ * (moveHrNotes)。那张纸本身不用挪: 条目里存的是完整地址, 放在哪个文件夹
+ * 下面都一样打得开、删得掉。
  */
 
 // 假条是手机拍的, 偶尔是扫描件或者微信里存下来的 PDF。heic 是 iPhone 直传。
@@ -175,6 +176,26 @@ export async function deleteHrNote(
     await writeManifest(month, map)
   })
   await removeBlobs(target ? [target] : [])
+}
+
+// 记录的日期改到了别的月份 —— 它的假条条目跟着搬过去, 不然新月份里这条线
+// 上就是空的, 旧月份里还挂着一份没有主人的清单。
+export async function moveHrNotes(
+  fromMonth: string,
+  toMonth: string,
+  recordId: string,
+): Promise<void> {
+  if (fromMonth === toMonth) return
+  await withLock(async () => {
+    const from = await readManifest(fromMonth)
+    const rows = from[recordId]
+    if (!rows || rows.length === 0) return
+    const to = await readManifest(toMonth)
+    to[recordId] = [...(to[recordId] ?? []), ...rows]
+    await writeManifest(toMonth, to)
+    delete from[recordId]
+    await writeManifest(fromMonth, from)
+  })
 }
 
 // 记录本身被删掉的时候, 挂在它上面的假条跟着走 —— 留着也没人找得到了。

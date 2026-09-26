@@ -409,12 +409,21 @@ export type HrRecordPatch = {
   type?: HrType
   hours?: number | null // null = 清掉时长
   note?: string | null
+  name?: string // 换人 — 记到了别人头上
+  date?: string // YYYY-MM-DD — 日子打错了; 跨月就搬到那个月的分片里
 }
 
 export function isValidHrPatch(x: unknown): x is HrRecordPatch {
   if (typeof x !== 'object' || x === null) return false
   const o = x as Record<string, unknown>
   if (o.type !== undefined && !isHrType(o.type)) return false
+  if (o.name !== undefined) {
+    if (typeof o.name !== 'string' || o.name.trim().length === 0) return false
+  }
+  if (o.date !== undefined) {
+    if (typeof o.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(o.date))
+      return false
+  }
   if (o.note !== undefined && o.note !== null && typeof o.note !== 'string')
     return false
   if (o.hours !== undefined && o.hours !== null) {
@@ -424,15 +433,6 @@ export function isValidHrPatch(x: unknown): x is HrRecordPatch {
   return true
 }
 
-// 改一条已经记下的线。The common mistake is a slip — 事假 tapped when it was
-// 病假, 8 typed when it was 4 — and before this the only fix was 删了重记,
-// which loses who originally filed it and needs the heavier permission.
-//
-// 日期 is deliberately NOT editable: the day a record happened is what decides
-// which month's shard it lives in, so changing it would mean moving the line
-// between files. A line filed against the wrong day is rare and stays a
-// 删 + 重记.
-//
 /**
  * 改一个人的部门 —— 当期 (一个月, 或者一整年) 他名下所有记录一起改。
  *
@@ -472,18 +472,33 @@ export async function setHrPersonDept(
   return changed
 }
 
+// 改一条已经记下的线 —— 一条线上的每一样都能改: 谁、哪天、什么事、几个小时、
+// 说明。常见的错是手滑 (事假点成了病假、4 敲成了 8、日子差一天、名单里点到了
+// 隔壁那个名字), 以前前两样能改, 后两样只能删了重记 —— 一删, 当初是谁记的
+// 也跟着没了, 而且删要的是更重的那一档权限。
+//
+// 日期跨月的时候, 这条线从原来那个月的分片里拿出来、放进新的月份 —— 一条记
+// 录属于它发生的那个月 (8-31 的迟到 9-1 才补, 照样算 8 月的)。两个分片在同
+// 一把锁里一起写, 不会出现一条线两边都有、或者两边都没有。
+//
+// 部门 (dept) 不从前端收: 换了人, 部门由服务端按那个人的账号重新盖, 见
+// app/api/mutate 的 updateHrRecord。
+//
 // Switching to a kind that carries no 时长 drops the hours rather than leaving
 // an orphan number nothing adds up; switching INTO one without giving hours is
 // refused, because 事假 with no length is a line payroll can't use.
+//
+// 返回这条线现在所在的月份 (没挪就是原来那个), 找不到这条线返回 null。
 export async function updateHrRecord(
   month: string,
   recordId: string,
   patch: HrRecordPatch,
-): Promise<void> {
-  await withHrLock(async () => {
+  opts?: { dept?: string },
+): Promise<string | null> {
+  return withHrLock(async () => {
     const rows = await readShard(month)
     const row = rows.find((r) => r.id === recordId)
-    if (!row) return
+    if (!row) return null
     const nextType = patch.type ?? row.type
     let nextHours = patch.hours === undefined ? row.hours : (patch.hours ?? undefined)
     if (!hrHasHours(nextType)) nextHours = undefined
@@ -493,6 +508,24 @@ export async function updateHrRecord(
     row.type = nextType
     row.hours = nextHours
     if (patch.note !== undefined) row.note = patch.note?.trim() || undefined
-    await writeShard(month, rows)
+    if (patch.name !== undefined) row.name = patch.name.trim()
+    if (opts?.dept !== undefined) row.dept = opts.dept
+    if (patch.date !== undefined) row.date = patch.date
+
+    const nextMonth = row.date.slice(0, 7)
+    if (nextMonth === month) {
+      await writeShard(month, rows)
+      return month
+    }
+    // 跨月: 先落进新月份, 再从旧月份拿掉 —— 中途断了最坏是两边都有一条
+    // (看得见、删得掉), 而不是两边都没了。
+    const dest = await readShard(nextMonth)
+    dest.push(row)
+    await writeShard(nextMonth, dest)
+    await writeShard(
+      month,
+      rows.filter((r) => r.id !== recordId),
+    )
+    return nextMonth
   })
 }

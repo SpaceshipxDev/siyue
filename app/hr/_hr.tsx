@@ -7,6 +7,7 @@ import { mutate } from '@/lib/mutate'
 import { SearchSelect } from '@/app/_search_select'
 import { EditableText } from '@/app/_editable'
 import { showToast } from '@/app/_toast'
+import { DatePop } from '@/app/_datepop'
 import { HR_TYPES, hrHasHours } from '@/lib/data'
 import { DEPARTMENTS } from '@/lib/payroll'
 import { HrImport } from './_import'
@@ -195,6 +196,34 @@ export function HrBoard({
       recordId: r.id,
       patch,
     })
+    router.refresh()
+  }
+
+  // 换日子 / 换人 —— 改完这条线多半就不在眼前了 (挪到了别的月份, 或者别人
+  // 名下), 所以说一句它去哪了, 免得以为丢了。换人的话明细跟着那个人摊开,
+  // 挪过去的样子一眼看得到。
+  async function moveRecord(
+    r: HrRecord,
+    patch: { date?: string; name?: string },
+  ) {
+    const from = r.date.slice(0, 7)
+    const res = await mutate<{ month?: string }>({
+      kind: 'updateHrRecord',
+      month: from,
+      recordId: r.id,
+      patch,
+    })
+    const to = res.data?.month ?? from
+    if (patch.name) {
+      showToast(`已挪到 ${patch.name} 名下`, 'success')
+      setOpenName(patch.name)
+    } else if (to !== from) {
+      const label =
+        to.slice(0, 4) === from.slice(0, 4)
+          ? `${Number(to.slice(5))}月`
+          : `${to.slice(0, 4)}年${Number(to.slice(5))}月`
+      showToast(`日子改到了 ${label}，这条已挪过去`, 'success')
+    }
     router.refresh()
   }
 
@@ -416,8 +445,11 @@ export function HrBoard({
                       段、共用账号、临时工跟着记录人走) 就在这儿改。一次改这
                       个人当期的全部记录, 不用一条条点。 */}
                   {scope === null && (
-                    <DeptCell
+                    <PickCell
                       value={r.dept}
+                      options={DEPARTMENTS}
+                      title="点一下改部门 — 这个人当期的记录一起改"
+                      emptyLabel="未分部门"
                       onSave={(d) =>
                         patchDept(r.name, d).then(() => {
                           showToast(`${r.name} 已归到${d}`, 'success')
@@ -461,9 +493,43 @@ export function HrBoard({
                       key={rec.id}
                       className="flex items-baseline gap-3 border-b border-[var(--color-border)] py-2 last:border-b-0"
                     >
-                      <span className="mono shrink-0 text-[12.5px] text-[var(--color-ink-2)]">
-                        {rec.date.slice(5)}
-                      </span>
+                      {canEdit ? (
+                        <span className="-mx-1.5 shrink-0">
+                          <DatePop
+                            value={rec.date}
+                            allowFuture={false}
+                            hideIcon
+                            portal
+                            formatLabel={(iso) => iso.slice(5)}
+                            triggerClass="text-[12.5px]"
+                            tone="text-[var(--color-ink-2)]"
+                            onChange={(d) => {
+                              if (!d || d === rec.date) return
+                              moveRecord(rec, { date: d }).catch((e) =>
+                                showToast(
+                                  e instanceof Error ? e.message : '改不上',
+                                  'warning',
+                                ),
+                              )
+                            }}
+                          />
+                        </span>
+                      ) : (
+                        <span className="mono shrink-0 text-[12.5px] text-[var(--color-ink-2)]">
+                          {rec.date.slice(5)}
+                        </span>
+                      )}
+                      {/* 换人 —— 名单里点到了隔壁那个名字。只有能改的人看得到
+                          这一格; 别人眼里这一行跟原来一模一样。 */}
+                      {canEdit && (
+                        <PickCell
+                          value={rec.name}
+                          options={roster}
+                          width={96}
+                          title="点一下换人 — 记错了人就改到对的人头上"
+                          onSave={(n) => moveRecord(rec, { name: n })}
+                        />
+                      )}
                       {canEdit ? (
                         <select
                           value={rec.type}
@@ -563,12 +629,22 @@ export function HrBoard({
 
 // 部门那一格 —— 点一下就能打字, 下面给内置部门的提示 (原生 datalist), 想选
 // 的两个字点中, 没有的接着打完。空着不改。
-function DeptCell({
+// 点一下就能打字、下面给提示的那种小格 —— 部门和换人共用。提示是原生
+// datalist: 想选的点中, 没有的接着打完。空着不改。
+function PickCell({
   value,
+  options,
   onSave,
+  title,
+  emptyLabel = '—',
+  width = 80,
 }: {
   value?: string
-  onSave: (dept: string) => Promise<void>
+  options: readonly string[]
+  onSave: (next: string) => Promise<void>
+  title: string
+  emptyLabel?: string
+  width?: number
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value ?? '')
@@ -609,10 +685,11 @@ function DeptCell({
               setPending(false)
             }
           }}
-          className="w-[80px] rounded-[2px] border-0 bg-[var(--color-active-bg)] px-1 py-0.5 text-[11.5px] font-normal text-[var(--color-ink)] shadow-[inset_0_-1px_0_var(--color-ink)] outline-none"
+          style={{ width }}
+          className="rounded-[2px] border-0 bg-[var(--color-active-bg)] px-1 py-0.5 text-[11.5px] font-normal text-[var(--color-ink)] shadow-[inset_0_-1px_0_var(--color-ink)] outline-none"
         />
         <datalist id={listId}>
-          {DEPARTMENTS.map((d) => (
+          {options.map((d) => (
             <option key={d} value={d} />
           ))}
         </datalist>
@@ -624,7 +701,7 @@ function DeptCell({
     <span
       role="button"
       tabIndex={0}
-      title="点一下改部门 — 这个人当期的记录一起改"
+      title={title}
       onClick={(e) => {
         e.stopPropagation()
         setDraft(value ?? '')
@@ -635,7 +712,7 @@ function DeptCell({
         value ? 'text-[var(--color-ink-3)]' : 'text-[var(--color-ink-4)]'
       } ${pending ? 'opacity-60' : ''}`}
     >
-      {value || '未分部门'}
+      {value || emptyLabel}
     </span>
   )
 }
