@@ -1,5 +1,6 @@
 import 'server-only'
 import { supabase, STORAGE_BUCKET } from './supabase'
+import { proxiedKeyUrl, storageKeyFromUrl } from './storage-url'
 import {
   LOAN_REPAY_METHODS,
   loanOutstanding,
@@ -7,6 +8,7 @@ import {
   type Loan,
   type LoanRepayMethod,
   type LoanRepayment,
+  type LoanSlip,
 } from './loan-shared'
 
 /*
@@ -79,6 +81,18 @@ function normalize(raw: unknown): Loan[] {
       paidOutAt: str(r.paidOutAt) || undefined,
       paidOutBy: str(r.paidOutBy) || undefined,
       repayments,
+      slips: Array.isArray(r.slips)
+        ? (r.slips as Record<string, unknown>[])
+            .filter((x) => x && typeof x.id === 'string' && typeof x.url === 'string')
+            .map((x) => ({
+              id: x.id as string,
+              url: x.url as string,
+              filename: str(x.filename) || '借支单',
+              contentType: str(x.contentType) || undefined,
+              uploadedBy: str(x.uploadedBy) || undefined,
+              createdAt: str(x.createdAt),
+            }))
+        : [],
     })
   }
   return out
@@ -147,6 +161,7 @@ export async function createLoan(
       appliedBy: by,
       appliedAt: nowIso,
       repayments: [],
+      slips: [],
     }
     rows.push(loan)
     await write(rows)
@@ -286,4 +301,92 @@ export async function withdrawLoan(id: string): Promise<void> {
     if (l.paidOutAt) throw new Error('钱已经放出去了, 撤不了 —— 只能记还款')
     await write(rows.filter((x) => x.id !== id))
   })
+  // 申请撤了, 挂在上面的支单跟着走。
+  try {
+    const dir = `finance/loans/slips/${safeId(id)}`
+    const { data } = await supabase.storage.from(STORAGE_BUCKET).list(dir)
+    const keys = (data ?? []).map((f) => `${dir}/${f.name}`)
+    if (keys.length > 0) await supabase.storage.from(STORAGE_BUCKET).remove(keys)
+  } catch {
+    // 孤儿文件 —— 无害。
+  }
+}
+
+// === 借支单 ===
+//
+// 员工签了字的那张借支单, 拍一张挂在借款上 (一笔可以挂好几张: 借支单 + 身份
+// 证复印件 …)。文件在桶里, 地址挂在借款那一行上:
+//   finance/loans/slips/<loanId>/<uuid>.<ext>
+
+const SLIP_EXTS = ['png', 'jpg', 'jpeg', 'webp', 'heic', 'pdf'] as const
+
+function safeId(raw: string): string {
+  return raw.replace(/[^a-zA-Z0-9._-]/g, '_')
+}
+
+export function isAllowedSlipName(fileName: string): boolean {
+  const m = fileName.toLowerCase().match(/\.([a-z0-9]+)$/)
+  return !!m && (SLIP_EXTS as readonly string[]).includes(m[1])
+}
+
+function slipExt(fileName: string, contentType: string): string {
+  const m = fileName.toLowerCase().match(/\.([a-z0-9]+)$/)
+  if (m && (SLIP_EXTS as readonly string[]).includes(m[1])) return m[1]
+  if (contentType === 'application/pdf') return 'pdf'
+  if (contentType === 'image/png') return 'png'
+  if (contentType === 'image/webp') return 'webp'
+  if (contentType === 'image/heic') return 'heic'
+  return 'jpg'
+}
+
+export async function addLoanSlip(input: {
+  loanId: string
+  buf: ArrayBuffer
+  fileName: string
+  contentType: string
+  uploadedBy: string
+  nowIso: string
+}): Promise<LoanSlip> {
+  const id = crypto.randomUUID()
+  const key = `finance/loans/slips/${safeId(input.loanId)}/${id}.${slipExt(
+    input.fileName,
+    input.contentType,
+  )}`
+  const { error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(key, Buffer.from(input.buf), {
+      contentType: input.contentType || 'application/octet-stream',
+      upsert: false,
+    })
+  if (error) throw error
+  const slip: LoanSlip = {
+    id,
+    url: proxiedKeyUrl(key),
+    filename: input.fileName,
+    contentType: input.contentType || undefined,
+    uploadedBy: input.uploadedBy,
+    createdAt: input.nowIso,
+  }
+  await mutateLoan(input.loanId, (l) => {
+    l.slips.push(slip)
+  })
+  return slip
+}
+
+// 删一张支单 —— 钱放出去以后不给删: 那张签了字的纸就是这笔钱出去的凭据。
+export async function deleteLoanSlip(loanId: string, slipId: string): Promise<void> {
+  let target: LoanSlip | undefined
+  await mutateLoan(loanId, (l) => {
+    if (l.paidOutAt) throw new Error('钱已经放出去了, 支单是凭据, 删不了')
+    target = l.slips.find((s) => s.id === slipId)
+    l.slips = l.slips.filter((s) => s.id !== slipId)
+  })
+  const key = target ? storageKeyFromUrl(target.url) : null
+  if (key) {
+    try {
+      await supabase.storage.from(STORAGE_BUCKET).remove([key])
+    } catch {
+      // 孤儿文件 —— 无害。
+    }
+  }
 }

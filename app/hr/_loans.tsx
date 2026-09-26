@@ -1,11 +1,12 @@
 'use client'
 
-import { Fragment, useId, useMemo, useState, useTransition } from 'react'
+import { Fragment, useId, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
 import { formatCny } from '@/lib/data'
 import { LOAN_STAGE_LABEL, loanStage, type Loan, type LoanStage } from '@/lib/loan-shared'
+import { LoanSlips, uploadLoanSlip } from '@/app/_loan_slips'
 
 // 人事 · 借款 — 员工来借钱, 人事在这里把申请填下来, 等人批。
 //
@@ -18,6 +19,9 @@ import { LOAN_STAGE_LABEL, loanStage, type Loan, type LoanStage } from '@/lib/lo
 //
 // 审批就在这一行上点: 能批的人 (于海伟 / 老板 / 财务) 打开看到「同意 · 驳回」。
 // 自己填的自己批不了 (老板除外) —— 审批是第二双眼睛。
+//
+// 借支单 (员工签了字的那张纸) 填申请时一起传, 批的人点开一行就看得到, 点一
+// 下铺满屏幕看清楚签名和金额。
 
 type Filter = 'pending' | 'all'
 
@@ -65,6 +69,9 @@ export function HrLoanBoard({
   const [reason, setReason] = useState('')
   const [monthly, setMonthly] = useState('')
   const [error, setError] = useState<string | null>(null)
+  // 填申请时一起带上的借支单 —— 先暂存, 申请落下拿到单号再传上去。
+  const [slipFiles, setSlipFiles] = useState<File[]>([])
+  const slipRef = useRef<HTMLInputElement>(null)
 
   const shown = useMemo(
     () => (filter === 'pending' ? loans.filter((l) => loanStage(l) === 'pending') : loans),
@@ -89,6 +96,18 @@ export function HrLoanBoard({
           kind: 'createLoan',
           input: { name: name.trim(), amountCny: n, reason: reason.trim(), monthlyCny: m },
         })
+        let slipFailed = 0
+        for (const f of slipFiles) {
+          try {
+            await uploadLoanSlip(r.data.id, f)
+          } catch {
+            slipFailed += 1
+          }
+        }
+        if (slipFailed > 0) {
+          showToast(`申请交上了，有 ${slipFailed} 张支单没传上——点开那一行再补`, 'warning')
+        }
+        setSlipFiles([])
         setName('')
         setAmount('')
         setReason('')
@@ -143,6 +162,40 @@ export function HrLoanBoard({
             inputMode="decimal"
             className={`mono ${inp} w-[180px] text-right`}
           />
+          <input
+            ref={slipRef}
+            type="file"
+            multiple
+            accept="image/*,application/pdf"
+            className="hidden"
+            onChange={(e) => {
+              const fs = Array.from(e.target.files ?? [])
+              e.target.value = ''
+              if (fs.length > 0) setSlipFiles((cur) => [...cur, ...fs])
+            }}
+          />
+          {slipFiles.length > 0 ? (
+            <span className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[2px] border border-[var(--color-border)] px-2.5 text-[12.5px] text-[var(--color-ink-2)]">
+              支单 {slipFiles.length} 张
+              <button
+                type="button"
+                onClick={() => setSlipFiles([])}
+                aria-label="不带支单了"
+                className="text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+              >
+                ×
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => slipRef.current?.click()}
+              title="员工签了字的借支单，拍一张带上"
+              className="h-9 shrink-0 rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-3 text-[12.5px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]"
+            >
+              ＋ 支单
+            </button>
+          )}
           <button
             type="button"
             onClick={apply}
@@ -212,6 +265,11 @@ export function HrLoanBoard({
                     <span className="ml-2 text-[12px] font-normal text-[var(--color-ink-3)]">
                       {l.reason}
                     </span>
+                    {l.slips.length === 0 && st === 'pending' && (
+                      <span className="ml-2 text-[11.5px] font-normal text-[var(--color-warning)]">
+                        没传支单
+                      </span>
+                    )}
                   </span>
                   <span className="mono hidden text-right text-[13px] text-[var(--color-ink)] md:block">
                     {formatCny(l.amountCny)}
@@ -294,6 +352,10 @@ function Detail({
             <span className="text-[var(--color-ink-4)]">放款</span> {l.paidOutBy} · {l.paidOutAt}
           </p>
         )}
+      </div>
+
+      <div className="mt-3">
+        <LoanSlips loanId={l.id} slips={l.slips} canUpload canDelete={!l.paidOutAt} />
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2.5">

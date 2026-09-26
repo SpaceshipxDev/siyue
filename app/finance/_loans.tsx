@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
 import { formatCny } from '@/lib/data'
 import { DatePop } from '@/app/_datepop'
+import { LoanSlips } from '@/app/_loan_slips'
 import {
   LOAN_STAGE_LABEL,
   loanOutstanding,
@@ -255,6 +256,11 @@ function Detail({ l, todayStr, canSettle }: { l: Loan; todayStr: string; canSett
             <span className="text-[var(--color-ink-4)]">放款</span> {l.paidOutBy} · {l.paidOutAt}
           </p>
         )}
+      </div>
+
+      {/* 借支单 —— 放款前照着它核一眼签名和金额; 放款后只看不删。 */}
+      <div className="mt-3">
+        <LoanSlips loanId={l.id} slips={l.slips} canUpload={canSettle} canDelete={canSettle && !l.paidOutAt} />
       </div>
 
       {st === 'approved' && canSettle && (

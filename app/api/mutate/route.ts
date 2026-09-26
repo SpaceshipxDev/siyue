@@ -281,6 +281,7 @@ import {
   createLoan,
   decideLoan,
   deleteLoanRepayment,
+  deleteLoanSlip,
   getLoan,
   payOutLoan,
   withdrawLoan,
@@ -2819,6 +2820,24 @@ async function dispatch(
       const u = await requireUser()
       if (!canSettleAccounts(u)) return err('删还款要找于海伟或财务', 403)
       await deleteLoanRepayment(id, repaymentId)
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    // 删一张借支单 —— 传走 /api/loan-slip。放款以后不给删 (那张纸是凭据),
+    // 在 lib/loan 里守。
+    case 'deleteLoanSlip': {
+      const id = body.loanId
+      const slipId = body.slipId
+      if (!isString(id) || !isString(slipId)) return err('bad deleteLoanSlip args')
+      const u = await requireUser()
+      if (!(canApplyLoan(u) || canSeeExpenses(u))) return err('删支单要找人事或财务', 403)
+      try {
+        await deleteLoanSlip(id, slipId)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '删不掉')
+      }
+      revalidatePath('/hr')
       revalidatePath('/finance')
       return Response.json(ok())
     }

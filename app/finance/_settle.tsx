@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { withBase } from '@/lib/base-path'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
 import { formatCny } from '@/lib/data'
@@ -385,7 +386,7 @@ function Detail({
         const fd = new FormData()
         fd.append('file', file)
         fd.append('payableId', r.id)
-        const res = await fetch('/api/payable-proof', { method: 'POST', body: fd })
+        const res = await fetch(withBase('/api/payable-proof'), { method: 'POST', body: fd })
         const data = (await res.json()) as
           | {
               ok: true

@@ -32,6 +32,19 @@ export type LoanRepayment = {
   payrollMonth?: string
 }
 
+/**
+ * 借支单 —— 借钱的人签了字的那张纸, 拍一张挂在这笔借款上。审批的人看它批,
+ * 放款的人照着它给钱; 以后对不上账, 翻的也是它。
+ */
+export type LoanSlip = {
+  id: string
+  url: string
+  filename: string
+  contentType?: string
+  uploadedBy?: string
+  createdAt: string
+}
+
 export type Loan = {
   id: string
   no: string // 借款单号 JK-2609-001 —— 申请年月 + 当月第几笔
@@ -49,6 +62,7 @@ export type Loan = {
   paidOutAt?: string // 放款日 YYYY-MM-DD
   paidOutBy?: string
   repayments: LoanRepayment[]
+  slips: LoanSlip[] // 借支单
 }
 
 export type LoanStage =

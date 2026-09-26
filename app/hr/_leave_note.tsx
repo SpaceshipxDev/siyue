@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import { usePasteImage } from '@/app/_paste_image'
 import { proxiedStorageUrl } from '@/lib/storage-url'
+import { withBase } from '@/lib/base-path'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
 import type { HrNoteFile } from '@/lib/data'
@@ -133,7 +134,7 @@ function NotePanel({
         fd.append('month', month)
         fd.append('recordId', recordId)
         try {
-          const r = await fetch('/api/upload-hr-note', {
+          const r = await fetch(withBase('/api/upload-hr-note'), {
             method: 'POST',
             body: fd,
           })
