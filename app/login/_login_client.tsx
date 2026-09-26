@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
 import type { AppUser } from '@/lib/db'
 import { loginAction, loginAdminAction } from './actions'
 
@@ -80,15 +79,14 @@ function KeypadShell({
   const [error, setError] = useState<string | null>(null)
   const [shake, setShake] = useState(false)
   const [isPending, startTransition] = useTransition()
-  const router = useRouter()
 
   function trySubmit(value: string) {
     startTransition(async () => {
       const action = mode === 'admin' ? loginAdminAction : loginAction
       const res = await action(user.id, value)
       if (res.ok) {
-        router.replace(res.redirectTo)
-        router.refresh()
+        // Full load, not a client nav: the 改一下 overlay <script> on the mirror only runs on a real page load.
+        window.location.replace(res.redirectTo)
       } else {
         setError(res.error)
         setShake(true)
