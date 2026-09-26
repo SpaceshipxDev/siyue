@@ -291,6 +291,7 @@ export type ExtractedHrRecord = {
 const HR_SCHEMA = {
   type: Type.OBJECT,
   properties: {
+    month: { type: Type.STRING, nullable: true },
     summaries: {
       type: Type.ARRAY,
       items: {
@@ -332,6 +333,7 @@ const HR_SCHEMA = {
 }
 
 type GeminiHrJson = {
+  month?: string | null
   records: ExtractedHrRecord[]
   summaries?: ExtractedAttendanceSummary[]
 }
@@ -341,12 +343,19 @@ export async function extractAttendanceFromXlsx(input: {
   month: string
   sheets: { name: string; aoa: (string | number | boolean | null)[][] }[]
 }): Promise<{
+  /** 表上写的是哪个月 (YYYY-MM) —— 读不出来是 null, 由调用方用选着的月份兜底。 */
+  month: string | null
   records: ExtractedHrRecord[]
   summaries: ExtractedAttendanceSummary[]
 }> {
   const ai = client()
 
   const system = `你是一名工厂人事助手，负责读厂里的考勤表。
+
+**先认这张表是哪个月的**，输出到 month，格式 YYYY-MM。
+看表头/标题（"2026年8月考勤""8月份出勤汇总""考勤期间 2026-08-01 至 2026-08-31"）、工作表名、文件名、日期列里的日期。
+考勤表几乎都是月初做上个月的，所以一定以表上写的为准，不要拿"今天是几月"去猜。
+表上和文件名里都完全看不出月份时 month 输出 null。
 
 厂里的考勤表有两种，先判断手上这张是哪一种，再按对应的方式输出：
 
@@ -374,7 +383,7 @@ type 只能是这几个词之一，不要自造：
 - 旷工 —— 旷工、缺勤、无故未到
 - 违纪 · 重大质量异常 —— 表上明确写了才输出
 
-date 一律输出 YYYY-MM-DD。表里只写"5"、"5日"、"3/5"这种，按这张表的月份 ${input.month} 补全年月。
+date 一律输出 YYYY-MM-DD。表里只写"5"、"5日"、"3/5"这种，按你认出的这张表的月份补全年月（认不出时用 ${input.month}）。
 
 hours（时长，小时）：
 - 加班、事假、病假、工伤、旷工必须有时长。
@@ -390,7 +399,7 @@ note：格子里除时长以外的说明，比如"事假 家里有事"里的"家
 
   const userPrompt = [
     `文件名: ${input.fileName}`,
-    `这张考勤表的月份: ${input.month}`,
+    `页面上选着的月份: ${input.month}（只在表上和文件名里都看不出月份时才用它）`,
     '',
     'Excel 工作表内容（每个工作表为二维数组，按行/列）：',
     JSON.stringify(input.sheets, null, 2),
@@ -418,6 +427,10 @@ note：格子里除时长以外的说明，比如"事假 家里有事"里的"家
     )
   }
   return {
+    month:
+      typeof parsed.month === 'string' && /^\d{4}-\d{2}$/.test(parsed.month)
+        ? parsed.month
+        : null,
     records: Array.isArray(parsed.records) ? parsed.records : [],
     summaries: Array.isArray(parsed.summaries) ? parsed.summaries : [],
   }

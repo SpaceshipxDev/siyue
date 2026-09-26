@@ -96,6 +96,28 @@ export function canSettleAccounts(u: AuthUser): boolean {
   return canSeeExpenses(u)
 }
 
+// 员工借款 —— 分两头, 跟事情本身走:
+//
+//   人事那头 (/hr 借款): 填申请、看批没批。人事是收申请的人, 所以跟「看全部
+//     人事」同一档 (商务 + 采购人事) —— canApplyLoan。
+//   财务那头 (/finance 借款): 批下来的才转过来, 放款、看还款。谁借了多少、
+//     还了多少跟工资一样是个人的事, 所以是工资那一档 —— canSeeLoans。
+//
+// 审批多一条: 录申请的人不能批自己录的那一笔, 审批是第二双眼睛 —— 老板除外,
+// 他就是最后拍板的人。放款、记还款跟收付款同一档 (canSettleAccounts)。
+export function canApplyLoan(u: AuthUser): boolean {
+  return canSeeAllHr(u)
+}
+
+export function canSeeLoans(u: AuthUser): boolean {
+  return canSeeExpenses(u)
+}
+
+export function canApproveLoan(u: AuthUser, appliedBy: string): boolean {
+  if (!canSettleAccounts(u)) return false
+  return isAdminUser(u.id) || u.name !== appliedBy
+}
+
 // 改一下 — the self-serve mirror + 上线. Granted by the boss per person in 管理员工;
 // the boss himself always qualifies, even on a pre-migration DB.
 export function canGai(u: AuthUser): boolean {
@@ -911,7 +933,8 @@ export function permissionDigest(u: AuthUser): PermissionDigest {
       [canUseNotes(u), '笔记'],
       [canExportJobs(u), '导出工单'],
       [canExportProductionOrder(u), '导出生产单'],
-      [canSettleAccounts(u), '审批对账·记收付款'],
+      [canApplyLoan(u), '填借款申请'],
+      [canSettleAccounts(u), '审批对账·借款·记收付款'],
       [canGai(u), '改一下'],
       [canManageUsers(u), '管账号'],
     ]),

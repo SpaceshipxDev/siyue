@@ -132,6 +132,8 @@ import {
 import {
   canApproveProcurement,
   canDeleteProcurement,
+  canApplyLoan,
+  canApproveLoan,
   canSettleAccounts,
   canClickStage,
   canCreatePartRow,
@@ -272,6 +274,17 @@ import {
   isMonth,
   monthBounds,
 } from '@/lib/duizhang'
+import {
+  addLoanRepayment,
+  applyPayrollLoanDeductions,
+  revertPayrollLoanDeductions,
+  createLoan,
+  decideLoan,
+  deleteLoanRepayment,
+  getLoan,
+  payOutLoan,
+  withdrawLoan,
+} from '@/lib/loan'
 import {
   addPayablePayment,
   createPayable,
@@ -2682,6 +2695,149 @@ async function dispatch(
       return Response.json(ok())
     }
 
+    // === 员工借款 — 申请 → 审批 → 放款 → 还款 (lib/loan) ===
+    //
+    // 人事录申请 (canApplyLoan), 审批是第二双眼睛: 不能批自己录的
+    // (canApproveLoan); 批下来转到财务放款、还款 (canSettleAccounts)。每一步的
+    // 先后 (没批不能放、没放不能还) 在 lib/loan 里守。
+    case 'createLoan': {
+      const input = body.input as Record<string, unknown> | undefined
+      if (typeof input !== 'object' || input === null) return err('bad createLoan args')
+      if (!isString(input.name) || !input.name.trim()) return err('先填借款人')
+      if (
+        typeof input.amountCny !== 'number' ||
+        !Number.isFinite(input.amountCny) ||
+        input.amountCny <= 0 ||
+        input.amountCny > 10_000_000
+      )
+        return err('借款金额要填一个正数')
+      if (!isString(input.reason) || !input.reason.trim()) return err('写一句借款事由')
+      if (
+        input.monthlyCny !== undefined &&
+        (typeof input.monthlyCny !== 'number' || !Number.isFinite(input.monthlyCny) || input.monthlyCny < 0)
+      )
+        return err('每月扣回要填数字')
+      const u = await requireUser()
+      if (!canApplyLoan(u)) return err('借款申请由人事来填', 403)
+      const loan = await createLoan(
+        {
+          name: input.name,
+          amountCny: input.amountCny,
+          reason: input.reason,
+          monthlyCny: typeof input.monthlyCny === 'number' ? input.monthlyCny : undefined,
+        },
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath('/hr')
+      return Response.json(ok({ id: loan.id, no: loan.no }))
+    }
+
+    case 'decideLoan': {
+      const id = body.loanId
+      const decision = body.decision
+      const note = body.note
+      if (!isString(id) || (decision !== 'approved' && decision !== 'rejected'))
+        return err('bad decideLoan args')
+      if (note !== undefined && note !== null && !isString(note)) return err('bad decideLoan args')
+      const u = await requireUser()
+      const loan = await getLoan(id)
+      if (!loan) return err('找不到这笔借款', 404)
+      if (!canApproveLoan(u, loan.appliedBy)) {
+        return err(
+          canSettleAccounts(u) ? '自己录的借款要让另一个人来批' : '审批借款要找于海伟或财务',
+          403,
+        )
+      }
+      try {
+        await decideLoan(id, decision, u.name, new Date().toISOString(), isString(note) ? note : undefined)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '审批不上')
+      }
+      revalidatePath('/finance')
+      revalidatePath('/hr')
+      return Response.json(ok())
+    }
+
+    case 'payOutLoan': {
+      const id = body.loanId
+      const date = body.date
+      if (!isString(id) || !isString(date) || !/^\d{4}-\d{2}-\d{2}$/.test(date))
+        return err('bad payOutLoan args')
+      const u = await requireUser()
+      if (!canSettleAccounts(u)) return err('放款要找于海伟或财务', 403)
+      try {
+        await payOutLoan(id, date, u.name)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '放不了')
+      }
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    case 'addLoanRepayment': {
+      const id = body.loanId
+      const input = body.input as Record<string, unknown> | undefined
+      if (!isString(id) || typeof input !== 'object' || input === null)
+        return err('bad addLoanRepayment args')
+      if (!isString(input.date) || !/^\d{4}-\d{2}-\d{2}$/.test(input.date))
+        return err('还款日期不对')
+      if (
+        typeof input.amountCny !== 'number' ||
+        !Number.isFinite(input.amountCny) ||
+        input.amountCny <= 0 ||
+        input.amountCny > 10_000_000
+      )
+        return err('还款金额要填一个正数')
+      if (input.method !== '工资扣回' && input.method !== '现金') return err('选一下还款方式')
+      if (input.note !== undefined && !isString(input.note)) return err('bad addLoanRepayment args')
+      const u = await requireUser()
+      if (!canSettleAccounts(u)) return err('记还款要找于海伟或财务', 403)
+      try {
+        await addLoanRepayment(
+          id,
+          {
+            date: input.date,
+            amountCny: input.amountCny,
+            method: input.method,
+            note: isString(input.note) ? input.note : undefined,
+          },
+          u.name,
+          new Date().toISOString(),
+        )
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '记不上')
+      }
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    case 'deleteLoanRepayment': {
+      const id = body.loanId
+      const repaymentId = body.repaymentId
+      if (!isString(id) || !isString(repaymentId)) return err('bad deleteLoanRepayment args')
+      const u = await requireUser()
+      if (!canSettleAccounts(u)) return err('删还款要找于海伟或财务', 403)
+      await deleteLoanRepayment(id, repaymentId)
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    case 'withdrawLoan': {
+      const id = body.loanId
+      if (!isString(id)) return err('bad withdrawLoan args')
+      const u = await requireUser()
+      if (!canApplyLoan(u)) return err('撤回借款申请要找人事', 403)
+      try {
+        await withdrawLoan(id)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '撤不了')
+      }
+      revalidatePath('/finance')
+      revalidatePath('/hr')
+      return Response.json(ok())
+    }
+
     case 'addReceivablePayment': {
       const id = body.receivableId
       const input = body.input as Record<string, unknown> | undefined
@@ -3860,6 +4016,15 @@ async function dispatch(
         for (const id of expenseIds) await deleteExpense(id)
         return err('这个月刚刚被发过了')
       }
+      // 工资条上的「借款扣回」落成借款的还款 —— 扣完的那笔借款自己关掉。
+      await applyPayrollLoanDeductions(
+        month,
+        slips.map((s) => ({ name: s.name, amountCny: s.loanCny })),
+        today(),
+        u.name,
+        label,
+        new Date().toISOString(),
+      )
       revalidatePath('/finance')
       return Response.json(ok({ count: slips.length, total }))
     }
@@ -3871,6 +4036,8 @@ async function dispatch(
       if (!canSeeExpenses(u)) return err('forbidden', 403)
       const expenseIds = await clearPayrollPaid(month)
       for (const id of expenseIds) await deleteExpense(id)
+      // 这个月工资扣回的借款还款一起退回 —— 工资没发, 钱就没扣。
+      await revertPayrollLoanDeductions(month)
       revalidatePath('/finance')
       return Response.json(ok({ count: expenseIds.length }))
     }

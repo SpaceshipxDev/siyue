@@ -50,6 +50,10 @@ export async function POST(request: NextRequest) {
       sheets,
     })
     const raw = parsed.records
+    // 这张表记哪个月 —— 表上写的为准 (月初导上个月的表是常事), 表上认不出才
+    // 用页面上选着的那个月。汇总行没有日期, 全靠这个月份落账。
+    const sheetMonth =
+      parsed.month && isPayrollMonth(parsed.month) ? parsed.month : month
 
     // 汇总表 —— 一人一行, 没有日期, 只有这个月的合计。厂里打卡机导出的就是
     // 这一种, 工资那边要的也正是这四个数。
@@ -82,7 +86,8 @@ export async function POST(request: NextRequest) {
       .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
 
     // 模型输出照单全收是不行的：类型必须是人事认的那几个词，时长必须是正
-    // 数，日期必须落在这张表的月份里 —— 落在别的月份多半是它把"3/5"读串了。
+    // 数，日期必须落在这张表的月份里 (表上写的那个月, 不是页面上选着的那个
+    // 月) —— 落在别的月份多半是它把"3/5"读串了。
     const records = raw
       .map((r) => {
         const name = String(r.name ?? '').trim()
@@ -90,7 +95,7 @@ export async function POST(request: NextRequest) {
         const date = String(r.date ?? '').trim()
         if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null
         if (!(HR_TYPES as readonly string[]).includes(type)) return null
-        if (!date.startsWith(month)) return null
+        if (!date.startsWith(sheetMonth)) return null
         const t = type as HrType
         const hours =
           typeof r.hours === 'number' && Number.isFinite(r.hours) && r.hours > 0
@@ -112,6 +117,7 @@ export async function POST(request: NextRequest) {
 
     return Response.json({
       ok: true,
+      month: sheetMonth,
       records,
       summaries,
       dropped: raw.length - records.length,

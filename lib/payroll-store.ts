@@ -3,6 +3,8 @@ import { supabase, STORAGE_BUCKET } from './supabase'
 import { hrDeptOf } from './auth'
 import { getActiveUsers } from './db'
 import { getAttendanceSummary, getHrMonth, getHrRoster } from './hr'
+import { getLoans } from './loan'
+import { loanDueByName } from './loan-shared'
 import {
   allDepartments,
   buildPayslips,
@@ -632,6 +634,8 @@ function normalizeSheet(raw: unknown): PayrollSheet {
       workedHoursFromClock: s.workedHoursFromClock === true,
       baseSalaryCny:
         typeof s.baseSalaryCny === 'number' ? s.baseSalaryCny : 0,
+      // 借款扣回之前发放的条子上没有这一格 —— 那个月本来就没扣。
+      loanCny: typeof s.loanCny === 'number' ? s.loanCny : 0,
     })),
   }
   return { lines, paid }
@@ -724,7 +728,7 @@ export type PayrollView = {
 }
 
 export async function loadPayroll(month: string): Promise<PayrollView> {
-  const [rules, base, sheet, hrRecords, users, extraNames, summaries] =
+  const [rules, base, sheet, hrRecords, users, extraNames, summaries, loans] =
     await Promise.all([
       getPayrollRules(),
       getPayrollBase(),
@@ -734,6 +738,8 @@ export async function loadPayroll(month: string): Promise<PayrollView> {
       getHrRoster(),
       // 打卡机月报 —— 有就以它为准 (加班小时和出勤工时)。
       getAttendanceSummary(month),
+      // 员工借款 —— 放了款还没还清的, 这个月从工资里扣回 (lib/loan-shared)。
+      getLoans(),
     ])
 
   const guessDept = (name: string): string => {
@@ -759,6 +765,7 @@ export async function loadPayroll(month: string): Promise<PayrollView> {
         rules,
         month,
         summaries,
+        loanDueByName(loans, month),
       )
 
   const onPayroll = new Set(slips.map((s) => s.name))

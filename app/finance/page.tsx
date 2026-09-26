@@ -10,12 +10,14 @@ import {
 } from '@/lib/auth'
 import { getReceivables } from '@/lib/receivable'
 import { getPayables } from '@/lib/payable'
+import { getLoans } from '@/lib/loan'
 import { getExpenses, getFenqiData, getOrderLedgerRows } from '@/lib/db'
 import { getVouchersForExpenses } from '@/lib/voucher-file'
 import { getHrMonths } from '@/lib/hr'
 import { isPayrollMonth } from '@/lib/payroll'
 import {
   getPayrollMonths,
+  getPayrollSheet,
   getSalaryChanges,
   getSalaryPeople,
   loadPayroll,
@@ -43,6 +45,7 @@ import { OrderLedger } from './_orders'
 import { PayrollBoard } from './_payroll'
 import { RaiseLedger } from './_raises'
 import { SettleBoard, type SettleRow } from './_settle'
+import { LoanBoard } from './_loans'
 import { MonthlyStats } from './_stats'
 
 export const dynamic = 'force-dynamic'
@@ -69,6 +72,9 @@ const PAGE_SIZE = 25
 //                            多少 (按供应商), 一个月份切换管两段。金额分别与
 //                            记账表和月度页同源
 //   支出 (tab=expense)       money out — the boss's 7 manual categories
+//   借款 (tab=loan)          员工借款: 人事那边批下来的转到这里 —— 放款,
+//                            然后每月发工资自动扣回, 扣完自动关闭 (lib/loan)。
+//                            跟工资同一档人看。
 //   工资 (tab=payroll)       一人一行的月度工资表 — 考勤读自人事, 月休4天的
 //                            制度写在页头, 发放一键记进支出台账
 //   月度 (tab=month)         回款收入 − 支出 = 净现金流, by month
@@ -86,6 +92,7 @@ type FinanceTab =
   | 'stats'
   | 'expense'
   | 'payroll'
+  | 'loan'
   | 'raise'
   | 'month'
 
@@ -116,6 +123,7 @@ export default async function FinancePage({
     params.tab === 'stats' ||
     params.tab === 'expense' ||
     params.tab === 'payroll' ||
+    params.tab === 'loan' ||
     params.tab === 'raise' ||
     params.tab === 'month' ||
     params.tab === 'money'
@@ -133,6 +141,7 @@ export default async function FinancePage({
   if (
     (tab === 'expense' ||
       tab === 'payroll' ||
+      tab === 'loan' ||
       tab === 'raise' ||
       tab === 'month') &&
     !showExpenses
@@ -160,6 +169,8 @@ export default async function FinancePage({
             ? '支出台账'
             : tab === 'payroll'
               ? '工资'
+              : tab === 'loan'
+              ? '员工借款'
               : tab === 'raise'
                 ? '调薪记录'
                 : '月度现金流'
@@ -201,6 +212,7 @@ export default async function FinancePage({
         )}
         {tab === 'stats' && <MonthlyStats sm={params.sm} todayStr={todayStr} />}
         {tab === 'payroll' && <PayrollTab pm={params.pm} thisMonth={month} />}
+        {tab === 'loan' && <LoanTab user={user} todayStr={todayStr} />}
         {tab === 'raise' && <RaiseTab todayStr={todayStr} />}
         {tab === 'month' && <MonthlyCashflow m={params.m} todayStr={todayStr} />}
       </main>
@@ -243,6 +255,7 @@ function FinanceTabs({
       ? ([
           { key: 'expense', href: '/finance?tab=expense', label: '支出' },
           { key: 'payroll', href: '/finance?tab=payroll', label: '工资' },
+          { key: 'loan', href: '/finance?tab=loan', label: '借款' },
           { key: 'raise', href: '/finance?tab=raise', label: '调薪' },
           { key: 'month', href: '/finance?tab=month', label: '月度' },
         ] as { key: string; href: string; label: string }[])
@@ -296,6 +309,14 @@ async function ReceivableTab({
       openId={openId}
     />
   )
+}
+
+// === 借款 — 员工借款: 申请 → 审批 → 放款 → 还款 ===
+
+async function LoanTab({ user, todayStr }: { user: AuthUser; todayStr: string }) {
+  // 只有批下来的转到财务 —— 待审批和驳回的留在「人事 · 借款」。
+  const loans = (await getLoans()).filter((l) => l.decision === 'approved')
+  return <LoanBoard loans={loans} todayStr={todayStr} canSettle={canSettleAccounts(user)} />
 }
 
 // === 应付 — 外协对账单确认后落下的应付单 + 付款 (带凭证) ===
@@ -485,7 +506,16 @@ async function PayrollTab({
   pm?: string
   thisMonth: string
 }) {
-  const month = isPayrollMonth(pm ?? '') ? (pm as string) : thisMonth
+  // 打开工资默认看的是**该核算的那个月**, 不是日历上的这个月: 工资是月初算
+  // 上个月的 —— 九月初打开, 要算的是八月 (考勤、加班、请假都是八月的)。上个
+  // 月已经发放了, 才轮到这个月。点月份照旧能切到任何一个月。
+  let month = thisMonth
+  if (isPayrollMonth(pm ?? '')) {
+    month = pm as string
+  } else {
+    const last = prevMonth(thisMonth)
+    if (!(await getPayrollSheet(last)).paid) month = last
+  }
 
   const [view, payrollMonths, hrMonths] = await Promise.all([
     loadPayroll(month),

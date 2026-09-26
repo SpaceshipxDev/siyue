@@ -9,9 +9,13 @@ import {
   canSeeAllHr,
   canSeeReport,
   canSeeOrderLedger,
+  canApplyLoan,
+  canSettleAccounts,
   hrDeptOf,
 } from '@/lib/auth'
-import { getActiveUsers } from '@/lib/db'
+import { getLoans } from '@/lib/loan'
+import { HrLoanBoard } from './_loans'
+import { getActiveUsers, isAdminUser } from '@/lib/db'
 import { getHrMonth, getHrMonths, getHrRoster, getHrYear } from '@/lib/hr'
 import { getHrNotesForMonth, getHrNotesForYear } from '@/lib/hr-note-file'
 import { today } from '@/lib/today'
@@ -42,13 +46,17 @@ export default async function HrPage({
   // 住宿登记 — 人事的第二张表, 归同一个模块但另一批人在看 (canSeeDorm)。
   // 没这个权限的人连切换都看不到, 页面就还是原来那一张考勤表。
   const seeDorm = canSeeDorm(user)
-  const view = sp.v === 'dorm' && seeDorm ? 'dorm' : 'hr'
+  // 借款 —— 员工来借钱, 人事在这里填申请、等人批 (批下来转到财务)。收申请的
+  // 是人事, 所以跟「看全部人事」同一档。
+  const seeLoan = canApplyLoan(user)
+  const view =
+    sp.v === 'dorm' && seeDorm ? 'dorm' : sp.v === 'loan' && seeLoan ? 'loan' : 'hr'
 
   const raw = (sp.p ?? '').trim()
   const period = /^\d{4}(-\d{2})?$/.test(raw) ? raw : now.slice(0, 7)
   const isYear = period.length === 4
 
-  const [allRecords, notes, months, users, extraNames, dormEntries] =
+  const [allRecords, notes, months, users, extraNames, dormEntries, loans] =
     await Promise.all([
       isYear ? getHrYear(period) : getHrMonth(period),
       // 请假条 — 跟记录同一个分片口径, 所以跟着同一趟读: 月度一个文件, 年度
@@ -58,6 +66,7 @@ export default async function HrPage({
       getActiveUsers(),
       getHrRoster(),
       seeDorm ? getDormEntries() : Promise.resolve([]),
+      view === 'loan' ? getLoans() : Promise.resolve([]),
     ])
 
   // 看全部 vs 看本部门. Scoped here, on the server, so a 工段长's page never
@@ -97,13 +106,26 @@ export default async function HrPage({
         canSeeFinance={canSeeOrderLedger(user)}
       />
       <main className="px-4 md:px-10 py-8">
-        {seeDorm && (
+        {(seeDorm || seeLoan) && (
           <div className="mx-auto mb-5 flex max-w-4xl items-baseline gap-x-6">
             <ViewTab href="/hr" label="考勤" active={view === 'hr'} />
-            <ViewTab href="/hr?v=dorm" label="住宿" active={view === 'dorm'} />
+            {seeDorm && (
+              <ViewTab href="/hr?v=dorm" label="住宿" active={view === 'dorm'} />
+            )}
+            {seeLoan && (
+              <ViewTab href="/hr?v=loan" label="借款" active={view === 'loan'} />
+            )}
           </div>
         )}
-        {view === 'dorm' ? (
+        {view === 'loan' ? (
+          <HrLoanBoard
+            loans={loans}
+            roster={roster}
+            userName={user.name}
+            canSettle={canSettleAccounts(user)}
+            isBoss={isAdminUser(user.id)}
+          />
+        ) : view === 'dorm' ? (
           <DormBoard
             entries={dormEntries}
             roster={roster}

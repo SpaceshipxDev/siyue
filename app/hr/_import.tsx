@@ -18,6 +18,11 @@ import { hrHasHours, type HrType } from '@/lib/data'
 //
 // 落库走的是和手记同一条路 (mutate addHrRecords)，校验、部门归属、谁记的，
 // 一个字都没放松。
+//
+// 记进哪个月, 看**表上写的**是几月, 不看页面上正选着几月。考勤表都是月初
+// 做上个月的 —— 九月初在九月的页面上导八月的表, 以前会把八月的汇总记进九月、
+// 八月的明细因为日期对不上被整批丢掉, 工资就对不上月了。现在表上认出几月就
+// 记几月, 确认框上写明; 记完跳到那个月, 刚记的东西就在眼前。
 
 type Row = {
   name: string
@@ -27,8 +32,9 @@ type Row = {
   note?: string
 }
 
-/** 汇总表的一行 —— 一人一个月, 没有日期。 */
+/** 汇总表的一行 —— 一人一个月, 没有日期; month 是表上写的那个月。 */
 type Sum = {
+  month: string
   name: string
   workedDays?: number
   workedHours?: number
@@ -40,6 +46,8 @@ export function HrImport({ month }: { month: string }) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
+  // 这一批表各自认出来的月份 (多半就一个)。
+  const [sheetMonths, setSheetMonths] = useState<string[]>([])
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [rows, setRows] = useState<Row[] | null>(null)
   const [sums, setSums] = useState<Sum[] | null>(null)
@@ -63,6 +71,7 @@ export function HrImport({ month }: { month: string }) {
     const all: Row[] = []
     const allSums: Sum[] = []
     const failed: string[] = []
+    const seenMonths = new Set<string>()
     try {
       for (const file of files) {
         try {
@@ -76,16 +85,19 @@ export function HrImport({ month }: { month: string }) {
           const data = (await res.json()) as {
             ok?: boolean
             error?: string
+            month?: string
             records?: Row[]
-            summaries?: Sum[]
+            summaries?: Omit<Sum, 'month'>[]
           }
           const got =
             (data.records?.length ?? 0) + (data.summaries?.length ?? 0)
           if (!data.ok || got === 0) {
             failed.push(file.name)
           } else {
+            const m = data.month ?? month
+            seenMonths.add(m)
             all.push(...(data.records ?? []))
-            allSums.push(...(data.summaries ?? []))
+            allSums.push(...(data.summaries ?? []).map((r) => ({ ...r, month: m })))
           }
         } catch {
           failed.push(file.name)
@@ -103,10 +115,10 @@ export function HrImport({ month }: { month: string }) {
         return true
       })
 
-      // 汇总表也去重: 同一个人在两张表里出现, 后一张说了算 (多半是补传的
-      // 更新版)。
+      // 汇总表也去重: 同一个人同一个月在两张表里出现, 后一张说了算 (多半是
+      // 补传的更新版)。不同月份的各算各的。
       const sumByName = new Map<string, Sum>()
-      for (const r of allSums) sumByName.set(r.name, r)
+      for (const r of allSums) sumByName.set(`${r.month}|${r.name}`, r)
       const mergedSums = [...sumByName.values()].sort((a, b) =>
         a.name.localeCompare(b.name, 'zh'),
       )
@@ -123,6 +135,7 @@ export function HrImport({ month }: { month: string }) {
         (a, b) =>
           a.date.localeCompare(b.date) || a.name.localeCompare(b.name, 'zh'),
       )
+      setSheetMonths([...seenMonths].sort())
       setRows(merged.length > 0 ? merged : [])
       setSums(mergedSums.length > 0 ? mergedSums : null)
       if (failed.length > 0) setError(`${failed.join('、')} 没读出来`)
@@ -141,12 +154,19 @@ export function HrImport({ month }: { month: string }) {
     try {
       let done = 0
       if (hasSums) {
-        const r = await mutate<{ count: number }>({
-          kind: 'saveAttendanceSummary',
-          month,
-          rows: sums,
-        })
-        done += r.data.count
+        // 按表上的月份分开存 —— 一次传了八月、九月两张表的, 各进各的月。
+        const byMonth = new Map<string, Omit<Sum, 'month'>[]>()
+        for (const { month: m, ...r } of sums!) {
+          byMonth.set(m, [...(byMonth.get(m) ?? []), r])
+        }
+        for (const [m, rowsOfMonth] of byMonth) {
+          const r = await mutate<{ count: number }>({
+            kind: 'saveAttendanceSummary',
+            month: m,
+            rows: rowsOfMonth,
+          })
+          done += r.data.count
+        }
       }
       if (hasRows) {
         const r = await mutate<{ count: number }>({
@@ -163,8 +183,15 @@ export function HrImport({ month }: { month: string }) {
       }
       setRows(null)
       setSums(null)
-      showToast(`已记入 ${done} 条`, 'success')
-      router.refresh()
+      // 记进的是别的月份 —— 跳过去, 刚记的东西就在眼前。
+      const only = sheetMonths.length === 1 ? sheetMonths[0] : null
+      if (only && only !== month) {
+        showToast(`已记入${monthLabel(only)} ${done} 条`, 'success')
+        router.push(`/hr?p=${only}`)
+      } else {
+        showToast(`已记入 ${done} 条`, 'success')
+        router.refresh()
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : '记不上')
     } finally {
@@ -212,7 +239,12 @@ export function HrImport({ month }: { month: string }) {
                 {sums && rows && rows.length > 0
                   ? ` + ${rows.length} 条明细`
                   : ''}{' '}
-                · {monthLabel(month)}
+                · 记入{(sheetMonths.length > 0 ? sheetMonths : [month]).map(monthLabel).join('、')}
+                {sheetMonths.some((m) => m !== month) && (
+                  <span className="ml-2 text-[12px] font-normal text-[var(--color-warning)]">
+                    按表上的月份记
+                  </span>
+                )}
               </span>
               <span className="min-w-0 truncate text-[11.5px] text-[var(--color-ink-4)]">
                 {fileName}
@@ -230,6 +262,11 @@ export function HrImport({ month }: { month: string }) {
                   <span className="w-[76px] shrink-0 truncate text-[13px] font-medium">
                     {r.name}
                   </span>
+                  {sheetMonths.length > 1 && (
+                    <span className="mono w-[28px] shrink-0 text-[11.5px] text-[var(--color-ink-4)]">
+                      {Number(r.month.slice(5))}月
+                    </span>
+                  )}
                   <span className="mono w-[104px] shrink-0 text-[12.5px] text-[var(--color-ink-2)]">
                     {r.workedDays !== undefined ? `${r.workedDays}天` : ''}
                     {r.workedHours !== undefined ? ` ${r.workedHours}h` : ''}
