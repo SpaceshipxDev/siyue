@@ -537,3 +537,81 @@ export async function extractPayrollFromXlsx(input: {
     )
   }
 }
+
+// ─── 付款凭证 (银行回单 / 转账截图) ────────────────────────────────────────
+//
+// 付外协的钱, 手上有的是一张回单截图。以前记一笔付款得对着截图一个字一个字
+// 抄: 日期、金额、对方户名。这里让机器先读一遍, 填进表单, 人看一眼对不对再
+// 点「记付款」—— 机器只负责少打字, 拍板的还是人。
+
+export type ExtractedPaymentProof = {
+  /** 付款日期 YYYY-MM-DD, 读不出是 null */
+  date: string | null
+  /** 付款金额, 元 */
+  amountCny: number | null
+  /** 收款方户名 —— 拿来跟供应商名对一下 */
+  payee: string | null
+  /** 一句摘要: 哪家银行 / 用途 / 流水号 */
+  memo: string | null
+}
+
+const PAYMENT_PROOF_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    date: { type: Type.STRING, nullable: true },
+    amountCny: { type: Type.NUMBER, nullable: true },
+    payee: { type: Type.STRING, nullable: true },
+    memo: { type: Type.STRING, nullable: true },
+  },
+  required: ['date', 'amountCny', 'payee', 'memo'],
+}
+
+export async function extractPaymentProof(input: {
+  base64: string
+  mimeType: string
+}): Promise<ExtractedPaymentProof> {
+  const ai = client()
+  const system = `你是工厂财务助手。用户给你一张付款凭证：银行电子回单、网银转账成功截图、手机银行/支付宝/微信转账截图，或者这类东西的 PDF。
+
+读出这四样：
+- date 付款日期，格式 YYYY-MM-DD。只有月日没有年份时，按今天 ${today()} 所在的年份补。
+- amountCny 付款金额，单位元，纯数字，不带 ¥ 和逗号。有大写金额和小写金额时以小写为准。
+- payee 收款方户名（收款人 / 对方户名 / 收款单位）。
+- memo 一句话摘要：付款银行、用途/附言、流水号里有的就写，最多 40 个字。
+
+读不出来的留 null，不要猜。只给结构化 JSON。`
+
+  const response = await ai.models.generateContent({
+    model: MODEL,
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType: input.mimeType, data: input.base64 } },
+          { text: '这是一张付款凭证，请读出日期、金额、收款方和摘要。' },
+        ],
+      },
+    ],
+    config: {
+      systemInstruction: system,
+      responseMimeType: 'application/json',
+      responseSchema: PAYMENT_PROOF_SCHEMA,
+      temperature: 0.1,
+    },
+  })
+  const text = response.text
+  if (!text) throw new Error('Gemini returned empty response')
+  const o = JSON.parse(text) as Partial<ExtractedPaymentProof>
+  const date =
+    typeof o.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.date) ? o.date : null
+  const amount =
+    typeof o.amountCny === 'number' && Number.isFinite(o.amountCny) && o.amountCny > 0
+      ? Math.round(o.amountCny * 100) / 100
+      : null
+  return {
+    date,
+    amountCny: amount,
+    payee: typeof o.payee === 'string' && o.payee.trim() ? o.payee.trim() : null,
+    memo: typeof o.memo === 'string' && o.memo.trim() ? o.memo.trim().slice(0, 60) : null,
+  }
+}

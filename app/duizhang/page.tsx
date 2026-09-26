@@ -16,6 +16,7 @@ import {
 import { BRAND } from '@/lib/brand'
 import { TopBar } from '../_ui'
 import { DuizhangBar, DuizhangPartyList } from './_bar'
+import { ApprovalStrip } from './_approve'
 import { loadDuizhang } from './_load'
 
 export const dynamic = 'force-dynamic'
@@ -46,6 +47,9 @@ export default async function DuizhangPage({
     parties,
     canCustomer,
     canVendor,
+    record,
+    canApprove,
+    canOpenLedger,
   } = await loadDuizhang(params)
 
   return (
@@ -74,6 +78,22 @@ export default async function DuizhangPage({
           canVendor={canVendor}
           sheet={sheet}
         />
+
+        {/* 这张纸认没认下来 —— 客户审批落应收, 外协确认落应付。空的月份
+            没什么可认的。 */}
+        {sheet && (sheet.lines.length > 0 || record) && (
+          <ApprovalStrip
+            kind={sheet.kind}
+            party={sheet.party}
+            period={month}
+            total={sheet.totalAmountCny}
+            lineCount={sheet.lines.length}
+            unpricedCount={sheet.unpricedCount}
+            record={record}
+            canApprove={canApprove}
+            canOpenLedger={canOpenLedger}
+          />
+        )}
 
         {sheet ? (
           <Sheet sheet={sheet} preparedBy={user.name} todayStr={todayStr} />

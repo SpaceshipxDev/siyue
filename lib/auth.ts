@@ -85,6 +85,17 @@ export function canSeeExpenses(u: AuthUser): boolean {
   return u.role === 'commerce' && u.isFinance
 }
 
+// 应收单 / 应付单 —— 对账单的审批(客户)/确认(外协)、记回款/付款、删一笔、
+// 作废。
+//
+// 看应收应付跟看记账是同一档 (每个商务)。动它是管钱那一档: 审批是把一方一个
+// 月的账认下来, 从此这笔钱就是定数; 回款/付款是真进出了账的钱。所以跟 工资/
+// 支出 同一批人 —— 老板、财务、于海伟 —— 直接沿用 canSeeExpenses, 不另开一
+// 张名单。
+export function canSettleAccounts(u: AuthUser): boolean {
+  return canSeeExpenses(u)
+}
+
 // 改一下 — the self-serve mirror + 上线. Granted by the boss per person in 管理员工;
 // the boss himself always qualifies, even on a pre-migration DB.
 export function canGai(u: AuthUser): boolean {
@@ -900,6 +911,7 @@ export function permissionDigest(u: AuthUser): PermissionDigest {
       [canUseNotes(u), '笔记'],
       [canExportJobs(u), '导出工单'],
       [canExportProductionOrder(u), '导出生产单'],
+      [canSettleAccounts(u), '审批对账·记收付款'],
       [canGai(u), '改一下'],
       [canManageUsers(u), '管账号'],
     ]),

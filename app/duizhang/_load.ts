@@ -1,11 +1,15 @@
 import 'server-only'
 import { redirect } from 'next/navigation'
 import {
+  canSettleAccounts,
   canManageOutsource,
   canSeeOrderLedger,
   requireUser,
   type AuthUser,
 } from '@/lib/auth'
+import { findActiveReceivable } from '@/lib/receivable'
+import { findActivePayable } from '@/lib/payable'
+import type { Payable, Receivable } from '@/lib/settle-shared'
 import {
   getCustomerStatementLines,
   getFinanceRows,
@@ -39,6 +43,12 @@ export type DuizhangLoad = {
   parties: DuizhangParty[]
   canCustomer: boolean
   canVendor: boolean
+  /** 这一方这个月那张还算数的应收单 (客户) / 应付单 (外协); 没认就是 null。 */
+  record: Receivable | Payable | null
+  /** 审批 / 确认 / 记收付款 —— 管钱那一档。 */
+  canApprove: boolean
+  /** 能进财务的应收/应付 (每个商务)。 */
+  canOpenLedger: boolean
 }
 
 export async function loadDuizhang(params: {
@@ -61,24 +71,44 @@ export async function loadDuizhang(params: {
 
   let sheet: Duizhang | null = null
   let parties: DuizhangParty[] = []
+  let record: Receivable | Payable | null = null
   if (kind === 'customer') {
     const rows = await getFinanceRows()
     parties = customerOptions(rows, from, to, shanghaiDay)
     if (party) {
       // 零件级明细 —— 只有真的选了客户才去取 (四步窄查询, 见 lib/db)。
-      const detail = await getCustomerStatementLines(
-        party,
-        from,
-        to,
-        shanghaiDay,
-      )
+      const [detail, rec] = await Promise.all([
+        getCustomerStatementLines(party, from, to, shanghaiDay),
+        findActiveReceivable(party, month),
+      ])
       sheet = buildCustomerDuizhang(rows, party, from, to, shanghaiDay, detail)
+      record = rec ?? null
     }
   } else {
-    const [rows, vendors] = await Promise.all([getOutsourceBlockRows(), getVendors()])
+    const [rows, vendors, rec] = await Promise.all([
+      getOutsourceBlockRows(),
+      getVendors(),
+      party ? findActivePayable(party, month) : Promise.resolve(undefined),
+    ])
     parties = vendorOptions(rows, vendors, from, to)
-    if (party) sheet = buildVendorDuizhang(rows, vendors, party, from, to)
+    if (party) {
+      sheet = buildVendorDuizhang(rows, vendors, party, from, to)
+      record = rec ?? null
+    }
   }
 
-  return { user, kind, party, month, todayStr, sheet, parties, canCustomer, canVendor }
+  return {
+    user,
+    kind,
+    party,
+    month,
+    todayStr,
+    sheet,
+    parties,
+    canCustomer,
+    canVendor,
+    record,
+    canApprove: canSettleAccounts(user),
+    canOpenLedger: user.role === 'commerce',
+  }
 }

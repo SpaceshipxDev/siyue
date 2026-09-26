@@ -124,10 +124,15 @@ import {
   type ProcurementProductPatch,
   type ShipmentFinancePatch,
   type VendorPatch,
+  getFinanceRows,
+  getCustomerStatementLines,
+  getOutsourceBlockRows,
+  getVendors,
 } from '@/lib/db'
 import {
   canApproveProcurement,
   canDeleteProcurement,
+  canSettleAccounts,
   canClickStage,
   canCreatePartRow,
   canDeleteHrRecord,
@@ -260,7 +265,25 @@ import {
   setPayrollRule,
   setSalaryChangeReason,
 } from '@/lib/payroll-store'
-import { today } from '@/lib/today'
+import { shanghaiDay, today } from '@/lib/today'
+import {
+  buildCustomerDuizhang,
+  buildVendorDuizhang,
+  isMonth,
+  monthBounds,
+} from '@/lib/duizhang'
+import {
+  addPayablePayment,
+  createPayable,
+  deletePayablePayment,
+  voidPayable,
+} from '@/lib/payable'
+import {
+  addReceivablePayment,
+  createReceivable,
+  deleteReceivablePayment,
+  voidReceivable,
+} from '@/lib/receivable'
 import { logStageAction } from '@/lib/access-log'
 import type { JobType, PlanKey, Stage, Verdict } from '@/lib/data'
 import { rowStageCounts } from '@/lib/master'
@@ -2497,6 +2520,230 @@ async function dispatch(
       if (!canDeleteHrRecord(u)) return err('删假条要找于海伟', 403)
       await deleteHrNote(month, recordId, noteId)
       revalidatePath('/hr')
+      return Response.json(ok())
+    }
+
+    // === 应收单 — 对账单审批 → 应收单 → 回款 (lib/receivable) ===
+    //
+    // 审批只收 客户 + 月份, 金额由服务端按对账页同一条路现算 —— 屏幕上那张纸
+    // 是多少, 应收单就是多少, 不收前端报上来的数。四个动作都是管钱那一档
+    // (canSettleAccounts)。
+    case 'approveDuizhang': {
+      const customer = body.customer
+      const period = body.period
+      if (!isString(customer) || !customer.trim() || !isString(period) || !isMonth(period))
+        return err('bad approveDuizhang args')
+      const u = await requireUser()
+      if (!canSettleAccounts(u)) return err('审批对账单要找于海伟或财务', 403)
+      const party = customer.trim()
+      const { from, to } = monthBounds(period)
+      const [rows, detail] = await Promise.all([
+        getFinanceRows(),
+        getCustomerStatementLines(party, from, to, shanghaiDay),
+      ])
+      const sheet = buildCustomerDuizhang(rows, party, from, to, shanghaiDay, detail)
+      if (sheet.lines.length === 0) return err('这个月没有出货, 没有可审的')
+      if (sheet.unpricedCount > 0)
+        return err(`还有 ${sheet.unpricedCount} 行没定价 —— 先把单价补上再审批`)
+      try {
+        const r = await createReceivable({
+          customer: party,
+          period,
+          amountCny: sheet.totalAmountCny,
+          lineCount: sheet.lines.length,
+          totalQty: sheet.totalQty,
+          approvedBy: u.name,
+          nowIso: new Date().toISOString(),
+          todayYmd: today(),
+        })
+        revalidatePath('/duizhang')
+        revalidatePath('/finance')
+        return Response.json(ok({ id: r.id, no: r.no }))
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '审批不上')
+      }
+    }
+
+    // === 应付单 — 外协对账单确认 → 应付单 → 付款 (lib/payable) ===
+    //
+    // 跟应收对称: 确认只收 供应商 + 月份, 金额按对账页同一条路现算。付款可以
+    // 挂一张凭证 —— 凭证先经 /api/payable-proof 存好 (顺便让机器读一遍), 这里
+    // 只收它的地址, 而且只收我们自己桶里的地址。
+    case 'confirmVendorDuizhang': {
+      const vendor = body.vendor
+      const period = body.period
+      if (!isString(vendor) || !vendor.trim() || !isString(period) || !isMonth(period))
+        return err('bad confirmVendorDuizhang args')
+      const u = await requireUser()
+      if (!canSettleAccounts(u)) return err('确认外协对账单要找于海伟或财务', 403)
+      const party = vendor.trim()
+      const { from, to } = monthBounds(period)
+      const [blocks, vendors] = await Promise.all([getOutsourceBlockRows(), getVendors()])
+      const sheet = buildVendorDuizhang(blocks, vendors, party, from, to)
+      if (sheet.lines.length === 0) return err('这个月没有回厂的外协单, 没有可确认的')
+      if (sheet.unpricedCount > 0)
+        return err(`还有 ${sheet.unpricedCount} 张外协单没定价 —— 先把价钱补上再确认`)
+      try {
+        const r = await createPayable({
+          vendor: party,
+          period,
+          amountCny: sheet.totalAmountCny,
+          lineCount: sheet.lines.length,
+          totalQty: sheet.totalQty,
+          approvedBy: u.name,
+          nowIso: new Date().toISOString(),
+          todayYmd: today(),
+        })
+        revalidatePath('/duizhang')
+        revalidatePath('/finance')
+        return Response.json(ok({ id: r.id, no: r.no }))
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '确认不上')
+      }
+    }
+
+    case 'addPayablePayment': {
+      const id = body.payableId
+      const input = body.input as Record<string, unknown> | undefined
+      if (!isString(id) || typeof input !== 'object' || input === null)
+        return err('bad addPayablePayment args')
+      if (!isString(input.date) || !/^\d{4}-\d{2}-\d{2}$/.test(input.date))
+        return err('付款日期不对')
+      if (
+        typeof input.amountCny !== 'number' ||
+        !Number.isFinite(input.amountCny) ||
+        input.amountCny <= 0 ||
+        input.amountCny > 100_000_000
+      )
+        return err('付款金额要填一个正数')
+      if (input.note !== undefined && !isString(input.note))
+        return err('bad addPayablePayment args')
+      let proof: { url: string; filename: string; contentType?: string } | undefined
+      if (input.proof !== undefined && input.proof !== null) {
+        const pr = input.proof as Record<string, unknown>
+        if (
+          typeof pr !== 'object' ||
+          !isString(pr.url) ||
+          !pr.url.startsWith('/api/img/finance/payables/proofs/')
+        )
+          return err('凭证地址不对')
+        proof = {
+          url: pr.url,
+          filename: isString(pr.filename) ? pr.filename.slice(0, 120) : '付款凭证',
+          contentType: isString(pr.contentType) ? pr.contentType : undefined,
+        }
+      }
+      const u = await requireUser()
+      if (!canSettleAccounts(u)) return err('记付款要找于海伟或财务', 403)
+      try {
+        await addPayablePayment(
+          id,
+          {
+            date: input.date,
+            amountCny: input.amountCny,
+            note: isString(input.note) ? input.note : undefined,
+            proof,
+          },
+          u.name,
+          new Date().toISOString(),
+        )
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '记不上')
+      }
+      revalidatePath('/finance')
+      revalidatePath('/duizhang')
+      return Response.json(ok())
+    }
+
+    case 'deletePayablePayment': {
+      const id = body.payableId
+      const paymentId = body.paymentId
+      if (!isString(id) || !isString(paymentId)) return err('bad deletePayablePayment args')
+      const u = await requireUser()
+      if (!canSettleAccounts(u)) return err('删付款要找于海伟或财务', 403)
+      await deletePayablePayment(id, paymentId)
+      revalidatePath('/finance')
+      revalidatePath('/duizhang')
+      return Response.json(ok())
+    }
+
+    case 'voidPayable': {
+      const id = body.payableId
+      if (!isString(id)) return err('bad voidPayable args')
+      const u = await requireUser()
+      if (!canSettleAccounts(u)) return err('作废应付单要找于海伟或财务', 403)
+      try {
+        await voidPayable(id, u.name, new Date().toISOString())
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '作废不了')
+      }
+      revalidatePath('/finance')
+      revalidatePath('/duizhang')
+      return Response.json(ok())
+    }
+
+    case 'addReceivablePayment': {
+      const id = body.receivableId
+      const input = body.input as Record<string, unknown> | undefined
+      if (!isString(id) || typeof input !== 'object' || input === null)
+        return err('bad addReceivablePayment args')
+      if (!isString(input.date) || !/^\d{4}-\d{2}-\d{2}$/.test(input.date))
+        return err('回款日期不对')
+      if (
+        typeof input.amountCny !== 'number' ||
+        !Number.isFinite(input.amountCny) ||
+        input.amountCny <= 0 ||
+        input.amountCny > 100_000_000
+      )
+        return err('回款金额要填一个正数')
+      if (input.note !== undefined && !isString(input.note))
+        return err('bad addReceivablePayment args')
+      const u = await requireUser()
+      if (!canSettleAccounts(u)) return err('记回款要找于海伟或财务', 403)
+      try {
+        await addReceivablePayment(
+          id,
+          {
+            date: input.date,
+            amountCny: input.amountCny,
+            note: isString(input.note) ? input.note : undefined,
+          },
+          u.name,
+          new Date().toISOString(),
+        )
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '记不上')
+      }
+      revalidatePath('/finance')
+      revalidatePath('/duizhang')
+      return Response.json(ok())
+    }
+
+    case 'deleteReceivablePayment': {
+      const id = body.receivableId
+      const paymentId = body.paymentId
+      if (!isString(id) || !isString(paymentId))
+        return err('bad deleteReceivablePayment args')
+      const u = await requireUser()
+      if (!canSettleAccounts(u)) return err('删回款要找于海伟或财务', 403)
+      await deleteReceivablePayment(id, paymentId)
+      revalidatePath('/finance')
+      revalidatePath('/duizhang')
+      return Response.json(ok())
+    }
+
+    case 'voidReceivable': {
+      const id = body.receivableId
+      if (!isString(id)) return err('bad voidReceivable args')
+      const u = await requireUser()
+      if (!canSettleAccounts(u)) return err('作废应收单要找于海伟或财务', 403)
+      try {
+        await voidReceivable(id, u.name, new Date().toISOString())
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '作废不了')
+      }
+      revalidatePath('/finance')
+      revalidatePath('/duizhang')
       return Response.json(ok())
     }
 

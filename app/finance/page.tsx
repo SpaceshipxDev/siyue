@@ -1,11 +1,15 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import {
+  canSettleAccounts,
   canSeeExpenses,
   canSeeOrderLedger,
   canSeeReport,
   requireOrderLedgerViewer,
+  type AuthUser,
 } from '@/lib/auth'
+import { getReceivables } from '@/lib/receivable'
+import { getPayables } from '@/lib/payable'
 import { getExpenses, getFenqiData, getOrderLedgerRows } from '@/lib/db'
 import { getVouchersForExpenses } from '@/lib/voucher-file'
 import { getHrMonths } from '@/lib/hr'
@@ -38,6 +42,7 @@ import { MonthlyCashflow } from './_monthly'
 import { OrderLedger } from './_orders'
 import { PayrollBoard } from './_payroll'
 import { RaiseLedger } from './_raises'
+import { SettleBoard, type SettleRow } from './_settle'
 import { MonthlyStats } from './_stats'
 
 export const dynamic = 'force-dynamic'
@@ -48,6 +53,12 @@ const PAGE_SIZE = 25
 //   订单 (tab=orders, default) every confirmed order with its full cost story —
 //                            订单额 − 外协 − 采购 = 毛利, month-scoped, with the
 //                            receipts one click down and a 3-sheet 导出.
+//   应收 (tab=receivable)     对账单审批通过后落下的应收单, 一张一行, 下面
+//                            一笔一笔记回款 (lib/receivable)。对账 → 审批 →
+//                            应收 → 回款, 一条线读到底。
+//   应付 (tab=payable)        外协对账单确认后落下的应付单, 下面一笔一笔记
+//                            付款, 每笔挂一张付款凭证 (lib/payable)。跟应收
+//                            对称, 同一个页面样子 (./_settle)。
 //   记账 (tab=ar)             the clerk's 分期账 — her Excel, columns and all,
 //                            where 开票/收款 installments are appended and every
 //                            剩余 derives itself (lib/fenqi). Rows are born from
@@ -68,6 +79,8 @@ const PAGE_SIZE = 25
 
 type FinanceTab =
   | 'orders'
+  | 'receivable'
+  | 'payable'
   | 'ar'
   | 'money'
   | 'stats'
@@ -88,6 +101,7 @@ export default async function FinancePage({
     m?: string
     pm?: string
     sm?: string
+    open?: string
   }>
 }) {
   const user = await requireOrderLedgerViewer()
@@ -97,6 +111,8 @@ export default async function FinancePage({
 
   const tab: FinanceTab =
     params.tab === 'ar' ||
+    params.tab === 'receivable' ||
+    params.tab === 'payable' ||
     params.tab === 'stats' ||
     params.tab === 'expense' ||
     params.tab === 'payroll' ||
@@ -109,7 +125,11 @@ export default async function FinancePage({
   // grants, checked separately: 记账/看钱 are commerce-wide, while 支出/工资/
   // 月度 go by canSeeExpenses — which a production account can hold by name
   // (于海伟 settles payroll from his 工程 login).
-  if ((tab === 'ar' || tab === 'money') && !isCommerce) redirect('/finance')
+  if (
+    (tab === 'ar' || tab === 'money' || tab === 'receivable' || tab === 'payable') &&
+    !isCommerce
+  )
+    redirect('/finance')
   if (
     (tab === 'expense' ||
       tab === 'payroll' ||
@@ -126,6 +146,10 @@ export default async function FinancePage({
   const subtitle =
     tab === 'orders'
       ? '订单'
+      : tab === 'receivable'
+      ? '应收'
+      : tab === 'payable'
+      ? '应付'
       : tab === 'ar'
         ? '分期账'
         : tab === 'money'
@@ -155,6 +179,12 @@ export default async function FinancePage({
       <main className="mx-auto w-full max-w-[1240px] px-5 md:px-10 py-10 md:py-14 flex-1">
         <FinanceTabs tab={tab} isCommerce={isCommerce} showExpenses={showExpenses} />
         {tab === 'orders' && <OrdersTab todayStr={todayStr} />}
+        {tab === 'receivable' && (
+          <ReceivableTab user={user} todayStr={todayStr} openId={params.open} />
+        )}
+        {tab === 'payable' && (
+          <PayableTab user={user} todayStr={todayStr} openId={params.open} />
+        )}
         {tab === 'ar' && (
           <FenqiTab
             q={params.q ?? ''}
@@ -201,6 +231,10 @@ function FinanceTabs({
     { key: 'duizhang', href: '/duizhang', label: '对账' },
     ...(isCommerce
       ? ([
+          // 应收 · 应付 紧跟在 对账 后面 —— 对账单认下来就落在这里, 是同一
+          // 条线的下一步。
+          { key: 'receivable', href: '/finance?tab=receivable', label: '应收' },
+          { key: 'payable', href: '/finance?tab=payable', label: '应付' },
           { key: 'ar', href: '/finance?tab=ar', label: '记账' },
           { key: 'money', href: '/finance?tab=money', label: '看钱' },
         ] as { key: string; href: string; label: string }[])
@@ -235,6 +269,58 @@ function FinanceTabs({
         )
       })}
     </div>
+  )
+}
+
+// === 应收 — 对账单审批后落下的应收单 + 回款 ===
+
+async function ReceivableTab({
+  user,
+  todayStr,
+  openId,
+}: {
+  user: AuthUser
+  todayStr: string
+  openId?: string
+}) {
+  const rows: SettleRow[] = (await getReceivables()).map(({ customer, ...r }) => ({
+    ...r,
+    party: customer,
+  }))
+  return (
+    <SettleBoard
+      kind="receivable"
+      rows={rows}
+      todayStr={todayStr}
+      canEdit={canSettleAccounts(user)}
+      openId={openId}
+    />
+  )
+}
+
+// === 应付 — 外协对账单确认后落下的应付单 + 付款 (带凭证) ===
+
+async function PayableTab({
+  user,
+  todayStr,
+  openId,
+}: {
+  user: AuthUser
+  todayStr: string
+  openId?: string
+}) {
+  const rows: SettleRow[] = (await getPayables()).map(({ vendor, ...r }) => ({
+    ...r,
+    party: vendor,
+  }))
+  return (
+    <SettleBoard
+      kind="payable"
+      rows={rows}
+      todayStr={todayStr}
+      canEdit={canSettleAccounts(user)}
+      openId={openId}
+    />
   )
 }
 
