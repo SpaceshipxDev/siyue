@@ -88,10 +88,16 @@ export function OutsourceLedger({
   rows,
   vendors,
   today,
+  settled = {},
 }: {
   rows: OpenBlockRow[]
   vendors: Vendor[]
   today: string
+  /**
+   * 外协对账单确认过的 (供应商|YYYY-MM) → 已对账 / 已付款。一张外协单按回厂
+   * 那天所在的月份算 —— 跟外协对账单同一个口径。
+   */
+  settled?: Record<string, 'reconciled' | 'paid'>
 }) {
   // Local echo of server rows. Receiving parts, stamping 微信 and 撤销外协 all
   // repaint from here instead of a full RSC refresh — the mainland↔HK link is
@@ -362,6 +368,11 @@ export function OutsourceLedger({
                   <Row
                     key={l.key}
                     line={l}
+                    settle={
+                      l.closed && l.closedAt
+                        ? settled[`${l.vendorName}|${l.closedAt.slice(0, 7)}`]
+                        : undefined
+                    }
                     vendors={vendors}
                     open={openId === l.block.id}
                     onToggle={() =>
@@ -400,6 +411,7 @@ export function OutsourceLedger({
 
 function Row({
   line,
+  settle,
   vendors,
   open,
   onToggle,
@@ -407,6 +419,8 @@ function Row({
   onDeleted,
 }: {
   line: Line
+  /** 已对账 / 已付款 —— 回厂之后, 这张单所在的外协对账单认过了没有、付了没有。 */
+  settle?: 'reconciled' | 'paid'
   vendors: Vendor[]
   open: boolean
   onToggle: () => void
@@ -573,8 +587,26 @@ function Row({
         </span>
 
         {/* Action gutter — empty until the cursor lands on the row. A column of
-            38 resting buttons is what made this read as a report. */}
+            38 resting buttons is what made this read as a report. 回厂之后这
+            一格没有动作了, 换成这张单的钱走到哪: 已对账 (外协对账单确认过) /
+            已付款 (那张应付单付清了)。 */}
         <span className="text-right" onClick={(e) => e.stopPropagation()}>
+          {closed && settle && (
+            <span
+              className={`text-[11.5px] ${
+                settle === 'paid'
+                  ? 'text-[var(--color-success)]'
+                  : 'text-[var(--color-info)]'
+              }`}
+              title={
+                settle === 'paid'
+                  ? '这张单所在的外协对账单已确认，应付单已付清'
+                  : '这张单所在的外协对账单已确认，还没付清'
+              }
+            >
+              {settle === 'paid' ? '已付款' : '已对账'}
+            </span>
+          )}
           {!closed && line.remainingQty > 0 && (
             <button
               type="button"

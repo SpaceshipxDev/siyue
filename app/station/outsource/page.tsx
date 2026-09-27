@@ -4,6 +4,8 @@ import {
   getVendors,
 } from '@/lib/db'
 import { requireOutsourceManager, canSeeReport, canSeeOrderLedger } from '@/lib/auth'
+import { getPayables } from '@/lib/payable'
+import { settleOutstanding } from '@/lib/settle-shared'
 import { TopBar } from '@/app/_ui'
 import { today } from '@/lib/today'
 import { OutsourceLedger } from './_ledger'
@@ -12,10 +14,18 @@ export const dynamic = 'force-dynamic'
 
 export default async function OutsourcePage() {
   const user = await requireOutsourceManager()
-  const [rows, rawVendors] = await Promise.all([
+  const [rows, rawVendors, payables] = await Promise.all([
     getOutsourceBlockRows(),
     getVendors(),
+    // 应付单 —— 外协对账单确认过的 (供应商 × 月份)。外协单后面那两个字
+    // (已对账 / 已付款) 从这里来; 读不到就当没有, 外协台照样出来。
+    getPayables().catch(() => []),
   ])
+  const settled: Record<string, 'reconciled' | 'paid'> = {}
+  for (const p of payables) {
+    if (p.voidedAt) continue
+    settled[`${p.vendor}|${p.period}`] = settleOutstanding(p) <= 0 ? 'paid' : 'reconciled'
+  }
   // Mint portal tokens for any vendor still missing one, so every 微信 cell on
   // the ledger has a link ready. One-time backfill, then no-ops.
   const vendors = await ensureVendorPortalTokens(rawVendors)
@@ -36,7 +46,7 @@ export default async function OutsourcePage() {
         canSeeReport={canSeeReport(user)}
         canSeeFinance={canSeeOrderLedger(user)}
       />
-      <OutsourceLedger rows={rows} vendors={vendors} today={today()} />
+      <OutsourceLedger rows={rows} vendors={vendors} today={today()} settled={settled} />
     </div>
   )
 }

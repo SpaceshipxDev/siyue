@@ -138,6 +138,11 @@ export type MasterRow = {
   moneyStatus?: OrderMoneyStatus
   /** 应收余额 — ¥ still owed across the order's shipments (0 until invoiced). */
   outstandingCny?: number
+  /**
+   * 已对账 / 已回款 —— 这张单的货都进了审批过的应收单 ('reconciled'), 那几张
+   * 应收单都收清了 ('paid')。收款格上那两个字 (lib/db applyReceivableSettle)。
+   */
+  settle?: 'reconciled' | 'paid'
   /** Days past the AR aging window on the most-overdue shipment; only set when
    *  moneyStatus === 'overdue'. Drives the "逾期 N天" readout. */
   overdueDays?: number

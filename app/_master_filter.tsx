@@ -2153,6 +2153,7 @@ function JobRow({
               status={row.moneyStatus}
               outstandingCny={row.outstandingCny}
               overdueDays={row.overdueDays}
+              settle={row.settle}
             />
           </Link>
         </td>

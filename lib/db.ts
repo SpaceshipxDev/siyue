@@ -11,7 +11,9 @@ import {
   jobNoSortKey,
   procurementTotalCny,
 } from './data'
-import { shanghaiWindow, today, todayMMDD } from './today'
+import { shanghaiDay, shanghaiWindow, today, todayMMDD } from './today'
+import { getReceivables } from './receivable'
+import { settleOutstanding } from './settle-shared'
 import type {
   CaiwuRow,
   CaiwuSheet,
@@ -3399,6 +3401,11 @@ export type OrderMoneyLite = {
   outstandingCny: number
   /** Days past the aging window on the most-overdue shipment (status 'overdue' only). */
   overdueDays?: number
+  /**
+   * 对账 —— 这张单的每一车货都落在一张审批过的应收单里 ('reconciled');
+   * 那几张应收单都收清了 ('paid')。见 applyReceivableSettle。
+   */
+  settle?: 'reconciled' | 'paid'
 }
 
 export async function getOrderMoneyLightByJob(): Promise<
@@ -3550,7 +3557,63 @@ export async function getOrderMoneyLightByJob(): Promise<
       overdueDays: status === 'overdue' ? agg.overdueDays : undefined,
     })
   }
+
+  await applyReceivableSettle(out, shipmentsRaw, jobsRaw)
   return out
+}
+
+// 已对账 / 已回款 —— 订单后面那两个字, 从对账那条线上来 (对账 → 审批 → 应收
+// 单 → 回款, lib/receivable)。
+//
+// 应收单是按「客户 × 月份」认的, 订单是按车出的货。一张单的每一车货 (出货单
+// 的出货日所在月份, 加上这张单的客户) 都落在一张还算数的应收单里, 这张单就
+// 「已对账」; 那几张应收单都收清了, 就「已回款」。有一车还没进审批过的对账
+// 单, 就两样都不标 —— 半张单对过账不算对过。
+//
+// 已回款的单, 收款那一格直接按已结清算 (筛选、排序、顶上的应收合计跟着走):
+// 钱在应收单上收清了, 就不该还在看板上喊待回款、逾期。
+async function applyReceivableSettle(
+  out: Map<string, OrderMoneyLite>,
+  shipmentsRaw: AnyRow[],
+  jobsRaw: AnyRow[],
+): Promise<void> {
+  let receivables: Awaited<ReturnType<typeof getReceivables>>
+  try {
+    receivables = await getReceivables()
+  } catch {
+    return // 应收单读不到, 看板照旧 —— 不能因为这两个字让整张看板出不来。
+  }
+  if (receivables.length === 0) return
+  const active = new Map<string, (typeof receivables)[number]>()
+  for (const r of receivables) {
+    if (!r.voidedAt) active.set(`${r.customer}|${r.period}`, r)
+  }
+  const customerOf = new Map<string, string>()
+  for (const j of jobsRaw) {
+    customerOf.set(j.id as string, String(j.customer ?? '').trim())
+  }
+  const keysByJob = new Map<string, Set<string>>()
+  for (const sr of shipmentsRaw) {
+    const jobId = sr.job_id as string
+    const customer = customerOf.get(jobId)
+    if (!customer) continue
+    const month = shanghaiDay(sr.created_at as string).slice(0, 7)
+    const set = keysByJob.get(jobId) ?? new Set<string>()
+    set.add(`${customer}|${month}`)
+    keysByJob.set(jobId, set)
+  }
+  for (const [jobId, keys] of keysByJob) {
+    const recs = [...keys].map((k) => active.get(k))
+    if (recs.length === 0 || recs.some((r) => !r)) continue
+    const paid = recs.every((r) => settleOutstanding(r!) <= 0)
+    const cur = out.get(jobId)
+    if (!cur) continue
+    if (paid) {
+      out.set(jobId, { status: 'settled', outstandingCny: 0, settle: 'paid' })
+    } else {
+      out.set(jobId, { ...cur, settle: 'reconciled' })
+    }
+  }
 }
 
 // === 分期账 (installment ledger, migration 0075) ===

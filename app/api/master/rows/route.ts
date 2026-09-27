@@ -28,6 +28,7 @@ function applyMoney(
       r.moneyStatus = m.status
       r.outstandingCny = m.outstandingCny
       r.overdueDays = m.overdueDays
+      r.settle = m.settle
     } else {
       // No 出货单 / finance row. Two notions of "shipped" diverge: the board's
       // 已出货 (出货 stage ticked done) vs money's (a 出货单 exists to invoice

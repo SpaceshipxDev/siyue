@@ -512,15 +512,25 @@ export function RollupCell({
 //   已结清 (settled)     → green ✓, fades to the bottom
 // The boss scans this column for red. He reads it; he never operates it (entry
 // stays in the 应收 ledger).
+//
+// 已对账 / 已回款 —— 对账那条线上来的两个字 (对账单审批过、应收单收清了)。已
+// 回款直接顶掉上面的状态 (钱回来了就是回来了); 已对账是垫在状态下面的一行小
+// 字, 对过账了、钱还在路上。
 export function MoneyCell({
   status,
   outstandingCny,
   overdueDays,
+  settle,
 }: {
   status?: OrderMoneyStatus
   outstandingCny?: number
   overdueDays?: number
+  settle?: 'reconciled' | 'paid'
 }) {
+  const reconciledTag =
+    settle === 'reconciled' ? (
+      <span className="text-[10px] text-[var(--color-info)]">已对账</span>
+    ) : null
   // 在产 / unknown → blank. 80% of the board is mid-production; an empty cell
   // here is the whole point (no money due yet ⇒ no noise).
   if (!status || status === 'in_production') {
@@ -532,7 +542,9 @@ export function MoneyCell({
         <span className="text-[15px] leading-none font-semibold text-[var(--color-success)]">
           ✓
         </span>
-        <span className="mono text-[10px] text-[var(--color-ink-3)]">已结清</span>
+        <span className="mono text-[10px] text-[var(--color-ink-3)]">
+          {settle === 'paid' ? '已回款' : '已结清'}
+        </span>
       </div>
     )
   }
@@ -544,6 +556,7 @@ export function MoneyCell({
         title="已出货 · 尚未开票"
       >
         <span className="text-[12px] font-medium text-[var(--color-info)]">待开票</span>
+        {reconciledTag}
       </div>
     )
   }
@@ -560,6 +573,7 @@ export function MoneyCell({
         {owed && (
           <span className="mono text-[11px] text-[var(--color-overdue)]">{owed}</span>
         )}
+        {reconciledTag}
       </div>
     )
   }
@@ -573,6 +587,7 @@ export function MoneyCell({
       {owed && (
         <span className="mono text-[11px] text-[var(--color-ink-3)]">{owed}</span>
       )}
+      {reconciledTag}
     </div>
   )
 }

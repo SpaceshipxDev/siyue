@@ -80,6 +80,8 @@ export type CompactMasterRow = [
   // 大单标记 (任一零件数量 > 10) — 追加在最末 (index 35), 所以旧客户端读前面
   // 那些格子照旧, 读不到这一格就当没有。
   hasBigPartQty: WireValue<boolean>,
+  // 已对账 / 已回款 (index 36) — 钱的事, 跟收款灯一样只给商务。
+  settle: WireValue<'reconciled' | 'paid'>,
 ]
 
 function canSeeCustomerData(scope: Scope): boolean {
@@ -108,6 +110,7 @@ function scrubForWire(row: MasterRow, scope: Scope): MasterRow {
     moneyStatus: moneyOk ? row.moneyStatus : undefined,
     outstandingCny: moneyOk ? row.outstandingCny : undefined,
     overdueDays: moneyOk ? row.overdueDays : undefined,
+    settle: moneyOk ? row.settle : undefined,
   }
 }
 
@@ -199,6 +202,7 @@ export function toMasterWireRows(rows: MasterRow[], scope: Scope): CompactMaster
       r.yuenongBusiness ?? null,
       r.stagePlan ?? {},
       r.hasBigPartQty ?? null,
+      r.settle ?? null,
     ]
   })
 }
@@ -247,6 +251,7 @@ export function expandMasterWireRows(rows: CompactMasterRow[]): MasterRow[] {
       yuenongBusiness: r[33] ?? undefined,
       stagePlan: r[34] ?? {},
       hasBigPartQty: r[35] ?? undefined,
+      settle: r[36] ?? undefined,
     }
   })
 }
