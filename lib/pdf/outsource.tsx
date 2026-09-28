@@ -183,8 +183,10 @@ export function OutsourceDocPDF({
                 >
                   {lt != null ? formatCny(lt) : '—'}
                 </Text>
+                {/* 零件行的备注格留空 —— 单头备注在上面那一栏, 不往第一行抄
+                    (抄过来像是这一个零件的事)。 */}
                 <Text style={[styles.tdMuted, { width: COL.notes }]}>
-                  {i === 0 ? stripProcessMethodFromNotes(block.notes) : ''}
+                  {''}
                 </Text>
               </View>
             )

@@ -325,9 +325,10 @@ export default async function OutsourceDocPage(
                     <td className="mono font-medium" style={{ textAlign: 'right' }}>
                       {lt != null ? formatCny(lt) : '—'}
                     </td>
-                    <td className="text-[var(--color-ink-2)]">
-                      {i === 0 ? (info.block.notes ?? '') : ''}
-                    </td>
+                    {/* 零件那一行的备注格留空 —— 单头备注 (优惠、交代给厂商
+                        的话) 已经写在上面「备注」那一栏了, 抄进第一行只会像
+                        是这一个零件的事。空格子留给纸上手写。 */}
+                    <td className="text-[var(--color-ink-2)]" />
                   </tr>
                 )
               })}
