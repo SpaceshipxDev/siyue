@@ -310,13 +310,13 @@ export function PayrollBoard({
           <Sep />
           <Rule label="保密补贴" unit="%" value={rules.secretRatePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'secretRatePct', value: v })} />
           <Sep />
-          <Rule label="社保补贴" unit="%" value={rules.socialRatePct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'socialRatePct', value: v })} />
+          <Rule label="社保补贴 (乘应发)" unit="%" value={rules.socialGrossPct} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'socialGrossPct', value: v })} />
           <Sep />
           <Rule label="全勤" unit="元" value={rules.fullAttendanceCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'fullAttendanceCny', value: v })} />
           <Sep />
           <Rule label="超过" unit="元才拆" value={rules.splitThresholdCny} locked={locked} onSave={(v) => save({ kind: 'setPayrollRule', key: 'splitThresholdCny', value: v })} />
           <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-            这几项乘的都是「出勤工资 − 基本工资 − 加班费」· 没过门槛的人只拆基本工资 /
+            岗位/绩效/安全/保密乘「出勤工资 − 基本工资 − 加班费」· 社保补贴乘应发工资 · 没过门槛的人只拆基本工资 /
             加班费 / 绩效, 剩下的归福利 · 福利 = 综合工资 − 出勤工资 − 后面全部
           </span>
         </div>
@@ -1266,9 +1266,11 @@ function Slip({
               出勤工资 = 综合工资 ÷ 应出勤工时 × 实际出勤工时——干满了就是综合
               工资，少干几个小时按小时折，所以缺勤不在这一栏里再扣一道。下面那
               一列「工资构成」拆的就是出勤工资：基本工资是定额，按比例的那几项
-              （岗位补助、绩效工资、安全补贴、保密补贴、社保补贴）乘的都是「出
-              勤工资 − 基本工资 − 加班费」
+              （岗位补助、绩效工资、安全补贴、保密补贴）乘的都是「出勤工资 −
+              基本工资 − 加班费」
               {s.splitApplies ? ` = ${formatCny(s.ratedBaseCny)}` : ''}
+              ，社保补贴乘的是应发工资
+              {s.splitApplies ? ` ${formatCny(s.grossCny)}` : ''}
               ；餐补、话费、交通按综合工资的档位给（点着能给这个人单独填一个
               数）；全勤当月没有事假、病假、旷工、迟到才有；福利兜底，所以那一
               列加起来正好等于出勤工资。加班费按厂里定的小时价另算，不在出勤工

@@ -178,9 +178,8 @@ export type PayrollRules = {
   //   可分配额 = 综合工资 − 出勤工资
   //   岗位补助 = 可分配额 × 8%   绩效工资 = 可分配额 × 30%
   //   安全补贴 = 可分配额 × 8%   保密补贴 = 可分配额 × 8%
-  //   社保补贴 = 可分配额 × 9.6%
+  //   社保补贴 = 应发工资 × 10.5%
   //   话费/餐补/内宿/交通 = 按综合工资落在哪一档 (500 / 800 / 1000)
-  //   社保补贴 = 综合工资 × 9.6%
   //   福利     = 综合工资 − 以上所有项目      ← 兜底, 所以永远加得回综合工资
   //
   // 话费 / 交通 / 内宿 / 餐补按档自动给, 工资条上也能一人一个数地改。
@@ -211,7 +210,15 @@ export type PayrollRules = {
   tier2Cny: number
   tier3MinCny: number
   tier3Cny: number
-  socialRatePct: number // 社保补贴 %（乘可分配额）
+  /**
+   * 社保补贴 %（乘应发工资）。
+   *
+   * 老板 2026-09-28 改的口径: 以前乘可分配额 (9.6%), 现在乘应发工资 (10.5%)
+   * —— 社保是按应发那个数交的, 补贴跟着它走才对得上。键名跟着换了
+   * (socialRatePct → socialGrossPct), 所以以前存下的 9.6 不会被错当成新口
+   * 径的比例读进来。
+   */
+  socialGrossPct: number
   fullAttendanceCny: number // 全勤, 元 — 当月无事假/病假/旷工/迟到才给
   /**
    * 厂里自己加的部门 —— 工资这一侧的组织架构是会长的 (操机拆成塑料/金属、
@@ -248,7 +255,7 @@ export const DEFAULT_PAYROLL_RULES: PayrollRules = {
   tier2Cny: 800,
   tier3MinCny: 16000,
   tier3Cny: 1000,
-  socialRatePct: 9.6,
+  socialGrossPct: 10.5,
   fullAttendanceCny: 500,
   extraDepts: [],
 }
@@ -277,7 +284,7 @@ const RULE_LIMITS: Record<string, [number, number]> = {
   tier2Cny: [0, 100000],
   tier3MinCny: [0, 200000],
   tier3Cny: [0, 100000],
-  socialRatePct: [0, 100],
+  socialGrossPct: [0, 100],
   fullAttendanceCny: [0, 10000],
 }
 
@@ -303,7 +310,7 @@ export type ScalarRuleKey =
   | 'tier2Cny'
   | 'tier3MinCny'
   | 'tier3Cny'
-  | 'socialRatePct'
+  | 'socialGrossPct'
   | 'fullAttendanceCny'
 
 export const RULE_KEYS = Object.keys(RULE_LIMITS) as ScalarRuleKey[]
@@ -610,7 +617,7 @@ export type Payslip = {
   housingAllowanceCny: number
   housingBaseCny: number // 折算前的房补 (满勤该有的数, 就是手填的那个)
   fullAttendanceCny: number // 全勤 — 无事假/病假/旷工/迟到才有
-  /** 社保补贴 = 可分配额 × socialRatePct, 手填过就是手填的那个数。 */
+  /** 社保补贴 = 应发工资 × socialGrossPct, 手填过就是手填的那个数。 */
   socialSubsidyCny: number
   /** 可分配额 = 出勤工资 − 基本工资 − 加班费 —— 按比例那几项乘的都是它。 */
   ratedBaseCny: number
@@ -871,8 +878,9 @@ export function computePayslip(
 
   // === 可分配额 ===
   //
-  // 按比例分的那几项 (岗位补助 · 绩效工资 · 安全补贴 · 保密补贴 · 社保补贴)
-  // 乘的都是这一个数: **出勤工资 − 基本工资 − 加班费**。
+  // 按比例分的那几项 (岗位补助 · 绩效工资 · 安全补贴 · 保密补贴) 乘的都是这
+  // 一个数: **出勤工资 − 基本工资 − 加班费**。社保补贴不在里面 —— 它乘的是
+  // 应发工资, 见下面。
   //
   // 拆的是出勤工资而不是综合工资: 这个月实际拿到手的那个数才是要分的盘子,
   // 少干了几小时, 各项跟着一起薄, 而不是只薄一格。
@@ -894,10 +902,31 @@ export function computePayslip(
   const fullAttendanceCny =
     splitApplies && fullAttendance ? Math.round(rules.fullAttendanceCny) : 0
 
-  // 社保补贴按比例算, 手填过就以手填的为准 (有人的社保基数跟别人不一样)。
+  // 应发工资 = 出勤工资 + 额外发的那几笔, **不含房补**。加班费不在这儿另
+  // 加 —— 它是出勤工资的一部分 (见福利那一段)。
+  //
+  // 房补压根不在综合工资里 —— 它既不参与拆分 (福利那一格不减它), 也不进应
+  // 发 (应发是计税、算社保的那个口径)。它是综合工资之外额外发的一笔, 只在最
+  // 后一步落到手上: 应发 + 房补 − 扣款 = 实发。
+  //
+  // 算在社保补贴前面, 因为社保补贴乘的就是它。应发本身不看工资构成怎么拆,
+  // 所以先算它不会绕成一个圈。
+  const nightShiftCny = money(line.nightShiftCny)
+  const holidayCny = money(line.holidayCny)
+  const bonusCny = money(line.bonusCny)
+  const grossCny =
+    attendancePayCny +
+    nightShiftCny +
+    holidayCny +
+    bonusCny +
+    adjustCny
+
+  // 社保补贴 = 应发工资 × 10.5% (比例在工资页顶上能调)。社保是按应发交的,
+  // 补贴跟着应发走。手填过就以手填的为准 (有人的社保基数跟别人不一样); 没过
+  // 门槛不拆的人照旧没有这一格 —— 其余核算一概不变, 差多差少落在福利上。
   const socialSubsidyCny = Math.round(
     line.socialSubsidyCny ??
-      (splitApplies ? ratedBaseCny * (rules.socialRatePct / 100) : 0),
+      (splitApplies ? grossCny * (rules.socialGrossPct / 100) : 0),
   )
 
   // 福利 = 出勤工资 − 后面这一串 (加班费也在里面减)。兜底的那一格, 所以工资
@@ -920,9 +949,6 @@ export function computePayslip(
     fullAttendanceCny -
     socialSubsidyCny
 
-  const nightShiftCny = money(line.nightShiftCny)
-  const holidayCny = money(line.holidayCny)
-  const bonusCny = money(line.bonusCny)
   const advanceCny = money(line.advanceCny)
   const otherDeductCny = money(line.otherDeductCny)
   const perfDeductCny = money(line.perfDeductCny)
@@ -930,18 +956,6 @@ export function computePayslip(
   const socialInsuranceCny = money(line.socialInsuranceCny)
   const taxCny = money(line.taxCny)
 
-  // 应发工资 = 出勤工资 + 额外发的那几笔, **不含房补**。加班费不在这儿另
-  // 加 —— 它是出勤工资的一部分 (见福利那一段)。
-  //
-  // 房补压根不在综合工资里 —— 它既不参与拆分 (福利那一格不减它), 也不进应
-  // 发 (应发是计税、算社保的那个口径)。它是综合工资之外额外发的一笔, 只在最
-  // 后一步落到手上: 应发 + 房补 − 扣款 = 实发。
-  const grossCny =
-    attendancePayCny +
-    nightShiftCny +
-    holidayCny +
-    bonusCny +
-    adjustCny
   // 缺勤不在扣款栏里扣 —— 它已经在出勤工资那一步按小时折掉了 (少干几小时
   // 就少几小时的钱), 再扣一道就是扣两遍。attendanceCutCny 留着只作参考。
   const otherDeductsCny =
