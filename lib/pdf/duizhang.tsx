@@ -23,8 +23,8 @@ ensureFontsRegistered()
 // 对账单 PDF —— 客户和供应商共用一张纸, 只有抬头和几个字不同。这是真正发出
 // 去的那一份 (微信发文件 / 打印盖章寄回), 所以底下留了双方盖章的位置。
 
-// 客户版比供应商版多四列 (合同号 · 图 · 单价, 而且物料号独立成列) —— 客户核
-// 的是"哪个物料几个单价多少", 供应商核的是"哪张单多少钱"。
+// 两边都是一个零件一行, 带图、单价 —— 对方核的都是"哪个零件几个、单价多少"。
+// 只有两格不同: 客户版是 合同号 · 物料号, 外协版是 工序 · 料号。
 const COL = {
   seq: 20,
   date: 44,
@@ -46,7 +46,7 @@ export function DuizhangPDF({
   sheet: Duizhang
   preparedBy: string
   todayStr: string
-  /** 零件图 —— 客户版才有 (见 fetchImages)。 */
+  /** 零件图 (见 fetchImages)。 */
   images?: Map<string, ImageSource>
 }) {
   const k = sheet.kind
@@ -82,24 +82,20 @@ export function DuizhangPDF({
             <Text style={[styles.th, { width: COL.docNo }]}>
               {DUIZHANG_DOCNO_LABEL[k]}
             </Text>
-            {isCustomer && (
-              <Text style={[styles.th, { width: COL.contract }]}>合同号</Text>
-            )}
-            {isCustomer && (
-              <Text style={[styles.th, { width: COL.thumb }]}>图片</Text>
-            )}
+            <Text style={[styles.th, { width: COL.contract }]}>
+              {isCustomer ? '合同号' : DUIZHANG_DETAIL_LABEL[k]}
+            </Text>
+            <Text style={[styles.th, { width: COL.thumb }]}>图片</Text>
             <Text style={[styles.th, { width: COL.detail }]}>
-              {DUIZHANG_DETAIL_LABEL[k]}
+              {isCustomer ? DUIZHANG_DETAIL_LABEL[k] : '料号'}
             </Text>
             <Text style={[styles.th, { flex: 1 }]}>{DUIZHANG_TITLE_LABEL[k]}</Text>
             <Text style={[styles.th, { width: COL.qty, textAlign: 'right' }]}>
               数量
             </Text>
-            {isCustomer && (
-              <Text style={[styles.th, { width: COL.unit, textAlign: 'right' }]}>
-                单价
-              </Text>
-            )}
+            <Text style={[styles.th, { width: COL.unit, textAlign: 'right' }]}>
+              单价
+            </Text>
             <Text style={[styles.th, { width: COL.amount, textAlign: 'right' }]}>
               金额
             </Text>
@@ -123,26 +119,22 @@ export function DuizhangPDF({
                 <Text style={[styles.tdMuted, { width: COL.docNo }]}>
                   {l.docNo}
                 </Text>
-                {isCustomer && (
-                  <Text style={[styles.tdMuted, { width: COL.contract }]}>
-                    {l.contractNo || '—'}
-                  </Text>
-                )}
-                {isCustomer && (
-                  <View style={[styles.thumbCell, { width: COL.thumb }]}>
-                    {l.imageUrl && images?.get(l.imageUrl) ? (
-                      // eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image, no alt prop
-                      <Image
-                        style={{ width: 30, height: 30, objectFit: 'contain' }}
-                        src={images.get(l.imageUrl)!.data}
-                      />
-                    ) : (
-                      <Text style={styles.thumbPlaceholder}>—</Text>
-                    )}
-                  </View>
-                )}
+                <Text style={[styles.tdMuted, { width: COL.contract }]}>
+                  {(isCustomer ? l.contractNo : l.detail) || '—'}
+                </Text>
+                <View style={[styles.thumbCell, { width: COL.thumb }]}>
+                  {l.imageUrl && images?.get(l.imageUrl) ? (
+                    // eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image, no alt prop
+                    <Image
+                      style={{ width: 30, height: 30, objectFit: 'contain' }}
+                      src={images.get(l.imageUrl)!.data}
+                    />
+                  ) : (
+                    <Text style={styles.thumbPlaceholder}>—</Text>
+                  )}
+                </View>
                 <Text style={[styles.tdMuted, { width: COL.detail }]}>
-                  {l.detail || '—'}
+                  {(isCustomer ? l.detail : l.partNo) || '—'}
                 </Text>
                 <Text style={[styles.td, { flex: 1, fontWeight: 500 }]}>
                   {l.title}
@@ -150,15 +142,13 @@ export function DuizhangPDF({
                 <Text style={[styles.td, { width: COL.qty, textAlign: 'right' }]}>
                   {l.qty}
                 </Text>
-                {isCustomer && (
-                  <Text
-                    style={[styles.tdMuted, { width: COL.unit, textAlign: 'right' }]}
-                  >
-                    {typeof l.unitPriceCny === 'number'
-                      ? formatCny(l.unitPriceCny)
-                      : '—'}
-                  </Text>
-                )}
+                <Text
+                  style={[styles.tdMuted, { width: COL.unit, textAlign: 'right' }]}
+                >
+                  {typeof l.unitPriceCny === 'number'
+                    ? formatCny(l.unitPriceCny)
+                    : '—'}
+                </Text>
                 <Text
                   style={[styles.td, { width: COL.amount, textAlign: 'right' }]}
                 >
@@ -178,7 +168,7 @@ export function DuizhangPDF({
             >
               {sheet.totalQty}
             </Text>
-            {isCustomer && <Text style={[styles.td, { width: COL.unit }]} />}
+            <Text style={[styles.td, { width: COL.unit }]} />
             <Text
               style={[
                 styles.td,
@@ -214,7 +204,7 @@ export function DuizhangPDF({
             </>
           ) : (
             <>
-              <SumLine label="本期应付" value={sheet.totalAmountCny} strong />
+              <SumLine label="本次应付" value={sheet.totalAmountCny} strong />
               <SumLine
                 label={`尚在外未结${sheet.carryCount > 0 ? ` (${sheet.carryCount} 单)` : ''}`}
                 value={sheet.carryAmountCny}

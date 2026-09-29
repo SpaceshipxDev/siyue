@@ -21,10 +21,15 @@ export default async function OutsourcePage() {
     // (已对账 / 已付款) 从这里来; 读不到就当没有, 外协台照样出来。
     getPayables().catch(() => []),
   ])
+  // 外协是勾着对的: 应付单上记着认了哪几张外协单 (blockIds), 就标那几张。
+  // 早先整月认的应付单没记单号, 退回按「供应商|月份」标那一整个月。
   const settled: Record<string, 'reconciled' | 'paid'> = {}
+  const settledBlocks: Record<string, 'reconciled' | 'paid'> = {}
   for (const p of payables) {
     if (p.voidedAt) continue
-    settled[`${p.vendor}|${p.period}`] = settleOutstanding(p) <= 0 ? 'paid' : 'reconciled'
+    const st = settleOutstanding(p) <= 0 ? 'paid' : 'reconciled'
+    if (p.blockIds) for (const id of p.blockIds) settledBlocks[id] = st
+    else settled[`${p.vendor}|${p.period}`] = st
   }
   // Mint portal tokens for any vendor still missing one, so every 微信 cell on
   // the ledger has a link ready. One-time backfill, then no-ops.
@@ -46,7 +51,13 @@ export default async function OutsourcePage() {
         canSeeReport={canSeeReport(user)}
         canSeeFinance={canSeeOrderLedger(user)}
       />
-      <OutsourceLedger rows={rows} vendors={vendors} today={today()} settled={settled} />
+      <OutsourceLedger
+        rows={rows}
+        vendors={vendors}
+        today={today()}
+        settled={settled}
+        settledBlocks={settledBlocks}
+      />
     </div>
   )
 }

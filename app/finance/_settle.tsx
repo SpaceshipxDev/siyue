@@ -47,6 +47,8 @@ export type SettleRow = {
   approvedAt: string
   dueDate: string
   payments: PayablePayment[]
+  /** 应付单认的那几张外协单 —— 「看对账单」重印的就是它们。 */
+  blockIds?: string[]
   voidedAt?: string
   voidedBy?: string
 }
@@ -486,9 +488,16 @@ function Detail({
   const inp =
     'h-9 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]'
 
-  const sheetHref = `/duizhang?${c.sheetKind ? `kind=${c.sheetKind}&` : ''}name=${encodeURIComponent(
-    r.party,
-  )}&m=${r.period}`
+  // 应付单记着认的是哪几张外协单 —— 看对账单就重印当时那几张 (它们已经不在
+  // 对账页上了)。早先整月认的、和应收单, 回到那个月的对账页。
+  const reprint = kind === 'payable' && !!r.blockIds && r.blockIds.length > 0
+  const sheetHref = reprint
+    ? withBase(
+        `/duizhang/pdf?kind=vendor&name=${encodeURIComponent(r.party)}&m=${r.period}&sel=${encodeURIComponent(r.blockIds!.join(','))}`,
+      )
+    : `/duizhang?${c.sheetKind ? `kind=${c.sheetKind}&` : ''}name=${encodeURIComponent(
+        r.party,
+      )}&m=${r.period}`
 
   return (
     <div
@@ -680,12 +689,23 @@ function Detail({
       )}
 
       <div className="mt-4 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-[11.5px] text-[var(--color-ink-4)]">
-        <Link
-          href={sheetHref}
-          className="text-[12.5px] font-medium text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
-        >
-          看对账单 →
-        </Link>
+        {reprint ? (
+          <a
+            href={sheetHref}
+            target="_blank"
+            rel="noopener"
+            className="text-[12.5px] font-medium text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
+          >
+            看对账单 →
+          </a>
+        ) : (
+          <Link
+            href={sheetHref}
+            className="text-[12.5px] font-medium text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
+          >
+            看对账单 →
+          </Link>
+        )}
         <span>
           {r.lineCount} 行 · {r.totalQty} 件
         </span>

@@ -89,6 +89,7 @@ export function OutsourceLedger({
   vendors,
   today,
   settled = {},
+  settledBlocks = {},
 }: {
   rows: OpenBlockRow[]
   vendors: Vendor[]
@@ -98,6 +99,8 @@ export function OutsourceLedger({
    * 那天所在的月份算 —— 跟外协对账单同一个口径。
    */
   settled?: Record<string, 'reconciled' | 'paid'>
+  /** 按外协单 id 认的 (勾着对账之后的应付单) —— 优先看这个。 */
+  settledBlocks?: Record<string, 'reconciled' | 'paid'>
 }) {
   // Local echo of server rows. Receiving parts, stamping 微信 and 撤销外协 all
   // repaint from here instead of a full RSC refresh — the mainland↔HK link is
@@ -370,7 +373,8 @@ export function OutsourceLedger({
                     line={l}
                     settle={
                       l.closed && l.closedAt
-                        ? settled[`${l.vendorName}|${l.closedAt.slice(0, 7)}`]
+                        ? (settledBlocks[l.block.id] ??
+                          settled[`${l.vendorName}|${l.closedAt.slice(0, 7)}`])
                         : undefined
                     }
                     vendors={vendors}

@@ -288,6 +288,8 @@ import {
 } from '@/lib/loan'
 import {
   addPayablePayment,
+  getPayables,
+  vendorSettledFrom,
   createPayable,
   deletePayablePayment,
   voidPayable,
@@ -2580,23 +2582,44 @@ async function dispatch(
 
     // === 应付单 — 外协对账单确认 → 应付单 → 付款 (lib/payable) ===
     //
-    // 跟应收对称: 确认只收 供应商 + 月份, 金额按对账页同一条路现算。付款可以
-    // 挂一张凭证 —— 凭证先经 /api/payable-proof 存好 (顺便让机器读一遍), 这里
-    // 只收它的地址, 而且只收我们自己桶里的地址。
+    // 跟应收对称, 多一样: 外协是勾着对的 —— 对账单上勾了哪几张外协单, 这一
+    // 回就认哪几张 (blockIds), 没勾的留到下回。金额由服务端按这几张单现算,
+    // 不收前端的数; 已经对过账的、还没回厂的、不是这一家的, 一张都认不进来。
+    //
+    // 付款可以挂一张凭证 —— 凭证先经 /api/payable-proof 存好 (顺便让机器读一
+    // 遍), 这里只收它的地址, 而且只收我们自己桶里的地址。
     case 'confirmVendorDuizhang': {
       const vendor = body.vendor
       const period = body.period
+      const ids = body.blockIds
       if (!isString(vendor) || !vendor.trim() || !isString(period) || !isMonth(period))
         return err('bad confirmVendorDuizhang args')
+      if (!Array.isArray(ids) || ids.length === 0 || !ids.every(isString))
+        return err('先勾上这回要对的外协单')
       const u = await requireUser()
       if (!canSettleAccounts(u)) return err('确认外协对账单要找于海伟或财务', 403)
       const party = vendor.trim()
       const { from, to } = monthBounds(period)
-      const [blocks, vendors] = await Promise.all([getOutsourceBlockRows(), getVendors()])
-      const sheet = buildVendorDuizhang(blocks, vendors, party, from, to)
-      if (sheet.lines.length === 0) return err('这个月没有回厂的外协单, 没有可确认的')
+      const [blocks, vendors, payables] = await Promise.all([
+        getOutsourceBlockRows(),
+        getVendors(),
+        getPayables(),
+      ])
+      const want = new Set(ids as string[])
+      const sheet = buildVendorDuizhang(
+        blocks,
+        vendors,
+        party,
+        from,
+        to,
+        vendorSettledFrom(payables, party),
+        want,
+      )
+      const got = new Set(sheet.lines.map((l) => l.groupId))
+      if (sheet.count !== want.size || [...want].some((id) => !got.has(id)))
+        return err('勾的单里有已经对过账、或者还没回厂的 —— 刷新再选')
       if (sheet.unpricedCount > 0)
-        return err(`还有 ${sheet.unpricedCount} 张外协单没定价 —— 先把价钱补上再确认`)
+        return err(`勾的单里有 ${sheet.unpricedCount} 张没定价 —— 先把价钱补上再确认`)
       try {
         const r = await createPayable({
           vendor: party,
@@ -2604,6 +2627,7 @@ async function dispatch(
           amountCny: sheet.totalAmountCny,
           lineCount: sheet.lines.length,
           totalQty: sheet.totalQty,
+          blockIds: [...want],
           approvedBy: u.name,
           nowIso: new Date().toISOString(),
           todayYmd: today(),

@@ -10,6 +10,7 @@ import {
   type PayablePayment,
   type PaymentProof,
 } from './settle-shared'
+import type { VendorSettled } from './duizhang'
 
 /*
  * 应付单的存取 —— 外协对账单确认之后落下来的那一笔, 和它名下的每一笔付款。
@@ -84,6 +85,9 @@ function normalize(raw: unknown): Payable[] {
       approvedAt: str(r.approvedAt),
       dueDate: str(r.dueDate),
       payments,
+      blockIds: Array.isArray(r.blockIds)
+        ? (r.blockIds as unknown[]).filter((x): x is string => typeof x === 'string')
+        : undefined,
       voidedAt: str(r.voidedAt) || undefined,
       voidedBy: str(r.voidedBy) || undefined,
     })
@@ -121,18 +125,27 @@ export async function getPayable(id: string): Promise<Payable | undefined> {
   return (await read()).find((r) => r.id === id)
 }
 
-/** 这个供应商这个月那张还算数的应付单 (作废的不算)。 */
-export async function findActivePayable(
-  vendor: string,
-  period: string,
-): Promise<Payable | undefined> {
-  const rows = await read()
-  return rows.find((r) => r.vendor === vendor && r.period === period && !r.voidedAt)
+/**
+ * 这一家已经对过账的外协单 —— 还算数 (没作废) 的应付单上记着的那些。早先整
+ * 月认的应付单没记单号, 那一整个月回厂的都算对过 (legacyMonths)。
+ */
+export function vendorSettledFrom(payables: Payable[], vendor: string): VendorSettled {
+  const blockIds = new Set<string>()
+  const legacyMonths = new Set<string>()
+  for (const p of payables) {
+    if (p.voidedAt || p.vendor !== vendor) continue
+    if (p.blockIds) for (const id of p.blockIds) blockIds.add(id)
+    else legacyMonths.add(p.period)
+  }
+  return { blockIds, legacyMonths }
 }
 
 /**
- * 确认一张外协对账单 —— 落下一张应付单。金额由调用方按服务端现算的那张纸
- * 传进来。同一家同一个月只能有一张还算数的。
+ * 确认一次外协对账 —— 勾了哪几张外协单, 就落一张应付单认下它们。金额由调用
+ * 方按服务端现算的那几张单传进来。
+ *
+ * 一个月可以分几次对: 这回对了一半, 剩下的下回再对, 每回一张应付单。守住的
+ * 是「一张外协单只认一次」—— 已经在别的应付单上的单不能再认。
  */
 export async function createPayable(input: {
   vendor: string
@@ -140,16 +153,19 @@ export async function createPayable(input: {
   amountCny: number
   lineCount: number
   totalQty: number
+  blockIds: string[]
   approvedBy: string
   nowIso: string
   todayYmd: string
 }): Promise<Payable> {
   return withLock(async () => {
     const rows = await read()
-    const dup = rows.find(
-      (r) => r.vendor === input.vendor && r.period === input.period && !r.voidedAt,
-    )
-    if (dup) throw new Error(`这个月已经确认过了 —— 应付单 ${dup.no}`)
+    const taken = vendorSettledFrom(rows, input.vendor)
+    const dup = input.blockIds.find((id) => taken.blockIds.has(id))
+    if (dup) {
+      const on = rows.find((r) => !r.voidedAt && r.blockIds?.includes(dup))
+      throw new Error(`有的单已经对过账了${on ? ` —— 在应付单 ${on.no} 上` : ''}，刷新再选`)
+    }
     const row: Payable = {
       id: crypto.randomUUID(),
       no: nextSettleNo('YF', input.period, rows),
@@ -162,6 +178,7 @@ export async function createPayable(input: {
       approvedAt: input.nowIso,
       dueDate: addDays(input.todayYmd, SETTLE_TERM_DAYS),
       payments: [],
+      blockIds: input.blockIds,
     }
     rows.push(row)
     await write(rows)

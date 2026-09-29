@@ -8,7 +8,7 @@ import {
   type AuthUser,
 } from '@/lib/auth'
 import { findActiveReceivable } from '@/lib/receivable'
-import { findActivePayable } from '@/lib/payable'
+import { getPayables, vendorSettledFrom } from '@/lib/payable'
 import type { Payable, Receivable } from '@/lib/settle-shared'
 import {
   getCustomerStatementLines,
@@ -43,8 +43,13 @@ export type DuizhangLoad = {
   parties: DuizhangParty[]
   canCustomer: boolean
   canVendor: boolean
-  /** 这一方这个月那张还算数的应收单 (客户) / 应付单 (外协); 没认就是 null。 */
+  /** 客户: 这个客户这个月那张还算数的应收单; 没审批就是 null。外协用下面那一格。 */
   record: Receivable | Payable | null
+  /**
+   * 外协: 这一家这个月已经确认过的应付单 (一个月可以分几回对, 所以是一串)。
+   * 它们认过的外协单已经不在对账单上了。
+   */
+  vendorRecords: Payable[]
   /** 审批 / 确认 / 记收付款 —— 管钱那一档。 */
   canApprove: boolean
   /** 能进财务的应收/应付 (每个商务)。 */
@@ -55,6 +60,8 @@ export async function loadDuizhang(params: {
   kind?: string
   name?: string
   m?: string
+  /** 外协: 只要这几张外协单 (逗号分开) —— 打印勾选的那几张用。 */
+  sel?: string
 }): Promise<DuizhangLoad> {
   const user = await requireUser()
   const kind: DuizhangKind = isDuizhangKind(params.kind) ? params.kind : 'customer'
@@ -72,6 +79,7 @@ export async function loadDuizhang(params: {
   let sheet: Duizhang | null = null
   let parties: DuizhangParty[] = []
   let record: Receivable | Payable | null = null
+  let vendorRecords: Payable[] = []
   if (kind === 'customer') {
     const rows = await getFinanceRows()
     parties = customerOptions(rows, from, to, shanghaiDay)
@@ -85,15 +93,31 @@ export async function loadDuizhang(params: {
       record = rec ?? null
     }
   } else {
-    const [rows, vendors, rec] = await Promise.all([
+    const [rows, vendors, payables] = await Promise.all([
       getOutsourceBlockRows(),
       getVendors(),
-      party ? findActivePayable(party, month) : Promise.resolve(undefined),
+      getPayables(),
     ])
-    parties = vendorOptions(rows, vendors, from, to)
+    // 对过账的单不再上对账单 —— 名单上的数和纸上的行都只算还没对的。
+    const settledOf = (v: string) => vendorSettledFrom(payables, v)
+    parties = vendorOptions(rows, vendors, from, to, settledOf)
     if (party) {
-      sheet = buildVendorDuizhang(rows, vendors, party, from, to)
-      record = rec ?? null
+      const only = params.sel
+        ? new Set(params.sel.split(',').map((x) => x.trim()).filter(Boolean))
+        : undefined
+      // 指名要这几张 (打印勾选的、从应付单重印当时那张) 就照给, 不管对没对过。
+      sheet = buildVendorDuizhang(
+        rows,
+        vendors,
+        party,
+        from,
+        to,
+        only ? undefined : settledOf(party),
+        only,
+      )
+      vendorRecords = payables.filter(
+        (p) => !p.voidedAt && p.vendor === party && p.period === month,
+      )
     }
   }
 
@@ -108,6 +132,7 @@ export async function loadDuizhang(params: {
     canCustomer,
     canVendor,
     record,
+    vendorRecords,
     canApprove: canSettleAccounts(user),
     canOpenLedger: user.role === 'commerce',
   }

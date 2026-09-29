@@ -72,6 +72,11 @@ export type Payable = {
   approvedAt: string
   dueDate: string // 约定付款日 —— 确认日 + 30 天
   payments: PayablePayment[]
+  /**
+   * 这张应付单认的是哪几张外协单 —— 对账时勾了哪几张就是哪几张。认过的单下
+   * 次对账不再出现。早先整月认的应付单没有这一格 (那一整个月都算认过了)。
+   */
+  blockIds?: string[]
   voidedAt?: string
   voidedBy?: string
 }

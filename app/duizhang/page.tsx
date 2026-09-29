@@ -17,6 +17,7 @@ import { BRAND } from '@/lib/brand'
 import { TopBar } from '../_ui'
 import { DuizhangBar, DuizhangPartyList } from './_bar'
 import { ApprovalStrip } from './_approve'
+import { VendorSheet } from './_vendor_sheet'
 import { loadDuizhang } from './_load'
 
 export const dynamic = 'force-dynamic'
@@ -48,6 +49,7 @@ export default async function DuizhangPage({
     canCustomer,
     canVendor,
     record,
+    vendorRecords,
     canApprove,
     canOpenLedger,
   } = await loadDuizhang(params)
@@ -79,9 +81,9 @@ export default async function DuizhangPage({
           sheet={sheet}
         />
 
-        {/* 这张纸认没认下来 —— 客户审批落应收, 外协确认落应付。空的月份
-            没什么可认的。 */}
-        {sheet && (sheet.lines.length > 0 || record) && (
+        {/* 这张纸认没认下来 —— 客户审批落应收。外协那边是勾着对的, 条和纸
+            一起在 VendorSheet 里。空的月份没什么可认的。 */}
+        {sheet && sheet.kind === 'customer' && (sheet.lines.length > 0 || record) && (
           <ApprovalStrip
             kind={sheet.kind}
             party={sheet.party}
@@ -95,7 +97,18 @@ export default async function DuizhangPage({
           />
         )}
 
-        {sheet ? (
+        {sheet && sheet.kind === 'vendor' ? (
+          <VendorSheet
+            key={`${sheet.party}|${month}`}
+            sheet={sheet}
+            month={month}
+            preparedBy={user.name}
+            todayStr={todayStr}
+            records={vendorRecords}
+            canApprove={canApprove}
+            canOpenLedger={canOpenLedger}
+          />
+        ) : sheet ? (
           <Sheet sheet={sheet} preparedBy={user.name} todayStr={todayStr} />
         ) : (
           <DuizhangPartyList kind={kind} month={month} parties={parties} />

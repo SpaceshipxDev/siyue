@@ -15,6 +15,8 @@
 import {
   blockClosedAt,
   blockAmountCny,
+  effectiveMemberLineTotal,
+  effectiveUnitPriceCny,
   type OpenBlockRow,
   type Vendor,
 } from './data'
@@ -71,6 +73,11 @@ export type DuizhangLine = {
   imageUrl?: string
   /** 单价 */
   unitPriceCny?: number
+  // —— 以下两样只有外协对账单用到 ——
+  /** 这一行属于哪张外协单 —— 勾选、确认按单走。 */
+  groupId?: string
+  /** 那张外协单的总价 (单头一口价或逐件合计), 合计按它加, 不按行加。 */
+  groupAmountCny?: number
 }
 
 export type Duizhang = {
@@ -275,8 +282,42 @@ export function blockSettleAmount(
 }
 
 /**
- * 一个供应商、一段期间的外协对账单。行 = 这段时间里全部回厂的外协单 —— 和
- * 月度统计一个口径: 记在回件结算日, 没回齐的不算这个月的账。
+ * 哪些外协单已经对过账了 —— 确认过的应付单上记着它们 (blockIds)。
+ *
+ * 早先的应付单是按「这一家 × 这个月」整月认的, 没记单号: 那几个月回厂的单
+ * 都算对过了 (legacyMonths, YYYY-MM)。
+ */
+export type VendorSettled = {
+  blockIds: Set<string>
+  legacyMonths: Set<string>
+}
+
+export const NO_VENDOR_SETTLED: VendorSettled = {
+  blockIds: new Set(),
+  legacyMonths: new Set(),
+}
+
+function isSettledBlock(
+  block: OpenBlockRow['block'],
+  closedAt: string,
+  settled: VendorSettled,
+): boolean {
+  return settled.blockIds.has(block.id) || settled.legacyMonths.has(closedAt.slice(0, 7))
+}
+
+/**
+ * 一个供应商的外协对账单 —— 截至所选月底、回了厂、**还没对过账**的外协单,
+ * 一个零件一行。
+ *
+ * 跟客户对账单一个样子: 图、料号、零件名、数量、单价、金额, 供应商核的是
+ * "哪个零件几个、多少钱", 不是一张单一个总数。每一行带着它那张外协单的 id
+ * (groupId) —— 勾选、确认都按单走, 一张单是一起付的。
+ *
+ * 对过账的单不再出现: 这一次勾了哪几张、确认成应付单, 下一次打开就只剩没勾
+ * 的那些。以前月份没对掉的单也在里面 —— 没对就是没对, 不会因为换了月份就从
+ * 账上消失。
+ *
+ * only —— 只要这几张单 (打印选中的那几张、确认时服务端重算用)。
  */
 export function buildVendorDuizhang(
   rows: OpenBlockRow[],
@@ -284,6 +325,8 @@ export function buildVendorDuizhang(
   party: string,
   from: string,
   to: string,
+  settled: VendorSettled = NO_VENDOR_SETTLED,
+  only?: Set<string>,
 ): Duizhang {
   const nameOf = new Map(vendors.map((v) => [v.id, v.name]))
   const mine = rows.filter(
@@ -293,46 +336,61 @@ export function buildVendorDuizhang(
   const lines: DuizhangLine[] = []
   let carryAmountCny = 0
   let carryCount = 0
+  let totalAmountCny = 0
+  let unpricedCount = 0
+  let blockCount = 0
   for (const r of mine) {
     const closedAt = blockClosedAt(r.block)
     const amount = blockSettleAmount(r.block)
-    const qty = r.block.members.reduce((s, m) => s + m.qty, 0)
     if (!closedAt) {
       carryCount += 1
       carryAmountCny += amount ?? 0
       continue
     }
-    if (closedAt < from || closedAt > to) continue
-    lines.push({
-      key: r.block.id,
-      date: closedAt,
-      docNo: r.block.docNo || r.jobNo || '—',
-      title: r.block.members.map((m) => m.name).join(' · ') || '—',
-      detail: r.block.activity || '',
-      qty,
-      amountCny: amount,
-    })
-  }
-  lines.sort((a, b) => a.date.localeCompare(b.date) || a.docNo.localeCompare(b.docNo))
-
-  let totalQty = 0
-  let totalAmountCny = 0
-  let unpricedCount = 0
-  for (const l of lines) {
-    totalQty += l.qty
-    if (typeof l.amountCny === 'number') totalAmountCny += l.amountCny
+    if (closedAt > to) continue
+    if (isSettledBlock(r.block, closedAt, settled)) continue
+    if (only && !only.has(r.block.id)) continue
+    blockCount += 1
+    if (typeof amount === 'number') totalAmountCny += amount
     else unpricedCount += 1
+    const docNo = r.block.docNo || r.jobNo || '—'
+    for (const m of r.block.members) {
+      lines.push({
+        key: `${r.block.id}:${m.componentId}`,
+        date: closedAt,
+        docNo,
+        title: m.name || '—',
+        detail: r.block.activity || '',
+        qty: m.qty,
+        amountCny: effectiveMemberLineTotal(m, r.block),
+        partNo: m.partNo,
+        imageUrl: m.imageUrl,
+        unitPriceCny: effectiveUnitPriceCny(m, r.block),
+        groupId: r.block.id,
+        groupAmountCny: amount,
+      })
+    }
   }
+  lines.sort(
+    (a, b) =>
+      a.date.localeCompare(b.date) ||
+      a.docNo.localeCompare(b.docNo) ||
+      (a.groupId ?? '').localeCompare(b.groupId ?? ''),
+  )
+
+  const totalQty = lines.reduce((s, l) => s + l.qty, 0)
+  // 期间从最早那张没对掉的单算起 —— 纸上写的期间要盖得住纸上的每一行。
+  const earliest = lines.length > 0 ? lines[0].date : from
 
   return {
     kind: 'vendor',
     party,
-    from,
+    from: earliest < from ? earliest : from,
     to,
     lines,
-    count: lines.length,
+    count: blockCount,
     totalQty,
-    totalAmountCny,
+    totalAmountCny: Math.round(totalAmountCny * 100) / 100,
     unpricedCount,
     invoicedCny: 0,
     paidCny: 0,
@@ -342,22 +400,29 @@ export function buildVendorDuizhang(
 }
 
 /**
- * 供应商名单 —— 一家一行, 数是这个月回厂结算的数, 也就是这个月该付他多少。
- * 月底外协对账要的第一张表就是它: 先看谁的账最大, 再逐家点开出单。
+ * 供应商名单 —— 一家一行, 数是截至这个月底**还没对过账**的回厂单, 也就是现
+ * 在该跟他对、该付他的。对过的不算, 以前月份没对掉的算上。
  */
 export function vendorOptions(
   rows: OpenBlockRow[],
   vendors: Vendor[],
   from: string,
   to: string,
+  settledOf: (vendor: string) => VendorSettled = () => NO_VENDOR_SETTLED,
 ): DuizhangParty[] {
+  void from
   const nameOf = new Map(vendors.map((v) => [v.id, v.name]))
+  const vendorOf = (r: OpenBlockRow) => nameOf.get(r.block.vendorId) ?? r.block.vendorId
   return rollupParties(
     rows,
-    (r) => nameOf.get(r.block.vendorId) ?? r.block.vendorId,
+    vendorOf,
     (r) => {
       const closedAt = blockClosedAt(r.block)
-      return !!closedAt && closedAt >= from && closedAt <= to
+      return (
+        !!closedAt &&
+        closedAt <= to &&
+        !isSettledBlock(r.block, closedAt, settledOf(vendorOf(r)))
+      )
     },
     (r) => blockSettleAmount(r.block) ?? 0,
   )
@@ -387,7 +452,7 @@ export const DUIZHANG_DATE_LABEL: Record<DuizhangKind, string> = {
 
 export const DUIZHANG_TITLE_LABEL: Record<DuizhangKind, string> = {
   customer: '物料名称',
-  vendor: '零件',
+  vendor: '零件名称',
 }
 
 export const DUIZHANG_DETAIL_LABEL: Record<DuizhangKind, string> = {

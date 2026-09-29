@@ -104,7 +104,8 @@ export function DuizhangBar({
         </Step>
       </div>
 
-      {sheet && (
+      {/* 外协那边的导出和打印跟着勾选走, 放在对账单上面那一条里 (_vendor_sheet)。 */}
+      {sheet && kind === 'customer' && (
         <div className="ml-auto flex items-center gap-2">
           <ExportButton sheet={sheet} />
           <a
@@ -205,13 +206,13 @@ export function DuizhangPartyList({
       <p className="mt-3 text-[11px] text-[var(--color-ink-3)]">
         {kind === 'customer'
           ? '按出货日期归月。'
-          : '按回厂结算日归月 —— 还没回齐的单不算这个月的账。'}
+          : '截至这个月底回了厂、还没对过账的单 —— 对过的不算，以前月份没对掉的也在里面；还没回齐的不算。'}
       </p>
     </div>
   )
 }
 
-function ExportButton({ sheet }: { sheet: Duizhang }) {
+export function ExportButton({ sheet }: { sheet: Duizhang }) {
   const [busy, setBusy] = useState(false)
   const k = sheet.kind
   const onExport = async () => {
@@ -237,9 +238,11 @@ function ExportButton({ sheet }: { sheet: Duizhang }) {
             '序号',
             DUIZHANG_DATE_LABEL[k],
             DUIZHANG_DOCNO_LABEL[k],
-            DUIZHANG_TITLE_LABEL[k],
             DUIZHANG_DETAIL_LABEL[k],
+            '料号',
+            DUIZHANG_TITLE_LABEL[k],
             '数量',
+            '单价',
             '金额',
           ]
       const blanks: (string | number)[] = head.map(() => '')
@@ -260,9 +263,11 @@ function ExportButton({ sheet }: { sheet: Duizhang }) {
               i + 1,
               l.date,
               l.docNo,
-              l.title,
               l.detail,
+              l.partNo ?? '',
+              l.title,
               l.qty,
+              typeof l.unitPriceCny === 'number' ? l.unitPriceCny : '',
               typeof l.amountCny === 'number' ? l.amountCny : '',
             ],
       )
@@ -284,7 +289,7 @@ function ExportButton({ sheet }: { sheet: Duizhang }) {
         sum('本期回款', sheet.paidCny)
         sum('截至今日未收', sheet.carryAmountCny)
       } else {
-        sum('本期应付', sheet.totalAmountCny)
+        sum('本次应付', sheet.totalAmountCny)
         sum(`尚在外未结 (${sheet.carryCount} 单)`, sheet.carryAmountCny)
       }
       const title = [

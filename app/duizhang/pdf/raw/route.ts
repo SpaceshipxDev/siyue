@@ -17,16 +17,15 @@ export async function GET(req: Request) {
     kind: sp.get('kind') ?? undefined,
     name: sp.get('name') ?? undefined,
     m: sp.get('m') ?? undefined,
+    sel: sp.get('sel') ?? undefined,
   })
   if (!sheet) {
     return new Response('请先选择对账对象', { status: 400 })
   }
 
-  // 零件图 —— 只有客户版印图。抓不到的图渲染成一个破折号, 不挡住出单。
-  const images =
-    sheet.kind === 'customer'
-      ? await fetchImages(sheet.lines.map((l) => l.imageUrl))
-      : undefined
+  // 零件图 —— 客户版、外协版都印 (外协对账单也是一个零件一行)。抓不到的图
+  // 渲染成一个破折号, 不挡住出单。
+  const images = await fetchImages(sheet.lines.map((l) => l.imageUrl))
 
   const pdf = await renderToBuffer(
     DuizhangPDF({ sheet, preparedBy: user.name, todayStr, images }),
