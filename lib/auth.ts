@@ -210,6 +210,10 @@ const WAREHOUSE_EDITOR_USER_IDS = new Set<string>([
   // 人、纠正预防措施常常是几天后才定下来的, 得能回头补)。
   'u-mpkkcscl-9aoza0', // 刘敏敏
   'u-mpkkghqt-p8qrvy', // 李佳怡
+  // 采购人事 — 老板 2026-09-29 开通领料。料是这个账号买回来、发出去的, 领料
+  // 那本账记错了得当场自己改。按名字写, 不靠"挂在采购工段"那一条 —— 账号挂
+  // 在哪个工段在这个库里不作数 (见 零件行 那一段)。
+  'u-mqoj62uq-olmh4c', // 采购人事
   'u-mounqsw2-5g86hh', // harry 2 (dev/test account)
 ])
 
