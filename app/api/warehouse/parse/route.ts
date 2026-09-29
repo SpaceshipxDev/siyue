@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   const user = await currentUser()
   if (!user || !canEditWarehouse(user)) {
     return Response.json(
-      { ok: false, error: '导入原始台账要找工程或于海伟' },
+      { ok: false, error: '导入原始台账要找采购、工程或于海伟' },
       { status: 401 },
     )
   }

@@ -213,8 +213,16 @@ const WAREHOUSE_EDITOR_USER_IDS = new Set<string>([
   'u-mounqsw2-5g86hh', // harry 2 (dev/test account)
 ])
 
+// 采购 —— 老板 2026-09-29 开通。料是采购买回来、采购发出去的, 领料那本账天
+// 然是他们的: 出库记错了数、领料人写错了名字, 得能当场改, 不能等别人来。按
+// 采购站 (defaultStage === '采购') 给, 不是按名字 —— 跟采购审批、看全部人事
+// 同一个口径, 以后新开的采购账号自动就有。
 export function canEditWarehouse(u: AuthUser): boolean {
-  return WAREHOUSE_EDITOR_USER_IDS.has(u.id) || isAdminUser(u.id)
+  return (
+    WAREHOUSE_EDITOR_USER_IDS.has(u.id) ||
+    isAdminUser(u.id) ||
+    u.defaultStage === '采购'
+  )
 }
 
 // ─── 工单导出 (看板右上角那个「导出」) ──────────────────────────────────

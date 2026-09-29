@@ -3636,7 +3636,7 @@ async function dispatch(
         })
       }
       const u = await requireUser()
-      if (!canEditWarehouse(u)) return err('导入原始台账要找工程或于海伟', 403)
+      if (!canEditWarehouse(u)) return err('导入原始台账要找采购、工程或于海伟', 403)
       const count = await addStockMoves(clean, u.name, new Date().toISOString())
       revalidatePath('/warehouse')
       return Response.json(ok({ count }))
@@ -3672,7 +3672,7 @@ async function dispatch(
       const moveId = body.moveId
       if (!isString(moveId)) return err('bad deleteStockMove args')
       const u = await requireUser()
-      if (!canEditWarehouse(u)) return err('删记录要找工程或于海伟', 403)
+      if (!canEditWarehouse(u)) return err('删记录要找采购、工程或于海伟', 403)
       await deleteStockMove(moveId)
       revalidatePath('/warehouse')
       return Response.json(ok())
