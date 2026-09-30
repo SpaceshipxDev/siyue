@@ -83,6 +83,18 @@ export const PLANNABLE_STAGES: Stage[] = PRODUCTION_STAGES.filter(
 // board's 外协 badge read it.
 export type PlanKey = Stage | '外协'
 
+// 操机 · 手工 · 打磨 · 喷漆 · 丝印 只设一个时间节点 (老板 2026-09-30)。
+//
+// 一件东西上了机床, 后面这几道是一口气做下来的 —— 工程排的是"这一段哪天做
+// 完", 不是给每一道各定一天。所以这五格是同一个日子: 在任何一格上改, 五格一
+// 起改 (存的时候照旧一格一个, 各工位读自己那一格的老路子不用动)。
+export const SHARED_PLAN_STAGES: Stage[] = ['操机', '手工', '打磨', '喷漆', '丝印']
+
+/** 改这一格计划日期时, 要跟着一起改的那几格 (共用节点的五道, 或者就它自己)。 */
+export function linkedPlanKeys(k: PlanKey): PlanKey[] {
+  return (SHARED_PLAN_STAGES as PlanKey[]).includes(k) ? [...SHARED_PLAN_STAGES] : [k]
+}
+
 export type StageStatus = 'pending' | 'in_progress' | 'done'
 
 // 检验 verdicts — the inspector's four buttons. OK finishes the stage and the

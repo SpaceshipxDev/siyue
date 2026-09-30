@@ -1,11 +1,13 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { DatePop } from '@/app/_datepop'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
 import {
   fmtPlanLabel,
+  linkedPlanKeys,
+  SHARED_PLAN_STAGES,
   stagePlanState,
   type PlanKey,
   type RollupKind,
@@ -40,6 +42,11 @@ export function planToneClass(tone: StagePlanTone | undefined): string {
   }
 }
 
+// 操机~丝印 共用一个节点: 改一格, 同一张单上另外四格当场跟着变, 不用等页面
+// 刷新 —— 广播一下, 兄弟格子听到就换成同一个日子。
+const SHARED_EVENT = 'yn:stage-plan-shared'
+type SharedDetail = { jobId: string; keys: PlanKey[]; value: string; from: PlanKey }
+
 // One 工段's planned-date control. Editable → the DatePop (calendar + optional
 // hour); read-only → a static date. Empty reads as a quiet '—', consistent with
 // every other empty field in the app. Writes only this stage (atomic server
@@ -63,6 +70,24 @@ export function StagePlanDate({
 }) {
   const [local, setLocal] = useState(value ?? '')
   const [, start] = useTransition()
+  // 服务端送来新值 (刷新之后) —— 以它为准。
+  const [seen, setSeen] = useState(value ?? '')
+  if ((value ?? '') !== seen) {
+    setSeen(value ?? '')
+    setLocal(value ?? '')
+  }
+  const shared = (SHARED_PLAN_STAGES as PlanKey[]).includes(stage)
+
+  useEffect(() => {
+    if (!shared) return
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<SharedDetail>).detail
+      if (d.jobId !== jobId || d.from === stage || !d.keys.includes(stage)) return
+      setLocal(d.value)
+    }
+    window.addEventListener(SHARED_EVENT, on)
+    return () => window.removeEventListener(SHARED_EVENT, on)
+  }, [jobId, stage, shared])
   const st = stagePlanState(local || undefined, rollupKind)
   const toneClass = planToneClass(st?.tone)
 
@@ -70,11 +95,25 @@ export function StagePlanDate({
     if (next === local) return
     const prev = local
     setLocal(next)
+    if (shared) {
+      window.dispatchEvent(
+        new CustomEvent<SharedDetail>(SHARED_EVENT, {
+          detail: { jobId, keys: linkedPlanKeys(stage), value: next, from: stage },
+        }),
+      )
+    }
     start(async () => {
       try {
         await mutate({ kind: 'setStagePlan', jobId, stage, value: next || null })
       } catch (e) {
         setLocal(prev)
+        if (shared) {
+          window.dispatchEvent(
+            new CustomEvent<SharedDetail>(SHARED_EVENT, {
+              detail: { jobId, keys: linkedPlanKeys(stage), value: prev, from: stage },
+            }),
+          )
+        }
         showToast(
           `保存失败 · ${e instanceof Error ? e.message : '网络中断'}`,
           'warning',
@@ -94,6 +133,7 @@ export function StagePlanDate({
   }
 
   return (
+    <span title={shared ? '操机 · 手工 · 打磨 · 喷漆 · 丝印 共用这一个日子，改一格五格一起改' : undefined}>
     <DatePop
       value={local}
       onChange={commit}
@@ -109,6 +149,7 @@ export function StagePlanDate({
       // to a sliver. Harmless for the import band, essential in the table.
       portal
     />
+    </span>
   )
 }
 
