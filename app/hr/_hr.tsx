@@ -18,6 +18,20 @@ import type { HrNoteFile, HrRecord, HrType } from '@/lib/data'
 // 在那儿只是让人多看一眼。
 const LEAVE_TYPES = new Set<HrType>(['事假', '病假', '工伤'])
 
+// 请假是能提前请的 —— 九月里批下来十月初那几天的假是常事, 日子就得能往后选。
+// 迟到、旷工、违纪、加班这些只记已经发生的事, 照旧选不到明天。往后最多放半
+// 年: 再远多半是年份敲错了。
+const LEAVE_AHEAD_DAYS = 183
+
+function addDaysYmd(ymd: string, days: number): string {
+  const t = Date.parse(`${ymd}T00:00:00Z`) + days * 86_400_000
+  return new Date(t).toISOString().slice(0, 10)
+}
+
+function latestDateFor(type: HrType, today: string): string {
+  return LEAVE_TYPES.has(type) ? addDaysYmd(today, LEAVE_AHEAD_DAYS) : today
+}
+
 // 人事 — one screen, two halves.
 //
 // Top: 记一笔. Pick the person, tap what happened, and it's filed against
@@ -143,6 +157,15 @@ export function HrBoard({
     if (hrHasHours(type) && parseHours(hours) === null) {
       setError(
         type === '加班' ? '加班要填时长 · 几个小时就填几' : `${type}要填时长 · 半天 4，一天 8`,
+      )
+      return
+    }
+    // 日子选在了今天以后, 又换成了迟到/旷工这类 —— 那些只能记已经发生的。
+    if (date > latestDateFor(type, today)) {
+      setError(
+        LEAVE_TYPES.has(type)
+          ? '日子太远了 · 看看年份是不是敲错了'
+          : `${type}只能记已经发生的 · 往后的日子只有请假能选`,
       )
       return
     }
@@ -317,7 +340,8 @@ export function HrBoard({
           <input
             type="date"
             value={date}
-            max={today}
+            max={latestDateFor(type, today)}
+            title={LEAVE_TYPES.has(type) ? '请假可以往后选，提前请下个月的假' : undefined}
             onChange={(e) => setDate(e.target.value || today)}
             className="mono h-9 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-border-strong)]"
           />
@@ -497,7 +521,7 @@ export function HrBoard({
                         <span className="-mx-1.5 shrink-0">
                           <DatePop
                             value={rec.date}
-                            allowFuture={false}
+                            allowFuture={LEAVE_TYPES.has(rec.type)}
                             hideIcon
                             portal
                             formatLabel={(iso) => iso.slice(5)}
