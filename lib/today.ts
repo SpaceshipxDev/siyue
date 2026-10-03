@@ -104,10 +104,13 @@ function utcYMD(y: number, monthZeroBased: number, d: number): string {
 // 'YYYY-MM-DD' string. Used by the 报工 page's ◂ ▸ period nav.
 export function shiftDate(date: string, gran: Granularity, delta: number): string {
   const [y, m, d] = date.split('-').map(Number)
-  const next =
-    gran === 'month'
-      ? new Date(Date.UTC(y, m - 1 + delta, d))
-      : new Date(Date.UTC(y, m - 1, d + delta * (gran === 'week' ? 7 : 1)))
+  if (gran === 'month') {
+    // 月底那几天往前/往后挪一个月, 落到目标月的最后一天为止 —— 不然 10-31 往前
+    // 一个月会变成"9-31", 溢出成 10-01, 「上一月」在月底点了等于没点。
+    const last = new Date(Date.UTC(y, m + delta, 0)).getUTCDate()
+    return new Date(Date.UTC(y, m - 1 + delta, Math.min(d, last))).toISOString().slice(0, 10)
+  }
+  const next = new Date(Date.UTC(y, m - 1, d + delta * (gran === 'week' ? 7 : 1)))
   return next.toISOString().slice(0, 10)
 }
 

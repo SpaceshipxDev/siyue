@@ -1532,7 +1532,7 @@ function JobFinancePanel({
         <p className="mt-6 text-[12px] text-[var(--color-ink-4)]">
           全部开票 / 收款记录见{' '}
           <a
-            href={withBase('/finance?tab=kaipiao')}
+            href={withBase('/finance?tab=ar')}
             className="text-[var(--color-ink-2)] underline decoration-[var(--color-border-strong)] underline-offset-2 hover:text-[var(--color-ink)] hover:decoration-[var(--color-ink)]"
           >
             财务

@@ -362,7 +362,7 @@ export async function MonthlyStats({
 function MonthLink({ m, label }: { m: string; label: string }) {
   return (
     <Link
-      href={`/finance?tab=ship&sm=${m}`}
+      href={`/finance?tab=stats&sm=${m}`}
       aria-label={`${Number(m)}月`}
       className="inline-flex h-7 w-7 items-center justify-center rounded-[2px] border border-[var(--color-border)] text-[13px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]"
     >
