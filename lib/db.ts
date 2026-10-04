@@ -5562,7 +5562,7 @@ export async function setJobStagePlan(
     if (readErr) throw readErr
     if (!data) throw new Error('工单不存在')
     const map = stagePlanFromJson(data.stage_plan)
-    // 操机~丝印 共用一个节点 —— 改一格就是改那五格 (见 SHARED_PLAN_STAGES)。
+    // 打磨 · 喷漆 · 丝印 共用一个节点 —— 改一格就是改那三格 (见 SHARED_PLAN_STAGES)。
     for (const k of linkedPlanKeys(stage)) {
       if (value && value.length) map[k] = value
       else delete map[k]
