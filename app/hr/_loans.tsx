@@ -411,6 +411,18 @@ function Detail({
             </span>
           ))}
 
+        {/* 驳回点错了 —— 退回待审批, 重新批。 */}
+        {st === 'rejected' && canSettle && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => run({ kind: 'reopenLoan', loanId: l.id }, '已退回，重新审批')}
+            className="text-[12px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)] disabled:opacity-50"
+          >
+            驳回点错了，退回重审
+          </button>
+        )}
+
         {error && <span className="text-[12px] text-[var(--color-overdue)]">{error}</span>}
 
         {!l.paidOutAt && (

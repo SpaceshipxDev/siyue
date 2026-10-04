@@ -286,6 +286,8 @@ import {
   deleteLoanSlip,
   getLoan,
   payOutLoan,
+  reopenLoan,
+  undoPayOutLoan,
   withdrawLoan,
 } from '@/lib/loan'
 import {
@@ -2857,6 +2859,25 @@ async function dispatch(
         return err(e instanceof Error ? e.message : '放不了')
       }
       revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    // 点错了往回退 —— 撤销放款 (回到待放款)、退回重审 (回到待审批)。先后关系
+    // 在 lib/loan 里守: 记过还款的撤不了放款, 放了款的退不了审批。
+    case 'undoPayOutLoan':
+    case 'reopenLoan': {
+      const id = body.loanId
+      if (!isString(id)) return err('bad loan args')
+      const u = await requireUser()
+      if (!canSettleAccounts(u)) return err('要找于海伟或财务', 403)
+      try {
+        if (body.kind === 'undoPayOutLoan') await undoPayOutLoan(id)
+        else await reopenLoan(id)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '退不回去')
+      }
+      revalidatePath('/finance')
+      revalidatePath('/hr')
       return Response.json(ok())
     }
 

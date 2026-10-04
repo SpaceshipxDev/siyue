@@ -193,6 +193,32 @@ export async function payOutLoan(id: string, date: string, by: string): Promise<
   })
 }
 
+// 放款点错了 —— 退回「待放款」。已经记了还款的不给退: 钱都开始还了, 说明是
+// 真放出去了; 真要退, 先把那几笔还款删掉 (工资扣回的要撤销那个月的工资发放)。
+export async function undoPayOutLoan(id: string): Promise<void> {
+  await mutateLoan(id, (l) => {
+    if (!l.paidOutAt) throw new Error('这笔还没放款')
+    if (l.repayments.length > 0) {
+      throw new Error('已经记了还款，退不回去 —— 先把还款删掉再撤销放款')
+    }
+    l.paidOutAt = undefined
+    l.paidOutBy = undefined
+  })
+}
+
+// 批错了 —— 退回「待审批」, 回到人事那边重新批 (同意 / 驳回)。只有还没放款的
+// 能退: 钱出去了就不是审批的事了, 先撤销放款。
+export async function reopenLoan(id: string): Promise<void> {
+  await mutateLoan(id, (l) => {
+    if (l.paidOutAt) throw new Error('钱已经放出去了 —— 先撤销放款')
+    if (!l.decision) throw new Error('这笔本来就在等审批')
+    l.decision = undefined
+    l.decidedBy = undefined
+    l.decidedAt = undefined
+    l.rejectNote = undefined
+  })
+}
+
 export async function addLoanRepayment(
   id: string,
   input: { date: string; amountCny: number; method: LoanRepayMethod; note?: string },

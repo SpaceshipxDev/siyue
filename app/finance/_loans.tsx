@@ -202,6 +202,8 @@ function Detail({ l, todayStr, canSettle }: { l: Loan; todayStr: string; canSett
   const [amount, setAmount] = useState('')
   const [note, setNote] = useState('')
   const [armDel, setArmDel] = useState<string | null>(null)
+  // 点错了往回退 —— 先点一下, 再点一下「确认」, 防手滑。
+  const [armBack, setArmBack] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   function run(body: Record<string, unknown> & { kind: string }, done?: () => void) {
@@ -257,6 +259,48 @@ function Detail({ l, todayStr, canSettle }: { l: Loan; todayStr: string; canSett
           </p>
         )}
       </div>
+
+      {/* 点错了往回退: 待放款 → 退回重审 (回到人事那边重新批); 放了款还没还
+          过一笔 → 撤销放款 (回到待放款)。开始还钱以后就退不了了。 */}
+      {canSettle && (st === 'approved' || (st === 'repaying' && l.repayments.length === 0)) && (
+        <div className="mt-2 text-[12px]">
+          {armBack ? (
+            <span className="inline-flex items-center gap-3">
+              <span className="text-[var(--color-ink-3)]">
+                {st === 'approved' ? '退回人事那边重新审批？' : '撤销这次放款，回到待放款？'}
+              </span>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  run(
+                    { kind: st === 'approved' ? 'reopenLoan' : 'undoPayOutLoan', loanId: l.id },
+                    () => setArmBack(false),
+                  )
+                }
+                className="font-medium text-[var(--color-overdue)] hover:underline disabled:opacity-50"
+              >
+                确认
+              </button>
+              <button
+                type="button"
+                onClick={() => setArmBack(false)}
+                className="text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+              >
+                取消
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setArmBack(true)}
+              className="text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
+            >
+              {st === 'approved' ? '批错了，退回重审' : '放款点错了，撤销'}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 借支单 —— 放款前照着它核一眼签名和金额; 放款后只看不删。 */}
       <div className="mt-3">
