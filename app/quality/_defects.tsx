@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
 import { EditableTextArea } from '@/app/_editable'
 import type { DefectRow } from '@/lib/db'
+import { DefectDetail } from './_defect_detail'
 
 // 质量异常 — 全厂判成 重做 / 返修 / 外修 的零件, 检验 (过程检) 和 质量 (出货
 // 前的成品检) 两道一起。厂里自己检出来的那一半。
@@ -21,6 +22,10 @@ import type { DefectRow } from '@/lib/db'
 //
 // 按月看, 因为质量是按月复盘的; 上面几个数回答"这个月坏了多少、坏在哪一道、
 // 还有几条没定措施"。导出的就是屏幕上这一批。
+//
+// 点一行打开这一条的详情 —— 全部信息加上判不良时拍的照片, 照片点开看大图。
+//
+// 检验时选了「外协」的不良不在这张表里: 那是供应商做坏的, 在「来料异常」。
 
 const MONTHS = [
   '01', '02', '03', '04', '05', '06',
@@ -44,6 +49,7 @@ export function DefectsBoard({
   const year = todayStr.slice(0, 4)
   const [month, setMonth] = useState<string>(todayStr.slice(5, 7))
   const [q, setQ] = useState('')
+  const [detail, setDetail] = useState<DefectRow | null>(null)
 
   const monthRows = useMemo(() => {
     const ym = `${year}-${month}`
@@ -188,19 +194,32 @@ export function DefectsBoard({
           monthRows.map((r, i) => (
             <div
               key={`${r.partId}-${r.stage}-${i}`}
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 border-b border-[var(--color-border)] px-4 py-2.5 last:border-b-0 hover:bg-[#faf8f2] md:grid-cols-[68px_108px_minmax(0,0.9fr)_56px_52px_minmax(0,1.1fr)_64px_minmax(0,1.2fr)_60px] md:px-5"
+              role="button"
+              tabIndex={0}
+              onClick={() => setDetail(r)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') setDetail(r)
+              }}
+              title="点开看不良照片和详情"
+              className="grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 border-b border-[var(--color-border)] px-4 py-2.5 last:border-b-0 hover:bg-[#faf8f2] md:grid-cols-[68px_108px_minmax(0,0.9fr)_56px_52px_minmax(0,1.1fr)_64px_minmax(0,1.2fr)_60px] md:px-5"
             >
               <span className="mono hidden text-[12.5px] tabular-nums text-[var(--color-ink-2)] md:block">
                 {(r.at ?? '').slice(5, 10) || '—'}
               </span>
               <Link
                 href={`/jobs/${r.jobId}`}
+                onClick={(e) => e.stopPropagation()}
                 className="mono hidden truncate text-[12.5px] text-[var(--color-info)] hover:underline md:block"
               >
                 {r.jobNo || '—'}
               </Link>
               <span className="break-words text-[13.5px] font-medium tracking-tight text-[var(--color-ink)]">
                 {r.partName || '—'}
+                {r.photos.length > 0 && (
+                  <span className="ml-1.5 text-[11px] font-normal text-[var(--color-ink-4)]">
+                    · 图{r.photos.length}
+                  </span>
+                )}
                 <span className="mono ml-2 text-[11.5px] font-normal text-[var(--color-ink-4)] md:hidden">
                   {r.jobNo}
                 </span>
@@ -217,7 +236,7 @@ export function DefectsBoard({
               <span className="hidden break-words text-[12.5px] text-[var(--color-ink-2)] md:block">
                 {r.owner || '—'}
               </span>
-              <span className="hidden md:block">
+              <span className="hidden md:block" onClick={(e) => e.stopPropagation()}>
                 {canEdit || !actions[`${r.partId}::${r.stage}`] ? (
                   <EditableTextArea
                     value={actions[`${r.partId}::${r.stage}`]}
@@ -239,9 +258,28 @@ export function DefectsBoard({
         )}
       </div>
 
+      {detail && (
+        <DefectDetail
+          title={detail.partName || '—'}
+          subtitle={`${detail.jobNo}${detail.customer ? ` · ${detail.customer}` : ''}`}
+          fields={[
+            ['环节', detail.stage === '质量' ? '成品检' : '检验'],
+            ['判定', detail.verdict],
+            ['判定时间', detail.at ? `${detail.at.slice(0, 10)} ${detail.at.slice(11, 16)}` : undefined],
+            ['判定人', detail.by],
+            ['不良原因', detail.reason],
+            ['责任人', detail.owner],
+            ['纠正预防', actions[`${detail.partId}::${detail.stage}`]],
+          ]}
+          photos={detail.photos}
+          jobHref={`/jobs/${detail.jobId}`}
+          onClose={() => setDetail(null)}
+        />
+      )}
+
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
-        判定和不良原因是检验员在工单上按下去的那一刻记的，这里只是汇总——改要回
-        零件上改。「成品检」是出货前的质量那一道。纠正预防措施是在这里填的，还
+        点一行看不良照片和详情。判定和不良原因是检验员在工单上按下去的那一刻记的，这里只是汇总——改要回
+        零件上改。检验时选了「外协」的不良不在这里，在「来料异常」。「成品检」是出货前的质量那一道。纠正预防措施是在这里填的，还
         空着的点一下就能写；写过的要改，找工程或于海伟。
       </p>
     </div>

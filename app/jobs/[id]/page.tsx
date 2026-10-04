@@ -59,6 +59,7 @@ import {
 import { StageScopeProvider } from '@/app/_stage_scope'
 import { scrubJob, scrubVendors } from '@/lib/dto'
 import { StageHeader, TopBar, type TabKey } from '@/app/_ui'
+import { getInspectionLinks } from '@/lib/incoming-defects'
 import { EffectiveStageCell } from '@/app/_stagecell'
 import { BackButton } from '@/app/_back'
 import {
@@ -146,6 +147,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
     drawingFiles,
     allPrograms,
     commSheet,
+    incomingLinks,
   ] = await Promise.all([
       getJob(id),
       getVendors(),
@@ -153,6 +155,8 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
       getDrawingFiles(id),
       getNcPrograms(),
       getCommSheet(id),
+      // 检验判不良时选了「外协」的那几格 —— 弹窗打开时要记得是外协。
+      getInspectionLinks(id).catch(() => new Set<string>()),
     ])
   if (!rawJob) notFound()
   // Portal tokens power the 微信 share button on each 委外 row. No-op once
@@ -1086,6 +1090,9 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                             component={c}
                             stage={stage}
                             interactive={interactive}
+                            outsourcedDefect={incomingLinks.has(
+                              `${job.id}|${c.id}|${stage}`,
+                            )}
                           />
                         </td>
                       )

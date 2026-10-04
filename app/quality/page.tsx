@@ -7,12 +7,12 @@ import {
   hrDeptOf,
   requireUser,
 } from '@/lib/auth'
-import { getDefectRows } from '@/lib/db'
+import { getDefectRows, getPartPhotosFor } from '@/lib/db'
 import { getComplaints } from '@/lib/complaints'
 import { getProcessDefects } from '@/lib/process-defects'
 import { getDefectActions } from '@/lib/defect-actions'
 import { getImprovements } from '@/lib/improvements'
-import { getIncomingDefects } from '@/lib/incoming-defects'
+import { getIncomingDefects, getInspectionLinks } from '@/lib/incoming-defects'
 import { getChangeRecords } from '@/lib/changes'
 import { today } from '@/lib/today'
 import { DefectsBoard } from './_defects'
@@ -82,6 +82,7 @@ export default async function QualityPage({
     improvements,
     incoming,
     changes,
+    links,
   ] = await Promise.all([
       view === 'defects' ? getDefectRows() : Promise.resolve([]),
       view === 'defects'
@@ -92,7 +93,22 @@ export default async function QualityPage({
       view === 'improve' ? getImprovements() : Promise.resolve([]),
       view === 'incoming' ? getIncomingDefects() : Promise.resolve([]),
       view === 'change' ? getChangeRecords() : Promise.resolve([]),
+      // 检验判不良时选了「外协」的那几条 —— 它们在来料异常里, 不算厂里自己的。
+      view === 'defects' ? getInspectionLinks() : Promise.resolve(new Set<string>()),
     ])
+
+  // 质量异常只留厂里自己做坏的: 外协做坏的已经转到来料异常, 不在这里重复记。
+  const ownDefects = defects.filter(
+    (d) => !links.has(`${d.jobId}|${d.componentId}|${d.stage}`),
+  )
+
+  // 来料异常里检验转过来的那几条 —— 点开要看判不良时拍的照片。
+  const incomingPhotos =
+    view === 'incoming'
+      ? await getPartPhotosFor(
+          incoming.flatMap((r) => (r.link ? [{ jobId: r.link.jobId, componentId: r.link.componentId }] : [])),
+        )
+      : {}
 
   // 录入那一格的联想 —— 打过交道的供应商, 少打几个字也少打错一个名。
   const incomingSuppliers = [
@@ -207,6 +223,7 @@ export default async function QualityPage({
         ) : view === 'incoming' ? (
           <IncomingBoard
             rows={incoming}
+            photos={incomingPhotos}
             todayStr={todayStr}
             suppliers={incomingSuppliers}
             canEdit={canEdit}
@@ -219,7 +236,7 @@ export default async function QualityPage({
           />
         ) : (
           <DefectsBoard
-            rows={defects}
+            rows={ownDefects}
             actions={defectActions}
             todayStr={todayStr}
             canEdit={canEdit}

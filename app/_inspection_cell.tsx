@@ -22,6 +22,10 @@ import { useStageGuard } from './_stage_scope'
 // four verdict buttons plus the 检验照片 gallery/uploader. Read-only viewers
 // (other stations browsing the job) still get the modal to SEE verdict +
 // photos — they just can't click verdicts or upload.
+//
+// 判不良的时候多问一句: 自制还是外协 (老板 2026-10-04)。外协回来的件做坏
+// 了是供应商的事 —— 选「外协」确认, 这一条就落进质量模块的「来料异常」, 带
+// 着外协单号、供应商、品名、数量、不良原因; 责任人可以空着, 以后在那边补。
 
 const ACCEPT = '.png,.jpg,.jpeg,.webp,.gif,image/png,image/jpeg,image/webp,image/gif'
 
@@ -34,6 +38,7 @@ export function InspectionCell({
   photos,
   readOnly = false,
   stage = '检验',
+  outsourced = false,
 }: {
   jobId: string
   componentId: string
@@ -44,8 +49,17 @@ export function InspectionCell({
   readOnly?: boolean
   /** 判定挂在哪一道 — 检验 (过程检) 或 质量 (出货前的成品检)。 */
   stage?: '检验' | '质量'
+  /** 这一格判的不良已经转到来料异常 (判的时候选了「外协」)。 */
+  outsourced?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  // 自制 / 外协 —— 服务端送来的为准, 确认之后先按刚选的显示。
+  const [isOut, setIsOut] = useState(outsourced)
+  const [seenOut, setSeenOut] = useState(outsourced)
+  if (seenOut !== outsourced) {
+    setSeenOut(outsourced)
+    setIsOut(outsourced)
+  }
   const [pending, start] = useTransition()
   const [optimistic, setOptimistic] = useState<StageState | null>(null)
   const [error, setError] = useState(false)
@@ -75,7 +89,13 @@ export function InspectionCell({
   // 确认 and evaporates on 取消/ESC/backdrop.
   const onApply = (
     verdict: Verdict,
-    detail: { reason?: string; owner?: string; note?: string },
+    detail: {
+      reason?: string
+      owner?: string
+      note?: string
+      source?: 'self' | 'outsource'
+      supplier?: string
+    },
   ) => {
     if (!guard.check()) return
     setError(false)
@@ -124,6 +144,25 @@ export function InspectionCell({
             stage,
             ...patch,
           })
+        }
+        // 自制 / 外协 —— 只在判不良时问。外协: 来料异常里落一笔 (或者把这回的
+        // 不良原因、责任人、供应商更新进去); 改回自制: 撤掉那一笔。
+        if (verdict !== 'OK' && detail.source) {
+          const wantOut = detail.source === 'outsource'
+          if (wantOut || isOut) {
+            await mutate({
+              kind: 'setInspectionSource',
+              jobId,
+              componentId,
+              stage,
+              source: detail.source,
+              supplier: detail.supplier ?? null,
+              reason: detail.reason ?? null,
+              owner: detail.owner ?? null,
+              verdict,
+            })
+          }
+          setIsOut(wantOut)
         }
       } catch (e) {
         setOptimistic(null)
@@ -250,6 +289,7 @@ export function InspectionCell({
           jobId={jobId}
           componentId={componentId}
           componentName={componentName}
+          outsourced={isOut}
           state={display}
           serverState={state}
           readOnly={readOnly}
@@ -268,6 +308,7 @@ function InspectionModal({
   jobId,
   componentId,
   componentName,
+  outsourced,
   state,
   serverState,
   readOnly,
@@ -280,12 +321,22 @@ function InspectionModal({
   jobId: string
   componentId: string
   componentName: string
+  outsourced: boolean
   state: StageState
   serverState: StageState
   readOnly: boolean
   pending: boolean
   photos: PartPhoto[]
-  onApply: (v: Verdict, detail: { reason?: string; owner?: string; note?: string }) => void
+  onApply: (
+    v: Verdict,
+    detail: {
+      reason?: string
+      owner?: string
+      note?: string
+      source?: 'self' | 'outsource'
+      supplier?: string
+    },
+  ) => void
   onUndo: () => void
   onClose: () => void
 }) {
@@ -307,6 +358,10 @@ function InspectionModal({
   const [reasonDraft, setReasonDraft] = useState(state.verdictReason ?? '')
   const [ownerDraft, setOwnerDraft] = useState(state.verdictOwner ?? '')
   const [noteDraft, setNoteDraft] = useState(state.verdictNote ?? '')
+  const [sourceDraft, setSourceDraft] = useState<'self' | 'outsource'>(
+    outsourced ? 'outsource' : 'self',
+  )
+  const [supplierDraft, setSupplierDraft] = useState('')
   const draftBlocking = draft != null && draft !== 'OK'
   const nn = (s: string) => (s.trim() === '' ? undefined : s.trim())
   const verdictDirty = draft != null && draft !== (state.verdict ?? null)
@@ -316,7 +371,9 @@ function InspectionModal({
         (nn(noteDraft) ?? null) !== (state.verdictNote ?? null)
       : draftBlocking
         ? (nn(reasonDraft) ?? null) !== (state.verdictReason ?? null) ||
-          (nn(ownerDraft) ?? null) !== (state.verdictOwner ?? null)
+          (nn(ownerDraft) ?? null) !== (state.verdictOwner ?? null) ||
+          sourceDraft !== (outsourced ? 'outsource' : 'self') ||
+          (sourceDraft === 'outsource' && !!nn(supplierDraft))
         : false
   const dirty = draft != null && (verdictDirty || detailDirty)
 
@@ -326,7 +383,12 @@ function InspectionModal({
       draft,
       draft === 'OK'
         ? { owner: nn(ownerDraft), note: nn(noteDraft) }
-        : { reason: nn(reasonDraft), owner: nn(ownerDraft) },
+        : {
+            reason: nn(reasonDraft),
+            owner: nn(ownerDraft),
+            source: sourceDraft,
+            supplier: sourceDraft === 'outsource' ? nn(supplierDraft) : undefined,
+          },
     )
   }
 
@@ -408,6 +470,11 @@ function InspectionModal({
                         </span>
                       ) : null}
                     </span>
+                    {outsourced ? (
+                      <p className="mt-1 text-[12px] text-[var(--color-ink-2)]">
+                        外协 · 已转来料异常
+                      </p>
+                    ) : null}
                     {state.verdictReason || state.verdictOwner ? (
                       <p className="mt-1 text-[12px] text-[var(--color-ink-2)]">
                         {state.verdictReason ? `不良原因 · ${state.verdictReason}` : null}
@@ -461,6 +528,50 @@ function InspectionModal({
                 当前 {state.verdict} 中 · 处理好后选 OK 再点确认放行
                 {state.verdictBy ? ` · ${state.verdictBy}` : ''}
               </p>
+            ) : null}
+            {!readOnly && draftBlocking ? (
+              <div className="mb-4">
+                <div className="flex items-center gap-3">
+                  <span className="label">谁做坏的</span>
+                  <span className="inline-flex overflow-hidden rounded-[2px] border border-[var(--color-border-strong)]">
+                    {(
+                      [
+                        ['self', '自制'],
+                        ['outsource', '外协'],
+                      ] as const
+                    ).map(([k, label]) => (
+                      <button
+                        key={k}
+                        type="button"
+                        disabled={pending}
+                        onClick={() => setSourceDraft(k)}
+                        aria-pressed={sourceDraft === k}
+                        className={`px-3.5 py-1.5 text-[12.5px] transition-colors ${
+                          sourceDraft === k
+                            ? 'bg-[var(--color-ink)] font-medium text-[var(--color-surface)]'
+                            : 'bg-[var(--color-surface)] text-[var(--color-ink-2)] hover:text-[var(--color-ink)]'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </span>
+                </div>
+                {sourceDraft === 'outsource' ? (
+                  <>
+                    <input
+                      value={supplierDraft}
+                      onChange={(e) => setSupplierDraft(e.target.value)}
+                      placeholder="供应商 · 不填就按这件最近那张外协单"
+                      disabled={pending}
+                      className={`${detailInputCls} mt-2`}
+                    />
+                    <p className="mt-1.5 text-[11.5px] text-[var(--color-ink-3)]">
+                      确认后转到质量模块「来料异常」，责任人可以先空着，以后在那边补。
+                    </p>
+                  </>
+                ) : null}
+              </div>
             ) : null}
             {!readOnly && draft != null ? (
               <VerdictDetail
@@ -554,7 +665,7 @@ function VerdictDetail({
         <input
           value={owner}
           onChange={(e) => onOwner(e.target.value)}
-          placeholder="姓名 / 工位"
+          placeholder={ok ? '姓名 / 工位' : '姓名 / 工位 · 可后补'}
           disabled={disabled}
           className={detailInputCls}
         />

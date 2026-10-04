@@ -21,6 +21,14 @@ import { supabase, STORAGE_BUCKET } from './supabase'
  * 赔。经过和细节写在处理方式里。
  *
  * Table-free, 跟 客诉 / 制程不良 / 人事 一个路子: 没有 migration 要人去应用。
+ *
+ * 两条路进来:
+ *   手记   —— 质量在这一页上直接记一笔 (料一进门就看出不对)。
+ *   检验转 —— 检验员判不良的时候选了「外协」(老板 2026-10-04): 外协回来的件
+ *            做坏了, 是供应商的事, 不是厂里的制程不良。判定那一下就在这里落一
+ *            笔, 带着它是哪张单、哪个零件、哪一道判出来的 (link), 同一个零件同
+ *            一道只落一笔, 再判一次就更新那一笔; 改回「自制」就撤掉。责任人判
+ *            的时候可以空着, 以后在这一页补。
  */
 
 let chain: Promise<unknown> = Promise.resolve()
@@ -42,8 +50,21 @@ export type IncomingDefect = {
   reason: string // 不良原因
   handling: string // 处理方式 — 退货 / 换货 / 让步接收 / 挑选使用…
   lossCny: number // 损失金额, 元
+  owner?: string // 责任人 —— 检验转过来的常常是空的, 后补
   by?: string // 记录人
   createdAt: string
+  /** 检验判不良转过来的 —— 哪张单、哪个零件、哪一道 (检验 / 质量)。手记的没有。 */
+  link?: InspectionLink
+}
+
+export type InspectionLink = {
+  jobId: string
+  componentId: string
+  stage: string
+}
+
+export function linkKey(l: InspectionLink): string {
+  return `${l.jobId}|${l.componentId}|${l.stage}`
 }
 
 export type IncomingDefectPatch = {
@@ -55,6 +76,7 @@ export type IncomingDefectPatch = {
   reason?: string
   handling?: string
   lossCny?: number
+  owner?: string
 }
 
 function count(v: unknown): number {
@@ -88,11 +110,21 @@ function normalize(raw: unknown): IncomingDefect[] {
       reason: str(r.reason),
       handling: str(r.handling),
       lossCny: money(r.lossCny),
+      owner: str(r.owner) || undefined,
       by: str(r.by) || undefined,
       createdAt: str(r.createdAt),
+      link: readLink(r.link),
     })
   }
   return out
+}
+
+function readLink(v: unknown): InspectionLink | undefined {
+  if (typeof v !== 'object' || v === null) return undefined
+  const o = v as Record<string, unknown>
+  if (typeof o.jobId !== 'string' || typeof o.componentId !== 'string' || typeof o.stage !== 'string')
+    return undefined
+  return { jobId: o.jobId, componentId: o.componentId, stage: o.stage }
 }
 
 async function read(): Promise<IncomingDefect[]> {
@@ -190,6 +222,7 @@ export async function updateIncomingDefect(
     if (patch.reason !== undefined) row.reason = patch.reason.trim()
     if (patch.handling !== undefined) row.handling = patch.handling.trim()
     if (patch.lossCny !== undefined) row.lossCny = money(patch.lossCny)
+    if (patch.owner !== undefined) row.owner = patch.owner.trim() || undefined
     await write(rows)
   })
 }
@@ -199,5 +232,78 @@ export async function deleteIncomingDefect(id: string): Promise<void> {
     const rows = await read()
     if (!rows.some((r) => r.id === id)) return
     await write(rows.filter((r) => r.id !== id))
+  })
+}
+
+// === 检验转过来的那一笔 ===
+
+/** 这张单上哪些零件的哪一道被判成了外协不良 (linkKey 的集合)。 */
+export async function getInspectionLinks(jobId?: string): Promise<Set<string>> {
+  const rows = await read()
+  const out = new Set<string>()
+  for (const r of rows) {
+    if (!r.link) continue
+    if (jobId && r.link.jobId !== jobId) continue
+    out.add(linkKey(r.link))
+  }
+  return out
+}
+
+/**
+ * 检验判外协不良 —— 同一个零件同一道只有一笔: 没有就落一笔, 有就把这回带过来
+ * 的格子更新进去 (空着的不覆盖已经补上的)。
+ */
+export async function upsertInspectionIncoming(
+  link: InspectionLink,
+  input: {
+    date: string
+    docNo: string
+    supplier: string
+    item: string
+    qty: number
+    reason?: string
+    handling: string
+    owner?: string
+  },
+  by: string,
+  nowIso: string,
+): Promise<void> {
+  await withLock(async () => {
+    const rows = await read()
+    const key = linkKey(link)
+    const row = rows.find((r) => r.link && linkKey(r.link) === key)
+    if (row) {
+      if (input.supplier.trim()) row.supplier = input.supplier.trim()
+      if (input.reason?.trim()) row.reason = input.reason.trim()
+      if (input.owner?.trim()) row.owner = input.owner.trim()
+      if (!row.handling) row.handling = input.handling.trim()
+    } else {
+      rows.push({
+        id: crypto.randomUUID(),
+        date: input.date,
+        docNo: input.docNo.trim(),
+        supplier: input.supplier.trim(),
+        item: input.item.trim(),
+        qty: count(input.qty),
+        reason: input.reason?.trim() ?? '',
+        handling: input.handling.trim(),
+        lossCny: 0,
+        owner: input.owner?.trim() || undefined,
+        by,
+        createdAt: nowIso,
+        link,
+      })
+    }
+    await write(rows)
+  })
+}
+
+/** 改回「自制」—— 检验转过来的那一笔撤掉。 */
+export async function removeInspectionIncoming(link: InspectionLink): Promise<void> {
+  await withLock(async () => {
+    const rows = await read()
+    const key = linkKey(link)
+    const left = rows.filter((r) => !(r.link && linkKey(r.link) === key))
+    if (left.length !== rows.length) await write(left)
   })
 }

@@ -21,11 +21,14 @@ export function EffectiveStageCell({
   component,
   stage,
   interactive = true,
+  outsourcedDefect = false,
 }: {
   jobId: string
   component: Component
   stage: Stage
   interactive?: boolean
+  /** 检验/质量判的不良已经转到来料异常 (判的时候选了「外协」)。 */
+  outsourcedDefect?: boolean
 }) {
   const eff = effectiveStageState(component, stage)
 
@@ -140,6 +143,7 @@ export function EffectiveStageCell({
         photos={component.inspectionPhotos}
         readOnly={!interactive}
         stage={stage}
+        outsourced={outsourcedDefect}
       />
     )
   }

@@ -10,6 +10,8 @@ import {
   addIncomingDefect,
   updateIncomingDefect,
   deleteIncomingDefect,
+  removeInspectionIncoming,
+  upsertInspectionIncoming,
 } from '@/lib/incoming-defects'
 import {
   addOutsourceBlockMembers,
@@ -1192,6 +1194,64 @@ async function dispatch(
 
     // 不良原因 / 责任人 on the 检验 verdict — commits on blur from the
     // inspection modal, independent of the verdict click.
+    // 检验判不良时选的「自制 / 外协」(老板 2026-10-04)。
+    //
+    // 外协 —— 这件是外协做坏的, 是供应商的事: 在来料异常里落一笔 (同一个零件
+    // 同一道只一笔, 再判就更新), 带上外协单号、供应商、品名、数量、不良原因;
+    // 责任人有就带上, 没有就空着后补。供应商没填, 按这个零件最近一张外协单的那
+    // 一家。
+    // 自制 —— 撤掉检验转过来的那一笔 (判错了来源)。
+    //
+    // 门跟判定同一道 (requireOwnStage): 能判这一道的人才能定这一道是谁的责任。
+    case 'setInspectionSource': {
+      const jobId = body.jobId
+      const componentId = body.componentId
+      const source = body.source
+      if (!isString(jobId) || !isString(componentId) || (source !== 'self' && source !== 'outsource'))
+        return err('bad setInspectionSource args')
+      for (const k of ['supplier', 'reason', 'owner', 'verdict'] as const) {
+        const v = body[k]
+        if (v !== undefined && v !== null && !isString(v)) return err('bad setInspectionSource args')
+      }
+      const sStage = body.stage === '质量' ? '质量' : '检验'
+      const u = await requireOwnStage(sStage)
+      const link = { jobId, componentId, stage: sStage }
+      if (source === 'self') {
+        await removeInspectionIncoming(link)
+      } else {
+        const job = await getJob(jobId)
+        const part = job?.components.find((c) => c.id === componentId)
+        if (!job || !part) return err('找不到这个零件', 404)
+        // 最近送出去的那一张外协单 —— 供应商和单号从它上面来。
+        const block = [...(part.outsourceBlocks ?? [])].sort((a, b) =>
+          (b.sentDate ?? '').localeCompare(a.sentDate ?? ''),
+        )[0]
+        let supplier = isString(body.supplier) ? body.supplier.trim() : ''
+        if (!supplier && block) {
+          const vendors = await getVendors()
+          supplier = vendors.find((v) => v.id === block.vendorId)?.name ?? ''
+        }
+        await upsertInspectionIncoming(
+          link,
+          {
+            date: today(),
+            docNo: block?.docNo || job.jobNo,
+            supplier,
+            item: part.name,
+            qty: part.qty,
+            reason: isString(body.reason) ? body.reason : undefined,
+            handling: isString(body.verdict) ? `${sStage}判${body.verdict}` : '',
+            owner: isString(body.owner) ? body.owner : undefined,
+          },
+          u.name,
+          new Date().toISOString(),
+        )
+      }
+      revalidateStage(jobId, sStage)
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
     case 'setInspectionVerdictDetail': {
       const jobId = body.jobId
       const componentId = body.componentId
@@ -3456,6 +3516,7 @@ async function dispatch(
         'item',
         'reason',
         'handling',
+        'owner',
       ]) {
         if (p[k] !== undefined && !isString(p[k]))
           return err('bad updateIncomingDefect args')

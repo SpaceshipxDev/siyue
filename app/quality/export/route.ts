@@ -6,7 +6,7 @@ import { getComplaints } from '@/lib/complaints'
 import { getProcessDefects } from '@/lib/process-defects'
 import { getDefectActions } from '@/lib/defect-actions'
 import { getImprovements } from '@/lib/improvements'
-import { getIncomingDefects } from '@/lib/incoming-defects'
+import { getIncomingDefects, getInspectionLinks } from '@/lib/incoming-defects'
 import { getChangeRecords } from '@/lib/changes'
 import { today } from '@/lib/today'
 
@@ -85,10 +85,11 @@ const INCOMING_HEADERS = [
   '数量',
   '不良原因',
   '处理方式',
+  '责任人',
   '损失金额',
   '记录人',
 ]
-const INCOMING_WIDTHS = [12, 18, 22, 24, 10, 30, 26, 12, 12]
+const INCOMING_WIDTHS = [12, 18, 22, 24, 10, 30, 26, 12, 12, 12]
 
 const CHANGE_HEADERS = [
   '变更日期',
@@ -157,7 +158,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       .filter((r) =>
         !q
           ? true
-          : [r.docNo, r.supplier, r.item, r.reason, r.handling, r.by]
+          : [r.docNo, r.supplier, r.item, r.reason, r.handling, r.owner, r.by]
               .filter(Boolean)
               .join(' ')
               .toLowerCase()
@@ -173,6 +174,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         r.qty,
         r.reason,
         r.handling,
+        r.owner ?? '',
         r.lossCny,
         r.by ?? '',
       ])
@@ -319,7 +321,10 @@ export async function GET(request: NextRequest): Promise<Response> {
     file = `complaints_${month}.xlsx`
   } else {
     const actions = await getDefectActions()
+    // 外协做坏的已经转到来料异常 —— 跟屏幕上一样不在这里重复记。
+    const links = await getInspectionLinks()
     const rows = (await getDefectRows())
+      .filter((r) => !links.has(`${r.jobId}|${r.componentId}|${r.stage}`))
       .filter((r) => (r.at ?? '').slice(0, 7) === month)
       .filter((r) =>
         !q

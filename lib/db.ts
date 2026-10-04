@@ -4553,6 +4553,42 @@ export type DefectRow = {
   reason?: string // 不良原因
   owner?: string // 责任人
   by?: string // 判定人
+  componentId: string // 零件在这张单上的编号 —— 跟来料异常的 link 对得上
+  /** 检验照片 —— 判不良时拍的那几张, 点开一条异常就看得到。 */
+  photos: PartPhoto[]
+}
+
+// 一批零件的检验照片 —— 按「工单|零件」分好。质量模块点开一条不良要看图, 来
+// 料异常里检验转过来的那几条也要看; 一次窄查询取齐, 没升级的库就当没图。
+export async function getPartPhotosFor(
+  keys: { jobId: string; componentId: string }[],
+): Promise<Record<string, PartPhoto[]>> {
+  const out: Record<string, PartPhoto[]> = {}
+  if (keys.length === 0) return out
+  const idToKey = new Map<string, string>()
+  for (const k of keys) {
+    const key = `${k.jobId}|${k.componentId}`
+    idToKey.set(`${k.jobId}:${k.componentId}`, key)
+    if (!idToKey.has(k.componentId)) idToKey.set(k.componentId, key)
+  }
+  let rows: AnyRow[] = []
+  try {
+    rows = await selectAllIn('part_photos', 'part_id', [...idToKey.keys()])
+  } catch (e) {
+    if (!isMissingTableError(e)) throw e
+  }
+  for (const r of rows) {
+    const key = idToKey.get(r.part_id as string)
+    if (!key) continue
+    ;(out[key] ??= []).push({
+      id: r.id as string,
+      url: r.url as string,
+      createdBy: (r.created_by as string | null) ?? undefined,
+      createdAt: r.created_at as string,
+    })
+  }
+  for (const arr of Object.values(out)) arr.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  return out
 }
 
 export async function getDefectRows(): Promise<DefectRow[]> {
@@ -4585,12 +4621,34 @@ export async function getDefectRows(): Promise<DefectRow[]> {
   const jobById = new Map<string, AnyRow>()
   for (const j of jobRows) jobById.set(j.id as string, j)
 
+  // 检验照片 —— 点开一条异常要看图。
+  let photoRows: AnyRow[] = []
+  try {
+    photoRows = await selectAllIn('part_photos', 'part_id', partIds)
+  } catch (e) {
+    if (!isMissingTableError(e)) throw e
+  }
+  const photosByPart = new Map<string, PartPhoto[]>()
+  for (const p of photoRows) {
+    const arr = photosByPart.get(p.part_id as string) ?? []
+    arr.push({
+      id: p.id as string,
+      url: p.url as string,
+      createdBy: (p.created_by as string | null) ?? undefined,
+      createdAt: p.created_at as string,
+    })
+    photosByPart.set(p.part_id as string, arr)
+  }
+  for (const arr of photosByPart.values()) arr.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+
   const out: DefectRow[] = []
   for (const r of rows) {
     const part = partById.get(r.part_id as string)
     if (!part) continue
     const job = jobById.get(part.job_id as string)
     out.push({
+      componentId: trimPartId(r.part_id as string),
+      photos: photosByPart.get(r.part_id as string) ?? [],
       partId: r.part_id as string,
       at: (r.verdict_at as string | null) ?? undefined,
       stage: (r.stage as string) ?? '',

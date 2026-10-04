@@ -8,6 +8,8 @@ import { showToast } from '@/app/_toast'
 import { formatCny } from '@/lib/data'
 import { EditableText, EditableTextArea } from '@/app/_editable'
 import type { IncomingDefect } from '@/lib/incoming-defects'
+import type { PartPhoto } from '@/lib/data'
+import { DefectDetail } from './_defect_detail'
 
 // 来料异常登记 — 料一进厂就不对。
 //
@@ -17,6 +19,10 @@ import type { IncomingDefect } from '@/lib/incoming-defects'
 //
 // 一行录入, 之后还空着的格谁都能补 (处理方式和损失常常是几天后才定); 填过的
 // 要改是质量和商务于海伟那一档。
+//
+// 检验员判不良时选了「外协」的, 也落在这里 (单号是那张外协单, 品名是那个零
+// 件), 前面标一个「检」。责任人判的时候常常空着, 在这里补。点「图」看判不良
+// 时拍的照片和那一条的全部信息。
 
 const MONTHS = [
   '01', '02', '03', '04', '05', '06',
@@ -24,15 +30,18 @@ const MONTHS = [
 ]
 
 const COLS =
-  'grid-cols-[64px_110px_120px_minmax(0,1fr)_52px_minmax(0,1.1fr)_minmax(0,1fr)_84px_72px_28px]'
+  'grid-cols-[64px_110px_112px_minmax(0,1fr)_48px_minmax(0,1fr)_minmax(0,0.9fr)_72px_76px_64px_36px_28px]'
 
 export function IncomingBoard({
   rows,
+  photos = {},
   todayStr,
   suppliers,
   canEdit,
 }: {
   rows: IncomingDefect[]
+  /** 检验转过来的那几条的不良照片 —— 按「工单|零件」分好。 */
+  photos?: Record<string, PartPhoto[]>
   todayStr: string
   /** 已经打过交道的供应商 — 录入那一格的联想, 少打几个字也少打错。 */
   suppliers: string[]
@@ -47,7 +56,10 @@ export function IncomingBoard({
   const [month, setMonth] = useState(todayStr.slice(5, 7))
   const [q, setQ] = useState('')
   const [armDelete, setArmDelete] = useState<string | null>(null)
+  const [detail, setDetail] = useState<IncomingDefect | null>(null)
   const year = todayStr.slice(0, 4)
+  const photosOf = (r: IncomingDefect): PartPhoto[] =>
+    r.link ? (photos[`${r.link.jobId}|${r.link.componentId}`] ?? []) : []
 
   // 记一笔
   const [date, setDate] = useState(todayStr)
@@ -68,7 +80,7 @@ export function IncomingBoard({
       .filter((r) =>
         !needle
           ? true
-          : [r.docNo, r.supplier, r.item, r.reason, r.handling, r.by]
+          : [r.docNo, r.supplier, r.item, r.reason, r.handling, r.owner, r.by]
               .filter(Boolean)
               .join(' ')
               .toLowerCase()
@@ -326,8 +338,10 @@ export function IncomingBoard({
           <span className="label text-right">数量</span>
           <span className="label">不良原因</span>
           <span className="label">处理方式</span>
+          <span className="label">责任人</span>
           <span className="label text-right">损失</span>
           <span className="label">记录人</span>
+          <span className="label">图</span>
           <span />
         </div>
 
@@ -343,6 +357,14 @@ export function IncomingBoard({
             >
               <span className="mono text-[12.5px] tabular-nums text-[var(--color-ink-2)]">
                 {r.date.slice(5)}
+                {r.link && (
+                  <span
+                    className="ml-1 rounded-[2px] bg-[var(--color-active-bg)] px-1 text-[10.5px] text-[var(--color-ink-3)]"
+                    title="检验判不良时选了外协，从工单上转过来的"
+                  >
+                    检
+                  </span>
+                )}
               </span>
               <Cell
                 canEdit={canEdit || !r.docNo}
@@ -377,6 +399,12 @@ export function IncomingBoard({
                 placeholder="待处理…"
                 onSave={(v) => patch(r.id, { handling: v })}
               />
+              <Cell
+                canEdit={canEdit || !r.owner}
+                value={r.owner}
+                placeholder="后补…"
+                onSave={(v) => patch(r.id, { owner: v })}
+              />
               <NumCell
                 canEdit={canEdit || r.lossCny === 0}
                 value={r.lossCny}
@@ -391,6 +419,18 @@ export function IncomingBoard({
                 }
               >
                 {r.by || '—'}
+              </span>
+              <span>
+                {r.link ? (
+                  <button
+                    type="button"
+                    onClick={() => setDetail(r)}
+                    title="看不良照片和详情"
+                    className="text-[12px] text-[var(--color-info)] hover:underline"
+                  >
+                    {photosOf(r).length > 0 ? `图${photosOf(r).length}` : '详情'}
+                  </button>
+                ) : null}
               </span>
               <span className="text-right">
                 {canEdit &&
@@ -417,6 +457,26 @@ export function IncomingBoard({
           ))
         )}
       </div>
+
+      {detail && (
+        <DefectDetail
+          title={detail.item || '—'}
+          subtitle={`${detail.docNo}${detail.supplier ? ` · ${detail.supplier}` : ''}`}
+          fields={[
+            ['日期', detail.date],
+            ['数量', detail.qty ? String(detail.qty) : undefined],
+            ['不良原因', detail.reason],
+            ['处理方式', detail.handling],
+            ['责任人', detail.owner],
+            ['损失', detail.lossCny ? formatCny(detail.lossCny) : undefined],
+            ['记录人', detail.by],
+            ['来源', detail.link ? `${detail.link.stage === '质量' ? '成品检' : '检验'}判不良 · 外协` : '手记'],
+          ]}
+          photos={photosOf(detail)}
+          jobHref={detail.link ? `/jobs/${detail.link.jobId}` : undefined}
+          onClose={() => setDetail(null)}
+        />
+      )}
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
         料一进厂就不对的，记在这儿——先把单号、供应商、品名记下来，处理方式和
