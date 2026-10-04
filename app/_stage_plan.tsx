@@ -42,7 +42,7 @@ export function planToneClass(tone: StagePlanTone | undefined): string {
   }
 }
 
-// 打磨 · 喷漆 · 丝印 共用一个节点: 改一格, 同一张单上另外两格当场跟着变, 不用等页面
+// 喷漆 · 丝印 共用一个节点: 改一格, 同一张单上另一格当场跟着变, 不用等页面
 // 刷新 —— 广播一下, 兄弟格子听到就换成同一个日子。
 const SHARED_EVENT = 'yn:stage-plan-shared'
 type SharedDetail = { jobId: string; keys: PlanKey[]; value: string; from: PlanKey }
@@ -133,7 +133,7 @@ export function StagePlanDate({
   }
 
   return (
-    <span title={shared ? '打磨 · 喷漆 · 丝印 共用这一个日子，改一格三格一起改' : undefined}>
+    <span title={shared ? '喷漆 · 丝印 共用这一个日子，改一格两格一起改' : undefined}>
     <DatePop
       value={local}
       onChange={commit}

@@ -8,7 +8,7 @@ import type { StagePlanRate } from '@/lib/plan-rate'
 // 计划达成那一张表 —— 一道工序一行: 按时 · 延期完成 · 逾期未完 · 达成率。
 // 点一行摊开没达成的那几张单 (还没做完的在前, 拖得最久的在上), 点单号进去。
 //
-// 打磨 · 喷漆 · 丝印 那三道共用一个时间节点, 左边一道竖线把它们圈在一起。
+// 喷漆 · 丝印 那两道共用一个时间节点, 左边一道竖线把它们圈在一起。
 
 function pct(r: number | null): string {
   return r === null ? '—' : `${Math.round(r * 100)}%`
@@ -96,7 +96,7 @@ export function PlanRateBoard({ rates }: { rates: StagePlanRate[] }) {
                   <span
                     aria-hidden
                     className="absolute inset-y-0 left-0 w-[3px] bg-[var(--color-border-strong)]"
-                    title="打磨 · 喷漆 · 丝印 共用一个时间节点"
+                    title="喷漆 · 丝印 共用一个时间节点"
                   />
                 )}
                 <span className="text-[14px] font-medium text-[var(--color-ink)]">{r.stage}</span>
@@ -158,7 +158,7 @@ export function PlanRateBoard({ rates }: { rates: StagePlanRate[] }) {
 
       <p className="mt-4 text-[12px] leading-relaxed text-[var(--color-ink-3)]">
         计划日期落在这个月的才算这个月的账。到了计划那天（排了钟点就按钟点）这道工序的零件全部做完算按时；
-        还没到期、也还没做完的不进达成率。操机、手工各自一个时间节点；左边带竖线的打磨、喷漆、丝印共用一个，各自对着那一天算。
+        还没到期、也还没做完的不进达成率。操机、手工、打磨各自一个时间节点；左边带竖线的喷漆、丝印共用一个，各自对着那一天算。
       </p>
     </div>
   )
