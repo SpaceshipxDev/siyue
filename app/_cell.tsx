@@ -94,7 +94,7 @@ export function StageCellButton({
     else finish({})
   }
 
-  const finish = (who: { actorName?: string; shares?: { name: string; qty: number }[] }) => {
+  const finish = (who: { people?: { name: string; qty: number }[] }) => {
     setWhoOpen(false)
     setError(false)
     setOptimistic({ status: 'done', completedAt: 'now' })
@@ -294,7 +294,7 @@ export function StageCellButton({
             label={componentName}
             totalQty={componentQty}
             onConfirm={({ names, shares }) =>
-              finish(shares && shares.length > 1 ? { actorName: names[0], shares } : { actorName: names[0] })
+              finish({ people: shares?.length ? shares : [{ name: names[0], qty: componentQty }] })
             }
             onSkip={() => finish({})}
             onCancel={() => setWhoOpen(false)}
@@ -473,7 +473,7 @@ export function JobStageActionButton({
     kind: 'startJobStage' | 'finishJobStage' | 'undoJobStage',
     glyph: RowStatus,
     fallback: StageCounts,
-    who: { actorName?: string; workers?: string[] } = {},
+    who: { workers?: string[] } = {},
   ) => {
     if (!guard.check()) return
     setError(false)
@@ -499,7 +499,7 @@ export function JobStageActionButton({
       done: counts.done,
     })
 
-  const finish = (who: { actorName?: string; workers?: string[] } = {}) => {
+  const finish = (who: { workers?: string[] } = {}) => {
     setWhoOpen(false)
     run(
       'finishJobStage',
@@ -524,9 +524,7 @@ export function JobStageActionButton({
   const whoSheet = whoOpen ? (
     <WhoDidSheet
       stage={stage}
-      onConfirm={({ names }) =>
-        finish(names.length > 1 ? { actorName: names[0], workers: names } : { actorName: names[0] })
-      }
+      onConfirm={({ names }) => finish({ workers: names })}
       onSkip={() => finish()}
       onCancel={() => setWhoOpen(false)}
     />

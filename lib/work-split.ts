@@ -40,6 +40,16 @@ type Entry = {
   shares: WorkShare[]
   by?: string // 谁记的分工
   at?: string
+  /** 个人报工那一份带着零件信息, 统计页直接列出来, 不用再回去查。 */
+  part?: PersonPart
+}
+
+export type PersonPart = {
+  jobId: string
+  jobNo: string
+  customer: string
+  name: string
+  qty: number
 }
 
 export function workSplitKey(partId: string, stage: string): string {
@@ -84,15 +94,31 @@ function normalize(raw: unknown): Record<string, Entry> {
     const r = v as Record<string, unknown>
     const shares = normalizeShares(r.shares)
     if (shares.length === 0) continue
-    out[k] = { shares, by: str(r.by) || undefined, at: str(r.at) || undefined }
+    const part = r.part as Record<string, unknown> | undefined
+    out[k] = {
+      shares,
+      by: str(r.by) || undefined,
+      at: str(r.at) || undefined,
+      ...(part && typeof part === 'object' && str(part.jobId)
+        ? {
+            part: {
+              jobId: str(part.jobId),
+              jobNo: str(part.jobNo),
+              customer: str(part.customer),
+              name: str(part.name),
+              qty: qtyOf(part.qty),
+            },
+          }
+        : null),
+    }
   }
   return out
 }
 
-async function read(): Promise<Record<string, Entry>> {
+async function read(key: string = KEY): Promise<Record<string, Entry>> {
   const { data, error } = await supabase.storage
     .from(STORAGE_BUCKET)
-    .download(KEY)
+    .download(key)
   if (error || !data) return {}
   try {
     return normalize(JSON.parse(await data.text()))
@@ -101,10 +127,10 @@ async function read(): Promise<Record<string, Entry>> {
   }
 }
 
-async function write(map: Record<string, Entry>): Promise<void> {
+async function write(map: Record<string, Entry>, key: string = KEY): Promise<void> {
   const { error } = await supabase.storage
     .from(STORAGE_BUCKET)
-    .upload(KEY, Buffer.from(JSON.stringify(map), 'utf8'), {
+    .upload(key, Buffer.from(JSON.stringify(map), 'utf8'), {
       contentType: 'application/json',
       upsert: true,
     })
@@ -187,5 +213,55 @@ export async function addWorkShare(
     } else next.push({ name: who, qty: add, at: nowIso })
     map[key] = { shares: next, by: map[key]?.by ?? who, at: nowIso }
     await write(map)
+  })
+}
+
+/*
+ * 个人报工 —— 操机、喷漆按完成时选的那几个人 (app/_who_did, 分工框)。
+ *
+ * 跟上面那份分开放: 报工统计按账号算的那张表一个数都不动 (谁按的 ✓ 还记在
+ * 谁的账号上), 这一份只在账号表下面另列一张"个人", 看每个人做了多少。
+ *
+ * 一个零件的一道工序一条, 重选就整条换掉。带着零件信息 (工单号、名字、件
+ * 数), 统计页直接列, 不用再回去查。
+ */
+const PERSON_KEY = 'report/person-output.json'
+
+export type PersonEntry = { stage: string; part?: PersonPart; shares: WorkShare[] }
+
+export async function getPersonSplits(): Promise<PersonEntry[]> {
+  const map = await read(PERSON_KEY)
+  return Object.entries(map).map(([k, v]) => ({
+    stage: k.split('::')[1] ?? '',
+    part: v.part,
+    shares: v.shares,
+  }))
+}
+
+export async function getPersonSplit(partId: string, stage: string): Promise<WorkShare[]> {
+  const map = await read(PERSON_KEY)
+  return map[workSplitKey(partId, stage)]?.shares ?? []
+}
+
+// 空列表 = 不记个人了, 这一道只剩账号那一份。
+export async function setPersonSplit(
+  partId: string,
+  stage: string,
+  shares: WorkShare[],
+  part: PersonPart | undefined,
+  by: string,
+  nowIso: string,
+): Promise<void> {
+  await withLock(async () => {
+    const map = await read(PERSON_KEY)
+    const key = workSplitKey(partId, stage)
+    const clean = normalizeShares(shares).map((s) => ({ ...s, at: s.at ?? nowIso }))
+    if (clean.length === 0) {
+      if (!(key in map)) return
+      delete map[key]
+    } else {
+      map[key] = { shares: clean, by, at: nowIso, part: part ?? map[key]?.part }
+    }
+    await write(map, PERSON_KEY)
   })
 }

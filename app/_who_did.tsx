@@ -12,8 +12,9 @@ import { getReporterName } from './_reporter'
 // 每人几件, 整单就平分)。报工统计里每个人的产出就分开了。
 //
 // 最近选过的几个排在最前面 (存在这台机器上, 这一道一份) —— 一个工位前面来来回
-// 回就那几个人, 一般点一下就完。不想选也行: 「跳过」照旧记在账号 (或者顶上设
-// 的报工人) 上。
+// 回就那几个人, 一般点一下就完。不想选也行: 「跳过」就只记在账号上。
+//
+// 选的人记在个人报工里 (报工统计账号表下面那一张), 账号统计照旧。
 
 type Picked = { names: string[]; shares?: { name: string; qty: number }[] }
 
@@ -242,9 +243,9 @@ export function WhoDidSheet({
             type="button"
             onClick={onSkip}
             className="text-[12px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
-            title="不选人，跟以前一样记在账号上"
+            title="不选人，只记在账号上"
           >
-            跳过，记在{me || '账号'}上
+            跳过，不记个人
           </button>
           <span className="flex items-center gap-2">
             <button

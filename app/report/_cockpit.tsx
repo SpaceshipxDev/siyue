@@ -31,6 +31,23 @@ type Person = {
   pendingPieces?: number
   lastActiveTs?: string
 }
+/** 个人报工 —— 操机、喷漆报工时选的人, 跟账号那张表各算各的。 */
+type PersonOut = {
+  name: string
+  finishes: number
+  pieces: number
+  lastTs: string
+  items: {
+    jobId: string
+    jobNo: string
+    customer: string
+    partName: string
+    stage: string
+    qty: number
+    partQty: number
+    at: string
+  }[]
+}
 type StuckPart = {
   partId: string
   partName: string
@@ -85,6 +102,7 @@ export function ReportClient({
   const { from, to } = rangeOf(anchor, gran)
 
   const [people, setPeople] = useState<Person[]>([])
+  const [persons, setPersons] = useState<PersonOut[]>([])
   const [stuck, setStuck] = useState<StuckPart[]>([])
   const [stuckDays, setStuckDays] = useState(5)
   const [loading, setLoading] = useState(true)
@@ -145,6 +163,7 @@ export function ReportClient({
         if (!alive) return
         if (!d.ok) throw new Error(d.error || '加载失败')
         setPeople(d.people ?? [])
+        setPersons(d.persons ?? [])
         setStuck(d.stuck ?? [])
         setStuckDays(d.stuckDays ?? 5)
       })
@@ -260,6 +279,12 @@ export function ReportClient({
         open={open}
         drills={drills}
         onToggle={toggleWorker}
+      />
+
+      {/* 个人报工 — 操机、喷漆选的人, 账号表照旧, 这里另列一张。 */}
+      <PersonOutputList
+        persons={worker ? persons.filter((p) => p.name === worker) : persons}
+        stage={stage}
       />
 
       {/* ② 停留超期 — quiet, at the bottom, station-scoped (not a person's). */}
@@ -401,6 +426,76 @@ function Drill({ jobs, showMoney }: { jobs?: DrillJob[]; showMoney: boolean }) {
         </div>
       )}
     </div>
+  )
+}
+
+// --- 个人报工 -------------------------------------------------------------------
+
+function PersonOutputList({ persons, stage }: { persons: PersonOut[]; stage: Stage | null }) {
+  const [open, setOpen] = useState<string | null>(null)
+  if (persons.length === 0) return null
+  const cols = 'grid-cols-[1fr_120px_110px]'
+  return (
+    <section>
+      <div className="mb-3 flex items-baseline gap-2">
+        <h2 className="text-[13px] font-medium tracking-tight text-[var(--color-ink-2)]">个人报工</h2>
+        <span className="label text-[var(--color-ink-3)]">{stage ?? '操机 · 喷漆'} · 报工时选的人</span>
+      </div>
+      <div className="rounded-[2px] border border-[var(--color-border)] overflow-hidden">
+        <div className={`grid ${cols} gap-x-6 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2`}>
+          <span className="label">姓名</span>
+          <span className="label text-right">完成工序</span>
+          <span className="label text-right">最后</span>
+        </div>
+        <ul>
+          {persons.map((p) => {
+            const active = open === p.name
+            return (
+              <li key={p.name} className="border-b border-[var(--color-border)] last:border-0">
+                <button
+                  type="button"
+                  onClick={() => setOpen(active ? null : p.name)}
+                  aria-expanded={active}
+                  className={`grid ${cols} w-full gap-x-6 items-baseline px-3 py-3 text-left transition-colors ${
+                    active ? 'bg-[var(--color-active-bg)]' : 'hover:bg-[var(--color-surface)]'
+                  }`}
+                >
+                  <span className="flex items-baseline gap-2 min-w-0">
+                    <Caret open={active} />
+                    <span className="truncate text-[15px] text-[var(--color-ink)]">{p.name}</span>
+                  </span>
+                  <span className="text-right tabular-nums">
+                    <span className="text-[16px] font-semibold text-[var(--color-ink)]">{NUM.format(p.finishes)}</span>
+                    <span className="ml-1.5 text-[11px] text-[var(--color-ink-3)]">· {NUM.format(p.pieces)} 件</span>
+                  </span>
+                  <span className="text-right label tabular-nums text-[var(--color-ink-3)]">{fmtTs(p.lastTs)}</span>
+                </button>
+                {active && (
+                  <ul className="flex flex-col gap-0.5 bg-[var(--color-surface)] px-3 md:px-5 py-3 border-t border-[var(--color-border)]">
+                    {p.items.map((it, i) => (
+                      <li key={`${it.jobId}-${it.partName}-${it.at}-${i}`} className="flex items-baseline gap-2.5 text-[12.5px] text-[var(--color-ink-2)]">
+                        <span className="text-[var(--color-success)]">{it.stage}</span>
+                        {it.jobId ? (
+                          <Link href={`/jobs/${it.jobId}`} className="tabular-nums text-[var(--color-ink-3)] hover:text-[var(--color-ink)] hover:underline">
+                            {it.jobNo || '—'}
+                          </Link>
+                        ) : null}
+                        <span className="truncate text-[var(--color-ink)]">{it.partName || '—'}</span>
+                        <span className="tabular-nums text-[var(--color-ink-3)]">
+                          ×{NUM.format(it.qty)}
+                          {it.partQty && it.qty !== it.partQty ? ` / ${NUM.format(it.partQty)}` : ''}
+                        </span>
+                        <span className="ml-auto shrink-0 tabular-nums text-[var(--color-ink-4)]">{fmtTs(it.at)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+    </section>
   )
 }
 

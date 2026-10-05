@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { Stage } from '@/lib/data'
+import { PICK_WORKER_STAGES, type Stage } from '@/lib/data'
 import { withBase } from '@/lib/base-path'
 import { mutate } from '@/lib/mutate'
 import { showToast } from './_toast'
@@ -38,6 +38,8 @@ export function SplitEditor({
   onClose: () => void
 }) {
   const report = !!onReported
+  // 操机、喷漆: 分的是个人报工, 账号统计不动; 没分到人的件数就是没记个人。
+  const personal = PICK_WORKER_STAGES.includes(stage)
   const [rows, setRows] = useState<Row[]>([{ name: '', qty: '' }])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -184,7 +186,9 @@ export function SplitEditor({
 
         <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
           {filled.length === 0
-            ? '空着保存 = 不分工，全记给报工的人。'
+            ? personal
+              ? '空着保存 = 不记个人。'
+              : '空着保存 = 不分工，全记给报工的人。'
             : report
               ? `合计 ${sum} 件 · ${
                   sum >= componentQty
@@ -193,7 +197,9 @@ export function SplitEditor({
                 }`
             : `合计 ${sum} 件${
                 sum < componentQty
-                  ? ` · 剩下 ${componentQty - sum} 件算给报完工的人`
+                  ? personal
+                    ? ` · 还有 ${componentQty - sum} 件没分到人`
+                    : ` · 剩下 ${componentQty - sum} 件算给报完工的人`
                   : sum > componentQty
                     ? ` · 比总数 ${componentQty} 多`
                     : ''

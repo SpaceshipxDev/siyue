@@ -200,7 +200,14 @@ import {
   updateStockMove,
   type NewStockMove,
 } from '@/lib/warehouse'
-import { addWorkShare, normalizeShares, setWorkSplit } from '@/lib/work-split'
+import {
+  addWorkShare,
+  normalizeShares,
+  setPersonSplit,
+  setWorkSplit,
+  type PersonPart,
+  type WorkShare,
+} from '@/lib/work-split'
 import {
   addProcessDefect,
   deleteProcessDefect,
@@ -307,7 +314,7 @@ import {
 import { logStageAction } from '@/lib/access-log'
 import type { JobType, PlanKey, Stage, Verdict } from '@/lib/data'
 import { rowStageCounts } from '@/lib/master'
-import { isCaiwuSheet, JOB_TYPES, STAGES, VERDICTS } from '@/lib/data'
+import { isCaiwuSheet, JOB_TYPES, PICK_WORKER_STAGES, STAGES, VERDICTS } from '@/lib/data'
 import { isExpenseCategory } from '@/lib/expenses'
 import { isDimRow, type InspectionReportPatch } from '@/lib/inspection-report'
 import { removeInspectionPhotoObject } from '@/lib/inspection-photo'
@@ -421,6 +428,31 @@ async function cacheAndSend(
     void recordMutationResponse(requestId, status, body)
   }
   return Response.json(body, { status })
+}
+
+// 个人报工 (操机、喷漆选的人) —— 连同零件信息一起记, 报工统计页直接列。
+// clear = 分工框里清空了, 这一条个人记录跟着去掉。
+async function recordPersonOutput(
+  jobId: string,
+  stage: Stage,
+  by: string,
+  items: { componentId: string; shares: WorkShare[] }[],
+  clear = false,
+): Promise<void> {
+  const job = await getJob(jobId)
+  const nowIso = new Date().toISOString()
+  for (const it of items) {
+    if (it.shares.length === 0 && !clear) continue
+    const partId = await resolvePartId(jobId, it.componentId)
+    if (!partId) continue
+    const c = job?.components.find((x) => x.id === it.componentId)
+    const part: PersonPart | undefined =
+      job && c
+        ? { jobId, jobNo: job.jobNo, customer: job.customer, name: c.name, qty: c.qty }
+        : undefined
+    await setPersonSplit(partId, stage, it.shares, part, by, nowIso)
+  }
+  revalidatePath('/report')
 }
 
 function isString(x: unknown): x is string {
@@ -1085,13 +1117,11 @@ async function dispatch(
         return err('bad finishStage args')
       const u = await requireOwnStage(stage)
       await finishStage(jobId, componentId, stage, reportActor(u, body))
-      // 报工时当场选了几个人一起做的 (app/_who_did) —— 这一道按件数分给他们,
-      // 报工统计里每个人的产出才分得开 (lib/work-split)。
-      const shares = normalizeShares(body.shares)
-      if (shares.length > 1) {
-        const partId = await resolvePartId(jobId, componentId)
-        if (partId) await setWorkSplit(partId, stage, shares, u.name, new Date().toISOString())
-        revalidatePath('/report')
+      // 操机、喷漆报工时当场选的人 (app/_who_did) —— 另记一份个人报工, 账号
+      // 那边的统计照旧记在按的账号上。
+      const people = normalizeShares(body.people)
+      if (people.length > 0) {
+        await recordPersonOutput(jobId, stage, u.name, [{ componentId, shares: people }])
       }
       revalidateStage(jobId, stage)
       return Response.json(ok())
@@ -1359,35 +1389,23 @@ async function dispatch(
       if (!isString(jobId) || !isStage(stage))
         return err('bad finishJobStage args')
       const u = await requireOwnStage(stage)
-      // 整单报工时当场选了几个人一起做的 —— 这一下完成的那几件 (先记下哪些
-      // 零件正在做), 每件平分给这几个人。
+      // 整单报工时当场选的人 —— 这一下完成的那几件 (先记下哪些零件正在做),
+      // 每件平分给这几个人, 记在个人报工里。
       const workers = Array.isArray(body.workers)
         ? [...new Set((body.workers as unknown[]).filter(isString).map((n) => n.trim()).filter(Boolean))]
         : []
-      let finishing: { componentId: string; qty: number }[] = []
-      if (workers.length > 1) {
+      let finishing: { componentId: string; shares: WorkShare[] }[] = []
+      if (workers.length > 0) {
         const before = await getJob(jobId)
         finishing = (before?.components ?? [])
           .filter((c) => c.stages[stage]?.status === 'in_progress')
-          .map((c) => ({ componentId: c.id, qty: c.qty }))
+          .map((c) => {
+            const each = Math.round((c.qty / workers.length) * 100) / 100
+            return { componentId: c.id, shares: workers.map((name) => ({ name, qty: each })) }
+          })
       }
       await finishJobStage(jobId, stage, reportActor(u, body))
-      if (finishing.length > 0) {
-        const nowIso = new Date().toISOString()
-        for (const f of finishing) {
-          const partId = await resolvePartId(jobId, f.componentId)
-          if (!partId) continue
-          const each = Math.round((f.qty / workers.length) * 100) / 100
-          await setWorkSplit(
-            partId,
-            stage,
-            workers.map((name) => ({ name, qty: each })),
-            u.name,
-            nowIso,
-          )
-        }
-        revalidatePath('/report')
-      }
+      if (finishing.length > 0) await recordPersonOutput(jobId, stage, u.name, finishing)
       revalidateStage(jobId, stage)
       return Response.json(ok(await freshStageCounts(jobId, stage)))
     }
@@ -3696,16 +3714,22 @@ async function dispatch(
         return err(`${stage} 不是你的工段`, 403)
       const partId = await resolvePartId(jobId, componentId)
       if (!partId) return err('找不到这个零件')
-      await setWorkSplit(
-        partId,
-        stage,
-        clean,
-        u.name,
-        new Date().toISOString(),
-      )
+      // 操机、喷漆: 分工记成个人报工, 账号统计不动。别的工序还是原来那样
+      // 按件数拆到各人头上。
+      const personal = PICK_WORKER_STAGES.includes(stage as Stage)
+      if (personal) {
+        await recordPersonOutput(jobId, stage as Stage, u.name, [{ componentId, shares: clean }], true)
+      } else {
+        await setWorkSplit(partId, stage, clean, u.name, new Date().toISOString())
+      }
       const total = clean.reduce((s, x) => s + x.qty, 0)
       if (report && total > 0) {
-        await setStageDoneQty(jobId, componentId, stage as Stage, total, reportActor(u, body))
+        // 当场报工: 件数照常记给按的账号 (跟填完成数量一样)。
+        const who = reportActor(u, body)
+        const moved = await setStageDoneQty(jobId, componentId, stage as Stage, total, who)
+        if (moved) {
+          await addWorkShare(moved.partId, stage, who, moved.delta, new Date().toISOString())
+        }
         revalidateStage(jobId, stage as Stage)
       }
       revalidatePath('/report')

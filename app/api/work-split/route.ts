@@ -1,7 +1,7 @@
 import { currentUser } from '@/lib/auth'
-import { STAGES, type Stage } from '@/lib/data'
+import { PICK_WORKER_STAGES, STAGES, type Stage } from '@/lib/data'
 import { resolvePartId } from '@/lib/db'
-import { getWorkSplit } from '@/lib/work-split'
+import { getPersonSplit, getWorkSplit } from '@/lib/work-split'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -24,7 +24,10 @@ export async function GET(request: Request): Promise<Response> {
   }
   const partId = await resolvePartId(jobId, componentId)
   if (!partId) return Response.json({ ok: true, shares: [] })
-  const shares = await getWorkSplit(partId, stage as Stage)
+  // 操机、喷漆的分工记的是个人那一份 (不动账号统计)。
+  const shares = PICK_WORKER_STAGES.includes(stage as Stage)
+    ? await getPersonSplit(partId, stage)
+    : await getWorkSplit(partId, stage as Stage)
   return Response.json(
     { ok: true, shares },
     { headers: { 'cache-control': 'no-store' } },

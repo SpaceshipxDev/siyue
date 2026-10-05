@@ -1,5 +1,6 @@
 import { currentUser, canSeeReport, canSeeMoney } from '@/lib/auth'
-import { STAGES, type Stage } from '@/lib/data'
+import { PICK_WORKER_STAGES, STAGES, type Stage } from '@/lib/data'
+import { getPersonSplits } from '@/lib/work-split'
 import { shanghaiRangeWindow } from '@/lib/today'
 import {
   getWorkerOutput,
@@ -165,17 +166,65 @@ export async function GET(request: Request): Promise<Response> {
     }
 
     // Summary: the people list (hero) + stuck (bottom, station-scoped only).
-    const [people, stuck] = await Promise.all([
+    const [people, stuck, persons] = await Promise.all([
       getWorkerOutput(window, stage),
       stage ? getStationStuck(stage, STUCK_DAYS) : Promise.resolve([]),
+      !stage || PICK_WORKER_STAGES.includes(stage) ? personOutput(window, stage) : Promise.resolve([]),
     ])
     if (!showMoney) for (const p of people) p.valueCny = 0
     return Response.json(
-      { ok: true, people, stuck, stuckDays: STUCK_DAYS, showMoney },
+      { ok: true, people, stuck, stuckDays: STUCK_DAYS, showMoney, persons },
       { headers: { 'cache-control': 'no-store' } },
     )
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     return Response.json({ ok: false, error: message }, { status: 500 })
   }
+}
+
+// 个人报工 —— 操机、喷漆报工时选的人 (lib/work-split 个人那一份), 按人汇总。
+// 落在哪一天看选人那一刻。账号那张表不受它影响。
+type PersonItem = {
+  jobId: string
+  jobNo: string
+  customer: string
+  partName: string
+  stage: string
+  qty: number
+  partQty: number
+  at: string
+}
+async function personOutput(
+  window: { from: string; to: string },
+  stage?: Stage,
+): Promise<{ name: string; finishes: number; pieces: number; lastTs: string; items: PersonItem[] }[]> {
+  const entries = await getPersonSplits()
+  const byName = new Map<string, { name: string; finishes: number; pieces: number; lastTs: string; items: PersonItem[] }>()
+  for (const e of entries) {
+    if (stage && e.stage !== stage) continue
+    for (const sh of e.shares) {
+      if (!sh.at || sh.at < window.from || sh.at >= window.to) continue
+      let p = byName.get(sh.name)
+      if (!p) {
+        p = { name: sh.name, finishes: 0, pieces: 0, lastTs: sh.at, items: [] }
+        byName.set(sh.name, p)
+      }
+      p.finishes += 1
+      p.pieces = Math.round((p.pieces + sh.qty) * 100) / 100
+      if (sh.at > p.lastTs) p.lastTs = sh.at
+      p.items.push({
+        jobId: e.part?.jobId ?? '',
+        jobNo: e.part?.jobNo ?? '',
+        customer: e.part?.customer ?? '',
+        partName: e.part?.name ?? '',
+        stage: e.stage,
+        qty: sh.qty,
+        partQty: e.part?.qty ?? 0,
+        at: sh.at,
+      })
+    }
+  }
+  const out = [...byName.values()]
+  for (const p of out) p.items.sort((a, b) => b.at.localeCompare(a.at))
+  return out.sort((a, b) => b.pieces - a.pieces || b.finishes - a.finishes)
 }
