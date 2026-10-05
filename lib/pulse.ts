@@ -196,6 +196,9 @@ export type WorkerStageEvent = {
   surfaceTreatment?: string
   /** Raw stored image URL — pass through proxiedStorageUrl() before rendering. */
   imageUrl?: string
+  partId?: string
+  /** 别人名下那一条里分给这个人的一份 —— 改错要去原来那个人名下改。 */
+  shared?: boolean
 }
 
 // Daily/weekly/monthly scoreboard: one row per worker, sorted by output.
@@ -484,7 +487,7 @@ export async function getWorkerTimeline(opts: {
     if (isSchemaLagError(r.error)) return []
     throw r.error
   }
-  const toEvent = (row: AnyRow): WorkerStageEvent & { partId?: string } => ({
+  const toEvent = (row: AnyRow): WorkerStageEvent => ({
     ts: row.ts as string,
     kind: row.kind as WorkerEventKind,
     stage: row.stage as Stage,
@@ -573,6 +576,7 @@ export async function getWorkerTimeline(opts: {
     if (!own) continue
     mine.push({
       ...ev,
+      shared: true,
       partQty: own.qty,
       valueCny: Math.round(((ev.valueCny * own.qty) / sp.total) * 100) / 100,
     })

@@ -6,6 +6,8 @@ import { formatCny, STAGES, type Stage } from '@/lib/data'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { withBase } from '@/lib/base-path'
 import { PersonSearch, type RosterPerson } from './_person_search'
+import { mutate } from '@/lib/mutate'
+import { showToast } from '../_toast'
 
 // 报工 — the whole page, client-driven. Switching station / period and
 // expanding a person are all local + tiny fetches (no full-page navigation),
@@ -38,6 +40,7 @@ type PersonOut = {
   pieces: number
   lastTs: string
   items: {
+    partId: string
     jobId: string
     jobNo: string
     customer: string
@@ -68,6 +71,8 @@ type DrillComponent = {
   valueCny: number
   unpriced: boolean
   imageUrl?: string
+  partId?: string
+  shared?: boolean
 }
 type DrillJob = {
   jobId: string
@@ -86,6 +91,7 @@ export function ReportClient({
   initialWorker,
   todayStr,
   showMoney,
+  canFix = false,
 }: {
   initialStage: Stage | null
   initialGran: Gran
@@ -93,6 +99,8 @@ export function ReportClient({
   initialWorker: string | null
   todayStr: string
   showMoney: boolean
+  /** 改·删报工记录 (商务于海伟)。 */
+  canFix?: boolean
 }) {
   const [stage, setStage] = useState<Stage | null>(initialStage)
   const [gran, setGran] = useState<Gran>(initialGran)
@@ -107,6 +115,9 @@ export function ReportClient({
   const [stuckDays, setStuckDays] = useState(5)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // 改了一条报工 → 整页重新取一遍 (总数、明细一起对上)。
+  const [reload, setReload] = useState(0)
+  const onChanged = useCallback(() => setReload((n) => n + 1), [])
 
   // Per-worker drill cache, cleared whenever the window/station changes.
   const [open, setOpen] = useState<string | null>(initialWorker)
@@ -172,7 +183,7 @@ export function ReportClient({
     return () => {
       alive = false
     }
-  }, [stage, from, to])
+  }, [stage, from, to, reload])
 
   const toggleWorker = useCallback(
     (name: string) => {
@@ -279,12 +290,16 @@ export function ReportClient({
         open={open}
         drills={drills}
         onToggle={toggleWorker}
+        canFix={canFix}
+        onChanged={onChanged}
       />
 
       {/* 个人报工 — 操机、喷漆选的人, 账号表照旧, 这里另列一张。 */}
       <PersonOutputList
         persons={worker ? persons.filter((p) => p.name === worker) : persons}
         stage={stage}
+        canFix={canFix}
+        onChanged={onChanged}
       />
 
       {/* ② 停留超期 — quiet, at the bottom, station-scoped (not a person's). */}
@@ -304,6 +319,8 @@ function PeopleList({
   open,
   drills,
   onToggle,
+  canFix,
+  onChanged,
 }: {
   loading: boolean
   error: string | null
@@ -313,6 +330,8 @@ function PeopleList({
   open: string | null
   drills: Record<string, DrillJob[]>
   onToggle: (name: string) => void
+  canFix: boolean
+  onChanged: () => void
 }) {
   // 经手金额（按5%）needs more than the old 120px — the （按5%）suffix wraps otherwise.
   const cols = showMoney
@@ -380,7 +399,15 @@ function PeopleList({
                   {p.lastActiveTs ? fmtTs(p.lastActiveTs) : '—'}
                 </span>
               </button>
-              {active && <Drill jobs={drills[p.actorName]} showMoney={showMoney} />}
+              {active && (
+                <Drill
+                  jobs={drills[p.actorName]}
+                  showMoney={showMoney}
+                  actor={p.actorName}
+                  canFix={canFix}
+                  onChanged={onChanged}
+                />
+              )}
             </li>
           )
         })}
@@ -389,7 +416,19 @@ function PeopleList({
   )
 }
 
-function Drill({ jobs, showMoney }: { jobs?: DrillJob[]; showMoney: boolean }) {
+function Drill({
+  jobs,
+  showMoney,
+  actor,
+  canFix,
+  onChanged,
+}: {
+  jobs?: DrillJob[]
+  showMoney: boolean
+  actor: string
+  canFix: boolean
+  onChanged: () => void
+}) {
   return (
     <div className="bg-[var(--color-surface)] px-3 md:px-5 py-4 border-t border-[var(--color-border)]">
       {jobs === undefined ? (
@@ -412,12 +451,25 @@ function Drill({ jobs, showMoney }: { jobs?: DrillJob[]; showMoney: boolean }) {
               </div>
               <ul className="flex flex-col gap-0.5 pl-1">
                 {j.components.map((c, i) => (
-                  <li key={`${c.partName}-${c.ts}-${i}`} className="flex items-center gap-2.5 text-[12.5px] text-[var(--color-ink-2)]">
+                  <li key={`${c.partName}-${c.ts}-${i}`} className="group/fix flex items-center gap-2.5 text-[12.5px] text-[var(--color-ink-2)]">
                     <Thumb src={c.imageUrl} size={20} />
                     <span className="text-[var(--color-success)]">完成{c.stage}</span>
                     <span className="text-[var(--color-ink)]">{c.partName}</span>
                     <span className="tabular-nums text-[var(--color-ink-3)]">×{c.qty}</span>
                     <span className="ml-auto tabular-nums text-[var(--color-ink-4)]">{fmtTs(c.ts)}</span>
+                    {canFix && c.partId && !c.shared ? (
+                      <FixControls
+                        name={actor}
+                        deleteHint="删掉这条完成？这一道会退回进行中"
+                        onSave={({ name }) =>
+                          mutate({ kind: 'fixReportFinish', action: 'rename', jobId: j.jobId, partId: c.partId, stage: c.stage, name })
+                        }
+                        onDelete={() =>
+                          mutate({ kind: 'fixReportFinish', action: 'delete', jobId: j.jobId, partId: c.partId, stage: c.stage })
+                        }
+                        onChanged={onChanged}
+                      />
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -431,7 +483,17 @@ function Drill({ jobs, showMoney }: { jobs?: DrillJob[]; showMoney: boolean }) {
 
 // --- 个人报工 -------------------------------------------------------------------
 
-function PersonOutputList({ persons, stage }: { persons: PersonOut[]; stage: Stage | null }) {
+function PersonOutputList({
+  persons,
+  stage,
+  canFix,
+  onChanged,
+}: {
+  persons: PersonOut[]
+  stage: Stage | null
+  canFix: boolean
+  onChanged: () => void
+}) {
   const [open, setOpen] = useState<string | null>(null)
   if (persons.length === 0) return null
   const cols = 'grid-cols-[1fr_120px_110px]'
@@ -473,7 +535,7 @@ function PersonOutputList({ persons, stage }: { persons: PersonOut[]; stage: Sta
                 {active && (
                   <ul className="flex flex-col gap-0.5 bg-[var(--color-surface)] px-3 md:px-5 py-3 border-t border-[var(--color-border)]">
                     {p.items.map((it, i) => (
-                      <li key={`${it.jobId}-${it.partName}-${it.at}-${i}`} className="flex items-baseline gap-2.5 text-[12.5px] text-[var(--color-ink-2)]">
+                      <li key={`${it.jobId}-${it.partName}-${it.at}-${i}`} className="group/fix flex items-baseline gap-2.5 text-[12.5px] text-[var(--color-ink-2)]">
                         <span className="text-[var(--color-success)]">{it.stage}</span>
                         {it.jobId ? (
                           <Link href={`/jobs/${it.jobId}`} className="tabular-nums text-[var(--color-ink-3)] hover:text-[var(--color-ink)] hover:underline">
@@ -486,6 +548,20 @@ function PersonOutputList({ persons, stage }: { persons: PersonOut[]; stage: Sta
                           {it.partQty && it.qty !== it.partQty ? ` / ${NUM.format(it.partQty)}` : ''}
                         </span>
                         <span className="ml-auto shrink-0 tabular-nums text-[var(--color-ink-4)]">{fmtTs(it.at)}</span>
+                        {canFix && it.partId ? (
+                          <FixControls
+                            name={p.name}
+                            qty={it.qty}
+                            deleteHint="删掉这个人的这一份？"
+                            onSave={({ name, qty }) =>
+                              mutate({ kind: 'fixPersonShare', partId: it.partId, stage: it.stage, name: p.name, to: name, qty })
+                            }
+                            onDelete={() =>
+                              mutate({ kind: 'fixPersonShare', action: 'delete', partId: it.partId, stage: it.stage, name: p.name })
+                            }
+                            onChanged={onChanged}
+                          />
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -496,6 +572,101 @@ function PersonOutputList({ persons, stage }: { persons: PersonOut[]; stage: Sta
         </ul>
       </div>
     </section>
+  )
+}
+
+// --- 改·删一条报工 (商务于海伟) -------------------------------------------------
+//
+// 行尾两个小字, 悬停才显形。改 = 就地换成输入框 (账号那张只改经手人, 个人那
+// 张改人和件数); 删 = 再确认一下。做完整页重新取一遍。
+
+function FixControls({
+  name,
+  qty,
+  deleteHint,
+  onSave,
+  onDelete,
+  onChanged,
+}: {
+  name: string
+  qty?: number
+  deleteHint: string
+  onSave: (v: { name: string; qty?: number }) => Promise<unknown>
+  onDelete: () => Promise<unknown>
+  onChanged: () => void
+}) {
+  const [mode, setMode] = useState<'idle' | 'edit' | 'delete'>('idle')
+  const [busy, setBusy] = useState(false)
+  const [n, setN] = useState(name)
+  const [q, setQ] = useState(qty === undefined ? '' : String(qty))
+
+  const run = async (fn: () => Promise<unknown>, done: string) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await fn()
+      showToast(done, 'success')
+      setMode('idle')
+      onChanged()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '没改成', 'warning')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const link = 'text-[11px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)] disabled:opacity-40'
+  if (mode === 'idle') {
+    return (
+      <span className="flex shrink-0 gap-2 transition-opacity md:opacity-0 md:group-hover/fix:opacity-100 focus-within:opacity-100">
+        <button type="button" onClick={() => setMode('edit')} className={link}>改</button>
+        <button type="button" onClick={() => setMode('delete')} className={`${link} hover:text-[var(--color-overdue)]`}>删</button>
+      </span>
+    )
+  }
+  if (mode === 'delete') {
+    return (
+      <span className="flex shrink-0 items-baseline gap-2">
+        <span className="text-[11px] text-[var(--color-overdue)]">{deleteHint}</span>
+        <button type="button" disabled={busy} onClick={() => run(onDelete, '已删除')} className="text-[11px] font-medium text-[var(--color-overdue)] hover:underline disabled:opacity-40">
+          删除
+        </button>
+        <button type="button" disabled={busy} onClick={() => setMode('idle')} className={link}>取消</button>
+      </span>
+    )
+  }
+  const input =
+    'h-6 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 text-[12px] text-[var(--color-ink)] outline-none focus:border-[var(--color-border-strong)]'
+  const save = () => {
+    const name2 = n.trim()
+    const qty2 = Number(q)
+    if (!name2 || (qty !== undefined && !(qty2 > 0))) return
+    void run(() => onSave(qty === undefined ? { name: name2 } : { name: name2, qty: qty2 }), '已改好')
+  }
+  return (
+    <span className="flex shrink-0 items-center gap-1.5">
+      <input
+        value={n}
+        onChange={(e) => setN(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && save()}
+        autoFocus
+        placeholder="经手人"
+        className={`${input} w-[84px]`}
+      />
+      {qty !== undefined && (
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && save()}
+          inputMode="decimal"
+          className={`${input} mono w-[56px] text-right`}
+        />
+      )}
+      <button type="button" disabled={busy} onClick={save} className="text-[11px] font-medium text-[var(--color-ink)] hover:underline disabled:opacity-40">
+        保存
+      </button>
+      <button type="button" disabled={busy} onClick={() => setMode('idle')} className={link}>取消</button>
+    </span>
   )
 }
 

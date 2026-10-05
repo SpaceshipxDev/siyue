@@ -5202,6 +5202,50 @@ export async function undoStage(
   })
 }
 
+// 报工统计上改错 (商务于海伟, canFixReport) —— 按零件找, 统计明细里只有零件
+// 不知道工单里的哪一行。
+//
+// 删除 = 这一条完成作废: 退回进行中, 完成时间和经手人一起清掉 (只退状态、
+// 留着完成时间的话, 统计里还会数这一条)。
+export async function revokeStageFinish(
+  jobId: string,
+  partId: string,
+  stage: Stage,
+): Promise<boolean> {
+  return withWriteLock(async () => {
+    const snap = await loadJobSnapshot(jobId)
+    const row = snap.idx.stageByPartStage.get(stageKey(partId, stage))
+    if (!row || row.status !== 'done') return false
+    await upsertStages([
+      {
+        ...row,
+        status: 'in_progress',
+        completedAt: undefined,
+        finishedAt: undefined,
+        by: undefined,
+        doneQty: undefined,
+      },
+    ])
+    return true
+  })
+}
+
+// 修改 = 这一条换个经手人 (报到别人账号上了)。状态、时间都不动。
+export async function setStageFinishBy(
+  jobId: string,
+  partId: string,
+  stage: Stage,
+  name: string,
+): Promise<boolean> {
+  return withWriteLock(async () => {
+    const snap = await loadJobSnapshot(jobId)
+    const row = snap.idx.stageByPartStage.get(stageKey(partId, stage))
+    if (!row || row.status !== 'done') return false
+    await upsertStages([{ ...row, by: name }])
+    return true
+  })
+}
+
 // ▶ 点错了 — 把一道从「进行中」退回「未开始」。
 //
 // 跟撤销「已完成」是两件事, 所以是两个函数、两档权限: 点错开始是当场发现的

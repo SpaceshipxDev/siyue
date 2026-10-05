@@ -681,6 +681,16 @@ export function canUndoFinishedStage(u: AuthUser): boolean {
   return STAGE_UNDO_USER_IDS.has(u.id) || isAdminUser(u.id)
 }
 
+// 报工统计上改错 —— 一条报工记错了人、报错了: 在 /report 明细里直接删、直接
+// 改。只开商务于海伟。删一条完成会把那一道退回进行中, 板子上跟着变。
+const REPORT_FIXER_USER_IDS = new Set<string>([
+  'u-ms45yjq9-2kbdi1', // 商务于海伟
+])
+
+export function canFixReport(u: AuthUser): boolean {
+  return REPORT_FIXER_USER_IDS.has(u.id)
+}
+
 // ─── 报工 工段范围 (which stage cells a user may CLICK) ──────────────────────
 //
 // The boss reads money out of stage progress now, so a tap on someone else's
@@ -952,6 +962,7 @@ export function permissionDigest(u: AuthUser): PermissionDigest {
     ]),
     remove: pick([
       [canUndoFinishedStage(u), '撤销已完成'],
+      [canFixReport(u), '改·删报工记录'],
       [canDeletePartRow(u), '删零件行'],
       [canDeleteJob(u), '删草稿单'],
       [canDeleteOrder(u), '删订单'],

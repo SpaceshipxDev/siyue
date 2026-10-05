@@ -227,11 +227,17 @@ export async function addWorkShare(
  */
 const PERSON_KEY = 'report/person-output.json'
 
-export type PersonEntry = { stage: string; part?: PersonPart; shares: WorkShare[] }
+export type PersonEntry = {
+  partId: string
+  stage: string
+  part?: PersonPart
+  shares: WorkShare[]
+}
 
 export async function getPersonSplits(): Promise<PersonEntry[]> {
   const map = await read(PERSON_KEY)
   return Object.entries(map).map(([k, v]) => ({
+    partId: k.split('::')[0] ?? '',
     stage: k.split('::')[1] ?? '',
     part: v.part,
     shares: v.shares,
@@ -263,5 +269,30 @@ export async function setPersonSplit(
       map[key] = { shares: clean, by, at: nowIso, part: part ?? map[key]?.part }
     }
     await write(map, PERSON_KEY)
+  })
+}
+
+// 改错 (报工统计页, canFixReport): 一个人的那一份换人 / 改件数, next 为空就
+// 是删掉这个人的那一份。删到一个人都不剩, 整条去掉。
+export async function updatePersonShare(
+  partId: string,
+  stage: string,
+  name: string,
+  next: { name: string; qty: number } | null,
+): Promise<boolean> {
+  return withLock(async () => {
+    const map = await read(PERSON_KEY)
+    const key = workSplitKey(partId, stage)
+    const cur = map[key]
+    if (!cur || !cur.shares.some((s) => s.name === name)) return false
+    const rest = cur.shares.filter((s) => s.name !== name)
+    const old = cur.shares.find((s) => s.name === name)!
+    const shares = next
+      ? normalizeShares([...rest, { name: next.name, qty: next.qty, at: old.at }])
+      : rest
+    if (shares.length === 0) delete map[key]
+    else map[key] = { ...cur, shares }
+    await write(map, PERSON_KEY)
+    return true
   })
 }

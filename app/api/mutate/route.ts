@@ -72,6 +72,8 @@ import {
   setMemberReturnedQty,
   setPartRoute,
   setStageDoneQty,
+  revokeStageFinish,
+  setStageFinishBy,
   startJobStage,
   startStage,
   undoJobStage,
@@ -157,6 +159,7 @@ import {
   canWriteReturnCause,
   canWriteReturnPlan,
   canUndoFinishedStage,
+  canFixReport,
   canSeeFactoryPulse,
   canSeeMoney,
   canUseNotes,
@@ -205,6 +208,7 @@ import {
   normalizeShares,
   setPersonSplit,
   setWorkSplit,
+  updatePersonShare,
   type PersonPart,
   type WorkShare,
 } from '@/lib/work-split'
@@ -813,6 +817,7 @@ const LOGGED_KINDS = new Set([
   'startJobStage',
   'finishJobStage',
   'undoJobStage',
+  'fixReportFinish',
   'setBlockWechatSent',
 ])
 
@@ -3699,6 +3704,46 @@ async function dispatch(
     //
     // 门槛跟报这道工序本身一样 (canClickStage) —— 能在这道工序上按 ✓ 的人,
     // 就是知道这活是谁干的那个人。
+    // 报工统计上改错 (只开商务于海伟) —— 账号那张表的一条完成: 删 = 退回进
+    // 行中, 改 = 换经手人。个人报工那张: 改人 / 改件数 / 删这个人的那一份。
+    case 'fixReportFinish': {
+      const { jobId, partId, stage, name } = body
+      if (!isString(jobId) || !isString(partId) || !isStage(stage))
+        return err('bad fixReportFinish args')
+      const u = await requireUser()
+      if (!canFixReport(u)) return err('改报工记录要找商务于海伟', 403)
+      const to = isString(name) ? name.trim().slice(0, 24) : ''
+      const done =
+        body.action === 'delete'
+          ? await revokeStageFinish(jobId, partId, stage)
+          : to
+            ? await setStageFinishBy(jobId, partId, stage, to)
+            : false
+      if (!done) return err('这一条已经不是完成状态了，刷新看看')
+      revalidateStage(jobId, stage)
+      revalidatePath('/report')
+      return Response.json(ok())
+    }
+
+    case 'fixPersonShare': {
+      const { partId, stage, name } = body
+      if (!isString(partId) || !isString(stage) || !isString(name))
+        return err('bad fixPersonShare args')
+      const u = await requireUser()
+      if (!canFixReport(u)) return err('改报工记录要找商务于海伟', 403)
+      let next: { name: string; qty: number } | null = null
+      if (body.action !== 'delete') {
+        const to = isString(body.to) ? body.to.trim().slice(0, 24) : ''
+        const qty = typeof body.qty === 'number' && Number.isFinite(body.qty) ? body.qty : 0
+        if (!to || qty <= 0) return err('姓名和件数都要填')
+        next = { name: to, qty }
+      }
+      if (!(await updatePersonShare(partId, stage, name, next)))
+        return err('这一条已经没有了，刷新看看')
+      revalidatePath('/report')
+      return Response.json(ok())
+    }
+
     case 'setWorkSplit': {
       const { jobId, componentId, stage, shares } = body
       if (!isString(jobId) || !isString(componentId))

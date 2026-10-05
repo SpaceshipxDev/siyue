@@ -1,6 +1,12 @@
 import Link from 'next/link'
 import { STAGES, type Stage } from '@/lib/data'
-import { requireReportViewer, canSeeMoney, canSeeReport, canSeeOrderLedger } from '@/lib/auth'
+import {
+  requireReportViewer,
+  canSeeMoney,
+  canSeeReport,
+  canSeeOrderLedger,
+  canFixReport,
+} from '@/lib/auth'
 import { getMasterRows } from '@/lib/db'
 import { today } from '@/lib/today'
 import { computePlanRates } from '@/lib/plan-rate'
@@ -116,6 +122,7 @@ export default async function ReportPage({
             initialWorker={worker}
             todayStr={todayStr}
             showMoney={canSeeMoney(user)}
+            canFix={canFixReport(user)}
           />
         )}
       </main>

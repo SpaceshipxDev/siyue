@@ -139,6 +139,8 @@ export async function GET(request: Request): Promise<Response> {
             valueCny: number
             unpriced: boolean
             imageUrl?: string
+            partId?: string
+            shared?: boolean
           }[]
         }
       >()
@@ -159,6 +161,8 @@ export async function GET(request: Request): Promise<Response> {
           valueCny: showMoney ? e.valueCny : 0,
           unpriced: e.unpriced,
           imageUrl: e.imageUrl,
+          partId: e.partId,
+          shared: e.shared,
         })
       }
       const jobs = [...jobMap.values()].sort((a, b) => b.finishes - a.finishes)
@@ -185,6 +189,7 @@ export async function GET(request: Request): Promise<Response> {
 // 个人报工 —— 操机、喷漆报工时选的人 (lib/work-split 个人那一份), 按人汇总。
 // 落在哪一天看选人那一刻。账号那张表不受它影响。
 type PersonItem = {
+  partId: string
   jobId: string
   jobNo: string
   customer: string
@@ -213,6 +218,7 @@ async function personOutput(
       p.pieces = Math.round((p.pieces + sh.qty) * 100) / 100
       if (sh.at > p.lastTs) p.lastTs = sh.at
       p.items.push({
+        partId: e.partId,
         jobId: e.part?.jobId ?? '',
         jobNo: e.part?.jobNo ?? '',
         customer: e.part?.customer ?? '',
