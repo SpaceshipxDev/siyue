@@ -108,9 +108,11 @@ export async function mutate<T = undefined>(
   // 名认不出人; 服务端只在报工那几个动作上用它, 别的一概照旧记账号名。没设
   // 就不带这个字段。
   const reporter = getReporterName()
+  // 报工那一下当场选了人 (app/_who_did) 的, 以当场选的为准。
+  const picked = typeof body.actorName === 'string' && body.actorName.trim()
   const payload = {
     ...body,
-    ...(reporter ? { actorName: reporter } : null),
+    ...(reporter && !picked ? { actorName: reporter } : null),
     requestId: newRequestId(),
   }
   let lastTransient: TransientError | null = null

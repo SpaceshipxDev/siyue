@@ -2,13 +2,14 @@
 
 import { useState, useTransition } from 'react'
 import type { Stage, StageState } from '@/lib/data'
-import { STAGES } from '@/lib/data'
+import { PICK_WORKER_STAGES, STAGES } from '@/lib/data'
 import { Pause, stageTimeHint } from './_ui'
 import { mutate } from '@/lib/mutate'
 import { RowTimer } from './_row_timer'
 import { QtyEditor } from './_qty_editor'
 import { SplitEditor } from './_split_editor'
 import { useCanUndoDone, useStageGuard } from './_stage_scope'
+import { WhoDidSheet } from './_who_did'
 
 // Stage button writes go through /api/mutate (~30-byte JSON) instead of
 // server actions. Server-action responses inline the current page's RSC,
@@ -48,6 +49,8 @@ export function StageCellButton({
   // 分工 — 这道工序是两个人以上做的。开在这里, 因为知道"谁做了几件"的就是
   // 站在这个格子前面的人; 记完只影响报工统计 (见 app/_split_editor)。
   const [splitOpen, setSplitOpen] = useState(false)
+  // 操机、喷漆按 ✓ 先问"谁做的" (app/_who_did)。
+  const [whoOpen, setWhoOpen] = useState(false)
   // 报工范围 guard — out-of-scope taps open the denial dialog instead of
   // writing. The server re-checks, so a stale client only ever costs a
   // round-trip, never a wrong write.
@@ -87,11 +90,17 @@ export function StageCellButton({
 
   const onFinish = () => {
     if (!guard.check()) return
+    if (PICK_WORKER_STAGES.includes(stage)) setWhoOpen(true)
+    else finish({})
+  }
+
+  const finish = (who: { actorName?: string; shares?: { name: string; qty: number }[] }) => {
+    setWhoOpen(false)
     setError(false)
     setOptimistic({ status: 'done', completedAt: 'now' })
     start(async () => {
       try {
-        await mutate({ kind: 'finishStage', jobId, componentId, stage })
+        await mutate({ kind: 'finishStage', jobId, componentId, stage, ...who })
       } catch (e) {
         setOptimistic(null)
         if (!guard.denyIfScopeError(e)) setError(true)
@@ -272,6 +281,18 @@ export function StageCellButton({
             onClose={() => setSplitOpen(false)}
           />
         ) : null}
+        {whoOpen ? (
+          <WhoDidSheet
+            stage={stage}
+            label={componentName}
+            totalQty={componentQty}
+            onConfirm={({ names, shares }) =>
+              finish(shares && shares.length > 1 ? { actorName: names[0], shares } : { actorName: names[0] })
+            }
+            onSkip={() => finish({})}
+            onCancel={() => setWhoOpen(false)}
+          />
+        ) : null}
         {editorOpen ? (
           <QtyEditor
             stage={stage}
@@ -406,6 +427,7 @@ export function JobStageActionButton({
   const [optimistic, setOptimistic] = useState<RowStatus | null>(null)
   const [error, setError] = useState(false)
   const guard = useStageGuard(stage)
+  const [whoOpen, setWhoOpen] = useState(false)
   // Fresh counts echoed by /api/mutate after each job-stage write. The master
   // board fetches its rows ONCE per navigation (_master_loaders.tsx), so the
   // count props go stale the moment we write. Before this echo existed, the
@@ -444,13 +466,14 @@ export function JobStageActionButton({
     kind: 'startJobStage' | 'finishJobStage' | 'undoJobStage',
     glyph: RowStatus,
     fallback: StageCounts,
+    who: { actorName?: string; workers?: string[] } = {},
   ) => {
     if (!guard.check()) return
     setError(false)
     setOptimistic(glyph)
     start(async () => {
       try {
-        const r = await mutate<{ counts: StageCounts }>({ kind, jobId, stage })
+        const r = await mutate<{ counts: StageCounts }>({ kind, jobId, stage, ...who })
         const fresh = 'data' in r && r.data ? r.data.counts : fallback
         setLive(fresh)
         setOptimistic(null)
@@ -469,13 +492,38 @@ export function JobStageActionButton({
       done: counts.done,
     })
 
-  const onFinish = () =>
-    run('finishJobStage', 'done', {
-      inProgress: 0,
-      // 出货 sweeps pending parts too; other stages finish only in-flight.
-      pending: stage === '出货' ? 0 : counts.pending,
-      done: counts.done + counts.inProgress + (stage === '出货' ? counts.pending : 0),
-    })
+  const finish = (who: { actorName?: string; workers?: string[] } = {}) => {
+    setWhoOpen(false)
+    run(
+      'finishJobStage',
+      'done',
+      {
+        inProgress: 0,
+        // 出货 sweeps pending parts too; other stages finish only in-flight.
+        pending: stage === '出货' ? 0 : counts.pending,
+        done: counts.done + counts.inProgress + (stage === '出货' ? counts.pending : 0),
+      },
+      who,
+    )
+  }
+
+  // 操机、喷漆整单完成也先问"谁做的"; 几个人一起做的, 每个零件平分。
+  const onFinish = () => {
+    if (PICK_WORKER_STAGES.includes(stage)) {
+      if (guard.check()) setWhoOpen(true)
+    } else finish()
+  }
+
+  const whoSheet = whoOpen ? (
+    <WhoDidSheet
+      stage={stage}
+      onConfirm={({ names }) =>
+        finish(names.length > 1 ? { actorName: names[0], workers: names } : { actorName: names[0] })
+      }
+      onSkip={() => finish()}
+      onCancel={() => setWhoOpen(false)}
+    />
+  ) : null
 
   const onUndo = () =>
     run('undoJobStage', 'in_progress', {
@@ -545,6 +593,7 @@ export function JobStageActionButton({
       ? 'bg-[var(--color-overdue-soft)]'
       : 'bg-[var(--color-warning-soft)]'
     return (
+      <>
       <button
         type="button"
         disabled={transition}
@@ -579,6 +628,8 @@ export function JobStageActionButton({
           </span>
         </span>
       </button>
+      {whoSheet}
+      </>
     )
   }
 

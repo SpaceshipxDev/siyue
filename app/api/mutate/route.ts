@@ -1085,6 +1085,14 @@ async function dispatch(
         return err('bad finishStage args')
       const u = await requireOwnStage(stage)
       await finishStage(jobId, componentId, stage, reportActor(u, body))
+      // 报工时当场选了几个人一起做的 (app/_who_did) —— 这一道按件数分给他们,
+      // 报工统计里每个人的产出才分得开 (lib/work-split)。
+      const shares = normalizeShares(body.shares)
+      if (shares.length > 1) {
+        const partId = await resolvePartId(jobId, componentId)
+        if (partId) await setWorkSplit(partId, stage, shares, u.name, new Date().toISOString())
+        revalidatePath('/report')
+      }
       revalidateStage(jobId, stage)
       return Response.json(ok())
     }
@@ -1351,7 +1359,35 @@ async function dispatch(
       if (!isString(jobId) || !isStage(stage))
         return err('bad finishJobStage args')
       const u = await requireOwnStage(stage)
+      // 整单报工时当场选了几个人一起做的 —— 这一下完成的那几件 (先记下哪些
+      // 零件正在做), 每件平分给这几个人。
+      const workers = Array.isArray(body.workers)
+        ? [...new Set((body.workers as unknown[]).filter(isString).map((n) => n.trim()).filter(Boolean))]
+        : []
+      let finishing: { componentId: string; qty: number }[] = []
+      if (workers.length > 1) {
+        const before = await getJob(jobId)
+        finishing = (before?.components ?? [])
+          .filter((c) => c.stages[stage]?.status === 'in_progress')
+          .map((c) => ({ componentId: c.id, qty: c.qty }))
+      }
       await finishJobStage(jobId, stage, reportActor(u, body))
+      if (finishing.length > 0) {
+        const nowIso = new Date().toISOString()
+        for (const f of finishing) {
+          const partId = await resolvePartId(jobId, f.componentId)
+          if (!partId) continue
+          const each = Math.round((f.qty / workers.length) * 100) / 100
+          await setWorkSplit(
+            partId,
+            stage,
+            workers.map((name) => ({ name, qty: each })),
+            u.name,
+            nowIso,
+          )
+        }
+        revalidatePath('/report')
+      }
       revalidateStage(jobId, stage)
       return Response.json(ok(await freshStageCounts(jobId, stage)))
     }

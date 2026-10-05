@@ -83,6 +83,13 @@ export const PLANNABLE_STAGES: Stage[] = PRODUCTION_STAGES.filter(
 // board's 外协 badge read it.
 export type PlanKey = Stage | '外协'
 
+// 报工时问一句「谁做的」的那几道 (老板 2026-10-05): 操机、喷漆。
+//
+// 这两道常常是一个账号几个人轮着用、一张单几个人一起做 —— 按下 ✓ 那一刻选
+// 人 (一个人就记给他, 几个人就分工), 报工统计里每个人的产出才分得开。别的工
+// 序照旧一按就完成, 不多问。
+export const PICK_WORKER_STAGES: Stage[] = ['操机', '喷漆']
+
 // 喷漆 · 丝印 共用一个时间节点 (老板 2026-10-05 定的; 当天先是 打磨·喷漆·丝印
 // 三道, 再往前 9-30 是连操机、手工五道, 最后落在这两道)。
 //
