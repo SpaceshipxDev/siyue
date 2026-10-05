@@ -278,6 +278,13 @@ export function StageCellButton({
             componentName={componentName}
             componentQty={componentQty}
             stage={stage}
+            onReported={(qty) =>
+              setOptimistic(
+                qty >= componentQty
+                  ? { status: 'done', completedAt: 'now' }
+                  : { status: 'in_progress', doneQty: qty },
+              )
+            }
             onClose={() => setSplitOpen(false)}
           />
         ) : null}

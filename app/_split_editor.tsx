@@ -25,6 +25,7 @@ export function SplitEditor({
   componentName,
   componentQty,
   stage,
+  onReported,
   onClose,
 }: {
   jobId: string
@@ -32,8 +33,11 @@ export function SplitEditor({
   componentName: string
   componentQty: number
   stage: Stage
+  /** 传了 = 在进行中的格子里打开: 分了几件就当场报完成几件。 */
+  onReported?: (qty: number) => void
   onClose: () => void
 }) {
+  const report = !!onReported
   const [rows, setRows] = useState<Row[]>([{ name: '', qty: '' }])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -88,6 +92,7 @@ export function SplitEditor({
           jobId,
           componentId,
           stage,
+          report,
           shares: filled.map((r) => ({
             name: r.name.trim(),
             qty: Number(r.qty),
@@ -97,6 +102,7 @@ export function SplitEditor({
           filled.length > 0 ? `分工已记下 · ${filled.length} 人` : '分工已取消',
           'success',
         )
+        if (report && sum > 0) onReported?.(Math.min(sum, componentQty))
         onClose()
       } catch (e) {
         setError(e instanceof Error ? e.message : '记不上')
@@ -179,6 +185,12 @@ export function SplitEditor({
         <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
           {filled.length === 0
             ? '空着保存 = 不分工，全记给报工的人。'
+            : report
+              ? `合计 ${sum} 件 · ${
+                  sum >= componentQty
+                    ? '确认后这一道完成'
+                    : `确认后算完成 ${sum} 件，剩下 ${componentQty - sum} 件接着做`
+                }`
             : `合计 ${sum} 件${
                 sum < componentQty
                   ? ` · 剩下 ${componentQty - sum} 件算给报完工的人`
@@ -206,7 +218,7 @@ export function SplitEditor({
             disabled={saving || loading}
             className="rounded-[2px] bg-[var(--color-ink)] px-3 py-1.5 text-[12px] tracking-wider text-[var(--color-surface)] hover:opacity-80 disabled:opacity-40"
           >
-            保存
+            {report && filled.length > 0 ? '确认报工' : '保存'}
           </button>
         </div>
       </div>

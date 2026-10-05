@@ -3688,7 +3688,10 @@ async function dispatch(
       if (!isString(stage) || !(STAGES as readonly string[]).includes(stage))
         return err('bad setWorkSplit args')
       const clean = normalizeShares(shares)
-      const u = await requireUser()
+      // report: 在进行中的格子里分工 = 当场报工 —— 分了几件就算完成几件, 分满
+      // 了这一道就完成。件数已经按人记在分工里, 不再记一份给按的账号。
+      const report = body.report === true
+      const u = report ? await requireOwnStage(stage as Stage) : await requireUser()
       if (!canClickStage(u, stage as Stage))
         return err(`${stage} 不是你的工段`, 403)
       const partId = await resolvePartId(jobId, componentId)
@@ -3700,6 +3703,11 @@ async function dispatch(
         u.name,
         new Date().toISOString(),
       )
+      const total = clean.reduce((s, x) => s + x.qty, 0)
+      if (report && total > 0) {
+        await setStageDoneQty(jobId, componentId, stage as Stage, total, reportActor(u, body))
+        revalidateStage(jobId, stage as Stage)
+      }
       revalidatePath('/report')
       return Response.json(ok())
     }
