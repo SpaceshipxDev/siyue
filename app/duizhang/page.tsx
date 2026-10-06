@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { canSeeOrderLedger, canSeeReport } from '@/lib/auth'
 import { formatCny } from '@/lib/data'
 import { proxiedStorageUrl } from '@/lib/storage-url'
@@ -36,7 +37,7 @@ export const dynamic = 'force-dynamic'
 export default async function DuizhangPage({
   searchParams,
 }: {
-  searchParams: Promise<{ kind?: string; name?: string; m?: string }>
+  searchParams: Promise<{ kind?: string; name?: string; m?: string; q?: string }>
 }) {
   const params = await searchParams
   const {
@@ -52,6 +53,8 @@ export default async function DuizhangPage({
     record,
     vendorRecords,
     customerRecords,
+    jobQuery,
+    jobMatches,
     canApprove,
     canOpenLedger,
   } = await loadDuizhang(params)
@@ -76,6 +79,7 @@ export default async function DuizhangPage({
 
       <main className="w-full flex-1 px-4 py-6 print:p-0 md:px-10 md:py-8">
         <DuizhangBar
+          key={jobQuery}
           kind={kind}
           party={party}
           month={month}
@@ -85,6 +89,7 @@ export default async function DuizhangPage({
           canVendor={canVendor}
           sheet={sheet}
           exports={wholeApproved}
+          jobQuery={jobQuery}
         />
 
         {/* 这张纸认没认下来 —— 客户审批落应收。外协那边是勾着对的, 条和纸
@@ -103,7 +108,9 @@ export default async function DuizhangPage({
           />
         )}
 
-        {sheet && sheet.kind === 'vendor' ? (
+        {jobQuery && !sheet ? (
+          <JobMatches jobQuery={jobQuery} matches={jobMatches} />
+        ) : sheet && sheet.kind === 'vendor' ? (
           <VendorSheet
             key={`${sheet.party}|${month}`}
             sheet={sheet}
@@ -116,12 +123,13 @@ export default async function DuizhangPage({
           />
         ) : sheet && !wholeApproved ? (
           <CustomerSheet
-            key={`${sheet.party}|${month}`}
+            key={`${sheet.party}|${month}|${jobQuery}`}
             sheet={sheet}
             month={month}
             preparedBy={user.name}
             todayStr={todayStr}
             records={customerRecords}
+            initialQuery={jobQuery}
             canApprove={canApprove}
             canOpenLedger={canOpenLedger}
           />
@@ -131,6 +139,50 @@ export default async function DuizhangPage({
           <DuizhangPartyList kind={kind} month={month} parties={parties} />
         )}
       </main>
+    </div>
+  )
+}
+
+// ── 按工单号找: 对上好几处 (或者一处都没有) ─────────────────────────────────
+
+function JobMatches({
+  jobQuery,
+  matches,
+}: {
+  jobQuery: string
+  matches: { jobNo: string; customer: string; month: string; amountCny: number }[]
+}) {
+  if (matches.length === 0)
+    return (
+      <p className="py-24 text-center text-[13px] text-[var(--color-ink-3)]">
+        没找到工单号带「{jobQuery}」的出货 —— 还没出货的单不上对账单
+      </p>
+    )
+  return (
+    <div className="mx-auto mt-8 max-w-[620px]">
+      <p className="label">
+        「{jobQuery}」对上 {matches.length} 张 · 点一张打开它那个月的对账单
+      </p>
+      <div className="mt-2">
+        {matches.map((x) => (
+          <Link
+            key={`${x.customer}|${x.month}|${x.jobNo}`}
+            href={`/duizhang?name=${encodeURIComponent(x.customer)}&m=${x.month}&q=${encodeURIComponent(x.jobNo)}`}
+            className="flex items-baseline justify-between gap-4 border-b border-[var(--color-border)] px-1 py-3 transition-colors hover:bg-[var(--color-active-bg)]"
+          >
+            <span className="min-w-0 truncate">
+              <span className="mono text-[14px] text-[var(--color-ink)]">{x.jobNo}</span>
+              <span className="ml-3 text-[13px] text-[var(--color-ink-2)]">{x.customer}</span>
+            </span>
+            <span className="shrink-0 tabular-nums">
+              <span className="text-[12px] text-[var(--color-ink-3)]">{monthLabel(x.month)}</span>
+              <span className="ml-3 text-[14px] font-medium text-[var(--color-ink)]">
+                {formatCny(x.amountCny)}
+              </span>
+            </span>
+          </Link>
+        ))}
+      </div>
     </div>
   )
 }

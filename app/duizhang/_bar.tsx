@@ -22,8 +22,13 @@ import {
 // 对账页顶上那一条 —— 三个选择 (跟谁 · 哪个月 · 客户还是外协) 和两个出口
 // (PDF / Excel)。选择一变, 下面那张纸跟着变, 没有"生成"这一步。
 
-function href(kind: DuizhangKind, party: string, month: string): string {
+function href(kind: DuizhangKind, party: string, month: string, q = ''): string {
   const p = new URLSearchParams()
+  if (q) {
+    // 按工单号找: 客户、月份都由那张单定, 只带这一个。
+    p.set('q', q)
+    return `/duizhang?${p.toString()}`
+  }
   if (kind !== 'customer') p.set('kind', kind)
   if (party) p.set('name', party)
   p.set('m', month)
@@ -40,6 +45,7 @@ export function DuizhangBar({
   canVendor,
   sheet,
   exports = false,
+  jobQuery = '',
 }: {
   kind: DuizhangKind
   party: string
@@ -51,8 +57,11 @@ export function DuizhangBar({
   sheet: Duizhang | null
   /** 整月审过的客户对账单才在这一条上放导出 —— 按单号勾着对的, 导出跟着勾走 (_customer_sheet)。 */
   exports?: boolean
+  /** 按工单号找 —— 现在框里的那个号。 */
+  jobQuery?: string
 }) {
   const router = useRouter()
+  const [q, setQ] = useState(jobQuery)
   const go = (next: { kind?: DuizhangKind; party?: string; month?: string }) =>
     router.push(
       href(next.kind ?? kind, next.party ?? party, next.month ?? month),
@@ -93,6 +102,35 @@ export function DuizhangBar({
         searchPlaceholder={kind === 'customer' ? '找客户' : '找供应商'}
         triggerClass="min-w-[180px]"
       />
+
+      {/* 按工单号找 —— 不知道这张单是哪家、哪个月出的货, 直接打号。 */}
+      {kind === 'customer' && (
+        <span className="relative">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && q.trim()) router.push(href(kind, '', month, q.trim()))
+              if (e.key === 'Escape' && jobQuery) router.push(href(kind, party, month))
+            }}
+            placeholder="按工单号找，回车"
+            className="h-[34px] w-[170px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 pr-6 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
+          />
+          {jobQuery && (
+            <button
+              type="button"
+              aria-label="清掉工单号"
+              onClick={() => {
+                setQ('')
+                router.push(href(kind, party, month))
+              }}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[12px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
+            >
+              ✕
+            </button>
+          )}
+        </span>
+      )}
 
       {/* 月份 —— 对账是按月对的, 所以只有月, 没有起止两个日期框。 */}
       <div className="flex items-center gap-1">

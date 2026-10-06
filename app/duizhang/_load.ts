@@ -17,6 +17,7 @@ import {
   getVendors,
 } from '@/lib/db'
 import { shanghaiDay, today } from '@/lib/today'
+import { effectiveAmount } from '@/lib/finance'
 import {
   buildCustomerDuizhang,
   buildVendorDuizhang,
@@ -51,6 +52,14 @@ export type DuizhangLoad = {
   record: Receivable | Payable | null
   /** 客户: 这个月按单号勾着审过的几张应收单 —— 它们认过的单号已经不在纸上了。 */
   customerRecords: Receivable[]
+  /** 按工单号找 (客户): 输进来的那几个字; 没输是空。 */
+  jobQuery: string
+  /**
+   * 工单号对上的出货 —— 一个客户一个月一个工单号一条。只落在一个客户一个月
+   * 就直接打开那张对账单 (party / month 已经换成它的); 落在好几处, 页面列出
+   * 来让人点。
+   */
+  jobMatches: { jobNo: string; customer: string; month: string; amountCny: number }[]
   /**
    * 外协: 这一家这个月已经确认过的应付单 (一个月可以分几回对, 所以是一串)。
    * 它们认过的外协单已经不在对账单上了。
@@ -66,6 +75,8 @@ export async function loadDuizhang(params: {
   kind?: string
   name?: string
   m?: string
+  /** 按工单号找 (客户对账)。 */
+  q?: string
   /** 只要这几张 (逗号分开) —— 打印勾选的那几张用。外协是外协单, 客户是交货单号。 */
   sel?: string
 }): Promise<DuizhangLoad> {
@@ -78,9 +89,10 @@ export async function loadDuizhang(params: {
   if (kind === 'vendor' && !canVendor) redirect(canCustomer ? '/duizhang' : '/')
 
   const todayStr = today()
-  const month = isMonth(params.m) ? params.m : todayStr.slice(0, 7)
-  const { from, to } = monthBounds(month)
-  const party = (params.name ?? '').trim()
+  let month = isMonth(params.m) ? params.m : todayStr.slice(0, 7)
+  let party = (params.name ?? '').trim()
+  const jobQuery = kind === 'customer' ? (params.q ?? '').trim().slice(0, 40) : ''
+  let jobMatches: DuizhangLoad['jobMatches'] = []
 
   let sheet: Duizhang | null = null
   let parties: DuizhangParty[] = []
@@ -92,6 +104,28 @@ export async function loadDuizhang(params: {
     : undefined
   if (kind === 'customer') {
     const rows = await getFinanceRows()
+    // 按工单号找 —— 不分月、不分客户, 在所有出货里找。
+    if (jobQuery) {
+      const needle = jobQuery.toLowerCase()
+      const byKey = new Map<string, DuizhangLoad['jobMatches'][number]>()
+      for (const r of rows) {
+        if (!r.jobNo.toLowerCase().includes(needle)) continue
+        const m = shanghaiDay(r.shipDate).slice(0, 7)
+        const k = `${r.customer.trim()}|${m}|${r.jobNo}`
+        const amt = effectiveAmount(r) ?? 0
+        const hit = byKey.get(k)
+        if (hit) hit.amountCny += amt
+        else byKey.set(k, { jobNo: r.jobNo, customer: r.customer.trim(), month: m, amountCny: amt })
+      }
+      jobMatches = [...byKey.values()].sort(
+        (a, b) => b.month.localeCompare(a.month) || a.jobNo.localeCompare(b.jobNo),
+      )
+      if (new Set(jobMatches.map((x) => `${x.customer}|${x.month}`)).size === 1) {
+        party = jobMatches[0].customer
+        month = jobMatches[0].month
+      }
+    }
+    const { from, to } = monthBounds(month)
     parties = customerOptions(rows, from, to, shanghaiDay)
     if (party) {
       // 零件级明细 —— 只有真的选了客户才去取 (四步窄查询, 见 lib/db)。
@@ -109,6 +143,7 @@ export async function loadDuizhang(params: {
         sheet = pickCustomerLines(sheet, (no) => !settled.jobNos.has(no))
     }
   } else {
+    const { from, to } = monthBounds(month)
     const [rows, vendors, payables] = await Promise.all([
       getOutsourceBlockRows(),
       getVendors(),
@@ -147,6 +182,8 @@ export async function loadDuizhang(params: {
     record,
     vendorRecords,
     customerRecords,
+    jobQuery,
+    jobMatches,
     canApprove: canSettleAccounts(user),
     canOpenLedger: user.role === 'commerce',
   }

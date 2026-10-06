@@ -42,6 +42,7 @@ export function CustomerSheet({
   records,
   canApprove,
   canOpenLedger,
+  initialQuery = '',
 }: {
   sheet: Duizhang
   month: string
@@ -51,11 +52,13 @@ export function CustomerSheet({
   records: Receivable[]
   canApprove: boolean
   canOpenLedger: boolean
+  /** 从顶上「按工单号找」过来的 —— 一打开就只勾对上的那几张。 */
+  initialQuery?: string
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const [error, setError] = useState<string | null>(null)
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initialQuery)
 
   // 一个单号 = 一组行, 顺序跟纸上一致。
   const groups = useMemo(() => {
@@ -78,7 +81,11 @@ export function CustomerSheet({
     () => new Set(groups.filter((g) => g.priced).map((g) => g.no)),
     [groups],
   )
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(priced))
+  const [picked, setPicked] = useState<Set<string>>(() => {
+    const q = initialQuery.toLowerCase()
+    const hits = q ? [...priced].filter((no) => no.toLowerCase().includes(q)) : []
+    return new Set(hits.length > 0 ? hits : priced)
+  })
 
   const chosen = groups.filter((g) => picked.has(g.no))
   const chosenLines = chosen.flatMap((g) => g.lines)
@@ -109,7 +116,9 @@ export function CustomerSheet({
     const next = new Set<string>()
     const notFound: string[] = []
     for (const w of words) {
-      const hits = groups.filter((g) => priced.has(g.no) && g.no.includes(w))
+      const hits = groups.filter(
+        (g) => priced.has(g.no) && g.no.toLowerCase().includes(w.toLowerCase()),
+      )
       if (hits.length === 0) notFound.push(w)
       for (const g of hits) next.add(g.no)
     }
