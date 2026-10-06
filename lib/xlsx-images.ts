@@ -180,6 +180,32 @@ function parseCellImagesIndex(xml: string): Map<string, string> {
   return out
 }
 
+// 看不见的浮动图片: 表格模板从老单子复制过来时, 会带着一批高度或宽度为 0
+// 的旧图, 正好压在 图纸 那一列的格子上。WPS 里看不见, 但以前照样读进来,
+// 还盖掉了格子里真正的 DISPIMG 图 —— 表现就是"导进来的图片和我清单上的对
+// 不上" (2026-10 越侬 MES 上传模板)。
+function isInvisibleAnchor(block: string, from: string): boolean {
+  const num = (xml: string, tag: string): number | null => {
+    const v = new RegExp(
+      `<(?:[A-Za-z0-9_]+:)?${tag}>(-?\\d+)</(?:[A-Za-z0-9_]+:)?${tag}>`,
+    ).exec(xml)?.[1]
+    return v == null ? null : parseInt(v, 10)
+  }
+  const to = /<(?:[A-Za-z0-9_]+:)?to>([\s\S]*?)<\/(?:[A-Za-z0-9_]+:)?to>/.exec(block)?.[1]
+  if (to) {
+    // twoCellAnchor: from 和 to 落在同一行同一偏移 = 高度 0; 列同理。
+    const same = (cell: string, off: string) => {
+      const a = num(from, cell), b = num(to, cell)
+      const ao = num(from, off), bo = num(to, off)
+      return a != null && a === b && ao != null && ao === bo
+    }
+    return same('row', 'rowOff') || same('col', 'colOff')
+  }
+  // oneCellAnchor: 尺寸写在 <xdr:ext cx cy/> 里。
+  const ext = /<(?:[A-Za-z0-9_]+:)?ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(block)
+  return !!ext && (ext[1] === '0' || ext[2] === '0')
+}
+
 // 普通浮动图片: 每个 twoCellAnchor / oneCellAnchor 里带一张图, 锚在 from 那
 // 个单元格上。
 //
@@ -212,6 +238,7 @@ function parseDrawingAnchors(
       block,
     )?.[1]
     if (colStr == null || rowStr == null || !embed) continue
+    if (isInvisibleAnchor(block, from)) continue
     out.push({ row: parseInt(rowStr, 10), col: parseInt(colStr, 10), embed })
   }
   return out
@@ -303,12 +330,15 @@ export function extractWorkbookImages(buf: ArrayBuffer): WorkbookImages {
     if (!sheetXml) continue
 
     // (a) DISPIMG cells
+    // 格子里自己的图 (DISPIMG) 就是这一格的内容; 浮在同一格上的图不能盖掉它。
+    const dispimgCells = new Set<string>()
     if (dispimgRefById.size > 0) {
       for (const cell of parseDispimgCells(sheetXml)) {
         const ref = dispimgRefById.get(cell.imageId)
         const pos = parseCellAddr(cell.addr)
         if (!ref || !pos) continue
         anchors.push({ sheet: sheet.name, row: pos.row, col: pos.col, imageRef: ref })
+        dispimgCells.add(`${pos.row}:${pos.col}`)
       }
     }
 
@@ -330,6 +360,7 @@ export function extractWorkbookImages(buf: ArrayBuffer): WorkbookImages {
         ? new Map(parseRels(drawingRelsXml).map((r) => [r.id, r.target]))
         : new Map<string, string>()
       for (const a of parseDrawingAnchors(drawingXml)) {
+        if (dispimgCells.has(`${a.row}:${a.col}`)) continue
         const target = drawingRelTargets.get(a.embed)
         if (!target) continue
         const mediaPath = resolveRel(dirOf(drawingPath), target)
