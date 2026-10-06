@@ -3589,7 +3589,7 @@ async function applyReceivableSettle(
   // 审的只认它勾的那几个单号。
   const activeByKey = new Map<string, (typeof receivables)[number][]>()
   for (const r of receivables) {
-    if (r.voidedAt) continue
+    if (r.voidedAt || r.manual) continue // 补录的老账不给订单打「已对账」
     const k = `${r.customer}|${r.period}`
     activeByKey.set(k, [...(activeByKey.get(k) ?? []), r])
   }

@@ -44,6 +44,8 @@ export type Receivable = {
    * 先的做法)。一个月可以分几回审, 认过的单号不再上对账单。
    */
   jobNos?: string[]
+  /** 补录的老账 (不是对账单审出来的)。 */
+  manual?: SettleManual
   approvedBy: string
   approvedAt: string // ISO
   dueDate: string // 约定回款日 YYYY-MM-DD —— 审批日 + 30 天 (月结)
@@ -59,6 +61,16 @@ export type PaymentProof = {
   url: string
   filename: string
   contentType?: string
+}
+
+/**
+ * 补录 —— 系统上线以前的老账, 没有对账单可审, 财务手动落一张。跟对账单不挂
+ * 钩: 不算哪个月对过账、不给订单打「已对账」, 只是一笔"谁欠谁多少"。
+ */
+export type SettleManual = {
+  note?: string
+  /** 那张账的凭证 —— 老对账单、发票、收据的照片或 PDF。 */
+  proof?: PaymentProof
 }
 
 export type PayablePayment = ReceivablePayment & {
@@ -82,6 +94,8 @@ export type Payable = {
    * 次对账不再出现。早先整月认的应付单没有这一格 (那一整个月都算认过了)。
    */
   blockIds?: string[]
+  /** 补录的老账 (不是对账单确认出来的)。 */
+  manual?: SettleManual
   voidedAt?: string
   voidedBy?: string
 }
@@ -148,9 +162,26 @@ export function customerSettledFrom(
   period: string,
 ): { whole?: Receivable; records: Receivable[]; jobNos: Set<string> } {
   const records = rows.filter(
-    (r) => !r.voidedAt && r.customer === customer && r.period === period,
+    (r) => !r.voidedAt && !r.manual && r.customer === customer && r.period === period,
   )
   const whole = records.find((r) => !r.jobNos)
   const jobNos = new Set(records.flatMap((r) => r.jobNos ?? []))
   return { whole, records, jobNos }
+}
+
+/** 补录单的那一格, 从存的 JSON 里读回来 (两个存取共用)。 */
+export function readSettleManual(v: unknown): SettleManual | undefined {
+  if (typeof v !== 'object' || v === null) return undefined
+  const o = v as Record<string, unknown>
+  const note = typeof o.note === 'string' && o.note.trim() ? o.note.trim() : undefined
+  const p = o.proof as Record<string, unknown> | undefined
+  const proof =
+    p && typeof p === 'object' && typeof p.url === 'string' && p.url
+      ? {
+          url: p.url,
+          filename: typeof p.filename === 'string' && p.filename ? p.filename : '凭证',
+          contentType: typeof p.contentType === 'string' ? p.contentType : undefined,
+        }
+      : undefined
+  return { note, proof }
 }

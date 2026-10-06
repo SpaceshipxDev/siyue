@@ -627,7 +627,6 @@ export function ComponentText({
     ? {
         col: `${field}:${jobId}`,
         cellId: componentId,
-        text: true,
         commitRaw: (raw) => {
           if (raw === (shown ?? '')) return
           const before = shown
@@ -1102,8 +1101,6 @@ type PasteFill = {
   col: string
   cellId: string
   commitRaw: (raw: string) => void
-  /** 文字格 (料号 / 工艺): 只认表格里复制来的一列, 普通多行文字照常贴进这一格。 */
-  text?: boolean
 }
 type FillEl = HTMLInputElement | HTMLTextAreaElement
 type PasteTarget = { el: FillEl; commitRaw: (raw: string) => void }
@@ -1164,9 +1161,6 @@ function parseTsvColumn(text: string): string[] {
   return rows.map((r) => r.trim())
 }
 
-// 「复制整列」最后一次放进剪贴板的那一段 —— 贴回文字格时认得出是一整列。
-let lastColumnCopy = ''
-
 function cellsOf(col: string): PasteTarget[] {
   return [...(pasteCols.get(col)?.values() ?? [])]
     .filter((c) => c.el.isConnected)
@@ -1188,7 +1182,6 @@ export function CopyColumn({ col, label }: { col: string; label: string }) {
       .join('\n')
     try {
       await navigator.clipboard.writeText(`${tsv}\n`)
-      lastColumnCopy = `${tsv}\n`
       showToast(`已复制${label} · ${values.length} 行`)
     } catch {
       showToast('复制不了 · 浏览器没给剪贴板权限', 'warning')
@@ -1239,14 +1232,9 @@ function usePasteFill(
     // The 1-line case must be handled here too — Chrome silently drops a
     // paste containing "\n" into a type=number input.
     if (!text.includes('\n') && !text.includes('\r')) return
-    // 文字格里打几行字是常事 —— 只有真从表格 (Excel/WPS/这里的「复制」) 来
-    // 的才整列填, 别的照常贴进这一格。
-    if (
-      fill.text &&
-      text !== lastColumnCopy &&
-      !e.clipboardData.getData('text/html').includes('<table')
-    )
-      return
+    // 料号 / 工艺 也一样: 复制来的是几行 (表格里一列、微信里一串、记事本
+    // 里几行), 就一行一格往下填。表格里一格自己带换行的 (Excel 用引号包着)
+    // 还是算一格。
     // A clipboard wider than one column (an Excel selection spanning 数量+单价,
     // say) pastes its FIRST column — the one under the cursor is unknowable.
     const values = parseTsvColumn(text)

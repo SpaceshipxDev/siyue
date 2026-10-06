@@ -34,7 +34,8 @@ export async function POST(request: NextRequest) {
   if (file.size > MAX_BYTES) {
     return Response.json({ ok: false, error: '文件过大（上限 16MB）' }, { status: 413 })
   }
-  if (!(await getPayable(payableId))) {
+  // 'manual' —— 补录老账时挂的凭证 (应收、应付都走这里), 那时还没有单子。
+  if (payableId !== 'manual' && !(await getPayable(payableId))) {
     return Response.json({ ok: false, error: '找不到这张应付单' }, { status: 404 })
   }
 

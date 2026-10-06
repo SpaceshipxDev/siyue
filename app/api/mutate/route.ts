@@ -307,12 +307,14 @@ import {
   getPayables,
   vendorSettledFrom,
   createPayable,
+  createManualPayable,
   deletePayablePayment,
   voidPayable,
 } from '@/lib/payable'
 import {
   addReceivablePayment,
   createReceivable,
+  createManualReceivable,
   deleteReceivablePayment,
   voidReceivable,
 } from '@/lib/receivable'
@@ -2770,6 +2772,51 @@ async function dispatch(
       } catch (e) {
         return err(e instanceof Error ? e.message : '确认不上')
       }
+    }
+
+    // 补录 —— 系统上线以前的老账, 没有对账单可审, 财务手动落一张应收 / 应付。
+    // 不跟对账单挂钩; 凭证 (老对账单 / 发票照片) 先经 /api/payable-proof 存好,
+    // 这里只收我们自己桶里的地址。
+    case 'addManualSettle': {
+      const { which, party, period, amountCny, dueDate } = body
+      if (which !== 'receivable' && which !== 'payable') return err('bad addManualSettle args')
+      if (!isString(party) || !party.trim()) return err(which === 'receivable' ? '先填客户' : '先填供应商')
+      if (!isString(period) || !isMonth(period)) return err('月份不对')
+      if (
+        typeof amountCny !== 'number' ||
+        !Number.isFinite(amountCny) ||
+        amountCny <= 0 ||
+        amountCny > 100_000_000
+      )
+        return err('金额要填一个正数')
+      if (!isString(dueDate) || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return err('约定日期不对')
+      const u = await requireUser()
+      if (!canSettleAccounts(u)) return err('补录要找于海伟或财务', 403)
+      const note = isString(body.note) ? body.note.trim().slice(0, 200) : ''
+      let proof: { url: string; filename: string; contentType?: string } | undefined
+      const pr = body.proof as Record<string, unknown> | undefined
+      if (pr && typeof pr === 'object' && isString(pr.url)) {
+        if (!pr.url.startsWith('/api/img/finance/payables/proofs/')) return err('凭证地址不对')
+        proof = {
+          url: pr.url,
+          filename: isString(pr.filename) ? pr.filename.slice(0, 120) : '凭证',
+          contentType: isString(pr.contentType) ? pr.contentType : undefined,
+        }
+      }
+      const input = {
+        period,
+        amountCny,
+        dueDate,
+        manual: { note: note || undefined, proof },
+        by: u.name,
+        nowIso: new Date().toISOString(),
+      }
+      const r =
+        which === 'receivable'
+          ? await createManualReceivable({ customer: party.trim(), ...input })
+          : await createManualPayable({ vendor: party.trim(), ...input })
+      revalidatePath('/finance')
+      return Response.json(ok({ id: r.id, no: r.no }))
     }
 
     case 'addPayablePayment': {

@@ -17,6 +17,7 @@ import {
   settleStatus,
   type PayablePayment,
   type PaymentProof,
+  type SettleManual,
   type SettleStatus,
 } from '@/lib/settle-shared'
 
@@ -49,6 +50,8 @@ export type SettleRow = {
   payments: PayablePayment[]
   /** 应付单认的那几张外协单 —— 「看对账单」重印的就是它们。 */
   blockIds?: string[]
+  /** 补录的老账 —— 备注 + 凭证, 不挂对账单。 */
+  manual?: SettleManual
   voidedAt?: string
   voidedBy?: string
 }
@@ -84,7 +87,7 @@ const COPY = {
     delKind: 'deleteReceivablePayment',
     voidKind: 'voidReceivable',
     foot:
-      '每一张都是在「对账」里审批通过的那张对账单——金额是审批那一刻的合计，之后出货单再改也不会跟着变。约定回款日是审批后 30 天，过了就标逾期。',
+      '每一张都是在「对账」里审批通过的那张对账单——金额是审批那一刻的合计，之后出货单再改也不会跟着变。约定回款日是审批后 30 天，过了就标逾期。系统以前的老账点「补录」手动补一张。',
   },
   payable: {
     no: '应付单号',
@@ -116,7 +119,7 @@ const COPY = {
     delKind: 'deletePayablePayment',
     voidKind: 'voidPayable',
     foot:
-      '每一张都是在「对账 · 供应商」里确认过的外协对账单——金额是确认那一刻的合计。约定付款日是确认后 30 天。付款时传一张回单，日期金额会自己填好，那张回单就挂在这笔付款上。',
+      '每一张都是在「对账 · 供应商」里确认过的外协对账单——金额是确认那一刻的合计。约定付款日是确认后 30 天。付款时传一张回单，日期金额会自己填好，那张回单就挂在这笔付款上。系统以前的老账点「补录」手动补一张。',
   },
 } as const
 
@@ -148,6 +151,11 @@ export function SettleBoard({
   })
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<string | null>(openId ?? null)
+  const [adding, setAdding] = useState(false)
+  const parties = useMemo(
+    () => [...new Set(rows.map((r) => r.party).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh')),
+    [rows],
+  )
 
   const month = todayStr.slice(0, 7)
 
@@ -231,8 +239,32 @@ export function SettleBoard({
             placeholder={`搜索 · ${c.party} / 单号`}
             className="h-9 w-[180px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
           />
+          {canEdit && !adding && (
+            <button
+              type="button"
+              onClick={() => setAdding(true)}
+              title="系统以前的老账 —— 手动补一张，挂上凭证"
+              className="h-9 rounded-[2px] border border-[var(--color-border-strong)] px-3 text-[13px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]"
+            >
+              ＋ 补录
+            </button>
+          )}
         </div>
       </div>
+
+      {adding && (
+        <ManualForm
+          kind={kind}
+          parties={parties}
+          todayStr={todayStr}
+          onClose={() => setAdding(false)}
+          onAdded={(id) => {
+            setAdding(false)
+            setFilter('all')
+            setOpen(id)
+          }}
+        />
+      )}
 
       <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
         <div
@@ -275,6 +307,9 @@ export function SettleBoard({
                   </span>
                   <span className="min-w-0 truncate text-[14px] font-medium tracking-tight text-[var(--color-ink)]">
                     {r.party}
+                    {r.manual && (
+                      <span className="ml-2 text-[11px] font-normal text-[var(--color-ink-4)]">补录</span>
+                    )}
                     <span className="mono ml-2 text-[11.5px] font-normal text-[var(--color-ink-4)] md:hidden">
                       {r.no}
                     </span>
@@ -689,7 +724,23 @@ function Detail({
       )}
 
       <div className="mt-4 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-[11.5px] text-[var(--color-ink-4)]">
-        {reprint ? (
+        {r.manual ? (
+          <>
+            {r.manual.proof && (
+              <a
+                href={proxiedStorageUrl(r.manual.proof.url)}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[12.5px] font-medium text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
+              >
+                看凭证 →
+              </a>
+            )}
+            <span className="text-[12px] text-[var(--color-ink-3)]">
+              补录{r.manual.note ? ` · ${r.manual.note}` : ''}
+            </span>
+          </>
+        ) : reprint ? (
           <a
             href={sheetHref}
             target="_blank"
@@ -706,11 +757,13 @@ function Detail({
             看对账单 →
           </Link>
         )}
+        {!r.manual && (
+          <span>
+            {r.lineCount} 行 · {r.totalQty} 件
+          </span>
+        )}
         <span>
-          {r.lineCount} 行 · {r.totalQty} 件
-        </span>
-        <span>
-          {r.approvedBy} {c.by}于 {r.approvedAt.slice(0, 10)}
+          {r.approvedBy} {r.manual ? '补录' : c.by}于 {r.approvedAt.slice(0, 10)}
         </span>
         <span>约定 {r.dueDate}</span>
         {r.voidedAt && (
@@ -751,6 +804,204 @@ function Detail({
           </span>
         )}
       </div>
+    </div>
+  )
+}
+
+// 补录 —— 系统上线以前的老账: 对方、哪个月的账、多少钱、约定哪天收/付, 一句
+// 备注, 再挂一张凭证 (老对账单 / 发票 / 收据的照片或 PDF, 也可以直接粘贴截图)。
+// 落下来就是一张普通的应收 / 应付单, 以后照样记回款、付款。
+function ManualForm({
+  kind,
+  parties,
+  todayStr,
+  onClose,
+  onAdded,
+}: {
+  kind: SettleKind
+  parties: string[]
+  todayStr: string
+  onClose: () => void
+  onAdded: (id: string) => void
+}) {
+  const c = COPY[kind]
+  const router = useRouter()
+  const [pending, start] = useTransition()
+  const [party, setParty] = useState('')
+  const [period, setPeriod] = useState(todayStr.slice(0, 7))
+  const [amount, setAmount] = useState('')
+  const [due, setDue] = useState(todayStr)
+  const [note, setNote] = useState('')
+  const [proof, setProof] = useState<PaymentProof | null>(null)
+  const [reading, setReading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const zoneRef = useRef<HTMLDivElement>(null)
+
+  const upload = useCallback(async (file: File) => {
+    setError(null)
+    setReading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('payableId', 'manual')
+      const res = await fetch(withBase('/api/payable-proof'), { method: 'POST', body: fd })
+      const data = (await res.json()) as
+        | { ok: true; proof: PaymentProof; extracted: { amountCny: number | null } | null }
+        | { ok: false; error: string }
+      if (!data.ok) return setError(data.error)
+      setProof(data.proof)
+      // 金额还空着就用凭证上读出来的数先填上, 人看一眼。
+      if (data.extracted?.amountCny) setAmount((cur) => cur || String(data.extracted!.amountCny))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '传不上')
+    } finally {
+      setReading(false)
+    }
+  }, [])
+  usePasteImage(zoneRef, (f) => void upload(f), true)
+
+  function save() {
+    const n = Number(amount.trim().replace(/[¥,，元\s]/g, ''))
+    if (!party.trim()) return setError(`先填${c.party}`)
+    if (!/^\d{4}-\d{2}$/.test(period)) return setError('月份不对')
+    if (!Number.isFinite(n) || n <= 0) return setError(`${c.amount}金额要填一个正数`)
+    setError(null)
+    start(async () => {
+      try {
+        const r = await mutate<{ id: string; no: string }>({
+          kind: 'addManualSettle',
+          which: kind,
+          party: party.trim(),
+          period,
+          amountCny: n,
+          dueDate: due,
+          note: note.trim() || undefined,
+          ...(proof ? { proof } : {}),
+        })
+        showToast(`补录好了${'data' in r && r.data ? ` · ${r.data.no}` : ''}`)
+        router.refresh()
+        if ('data' in r && r.data) onAdded(r.data.id)
+        else onClose()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '记不上')
+      }
+    })
+  }
+
+  const inp =
+    'h-9 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]'
+  const listId = `manual-parties-${kind}`
+
+  return (
+    <div
+      ref={zoneRef}
+      className="mb-5 rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-4 py-4 md:px-5"
+    >
+      <p className="label mb-3">补录{c.amount}单 · 系统以前的老账</p>
+      <div className="flex flex-wrap items-center gap-2.5">
+        <input
+          value={party}
+          onChange={(e) => setParty(e.target.value)}
+          list={listId}
+          placeholder={c.party}
+          autoFocus
+          className={`${inp} w-[180px]`}
+        />
+        <datalist id={listId}>
+          {parties.map((p) => (
+            <option key={p} value={p} />
+          ))}
+        </datalist>
+        <label className="flex items-center gap-1.5 text-[12px] text-[var(--color-ink-3)]">
+          哪个月的账
+          <input
+            type="month"
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+            className={`${inp} w-[140px]`}
+          />
+        </label>
+        <input
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder={`${c.amount}金额`}
+          inputMode="decimal"
+          className={`mono ${inp} w-[120px] text-right`}
+        />
+        <span className="flex items-center gap-1.5 text-[12px] text-[var(--color-ink-3)]">
+          约定
+          <DatePop value={due} onChange={(d) => d && setDue(d)} portal triggerClass="text-[13px]" />
+        </span>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-2.5">
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,application/pdf"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            e.target.value = ''
+            if (f) void upload(f)
+          }}
+        />
+        {proof ? (
+          <span className="inline-flex items-center gap-2">
+            <a
+              href={proxiedStorageUrl(proof.url)}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[12.5px] text-[var(--color-ink-2)] underline-offset-2 hover:underline"
+            >
+              {proof.filename}
+            </a>
+            <button
+              type="button"
+              onClick={() => setProof(null)}
+              aria-label="拿掉这张凭证"
+              className="text-[12px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+            >
+              ×
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={reading}
+            title="老对账单 / 发票 / 收据的照片或 PDF（也可以 Ctrl+V 粘贴截图）"
+            className="h-9 shrink-0 rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-3 text-[12.5px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] disabled:opacity-60"
+          >
+            {reading ? '传凭证中…' : '传凭证'}
+          </button>
+        )}
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && save()}
+          placeholder="备注 · 哪笔老账…"
+          className={`${inp} min-w-[160px] flex-1 md:max-w-[320px]`}
+        />
+        <span className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-9 rounded-[2px] border border-[var(--color-border)] px-3 text-[13px] text-[var(--color-ink-2)] hover:bg-[#f1eee4]"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={save}
+            disabled={pending || reading}
+            className="h-9 rounded-[2px] bg-[var(--color-ink)] px-4 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
+          >
+            {pending ? '补录中…' : '补录'}
+          </button>
+        </span>
+      </div>
+      {error && <p className="mt-2 text-[12px] text-[var(--color-overdue)]">{error}</p>}
     </div>
   )
 }

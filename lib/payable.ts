@@ -4,11 +4,13 @@ import { proxiedKeyUrl } from './storage-url'
 import {
   addDays,
   nextSettleNo,
+  readSettleManual,
   settlePaid,
   SETTLE_TERM_DAYS,
   type Payable,
   type PayablePayment,
   type PaymentProof,
+  type SettleManual,
 } from './settle-shared'
 import type { VendorSettled } from './duizhang'
 
@@ -85,6 +87,7 @@ function normalize(raw: unknown): Payable[] {
       approvedAt: str(r.approvedAt),
       dueDate: str(r.dueDate),
       payments,
+      ...(r.manual ? { manual: readSettleManual(r.manual) } : null),
       blockIds: Array.isArray(r.blockIds)
         ? (r.blockIds as unknown[]).filter((x): x is string => typeof x === 'string')
         : undefined,
@@ -133,7 +136,8 @@ export function vendorSettledFrom(payables: Payable[], vendor: string): VendorSe
   const blockIds = new Set<string>()
   const legacyMonths = new Set<string>()
   for (const p of payables) {
-    if (p.voidedAt || p.vendor !== vendor) continue
+    // 补录的老账不认任何外协单。
+    if (p.voidedAt || p.manual || p.vendor !== vendor) continue
     if (p.blockIds) for (const id of p.blockIds) blockIds.add(id)
     else legacyMonths.add(p.period)
   }
@@ -179,6 +183,41 @@ export async function createPayable(input: {
       dueDate: addDays(input.todayYmd, SETTLE_TERM_DAYS),
       payments: [],
       blockIds: input.blockIds,
+    }
+    rows.push(row)
+    await write(rows)
+    return row
+  })
+}
+
+/**
+ * 补录一张应付单 —— 系统上线以前欠外协的老账。不认任何外协单, 金额、约定付款
+ * 日都是财务手填的; 以后付款照样一笔一笔往上记 (每笔可以挂回单)。
+ */
+export async function createManualPayable(input: {
+  vendor: string
+  period: string
+  amountCny: number
+  dueDate: string
+  manual: SettleManual
+  by: string
+  nowIso: string
+}): Promise<Payable> {
+  return withLock(async () => {
+    const rows = await read()
+    const row: Payable = {
+      id: crypto.randomUUID(),
+      no: nextSettleNo('YF', input.period, rows),
+      vendor: input.vendor,
+      period: input.period,
+      amountCny: money(input.amountCny),
+      lineCount: 0,
+      totalQty: 0,
+      manual: input.manual,
+      approvedBy: input.by,
+      approvedAt: input.nowIso,
+      dueDate: input.dueDate,
+      payments: [],
     }
     rows.push(row)
     await write(rows)

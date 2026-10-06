@@ -3,10 +3,12 @@ import { supabase, STORAGE_BUCKET } from './supabase'
 import {
   addDays,
   nextSettleNo,
+  readSettleManual,
   settlePaid,
   SETTLE_TERM_DAYS,
   type Receivable,
   type ReceivablePayment,
+  type SettleManual,
 } from './settle-shared'
 
 /*
@@ -68,6 +70,7 @@ function normalize(raw: unknown): Receivable[] {
       amountCny: money(r.amountCny),
       lineCount: typeof r.lineCount === 'number' ? r.lineCount : 0,
       totalQty: typeof r.totalQty === 'number' ? r.totalQty : 0,
+      ...(r.manual ? { manual: readSettleManual(r.manual) } : null),
       ...(Array.isArray(r.jobNos)
         ? { jobNos: (r.jobNos as unknown[]).filter((x): x is string => typeof x === 'string') }
         : null),
@@ -116,7 +119,7 @@ export async function findActiveReceivable(
 ): Promise<Receivable | undefined> {
   const rows = await read()
   const mine = rows.filter(
-    (r) => r.customer === customer && r.period === period && !r.voidedAt,
+    (r) => r.customer === customer && r.period === period && !r.voidedAt && !r.manual,
   )
   return mine.find((r) => !r.jobNos) ?? mine[0]
 }
@@ -149,6 +152,7 @@ export async function createReceivable(input: {
         r.customer === input.customer &&
         r.period === input.period &&
         !r.voidedAt &&
+        !r.manual &&
         (!want || !r.jobNos || r.jobNos.some((n) => want.has(n))),
     )
     if (dup) throw new Error(`勾的单里有已经审批过的 —— 应收单 ${dup.no}，刷新再选`)
@@ -165,6 +169,41 @@ export async function createReceivable(input: {
       approvedBy: input.approvedBy,
       approvedAt: input.nowIso,
       dueDate: addDays(input.todayYmd, SETTLE_TERM_DAYS),
+      payments: [],
+    }
+    rows.push(row)
+    await write(rows)
+    return row
+  })
+}
+
+/**
+ * 补录一张应收单 —— 系统上线以前的老账。不跟对账单挂钩, 金额、约定回款日都是
+ * 财务手填的; 以后回款照样一笔一笔往上记。
+ */
+export async function createManualReceivable(input: {
+  customer: string
+  period: string
+  amountCny: number
+  dueDate: string
+  manual: SettleManual
+  by: string
+  nowIso: string
+}): Promise<Receivable> {
+  return withLock(async () => {
+    const rows = await read()
+    const row: Receivable = {
+      id: crypto.randomUUID(),
+      no: nextSettleNo('YS', input.period, rows),
+      customer: input.customer,
+      period: input.period,
+      amountCny: money(input.amountCny),
+      lineCount: 0,
+      totalQty: 0,
+      manual: input.manual,
+      approvedBy: input.by,
+      approvedAt: input.nowIso,
+      dueDate: input.dueDate,
       payments: [],
     }
     rows.push(row)
