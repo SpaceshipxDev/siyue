@@ -67,6 +67,7 @@ import {
   ComponentNotes,
   ComponentQty,
   ComponentText,
+  CopyColumn,
   ComponentUnitPrice,
   JobDueDate,
   JobMoneyPosition,
@@ -767,6 +768,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
             <>
               <PartsSheetCols canEditFields={canEditFields} showMoney={showMoney} />
               <PartsSheetHead
+                jobId={job.id}
                 myStage={myStage}
                 canEditFields={canEditFields}
                 showMoney={showMoney}
@@ -778,6 +780,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           <table className="sheet w-full text-left text-[13px]">
             <PartsSheetCols canEditFields={canEditFields} showMoney={showMoney} />
             <PartsSheetHead
+              jobId={job.id}
               myStage={myStage}
               canEditFields={canEditFields}
               showMoney={showMoney}
@@ -987,6 +990,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           componentId={c.id}
                           field="partNo"
                           value={c.partNo}
+                          columnPaste
                           placeholder="—"
                           className="mono text-[12px] text-[var(--color-ink-2)]"
                         />
@@ -1003,6 +1007,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           componentId={c.id}
                           field="process"
                           value={c.process}
+                          columnPaste
                           placeholder="—"
                           multiline
                           className="text-[12px] text-[var(--color-ink-2)] leading-snug"
@@ -1310,11 +1315,13 @@ function PartsSheetCols({
 // status funnels (their menus would be clipped by the strip) and the
 // data-attributes ComponentsScrollArea uses to find the real header.
 function PartsSheetHead({
+  jobId,
   myStage,
   canEditFields,
   showMoney,
   pinned = false,
 }: {
+  jobId: string
   myStage: string | null | undefined
   canEditFields: boolean
   showMoney: boolean
@@ -1346,8 +1353,15 @@ function PartsSheetHead({
         >
           零件
         </th>
-        <th className="px-4 py-3 label whitespace-nowrap">料号</th>
-        <th className="px-4 py-3 label whitespace-nowrap">加工工艺</th>
+        {/* 料号 · 加工工艺 —— 整列复制 / 整列粘贴 (能改的人才有, 格子才收粘贴)。 */}
+        <th className="px-4 py-3 label whitespace-nowrap">
+          料号
+          {canEditFields && <CopyColumn col={`partNo:${jobId}`} label="料号" />}
+        </th>
+        <th className="px-4 py-3 label whitespace-nowrap">
+          加工工艺
+          {canEditFields && <CopyColumn col={`process:${jobId}`} label="加工工艺" />}
+        </th>
         <th className="px-4 py-3 text-right label whitespace-nowrap">数量</th>
         <th className="px-4 py-3 label whitespace-nowrap">材料</th>
         <th className="px-4 py-3 label whitespace-nowrap">表面处理</th>

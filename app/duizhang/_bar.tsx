@@ -39,6 +39,7 @@ export function DuizhangBar({
   canCustomer,
   canVendor,
   sheet,
+  exports = false,
 }: {
   kind: DuizhangKind
   party: string
@@ -48,6 +49,8 @@ export function DuizhangBar({
   canCustomer: boolean
   canVendor: boolean
   sheet: Duizhang | null
+  /** 整月审过的客户对账单才在这一条上放导出 —— 按单号勾着对的, 导出跟着勾走 (_customer_sheet)。 */
+  exports?: boolean
 }) {
   const router = useRouter()
   const go = (next: { kind?: DuizhangKind; party?: string; month?: string }) =>
@@ -104,8 +107,8 @@ export function DuizhangBar({
         </Step>
       </div>
 
-      {/* 外协那边的导出和打印跟着勾选走, 放在对账单上面那一条里 (_vendor_sheet)。 */}
-      {sheet && kind === 'customer' && (
+      {/* 勾着对的 (外协、客户) 导出和打印跟着勾选走, 放在对账单上面那一条里。 */}
+      {sheet && kind === 'customer' && exports && (
         <div className="ml-auto flex items-center gap-2">
           <ExportButton sheet={sheet} />
           <a

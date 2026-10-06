@@ -18,6 +18,7 @@ import { TopBar } from '../_ui'
 import { DuizhangBar, DuizhangPartyList } from './_bar'
 import { ApprovalStrip } from './_approve'
 import { VendorSheet } from './_vendor_sheet'
+import { CustomerSheet } from './_customer_sheet'
 import { loadDuizhang } from './_load'
 
 export const dynamic = 'force-dynamic'
@@ -50,9 +51,13 @@ export default async function DuizhangPage({
     canVendor,
     record,
     vendorRecords,
+    customerRecords,
     canApprove,
     canOpenLedger,
   } = await loadDuizhang(params)
+  // 客户这个月早先整个月一起审过的 —— 照原来的样子 (一条审批条 + 整张纸);
+  // 没整月审过的, 按单号勾着对 (CustomerSheet)。
+  const wholeApproved = !!(sheet && sheet.kind === 'customer' && record)
 
   return (
     <div className="flex flex-1 flex-col">
@@ -79,11 +84,12 @@ export default async function DuizhangPage({
           canCustomer={canCustomer}
           canVendor={canVendor}
           sheet={sheet}
+          exports={wholeApproved}
         />
 
         {/* 这张纸认没认下来 —— 客户审批落应收。外协那边是勾着对的, 条和纸
             一起在 VendorSheet 里。空的月份没什么可认的。 */}
-        {sheet && sheet.kind === 'customer' && (sheet.lines.length > 0 || record) && (
+        {wholeApproved && sheet && (
           <ApprovalStrip
             kind={sheet.kind}
             party={sheet.party}
@@ -105,6 +111,17 @@ export default async function DuizhangPage({
             preparedBy={user.name}
             todayStr={todayStr}
             records={vendorRecords}
+            canApprove={canApprove}
+            canOpenLedger={canOpenLedger}
+          />
+        ) : sheet && !wholeApproved ? (
+          <CustomerSheet
+            key={`${sheet.party}|${month}`}
+            sheet={sheet}
+            month={month}
+            preparedBy={user.name}
+            todayStr={todayStr}
+            records={customerRecords}
             canApprove={canApprove}
             canOpenLedger={canOpenLedger}
           />

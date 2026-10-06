@@ -85,6 +85,7 @@ export function EditableText({
   className = '',
   align = 'left',
   mono = false,
+  paste,
 }: {
   value: string | undefined
   onSave: (next: string) => Promise<void>
@@ -92,10 +93,12 @@ export function EditableText({
   className?: string
   align?: 'left' | 'right' | 'center'
   mono?: boolean
+  paste?: PasteFill
 }) {
   const ref = useRef<HTMLInputElement>(null)
   const initial = value ?? ''
   const { draft, setDraft, setFocused, pending, safeStart } = useDraft(initial)
+  const onPaste = usePasteFill(paste, ref)
 
   const commit = (next: string) => {
     if (next === initial) return
@@ -108,6 +111,7 @@ export function EditableText({
       type="text"
       value={draft}
       placeholder={placeholder}
+      onPaste={onPaste}
       onChange={(e: ChangeEvent<HTMLInputElement>) => setDraft(e.target.value)}
       onFocus={() => setFocused(true)}
       onBlur={() => {
@@ -238,15 +242,18 @@ export function EditableTextArea({
   onSave,
   placeholder = '添加备注…',
   className = '',
+  paste,
 }: {
   value: string | undefined
   onSave: (next: string) => Promise<void>
   placeholder?: string
   className?: string
+  paste?: PasteFill
 }) {
   const ref = useRef<HTMLTextAreaElement>(null)
   const initial = value ?? ''
   const { draft, setDraft, setFocused, pending, safeStart } = useDraft(initial)
+  const onPaste = usePasteFill(paste, ref)
 
   // Auto-resize
   useLayoutEffect(() => {
@@ -267,6 +274,7 @@ export function EditableTextArea({
       rows={1}
       value={draft}
       placeholder={placeholder}
+      onPaste={onPaste}
       onChange={(e) => setDraft(e.target.value)}
       onFocus={() => setFocused(true)}
       onBlur={() => {
@@ -579,6 +587,7 @@ export function ComponentText({
   className,
   placeholder,
   multiline,
+  columnPaste = false,
 }: {
   jobId: string
   componentId: string
@@ -590,7 +599,12 @@ export function ComponentText({
   // field renders as an auto-growing textarea that wraps onto further lines
   // instead of overflowing a single-line <input>.
   multiline?: boolean
+  /** 整列粘贴 (料号 / 工艺): 从表格复制一列, 点第一格粘贴, 往下一格一格填。 */
+  columnPaste?: boolean
 }) {
+  // 整列贴进来的值 —— 页面不刷新, 格子先显示这个。
+  const [pasted, setPasted] = useState<string | undefined>(undefined)
+  const shown = pasted ?? value
   const onSave = async (v: string) => {
     const patch: ComponentPatch =
       field === 'name'
@@ -609,22 +623,40 @@ export function ComponentText({
                 : { partNo: v.length === 0 ? null : v }
     await mutate({ kind: 'updateComponent', jobId, componentId, patch })
   }
+  const paste: PasteFill | undefined = columnPaste
+    ? {
+        col: `${field}:${jobId}`,
+        cellId: componentId,
+        text: true,
+        commitRaw: (raw) => {
+          if (raw === (shown ?? '')) return
+          const before = shown
+          setPasted(raw)
+          onSave(raw).catch((e) => {
+            setPasted(before)
+            showToast(`保存失败 · ${e instanceof Error ? e.message : '网络中断'}`, 'warning')
+          })
+        },
+      }
+    : undefined
   if (multiline) {
     return (
       <EditableTextArea
-        value={value}
+        value={shown}
         onSave={onSave}
         className={className}
         placeholder={placeholder}
+        paste={paste}
       />
     )
   }
   return (
     <EditableText
-      value={value}
+      value={shown}
       onSave={onSave}
       className={className}
       placeholder={placeholder}
+      paste={paste}
     />
   )
 }
@@ -1066,8 +1098,15 @@ function MoneyStat({
 // paste finds itself and the cells below it in DOM order and hands each
 // clipboard line to that cell's own commit path. A single-line clipboard is
 // left to the browser (a normal paste into one input).
-type PasteFill = { col: string; cellId: string; commitRaw: (raw: string) => void }
-type PasteTarget = { el: HTMLInputElement; commitRaw: (raw: string) => void }
+type PasteFill = {
+  col: string
+  cellId: string
+  commitRaw: (raw: string) => void
+  /** 文字格 (料号 / 工艺): 只认表格里复制来的一列, 普通多行文字照常贴进这一格。 */
+  text?: boolean
+}
+type FillEl = HTMLInputElement | HTMLTextAreaElement
+type PasteTarget = { el: FillEl; commitRaw: (raw: string) => void }
 
 const pasteCols = new Map<string, Map<string, PasteTarget>>()
 
@@ -1082,9 +1121,94 @@ function parsePastedNumber(raw: string): number | undefined {
   return n
 }
 
+// 表格里复制出来的一列 (制表符分列、换行分行; 格子里自己带换行的, Excel/WPS
+// 会用双引号包起来, "" 是一个引号)。只取第一列。
+function parseTsvColumn(text: string): string[] {
+  const rows: string[] = []
+  let cell = ''
+  let col = 0
+  let i = 0
+  const src = text.replace(/\r\n?/g, '\n')
+  while (i < src.length) {
+    if (src[i] === '"' && cell === '') {
+      // 引号包着的一格
+      i += 1
+      while (i < src.length) {
+        if (src[i] === '"' && src[i + 1] === '"') {
+          cell += '"'
+          i += 2
+        } else if (src[i] === '"') {
+          i += 1
+          break
+        } else {
+          cell += src[i]
+          i += 1
+        }
+      }
+      continue
+    }
+    const ch = src[i]
+    if (ch === '\t') {
+      if (col === 0) rows.push(cell)
+      col += 1
+      cell = ''
+    } else if (ch === '\n') {
+      if (col === 0) rows.push(cell)
+      col = 0
+      cell = ''
+    } else cell += ch
+    i += 1
+  }
+  if (col === 0 && cell !== '') rows.push(cell)
+  while (rows.length > 0 && rows[rows.length - 1].trim() === '') rows.pop()
+  return rows.map((r) => r.trim())
+}
+
+// 「复制整列」最后一次放进剪贴板的那一段 —— 贴回文字格时认得出是一整列。
+let lastColumnCopy = ''
+
+function cellsOf(col: string): PasteTarget[] {
+  return [...(pasteCols.get(col)?.values() ?? [])]
+    .filter((c) => c.el.isConnected)
+    .sort((a, b) =>
+      a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
+    )
+}
+
+/**
+ * 表头上的「复制」—— 把这一列从上到下 (屏幕上现在的样子) 放进剪贴板, 到 Excel
+ * 里一贴就是一列; 贴回另一张单的第一格, 就整列填下去。
+ */
+export function CopyColumn({ col, label }: { col: string; label: string }) {
+  const onCopy = async () => {
+    const values = cellsOf(col).map((c) => c.el.value)
+    if (values.length === 0) return
+    const tsv = values
+      .map((v) => (/[\t\n"]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v))
+      .join('\n')
+    try {
+      await navigator.clipboard.writeText(`${tsv}\n`)
+      lastColumnCopy = `${tsv}\n`
+      showToast(`已复制${label} · ${values.length} 行`)
+    } catch {
+      showToast('复制不了 · 浏览器没给剪贴板权限', 'warning')
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={onCopy}
+      title={`复制整列${label} · 到别的单点第一格粘贴，整列填下去`}
+      className="ml-1.5 text-[10.5px] font-normal tracking-normal text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
+    >
+      复制
+    </button>
+  )
+}
+
 function usePasteFill(
   fill: PasteFill | undefined,
-  ref: RefObject<HTMLInputElement | null>,
+  ref: RefObject<FillEl | null>,
 ) {
   // The registry keeps one closure per cell for the column's lifetime; route
   // it through a ref so a paste always runs the current render's commit.
@@ -1108,28 +1232,27 @@ function usePasteFill(
   }, [col, cellId, ref])
 
   if (!fill) return undefined
-  return (e: ClipboardEvent<HTMLInputElement>) => {
+  return (e: ClipboardEvent<FillEl>) => {
     const text = e.clipboardData.getData('text/plain')
     // Only spreadsheet-shaped clipboards (Excel/WPS always append a trailing
     // newline, even for one cell) take this path; plain text pastes normally.
     // The 1-line case must be handled here too — Chrome silently drops a
     // paste containing "\n" into a type=number input.
     if (!text.includes('\n') && !text.includes('\r')) return
-    const lines = text.replace(/\r\n?/g, '\n').split('\n')
-    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop()
+    // 文字格里打几行字是常事 —— 只有真从表格 (Excel/WPS/这里的「复制」) 来
+    // 的才整列填, 别的照常贴进这一格。
+    if (
+      fill.text &&
+      text !== lastColumnCopy &&
+      !e.clipboardData.getData('text/html').includes('<table')
+    )
+      return
     // A clipboard wider than one column (an Excel selection spanning 数量+单价,
     // say) pastes its FIRST column — the one under the cursor is unknowable.
-    const values = lines.map((l) => l.split('\t')[0].trim())
+    const values = parseTsvColumn(text)
     if (values.length === 0) return
     e.preventDefault()
-    const registered = [...(pasteCols.get(fill.col)?.values() ?? [])].filter(
-      (c) => c.el.isConnected,
-    )
-    registered.sort((a, b) =>
-      a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING
-        ? -1
-        : 1,
-    )
+    const registered = cellsOf(fill.col)
     const startAt = registered.findIndex((c) => c.el === ref.current)
     if (startAt === -1) return
     // Blur before filling: the input still holds its pre-paste draft, so the

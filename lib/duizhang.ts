@@ -213,6 +213,30 @@ export function buildCustomerDuizhang(
 }
 
 /**
+ * 客户对账单只留其中几个单号 —— 审过的单号拿掉、勾着打印的只留勾上的。
+ * 合计跟着行重算; 开票 / 回款 / 未收是整个客户的数, 不动。
+ */
+export function pickCustomerLines(sheet: Duizhang, keep: (docNo: string) => boolean): Duizhang {
+  const lines = sheet.lines.filter((l) => keep(l.docNo))
+  let totalQty = 0
+  let totalAmountCny = 0
+  let unpricedCount = 0
+  for (const l of lines) {
+    totalQty += l.qty
+    if (typeof l.amountCny === 'number') totalAmountCny += l.amountCny
+    else unpricedCount += 1
+  }
+  return {
+    ...sheet,
+    lines,
+    count: lines.length,
+    totalQty,
+    totalAmountCny: Math.round(totalAmountCny * 100) / 100,
+    unpricedCount,
+  }
+}
+
+/**
  * 客户名单 —— 数是「本期」的数, 不是全历史的。页头写着几月, 名单上却是开厂
  * 至今的总额, 那张名单就没法当账用: 要对的是这个月的账。
  * 本期有往来的排前面 (金额大的在上), 其余留着只为能被搜到。

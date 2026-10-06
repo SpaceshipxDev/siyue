@@ -7,9 +7,9 @@ import {
   requireUser,
   type AuthUser,
 } from '@/lib/auth'
-import { findActiveReceivable } from '@/lib/receivable'
+import { getReceivables } from '@/lib/receivable'
 import { getPayables, vendorSettledFrom } from '@/lib/payable'
-import type { Payable, Receivable } from '@/lib/settle-shared'
+import { customerSettledFrom, type Payable, type Receivable } from '@/lib/settle-shared'
 import {
   getCustomerStatementLines,
   getFinanceRows,
@@ -24,6 +24,7 @@ import {
   isDuizhangKind,
   isMonth,
   monthBounds,
+  pickCustomerLines,
   vendorOptions,
   type Duizhang,
   type DuizhangKind,
@@ -43,8 +44,13 @@ export type DuizhangLoad = {
   parties: DuizhangParty[]
   canCustomer: boolean
   canVendor: boolean
-  /** 客户: 这个客户这个月那张还算数的应收单; 没审批就是 null。外协用下面那一格。 */
+  /**
+   * 客户: 早先整个月一起审的那张应收单 (有它这个月就整个审过了); 没有就是
+   * null, 按单号勾着审的在 customerRecords。外协用 vendorRecords。
+   */
   record: Receivable | Payable | null
+  /** 客户: 这个月按单号勾着审过的几张应收单 —— 它们认过的单号已经不在纸上了。 */
+  customerRecords: Receivable[]
   /**
    * 外协: 这一家这个月已经确认过的应付单 (一个月可以分几回对, 所以是一串)。
    * 它们认过的外协单已经不在对账单上了。
@@ -60,7 +66,7 @@ export async function loadDuizhang(params: {
   kind?: string
   name?: string
   m?: string
-  /** 外协: 只要这几张外协单 (逗号分开) —— 打印勾选的那几张用。 */
+  /** 只要这几张 (逗号分开) —— 打印勾选的那几张用。外协是外协单, 客户是交货单号。 */
   sel?: string
 }): Promise<DuizhangLoad> {
   const user = await requireUser()
@@ -80,17 +86,27 @@ export async function loadDuizhang(params: {
   let parties: DuizhangParty[] = []
   let record: Receivable | Payable | null = null
   let vendorRecords: Payable[] = []
+  let customerRecords: Receivable[] = []
+  const only = params.sel
+    ? new Set(params.sel.split(',').map((x) => x.trim()).filter(Boolean))
+    : undefined
   if (kind === 'customer') {
     const rows = await getFinanceRows()
     parties = customerOptions(rows, from, to, shanghaiDay)
     if (party) {
       // 零件级明细 —— 只有真的选了客户才去取 (四步窄查询, 见 lib/db)。
-      const [detail, rec] = await Promise.all([
+      const [detail, receivables] = await Promise.all([
         getCustomerStatementLines(party, from, to, shanghaiDay),
-        findActiveReceivable(party, month),
+        getReceivables(),
       ])
+      const settled = customerSettledFrom(receivables, party, month)
       sheet = buildCustomerDuizhang(rows, party, from, to, shanghaiDay, detail)
-      record = rec ?? null
+      record = settled.whole ?? null
+      customerRecords = settled.whole ? [] : settled.records
+      // 指名要这几个单号 (打印勾选的) 就照给; 否则审过的单号不再上纸。
+      if (only) sheet = pickCustomerLines(sheet, (no) => only.has(no))
+      else if (!settled.whole && settled.jobNos.size > 0)
+        sheet = pickCustomerLines(sheet, (no) => !settled.jobNos.has(no))
     }
   } else {
     const [rows, vendors, payables] = await Promise.all([
@@ -102,9 +118,6 @@ export async function loadDuizhang(params: {
     const settledOf = (v: string) => vendorSettledFrom(payables, v)
     parties = vendorOptions(rows, vendors, from, to, settledOf)
     if (party) {
-      const only = params.sel
-        ? new Set(params.sel.split(',').map((x) => x.trim()).filter(Boolean))
-        : undefined
       // 指名要这几张 (打印勾选的、从应付单重印当时那张) 就照给, 不管对没对过。
       sheet = buildVendorDuizhang(
         rows,
@@ -133,6 +146,7 @@ export async function loadDuizhang(params: {
     canVendor,
     record,
     vendorRecords,
+    customerRecords,
     canApprove: canSettleAccounts(user),
     canOpenLedger: user.role === 'commerce',
   }

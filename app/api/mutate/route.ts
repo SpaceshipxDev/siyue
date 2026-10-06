@@ -286,6 +286,7 @@ import {
   buildVendorDuizhang,
   isMonth,
   monthBounds,
+  pickCustomerLines,
 } from '@/lib/duizhang'
 import {
   addLoanRepayment,
@@ -2678,7 +2679,16 @@ async function dispatch(
         getFinanceRows(),
         getCustomerStatementLines(party, from, to, shanghaiDay),
       ])
-      const sheet = buildCustomerDuizhang(rows, party, from, to, shanghaiDay, detail)
+      // 按单号勾着审 (jobNos) —— 只认勾上的那几个交货单号, 金额照样服务端现算。
+      const picked = Array.isArray(body.jobNos)
+        ? [...new Set((body.jobNos as unknown[]).filter(isString).map((n) => n.trim()).filter(Boolean))]
+        : null
+      if (picked && picked.length === 0) return err('先勾上这回要审的单号')
+      const full = buildCustomerDuizhang(rows, party, from, to, shanghaiDay, detail)
+      const want = picked ? new Set(picked) : null
+      const sheet = want ? pickCustomerLines(full, (no) => want.has(no)) : full
+      if (want && new Set(sheet.lines.map((l) => l.docNo)).size !== want.size)
+        return err('勾的单号里有这个月没出货的 —— 刷新再选')
       if (sheet.lines.length === 0) return err('这个月没有出货, 没有可审的')
       if (sheet.unpricedCount > 0)
         return err(`还有 ${sheet.unpricedCount} 行没定价 —— 先把单价补上再审批`)
@@ -2689,6 +2699,7 @@ async function dispatch(
           amountCny: sheet.totalAmountCny,
           lineCount: sheet.lines.length,
           totalQty: sheet.totalQty,
+          ...(picked ? { jobNos: picked } : null),
           approvedBy: u.name,
           nowIso: new Date().toISOString(),
           todayYmd: today(),

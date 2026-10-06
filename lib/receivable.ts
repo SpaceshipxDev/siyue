@@ -68,6 +68,9 @@ function normalize(raw: unknown): Receivable[] {
       amountCny: money(r.amountCny),
       lineCount: typeof r.lineCount === 'number' ? r.lineCount : 0,
       totalQty: typeof r.totalQty === 'number' ? r.totalQty : 0,
+      ...(Array.isArray(r.jobNos)
+        ? { jobNos: (r.jobNos as unknown[]).filter((x): x is string => typeof x === 'string') }
+        : null),
       approvedBy: str(r.approvedBy),
       approvedAt: str(r.approvedAt),
       dueDate: str(r.dueDate),
@@ -106,15 +109,16 @@ export async function getReceivables(): Promise<Receivable[]> {
   )
 }
 
-/** 这个客户这个月那张还算数的应收单 (作废的不算)。 */
+/** 这个客户这个月那张还算数的应收单 (作废的不算)。整月审的那张优先。 */
 export async function findActiveReceivable(
   customer: string,
   period: string,
 ): Promise<Receivable | undefined> {
   const rows = await read()
-  return rows.find(
+  const mine = rows.filter(
     (r) => r.customer === customer && r.period === period && !r.voidedAt,
   )
+  return mine.find((r) => !r.jobNos) ?? mine[0]
 }
 
 /**
@@ -129,16 +133,25 @@ export async function createReceivable(input: {
   amountCny: number
   lineCount: number
   totalQty: number
+  /** 勾着审的那几个单号; 不传 = 整个月一起审。 */
+  jobNos?: string[]
   approvedBy: string
   nowIso: string
   todayYmd: string
 }): Promise<Receivable> {
   return withLock(async () => {
     const rows = await read()
+    // 同一个月可以分几回审, 但同一个单号只能进一张; 整月审过的那张在, 就
+    // 不能再审。
+    const want = input.jobNos ? new Set(input.jobNos) : null
     const dup = rows.find(
-      (r) => r.customer === input.customer && r.period === input.period && !r.voidedAt,
+      (r) =>
+        r.customer === input.customer &&
+        r.period === input.period &&
+        !r.voidedAt &&
+        (!want || !r.jobNos || r.jobNos.some((n) => want.has(n))),
     )
-    if (dup) throw new Error(`这个月已经审批过了 —— 应收单 ${dup.no}`)
+    if (dup) throw new Error(`勾的单里有已经审批过的 —— 应收单 ${dup.no}，刷新再选`)
 
     const row: Receivable = {
       id: crypto.randomUUID(),
@@ -148,6 +161,7 @@ export async function createReceivable(input: {
       amountCny: money(input.amountCny),
       lineCount: input.lineCount,
       totalQty: input.totalQty,
+      ...(input.jobNos ? { jobNos: input.jobNos } : null),
       approvedBy: input.approvedBy,
       approvedAt: input.nowIso,
       dueDate: addDays(input.todayYmd, SETTLE_TERM_DAYS),

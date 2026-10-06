@@ -39,6 +39,11 @@ export type Receivable = {
   amountCny: number // 应收金额 = 审批那一刻对账单的合计
   lineCount: number
   totalQty: number
+  /**
+   * 按单号勾着审的 —— 这一张认的是哪几个交货单号。没有 = 整个月一起审的 (早
+   * 先的做法)。一个月可以分几回审, 认过的单号不再上对账单。
+   */
+  jobNos?: string[]
   approvedBy: string
   approvedAt: string // ISO
   dueDate: string // 约定回款日 YYYY-MM-DD —— 审批日 + 30 天 (月结)
@@ -131,4 +136,21 @@ export function nextSettleNo(
       .filter((r) => r.no.startsWith(head))
       .reduce((m, r) => Math.max(m, Number(r.no.slice(head.length)) || 0), 0) + 1
   return `${head}${String(seq).padStart(3, '0')}`
+}
+
+/**
+ * 客户这个月审过哪些单号 —— 对账单上勾着审, 一个月可以分几回。
+ * whole: 早先整个月一起审的那张 (有它就整个月都算审过了)。
+ */
+export function customerSettledFrom(
+  rows: Receivable[],
+  customer: string,
+  period: string,
+): { whole?: Receivable; records: Receivable[]; jobNos: Set<string> } {
+  const records = rows.filter(
+    (r) => !r.voidedAt && r.customer === customer && r.period === period,
+  )
+  const whole = records.find((r) => !r.jobNos)
+  const jobNos = new Set(records.flatMap((r) => r.jobNos ?? []))
+  return { whole, records, jobNos }
 }

@@ -3585,14 +3585,24 @@ async function applyReceivableSettle(
     return // 应收单读不到, 看板照旧 —— 不能因为这两个字让整张看板出不来。
   }
   if (receivables.length === 0) return
-  const active = new Map<string, (typeof receivables)[number]>()
+  // 客户|月 → 那个月审过的应收单。整月审的那张认这个月所有单; 按单号勾着
+  // 审的只认它勾的那几个单号。
+  const activeByKey = new Map<string, (typeof receivables)[number][]>()
   for (const r of receivables) {
-    if (!r.voidedAt) active.set(`${r.customer}|${r.period}`, r)
+    if (r.voidedAt) continue
+    const k = `${r.customer}|${r.period}`
+    activeByKey.set(k, [...(activeByKey.get(k) ?? []), r])
   }
   const customerOf = new Map<string, string>()
+  const jobNoOf = new Map<string, string>()
   for (const j of jobsRaw) {
     customerOf.set(j.id as string, String(j.customer ?? '').trim())
+    jobNoOf.set(j.id as string, String(j.job_no ?? ''))
   }
+  const recFor = (jobId: string, key: string) =>
+    (activeByKey.get(key) ?? []).find(
+      (r) => !r.jobNos || r.jobNos.includes(jobNoOf.get(jobId) ?? ''),
+    )
   const keysByJob = new Map<string, Set<string>>()
   for (const sr of shipmentsRaw) {
     const jobId = sr.job_id as string
@@ -3604,7 +3614,7 @@ async function applyReceivableSettle(
     keysByJob.set(jobId, set)
   }
   for (const [jobId, keys] of keysByJob) {
-    const recs = [...keys].map((k) => active.get(k))
+    const recs = [...keys].map((k) => recFor(jobId, k))
     if (recs.length === 0 || recs.some((r) => !r)) continue
     const paid = recs.every((r) => settleOutstanding(r!) <= 0)
     const cur = out.get(jobId)
