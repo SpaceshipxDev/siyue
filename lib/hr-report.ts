@@ -8,6 +8,25 @@
 // 里是同一张。
 
 import { HR_TYPES, hrHasHours, type HrRecord, type HrType } from './data'
+import { hoursForDept, saturdayHoursForDept, type PayrollRules } from './payroll'
+
+// 每天出勤怎么核 —— 跟工资同一套制度 (lib/payroll):
+//   周日休息; 周六按本部门的周六工时, 平日按本部门每天工时 —— 这是这一天该上
+//   的小时;
+//   减掉当天记的事假 / 病假 / 工伤 / 旷工 (没写时长的当一整天);
+//   剩下的就是这天出勤的小时, 占该上小时的几成就算几成天 (半天假 = 0.5 天)。
+//   一条都没记的工作日算全勤 —— 跟工资"没记就是满勤"一个口径。
+//   今天以后的日子不核 (还没到)。
+// 打卡机汇总导进来了的人, 实出勤和工时以打卡机为准 (工资也是这么取的)。
+const MISS: readonly HrType[] = ['事假', '病假', '工伤', '旷工']
+
+export type AttendanceCalc = {
+  rules: PayrollRules
+  /** 每个人归哪个部门 (定每天工时用)。 */
+  deptOf: Record<string, string>
+  /** 今天 YYYY-MM-DD —— 之后的日子不核。 */
+  today: string
+}
 
 export const HR_SHORT: Record<HrType, string> = {
   加班: '加',
@@ -27,8 +46,8 @@ export type AttendanceRow = {
   days: string[]
   /** 每种的合计: 有时长的是小时, 别的是次数 */
   totals: Record<HrType, number>
-  /** 打卡机导进来的月度汇总 (出勤天数 / 工时 / 平时加班 / 周末加班) —— 没导就是空。 */
-  worked?: { days?: number; hours?: number; otWeekday: number; otWeekend: number }
+  /** 出勤那几列的值, 跟 report.attendHeaders 一一对应。 */
+  attend: (number | '')[]
 }
 
 export type AttendanceReport = {
@@ -37,8 +56,10 @@ export type AttendanceReport = {
   /** 每一天是星期几 (0 = 周日) —— 周日那一列淡一点 */
   weekdays: number[]
   rows: AttendanceRow[]
-  /** 这个月导过打卡机汇总 —— 表上多出出勤那几列。 */
+  /** 这个月导过打卡机汇总。 */
   hasSummary: boolean
+  /** 出勤那几列的表头 (核了出勤才有; 导过打卡机汇总再多两列加班)。 */
+  attendHeaders: string[]
 }
 
 function trim(n: number): string {
@@ -55,6 +76,8 @@ export function buildAttendanceReport(
     string,
     { workedDays?: number; workedHours?: number; otWeekdayHours: number; otWeekendHours: number }
   > = {},
+  /** 给了就逐天核出勤 (格子里打 √ / 休, 后面多出勤那几列)。 */
+  calc?: AttendanceCalc,
 ): AttendanceReport {
   const [y, m] = month.split('-').map(Number)
   const dayCount = new Date(Date.UTC(y, m, 0)).getUTCDate()
@@ -71,34 +94,74 @@ export function buildAttendanceReport(
   // 打卡机上有、人事没记过的人也上表 (他有出勤)。
   for (const n of Object.keys(summary)) if (!byName.has(n)) byName.set(n, [])
 
+  const hasSummary = Object.keys(summary).length > 0
+  const attendHeaders = calc
+    ? [
+        '应出勤(天)',
+        '实出勤(天)',
+        '出勤工时(h)',
+        ...(hasSummary ? ['平时加班(h)', '周末加班(h)'] : []),
+      ]
+    : []
+  const workdays = weekdays.filter((w) => w !== 0).length
+
   const rows: AttendanceRow[] = []
   for (const [name, list] of byName) {
     const days: string[][] = Array.from({ length: dayCount }, () => [])
+    const missing: number[] = Array.from({ length: dayCount }, () => 0)
     const totals = Object.fromEntries(HR_TYPES.map((t) => [t, 0])) as Record<HrType, number>
+    const dept = calc?.deptOf[name] || list.find((r) => r.dept)?.dept || ''
+    const weekdayHours = calc ? hoursForDept(calc.rules, dept || undefined) : 0
+    const satHours = calc ? saturdayHoursForDept(calc.rules, dept || undefined) : 0
+    const stdOf = (i: number) =>
+      weekdays[i] === 0 ? 0 : weekdays[i] === 6 ? satHours : weekdayHours
     for (const r of [...list].sort((a, b) => a.date.localeCompare(b.date))) {
       const d = Number(r.date.slice(8, 10))
       if (!(d >= 1 && d <= dayCount)) continue
       const h = hrHasHours(r.type) && r.hours ? r.hours : 0
       days[d - 1].push(`${HR_SHORT[r.type]}${h ? trim(h) : ''}`)
       totals[r.type] += hrHasHours(r.type) ? h : 1
+      if (MISS.includes(r.type)) missing[d - 1] += h > 0 ? h : stdOf(d - 1) || 0
     }
+
+    // 逐天核: 格子前面打 √ (出勤 / 出勤一部分) 或 休, 后面跟当天的记录。
+    let attendedDays = 0
+    let attendedHours = 0
+    const cells = days.map((codes, i) => {
+      const ymd = `${month}-${String(i + 1).padStart(2, '0')}`
+      const text = codes.join(' ')
+      if (!calc || ymd > calc.today) return text
+      const std = stdOf(i)
+      if (std <= 0) return text ? text : '休'
+      const worked = Math.max(0, std - missing[i])
+      attendedHours += worked
+      attendedDays += worked / std
+      if (worked <= 0) return text
+      return text ? `√ ${text}` : '√'
+    })
+
+    const sum = summary[name]
+    const attend: (number | '')[] = calc
+      ? [
+          workdays,
+          sum?.workedDays ?? Math.round(attendedDays * 10) / 10,
+          sum?.workedHours ?? Math.round(attendedHours * 10) / 10,
+          ...(hasSummary
+            ? ([sum ? sum.otWeekdayHours || '' : '', sum ? sum.otWeekendHours || '' : ''] as (
+                | number
+                | ''
+              )[])
+            : []),
+        ]
+      : []
     rows.push({
       name,
-      dept: list.find((r) => r.dept)?.dept ?? '',
-      days: days.map((d) => d.join(' ')),
+      dept,
+      days: cells,
+      attend,
       totals: Object.fromEntries(
         HR_TYPES.map((t) => [t, Math.round(totals[t] * 10) / 10]),
       ) as Record<HrType, number>,
-      ...(summary[name]
-        ? {
-            worked: {
-              days: summary[name].workedDays,
-              hours: summary[name].workedHours,
-              otWeekday: summary[name].otWeekdayHours,
-              otWeekend: summary[name].otWeekendHours,
-            },
-          }
-        : null),
     })
   }
   // 按部门, 部门里按名字 —— 纸上找人是按部门找的。
@@ -106,20 +169,11 @@ export function buildAttendanceReport(
     (a, b) =>
       (a.dept || '~').localeCompare(b.dept || '~', 'zh') || a.name.localeCompare(b.name, 'zh'),
   )
-  return { month, dayCount, weekdays, rows, hasSummary: Object.keys(summary).length > 0 }
+  return { month, dayCount, weekdays, rows, hasSummary, attendHeaders }
 }
 
 /** 合计那几列的表头: 有时长的写 (h), 别的写 (次)。 */
 export function totalHeader(t: HrType): string {
   const label = t === '重大质量异常' ? '质量异常' : t
   return `${label}${hrHasHours(t) ? '(h)' : '(次)'}`
-}
-
-/** 打卡机汇总那几列 (导过才有)。 */
-export const WORKED_HEADERS = ['出勤(天)', '工时(h)', '平时加班(h)', '周末加班(h)'] as const
-
-export function workedCells(r: AttendanceRow): (number | '')[] {
-  const w = r.worked
-  if (!w) return ['', '', '', '']
-  return [w.days ?? '', w.hours ?? '', w.otWeekday || '', w.otWeekend || '']
 }

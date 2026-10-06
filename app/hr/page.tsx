@@ -16,8 +16,8 @@ import {
 import { getLoans } from '@/lib/loan'
 import { HrLoanBoard } from './_loans'
 import { getActiveUsers, isAdminUser } from '@/lib/db'
+import { loadSheetInputs } from './_sheet_data'
 import {
-  getAttendanceSummary,
   getHrMonth,
   getHrMonths,
   getHrRoster,
@@ -75,7 +75,7 @@ export default async function HrPage({
       : now.slice(0, 7)
   const isYear = period.length === 4
 
-  const [allRecords, notes, months, users, extraNames, dormEntries, loans, summary] =
+  const [allRecords, notes, months, users, extraNames, dormEntries, loans, sheetInputs] =
     await Promise.all([
       isYear ? getHrYear(period) : getHrMonth(period),
       // 请假条 — 跟记录同一个分片口径, 所以跟着同一趟读: 月度一个文件, 年度
@@ -86,10 +86,8 @@ export default async function HrPage({
       getHrRoster(),
       seeDorm ? getDormEntries() : Promise.resolve([]),
       view === 'loan' ? getLoans() : Promise.resolve([]),
-      // 打卡机月度汇总 —— 考勤表上出勤那几列。只看本部门的人不读 (汇总不分部门)。
-      view === 'sheet' && canSeeAllHr(user)
-        ? getAttendanceSummary(period)
-        : Promise.resolve({}),
+      // 考勤表要的名单、部门、工时制度、打卡机汇总 (app/hr/_sheet_data)。
+      view === 'sheet' ? loadSheetInputs(period, canSeeAllHr(user)) : Promise.resolve(null),
     ])
 
   // 看全部 vs 看本部门. Scoped here, on the server, so a 工段长's page never
@@ -148,7 +146,13 @@ export default async function HrPage({
         {view === 'sheet' ? (
           <SheetView
             month={period}
-            report={buildAttendanceReport(period, records, seeAll ? extraNames : [], summary)}
+            report={buildAttendanceReport(
+              period,
+              records,
+              sheetInputs?.extraNames ?? [],
+              sheetInputs?.summary ?? {},
+              sheetInputs?.calc,
+            )}
             scope={seeAll ? '全厂' : `${myDept}部门`}
             canImport={canEditHrRecord(user)}
           />
