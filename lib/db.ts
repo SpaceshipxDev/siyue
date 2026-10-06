@@ -4977,9 +4977,15 @@ export async function prepareShipping(
   })
 }
 
-// 生产表上点了出货、却没开出货单的单 —— 商务那边算「已出货」(看的是出货那
-// 一格), 对账单只认出货单, 两边就对不上。这里把它们找出来 (对账页提示), 再
-// 由人点一下补开 (backfillShipment)。
+// 点过出货就进对账 —— 商务那边算「已出货」看的是出货那一格, 对账单只认出货
+// 单。所以格子上点出货 (✓ / 整单 / 填出货数量) 时, 系统自己开一张出货单把这
+// 几件记上 (syncAutoShipments, 开单人后面带「（点出货）」); 撤销出货, 从这
+// 种自动开的单上拿回去。手开的出货单一张都不碰。
+//
+// 以前点过、还没单的 (这套上线前), getUndocumentedShipments 找出来, 对账页
+// 打开时顺手补上。
+const AUTO_SHIP_MARK = '（点出货）'
+
 export type UndocumentedShipment = {
   jobId: string
   jobNo: string
@@ -4992,14 +4998,36 @@ export type UndocumentedShipment = {
 export async function getUndocumentedShipments(filter: {
   customer?: string
   jobNoLike?: string
+  /** 这段时间里点的出货 (ISO, 左闭右开) —— 对账页的客户名单用。 */
+  finishedFrom?: string
+  finishedTo?: string
 }): Promise<UndocumentedShipment[]> {
-  let q = supabase.from('jobs').select('id, job_no, customer')
-  if (filter.customer) q = q.eq('customer', filter.customer.trim())
-  else if (filter.jobNoLike) q = q.ilike('job_no', `%${filter.jobNoLike.replace(/[%_]/g, '')}%`)
-  else return []
-  const jr = await q.limit(2000)
-  if (jr.error) throw jr.error
-  const jobs = (jr.data ?? []) as AnyRow[]
+  let jobs: AnyRow[]
+  if (filter.finishedFrom && filter.finishedTo) {
+    const sr = await supabase
+      .from('part_stages')
+      .select('part_id')
+      .eq('stage', '出货')
+      .eq('status', 'done')
+      .gte('finished_at', filter.finishedFrom)
+      .lt('finished_at', filter.finishedTo)
+      .limit(5000)
+    if (sr.error) throw sr.error
+    const pids = [...new Set(((sr.data ?? []) as AnyRow[]).map((r) => r.part_id as string))]
+    if (pids.length === 0) return []
+    const pr = await selectAllIn('parts', 'id', pids)
+    const jids = [...new Set(pr.map((r) => r.job_id as string))]
+    if (jids.length === 0) return []
+    jobs = await selectAllIn('jobs', 'id', jids)
+  } else {
+    let q = supabase.from('jobs').select('id, job_no, customer')
+    if (filter.customer) q = q.eq('customer', filter.customer.trim())
+    else if (filter.jobNoLike) q = q.ilike('job_no', `%${filter.jobNoLike.replace(/[%_]/g, '')}%`)
+    else return []
+    const jr = await q.limit(2000)
+    if (jr.error) throw jr.error
+    jobs = (jr.data ?? []) as AnyRow[]
+  }
   if (jobs.length === 0) return []
   const jobIds = jobs.map((j) => j.id as string)
   const [partRows, shipRows] = await Promise.all([
@@ -5027,8 +5055,8 @@ export async function getUndocumentedShipments(filter: {
   for (const r of partRows) {
     const p = fromPart(r)
     const st = stageOf.get(p.id)
-    if (!st || st.status !== 'done') continue
-    const left = Math.floor(p.qty) - (shipped.get(p.id) ?? 0)
+    if (!st) continue
+    const left = shipTarget(st, p.qty) - (shipped.get(p.id) ?? 0)
     if (left <= 0) continue
     const j = meta.get(p.jobId)
     if (!j) continue
@@ -5048,42 +5076,120 @@ export async function getUndocumentedShipments(filter: {
   return [...byJob.values()].sort((a, b) => a.jobNo.localeCompare(b.jobNo))
 }
 
-// 补开出货单 —— 出货那一格已经打了勾、还没进出货单的件, 一起开一张。日期用
-// 当时点出货的那一刻 (对账按它落月), 出货那一格不动 (本来就是完成)。
-export async function backfillShipment(
+// 出货那一格说发了几件: 打勾 = 全部; 进行中填了数 = 那个数; 别的 = 0。
+function shipTarget(row: PartStageRow, partQty: number): number {
+  if (row.status === 'done') return Math.max(0, Math.floor(partQty))
+  if (row.status === 'in_progress') return Math.max(0, Math.floor(row.doneQty ?? 0))
+  return 0
+}
+
+/**
+ * 让出货单跟出货那一格对齐 —— 只动「点出货」自动开的那种单:
+ *   格子说发了的比出货单上多 → 自动开一张补上 (日期用点出货那一刻, 对账按
+ *     它落月);
+ *   格子退回去了 (撤销出货) → 从自动开的单上拿回来, 拿空了整张删掉。开过票、
+ *     收过款的那张不动 (记账那边拿它当凭据)。
+ * 手开的出货单、出货那一格本身, 一个都不碰。返回新开的单号 (没开就是空)。
+ */
+export async function syncAutoShipments(
   jobId: string,
   actor: string,
-): Promise<{ docNo: string } | null> {
+): Promise<{ docNo?: string }> {
   return withWriteLock(async () => {
     const snap = await loadJobSnapshot(jobId)
     const parts = snap.idx.partsByJob.get(jobId) ?? []
-    const cumulative = new Map<string, number>()
-    for (const s of snap.idx.shipmentsByJob.get(jobId) ?? []) {
+    const ships = snap.idx.shipmentsByJob.get(jobId) ?? []
+    const isAuto = (s: ShipmentRow) => (s.createdBy ?? '').endsWith(AUTO_SHIP_MARK)
+    const manual = new Map<string, number>()
+    const autoLines: { shipmentId: string; partId: string; qty: number; at: string }[] = []
+    for (const s of ships) {
       for (const sp of snap.idx.shipmentPartsByShipment.get(s.id) ?? []) {
-        cumulative.set(sp.partId, (cumulative.get(sp.partId) ?? 0) + sp.qty)
+        if (isAuto(s)) autoLines.push({ shipmentId: s.id, partId: sp.partId, qty: sp.qty, at: s.createdAt })
+        else manual.set(sp.partId, (manual.get(sp.partId) ?? 0) + sp.qty)
       }
     }
-    const picks: ShipmentPartRow[] = []
-    let at: string | undefined
+
     const shipmentId = uid('s')
+    const adds: ShipmentPartRow[] = []
+    let at: string | undefined
+    const cuts: { shipmentId: string; partId: string; next: number }[] = []
     for (const p of parts) {
       const row = snap.idx.stageByPartStage.get(stageKey(p.id, '出货'))
-      if (!row || row.status !== 'done') continue
-      const left = Math.floor(p.qty) - (cumulative.get(p.id) ?? 0)
-      if (left <= 0) continue
-      picks.push({ shipmentId, partId: p.id, qty: left })
-      if (row.finishedAt && (!at || row.finishedAt > at)) at = row.finishedAt
+      if (!row) continue
+      const target = shipTarget(row, p.qty)
+      const mine = autoLines.filter((l) => l.partId === p.id)
+      const covered = (manual.get(p.id) ?? 0) + mine.reduce((s, l) => s + l.qty, 0)
+      if (target > covered) {
+        adds.push({ shipmentId, partId: p.id, qty: target - covered })
+        const t = row.status === 'done' ? row.finishedAt : row.startedAt
+        if (t && (!at || t > at)) at = t
+      } else if (target < covered) {
+        // 从最近那张自动单往回拿, 最多拿到自动单上没有为止。
+        let over = covered - target
+        for (const l of [...mine].sort((a, b) => b.at.localeCompare(a.at))) {
+          if (over <= 0) break
+          const take = Math.min(l.qty, over)
+          cuts.push({ shipmentId: l.shipmentId, partId: p.id, next: l.qty - take })
+          over -= take
+        }
+      }
     }
-    if (picks.length === 0) return null
+
+    if (cuts.length > 0) {
+      const ids = [...new Set(cuts.map((c) => c.shipmentId))]
+      const fin = await supabase
+        .from('shipment_finance')
+        .select('shipment_id, invoice_date, invoice_no, payment_date, payment_amount_cny')
+        .in('shipment_id', ids)
+      if (fin.error && !isMissingTableError(fin.error)) throw fin.error
+      const billed = new Set(
+        ((fin.data ?? []) as AnyRow[])
+          .filter((r) => r.invoice_date || r.invoice_no || r.payment_date || r.payment_amount_cny != null)
+          .map((r) => r.shipment_id as string),
+      )
+      for (const c of cuts) {
+        if (billed.has(c.shipmentId)) continue
+        const r =
+          c.next > 0
+            ? await supabase
+                .from('shipment_parts')
+                .update({ qty: c.next })
+                .eq('shipment_id', c.shipmentId)
+                .eq('part_id', c.partId)
+            : await supabase
+                .from('shipment_parts')
+                .delete()
+                .eq('shipment_id', c.shipmentId)
+                .eq('part_id', c.partId)
+        if (r.error) throw r.error
+      }
+      for (const id of ids) {
+        if (billed.has(id)) continue
+        const left = await supabase.from('shipment_parts').select('part_id').eq('shipment_id', id)
+        if (left.error) throw left.error
+        if ((left.data ?? []).length > 0) continue
+        const delFin = await supabase.from('shipment_finance').delete().eq('shipment_id', id)
+        if (delFin.error && !isMissingTableError(delFin.error)) throw delFin.error
+        const del = await supabase.from('shipments').delete().eq('id', id)
+        if (del.error) throw del.error
+      }
+    }
+
+    if (adds.length === 0) return {}
     const when = at ? new Date(at) : new Date()
-    const prefix = docNoDayPrefix(when)
-    const seq = await nextSeqForPrefix('shipments', 'doc_no', prefix)
+    const seq = await nextSeqForPrefix('shipments', 'doc_no', docNoDayPrefix(when))
     const docNo = formatDocNo(when, seq)
     const insS = await supabase.from('shipments').insert(
-      toShipment({ id: shipmentId, jobId, docNo, createdAt: when.toISOString(), createdBy: actor }),
+      toShipment({
+        id: shipmentId,
+        jobId,
+        docNo,
+        createdAt: when.toISOString(),
+        createdBy: `${actor}${AUTO_SHIP_MARK}`,
+      }),
     )
     if (insS.error) throw insS.error
-    const insP = await supabase.from('shipment_parts').insert(picks.map(toShipmentPart))
+    const insP = await supabase.from('shipment_parts').insert(adds.map(toShipmentPart))
     if (insP.error) throw insP.error
     return { docNo }
   })

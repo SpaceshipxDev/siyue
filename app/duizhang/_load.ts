@@ -2,6 +2,7 @@ import 'server-only'
 import { redirect } from 'next/navigation'
 import {
   canSettleAccounts,
+  canClickStage,
   canManageOutsource,
   canSeeOrderLedger,
   requireUser,
@@ -19,7 +20,7 @@ import {
   getOutsourceBlockRows,
   getVendors,
 } from '@/lib/db'
-import { shanghaiDay, today } from '@/lib/today'
+import { shanghaiDay, shanghaiRangeWindow, today } from '@/lib/today'
 import { effectiveAmount } from '@/lib/finance'
 import {
   buildCustomerDuizhang,
@@ -70,6 +71,8 @@ export type DuizhangLoad = {
   undocumented: UndocumentedShipment[]
   /** 客户: 这个客户这个月标了「无需对账」的工单号 —— 不在纸上, 列出来好恢复。 */
   skipped: string[]
+  /** 能不能补开出货单 (开出货的人或管钱的人) —— 能就打开页面时自动补。 */
+  canBackfill: boolean
   /**
    * 外协: 这一家这个月已经确认过的应付单 (一个月可以分几回对, 所以是一串)。
    * 它们认过的外协单已经不在对账单上了。
@@ -147,15 +150,19 @@ export async function loadDuizhang(params: {
     parties = customerOptions(rows, from, to, shanghaiDay)
     // 点了出货、没开出货单的 —— 读不到也不拦对账页。
     try {
+      // 选了客户: 这个客户所有点过出货、没进出货单的 (哪个月的都补, 别的月份
+      // 的对账单也就对了); 没选: 这个月点的出货; 按号没找到: 号对上的。
       if (party) {
-        const thisMonth = month === todayStr.slice(0, 7)
         undocumented = (await getUndocumentedShipments({ customer: party })).filter(
-          (u) =>
-            !skip.has(u.jobNo) &&
-            (u.shippedAt ? shanghaiDay(u.shippedAt).slice(0, 7) === month : thisMonth),
+          (u) => !skip.has(u.jobNo),
         )
       } else if (jobQuery && jobMatches.length === 0) {
         undocumented = await getUndocumentedShipments({ jobNoLike: jobQuery })
+      } else if (!jobQuery) {
+        const w = shanghaiRangeWindow(from, to)
+        undocumented = (
+          await getUndocumentedShipments({ finishedFrom: w.from, finishedTo: w.to })
+        ).filter((u) => !skip.has(u.jobNo))
       }
     } catch {
       undocumented = []
@@ -221,6 +228,7 @@ export async function loadDuizhang(params: {
     jobMatches,
     undocumented,
     skipped,
+    canBackfill: canClickStage(user, '出货') || canSettleAccounts(user),
     canApprove: canSettleAccounts(user),
     canOpenLedger: user.role === 'commerce',
   }

@@ -72,7 +72,7 @@ import {
   setMemberReturnedQty,
   setPartRoute,
   setStageDoneQty,
-  backfillShipment,
+  syncAutoShipments,
   revokeStageFinish,
   setStageFinishBy,
   startJobStage,
@@ -462,6 +462,18 @@ async function recordPersonOutput(
     await setPersonSplit(partId, stage, it.shares, part, by, nowIso)
   }
   revalidatePath('/report')
+}
+
+// 出货那一格动了 (点出货 / 填出货数 / 撤销) —— 出货单跟着对齐, 点过出货的就
+// 进对账 (lib/db syncAutoShipments)。对不齐不拦这一下点击, 下回对账页还会补。
+async function syncShipments(jobId: string, stage: Stage, actor: string): Promise<void> {
+  if (stage !== '出货') return
+  try {
+    await syncAutoShipments(jobId, actor)
+    revalidatePath('/duizhang')
+  } catch (e) {
+    console.error('[syncAutoShipments]', jobId, e)
+  }
 }
 
 function isString(x: unknown): x is string {
@@ -1127,6 +1139,7 @@ async function dispatch(
         return err('bad finishStage args')
       const u = await requireOwnStage(stage)
       await finishStage(jobId, componentId, stage, reportActor(u, body))
+      await syncShipments(jobId, stage, u.name)
       // 操机、喷漆报工时当场选的人 (app/_who_did) —— 另记一份个人报工, 账号
       // 那边的统计照旧记在按的账号上。
       const people = normalizeShares(body.people)
@@ -1167,6 +1180,7 @@ async function dispatch(
         }
       }
       await undoStage(jobId, componentId, stage)
+      await syncShipments(jobId, stage, u.name)
       revalidateStage(jobId, stage)
       return Response.json(ok())
     }
@@ -1201,6 +1215,7 @@ async function dispatch(
       const u = await requireOwnStage(stage)
       const who = reportActor(u, body)
       const moved = await setStageDoneQty(jobId, componentId, stage, qty, who)
+      await syncShipments(jobId, stage, u.name)
       // 报了几件就记在谁头上 —— 工序没做完的时候没有完成事件, 这几件在报工
       // 统计里本来看不见; 两个班做同一个产品, 前一个班就这么消失了。
       // 见 lib/work-split 的 addWorkShare。
@@ -1415,6 +1430,7 @@ async function dispatch(
           })
       }
       await finishJobStage(jobId, stage, reportActor(u, body))
+      await syncShipments(jobId, stage, u.name)
       if (finishing.length > 0) await recordPersonOutput(jobId, stage, u.name, finishing)
       revalidateStage(jobId, stage)
       return Response.json(ok(await freshStageCounts(jobId, stage)))
@@ -1425,8 +1441,9 @@ async function dispatch(
       const stage = body.stage
       if (!isString(jobId) || !isStage(stage))
         return err('bad undoJobStage args')
-      await requireOwnStage(stage)
+      const u = await requireOwnStage(stage)
       await undoJobStage(jobId, stage)
+      await syncShipments(jobId, stage, u.name)
       revalidateStage(jobId, stage)
       return Response.json(ok(await freshStageCounts(jobId, stage)))
     }
@@ -1603,9 +1620,9 @@ async function dispatch(
         return err('补开出货单要找出货或财务', 403)
       const docs: string[] = []
       for (const id of [...new Set(ids as string[])].slice(0, 200)) {
-        const r = await backfillShipment(id, u.name)
-        if (r) {
-          docs.push(r.docNo)
+        const r = await syncAutoShipments(id, u.name)
+        if (r.docNo) {
+          docs.push(r.docNo as string)
           revalidateStage(id, '出货')
         }
       }
@@ -3815,6 +3832,7 @@ async function dispatch(
             ? await setStageFinishBy(jobId, partId, stage, to)
             : false
       if (!done) return err('这一条已经不是完成状态了，刷新看看')
+      await syncShipments(jobId, stage, u.name)
       revalidateStage(jobId, stage)
       revalidatePath('/report')
       return Response.json(ok())
@@ -3867,6 +3885,7 @@ async function dispatch(
         // 当场报工: 件数照常记给按的账号 (跟填完成数量一样)。
         const who = reportActor(u, body)
         const moved = await setStageDoneQty(jobId, componentId, stage as Stage, total, who)
+        await syncShipments(jobId, stage as Stage, u.name)
         if (moved) {
           await addWorkShare(moved.partId, stage, who, moved.delta, new Date().toISOString())
         }

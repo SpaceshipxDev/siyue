@@ -41,6 +41,7 @@ import {
   markJobAsDraft,
   parseJobNoConflictError,
   prepareShipping,
+  syncAutoShipments,
   resetDb,
   setBlockMembersReturnedQty,
   setBlockMemberUnitPrice,
@@ -110,6 +111,16 @@ export async function startStageAction(
   revalidateStage(jobId, stage)
 }
 
+// 出货那一格动了 —— 出货单跟着对齐, 点过出货的就进对账 (同 /api/mutate)。
+async function syncShipments(jobId: string, stage: Stage, actor: string): Promise<void> {
+  if (stage !== '出货') return
+  try {
+    await syncAutoShipments(jobId, actor)
+  } catch (e) {
+    console.error('[syncAutoShipments]', jobId, e)
+  }
+}
+
 export async function finishStageAction(
   jobId: string,
   componentId: string,
@@ -117,6 +128,7 @@ export async function finishStageAction(
 ): Promise<void> {
   const u = await requireStage(stage)
   await finishStage(jobId, componentId, stage, u.name)
+  await syncShipments(jobId, stage, u.name)
   revalidateStage(jobId, stage)
 }
 
@@ -125,8 +137,9 @@ export async function undoStageAction(
   componentId: string,
   stage: Stage,
 ): Promise<void> {
-  await requireStage(stage)
+  const u = await requireStage(stage)
   await undoStage(jobId, componentId, stage)
+  await syncShipments(jobId, stage, u.name)
   revalidateStage(jobId, stage)
 }
 
@@ -138,6 +151,7 @@ export async function setStageDoneQtyAction(
 ): Promise<void> {
   const u = await requireStage(stage)
   await setStageDoneQty(jobId, componentId, stage, qty, u.name)
+  await syncShipments(jobId, stage, u.name)
   revalidateStage(jobId, stage)
 }
 
@@ -180,6 +194,7 @@ export async function finishJobStageAction(
 ): Promise<void> {
   const u = await requireStage(stage)
   await finishJobStage(jobId, stage, u.name)
+  await syncShipments(jobId, stage, u.name)
   revalidateStage(jobId, stage)
 }
 
@@ -187,8 +202,9 @@ export async function undoJobStageAction(
   jobId: string,
   stage: Stage,
 ): Promise<void> {
-  await requireStage(stage)
+  const u = await requireStage(stage)
   await undoJobStage(jobId, stage)
+  await syncShipments(jobId, stage, u.name)
   revalidateStage(jobId, stage)
 }
 

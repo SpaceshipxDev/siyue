@@ -58,6 +58,7 @@ export default async function DuizhangPage({
     jobMatches,
     undocumented,
     skipped,
+    canBackfill,
     canApprove,
     canOpenLedger,
   } = await loadDuizhang(params)
@@ -96,7 +97,7 @@ export default async function DuizhangPage({
         />
 
         {/* 生产表上点了出货、没开出货单的 —— 补开了才上对账单。 */}
-        {kind === 'customer' && <UndocumentedStrip items={undocumented} />}
+        {kind === 'customer' && <UndocumentedStrip items={undocumented} auto={canBackfill} />}
 
         {/* 这张纸认没认下来 —— 客户审批落应收。外协那边是勾着对的, 条和纸
             一起在 VendorSheet 里。空的月份没什么可认的。 */}
@@ -166,7 +167,7 @@ function JobMatches({
     return (
       <p className="py-24 text-center text-[13px] text-[var(--color-ink-3)]">
         {undocumented
-          ? '这张单还没有出货单 —— 点上面「补开出货单」，就会出现在它出货那个月的对账单上'
+          ? '这张单点过出货、还没进对账 —— 补进来之后会出现在它出货那个月的对账单上'
           : `没找到工单号带「${jobQuery}」的出货 —— 还没出货的单不上对账单`}
       </p>
     )
