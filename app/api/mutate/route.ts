@@ -288,8 +288,9 @@ import {
   isMonth,
   monthBounds,
   pickCustomerLines,
+  keepCustomerLines,
 } from '@/lib/duizhang'
-import { setNoReconcile } from '@/lib/no-reconcile'
+import { getNoReconcile, LINE_MARK, setNoReconcile } from '@/lib/no-reconcile'
 import {
   addLoanRepayment,
   applyPayrollLoanDeductions,
@@ -1605,6 +1606,7 @@ async function dispatch(
         return err('先勾上要标的单')
       const u = await requireUser()
       if (!canSettleAccounts(u)) return err('标无需对账要找于海伟或财务', 403)
+      // 工单号, 或者 line: 开头的单独一行。
       const clean = [...new Set((nos as string[]).map((n) => n.trim()).filter(Boolean))].slice(0, 500)
       await setNoReconcile(clean, body.on !== false, u.name, new Date().toISOString())
       revalidatePath('/duizhang')
@@ -2740,7 +2742,12 @@ async function dispatch(
         ? [...new Set((body.jobNos as unknown[]).filter(isString).map((n) => n.trim()).filter(Boolean))]
         : null
       if (picked && picked.length === 0) return err('先勾上这回要审的单号')
-      const full = buildCustomerDuizhang(rows, party, from, to, shanghaiDay, detail)
+      // 单独去掉不对账的那几行 (拆件之类), 跟对账页上看到的一样。
+      const marks = await getNoReconcile().catch(() => ({}) as Record<string, unknown>)
+      const full = keepCustomerLines(
+        buildCustomerDuizhang(rows, party, from, to, shanghaiDay, detail),
+        (l) => !(`${LINE_MARK}${l.key}` in marks),
+      )
       const want = picked ? new Set(picked) : null
       const sheet = want ? pickCustomerLines(full, (no) => want.has(no)) : full
       if (want && new Set(sheet.lines.map((l) => l.docNo)).size !== want.size)

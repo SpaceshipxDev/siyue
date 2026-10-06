@@ -44,6 +44,7 @@ export function CustomerSheet({
   canOpenLedger,
   initialQuery = '',
   skipped = [],
+  skippedLines = [],
 }: {
   sheet: Duizhang
   month: string
@@ -57,6 +58,8 @@ export function CustomerSheet({
   initialQuery?: string
   /** 这个月标了「无需对账」的工单号 —— 不在纸上, 列在下面好恢复。 */
   skipped?: string[]
+  /** 单独去掉、不对账的几行 (拆件之类) —— 列在下面好恢复。 */
+  skippedLines?: { key: string; docNo: string; title: string; qty: number }[]
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
@@ -86,8 +89,9 @@ export function CustomerSheet({
   )
   const [picked, setPicked] = useState<Set<string>>(() => {
     const q = initialQuery.toLowerCase()
-    const hits = q ? [...priced].filter((no) => no.toLowerCase().includes(q)) : []
-    return new Set(hits.length > 0 ? hits : priced)
+    // 按单号找过来的只勾对上的 (对上的没价就先一张都不勾), 别的单不碰。
+    if (q) return new Set([...priced].filter((no) => no.toLowerCase().includes(q)))
+    return new Set(priced)
   })
 
   const chosen = groups.filter((g) => picked.has(g.no))
@@ -145,6 +149,28 @@ export function CustomerSheet({
       }
     })
   }
+
+  // 单独一行不对账 (拆件之类没价、不算钱的) —— 去掉后这张单的合计、能不能勾
+  // 都只看剩下的行。
+  function markLine(key: string, on: boolean) {
+    setError(null)
+    start(async () => {
+      try {
+        await mutate({ kind: 'setNoReconcile', jobNos: [`line:${key}`], on })
+        router.refresh()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '去不掉')
+      }
+    })
+  }
+
+  // 从顶上「按工单号找」过来的: 纸上只放对上的那几张, 别的单不来打岔; 要看
+  // 全部再点开。
+  const [focus, setFocus] = useState(!!initialQuery)
+  const focused = groups.filter((g) =>
+    g.no.toLowerCase().includes(initialQuery.toLowerCase()),
+  )
+  const shownGroups = focus && initialQuery && focused.length > 0 ? focused : groups
 
   function approve() {
     if (chosen.length === 0) return
@@ -323,6 +349,18 @@ export function CustomerSheet({
               )}
             </span>
           </div>
+          {initialQuery && focused.length > 0 && focused.length < groups.length && (
+            <p className="mt-2 text-[12px] text-[var(--color-ink-3)]">
+              {focus ? `只看「${initialQuery}」· ` : ''}
+              <button
+                type="button"
+                onClick={() => setFocus(!focus)}
+                className="text-[var(--color-ink-2)] underline-offset-2 hover:text-[var(--color-ink)] hover:underline"
+              >
+                {focus ? `显示这个月全部 ${groups.length} 张` : `只看「${initialQuery}」`}
+              </button>
+            </p>
+          )}
           {miss.length > 0 && (
             <p className="mt-2 text-[12px] text-[var(--color-warning)]">
               这个月没找到：{miss.join('、')}
@@ -346,6 +384,30 @@ export function CustomerSheet({
                 <button
                   type="button"
                   onClick={() => markSkip([no], false)}
+                  disabled={pending}
+                  className="text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)] disabled:opacity-50"
+                >
+                  恢复
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* 单独去掉的几行 —— 点一下恢复。 */}
+      {skippedLines.length > 0 && (
+        <div className="no-print mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 px-1 text-[12px] text-[var(--color-ink-3)]">
+          <span>不对账的行 {skippedLines.length}：</span>
+          {skippedLines.map((l) => (
+            <span key={l.key} className="inline-flex items-baseline gap-1.5">
+              <span className="text-[var(--color-ink-2)]">
+                <span className="mono">{l.docNo}</span> {l.title} ×{l.qty}
+              </span>
+              {canApprove && (
+                <button
+                  type="button"
+                  onClick={() => markLine(l.key, false)}
                   disabled={pending}
                   className="text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)] disabled:opacity-50"
                 >
@@ -401,10 +463,11 @@ export function CustomerSheet({
                   <th style={{ width: 44 }}>数量</th>
                   <th style={{ width: 58 }}>单价</th>
                   <th style={{ width: 72 }}>金额</th>
+                  {canApprove && <th className="no-print" style={{ width: 40 }} />}
                 </tr>
               </thead>
               <tbody>
-                {groups.map((g) => {
+                {shownGroups.map((g) => {
                   const on = picked.has(g.no)
                   const canPick = priced.has(g.no)
                   return (
@@ -414,7 +477,7 @@ export function CustomerSheet({
                         return (
                           <tr
                             key={l.key}
-                            className={on ? '' : 'print:hidden opacity-40'}
+                            className={`group/line ${on ? '' : 'print:hidden opacity-40'}`}
                             onClick={() => toggle(g.no)}
                             style={{ cursor: canPick ? 'pointer' : 'default' }}
                           >
@@ -466,6 +529,22 @@ export function CustomerSheet({
                                 <span className="text-[var(--color-overdue)]">没定价</span>
                               )}
                             </td>
+                            {canApprove && (
+                              <td className="no-print" style={{ textAlign: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    markLine(l.key, true)
+                                  }}
+                                  disabled={pending}
+                                  title="这一行不参与对账（拆件之类），下面能恢复"
+                                  className="text-[11.5px] text-[var(--color-ink-4)] opacity-0 transition-opacity hover:text-[var(--color-overdue)] group-hover/line:opacity-100 focus:opacity-100 disabled:opacity-40"
+                                >
+                                  去掉
+                                </button>
+                              </td>
+                            )}
                           </tr>
                         )
                       })}
@@ -480,6 +559,7 @@ export function CustomerSheet({
                   <td className="mono font-semibold">{chosenQty}</td>
                   <td />
                   <td className="mono font-semibold">{formatCny(chosenAmount)}</td>
+                  {canApprove && <td className="no-print" />}
                 </tr>
               </tbody>
             </table>

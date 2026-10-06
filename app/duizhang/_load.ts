@@ -9,7 +9,7 @@ import {
   type AuthUser,
 } from '@/lib/auth'
 import { getReceivables } from '@/lib/receivable'
-import { getNoReconcile } from '@/lib/no-reconcile'
+import { getNoReconcile, LINE_MARK } from '@/lib/no-reconcile'
 import { getPayables, vendorSettledFrom } from '@/lib/payable'
 import { customerSettledFrom, type Payable, type Receivable } from '@/lib/settle-shared'
 import {
@@ -30,6 +30,7 @@ import {
   isMonth,
   monthBounds,
   pickCustomerLines,
+  keepCustomerLines,
   vendorOptions,
   type Duizhang,
   type DuizhangKind,
@@ -71,6 +72,8 @@ export type DuizhangLoad = {
   undocumented: UndocumentedShipment[]
   /** 客户: 这个客户这个月标了「无需对账」的工单号 —— 不在纸上, 列出来好恢复。 */
   skipped: string[]
+  /** 客户: 这张纸上单独去掉、不对账的几行 (拆件之类) —— 列出来好恢复。 */
+  skippedLines: { key: string; docNo: string; title: string; qty: number }[]
   /** 能不能补开出货单 (开出货的人或管钱的人) —— 能就打开页面时自动补。 */
   canBackfill: boolean
   /**
@@ -114,6 +117,7 @@ export async function loadDuizhang(params: {
   let customerRecords: Receivable[] = []
   let undocumented: UndocumentedShipment[] = []
   let skipped: string[] = []
+  let skippedLines: DuizhangLoad['skippedLines'] = []
   const only = params.sel
     ? new Set(params.sel.split(',').map((x) => x.trim()).filter(Boolean))
     : undefined
@@ -123,7 +127,12 @@ export async function loadDuizhang(params: {
       getNoReconcile().catch(() => ({}) as Record<string, unknown>),
     ])
     // 无需对账的单不进名单的数 (按工单号找还找得到, 好恢复)。
-    const skip = new Set(Object.keys(marks))
+    const skip = new Set(Object.keys(marks).filter((k) => !k.startsWith(LINE_MARK)))
+    const skipLine = new Set(
+      Object.keys(marks)
+        .filter((k) => k.startsWith(LINE_MARK))
+        .map((k) => k.slice(LINE_MARK.length)),
+    )
     const rows = allRows.filter((r) => !skip.has(r.jobNo))
     // 按工单号找 —— 不分月、不分客户, 在所有出货里找。
     if (jobQuery) {
@@ -177,6 +186,10 @@ export async function loadDuizhang(params: {
       sheet = buildCustomerDuizhang(allRows, party, from, to, shanghaiDay, detail)
       skipped = [...new Set(sheet.lines.map((l) => l.docNo).filter((no) => skip.has(no)))]
       if (skipped.length > 0) sheet = pickCustomerLines(sheet, (no) => !skip.has(no))
+      skippedLines = sheet.lines
+        .filter((l) => skipLine.has(l.key))
+        .map((l) => ({ key: l.key, docNo: l.docNo, title: l.title, qty: l.qty }))
+      if (skippedLines.length > 0) sheet = keepCustomerLines(sheet, (l) => !skipLine.has(l.key))
       record = settled.whole ?? null
       customerRecords = settled.whole ? [] : settled.records
       // 指名要这几个单号 (打印勾选的) 就照给; 否则审过的单号不再上纸。
@@ -228,6 +241,7 @@ export async function loadDuizhang(params: {
     jobMatches,
     undocumented,
     skipped,
+    skippedLines,
     canBackfill: canClickStage(user, '出货') || canSettleAccounts(user),
     canApprove: canSettleAccounts(user),
     canOpenLedger: user.role === 'commerce',

@@ -58,6 +58,7 @@ export default async function DuizhangPage({
     jobMatches,
     undocumented,
     skipped,
+    skippedLines,
     canBackfill,
     canApprove,
     canOpenLedger,
@@ -130,7 +131,7 @@ export default async function DuizhangPage({
           />
         ) : sheet && !wholeApproved ? (
           <CustomerSheet
-            key={`${sheet.party}|${month}|${jobQuery}`}
+            key={`${sheet.party}|${month}|${jobQuery}|${sheet.lines.length}`}
             sheet={sheet}
             month={month}
             preparedBy={user.name}
@@ -138,6 +139,7 @@ export default async function DuizhangPage({
             records={customerRecords}
             initialQuery={jobQuery}
             skipped={skipped}
+            skippedLines={skippedLines}
             canApprove={canApprove}
             canOpenLedger={canOpenLedger}
           />

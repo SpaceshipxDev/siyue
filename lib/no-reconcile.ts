@@ -53,7 +53,13 @@ async function write(map: Record<string, NoReconcileMark>): Promise<void> {
   if (error) throw error
 }
 
-/** 标了无需对账的工单号。 */
+/**
+ * 单独一行不对账 (拆件之类没价、也不该算钱的零件) —— 跟工单号放在同一份里,
+ * 键前面带 line: 。行的键就是对账单上那一行的 key (出货单 + 零件)。
+ */
+export const LINE_MARK = 'line:'
+
+/** 标了无需对账的工单号 (和 line: 开头的单独几行)。 */
 export async function getNoReconcile(): Promise<Record<string, NoReconcileMark>> {
   return read()
 }

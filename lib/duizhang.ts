@@ -257,7 +257,12 @@ export function buildCustomerDuizhang(
  * 合计跟着行重算; 开票 / 回款 / 未收是整个客户的数, 不动。
  */
 export function pickCustomerLines(sheet: Duizhang, keep: (docNo: string) => boolean): Duizhang {
-  const lines = sheet.lines.filter((l) => keep(l.docNo))
+  return keepCustomerLines(sheet, (l) => keep(l.docNo))
+}
+
+/** 同上, 按行挑 —— 单张单里去掉几行 (拆件之类不对账的行) 用。 */
+export function keepCustomerLines(sheet: Duizhang, keep: (l: DuizhangLine) => boolean): Duizhang {
+  const lines = sheet.lines.filter(keep)
   let totalQty = 0
   let totalAmountCny = 0
   let unpricedCount = 0
