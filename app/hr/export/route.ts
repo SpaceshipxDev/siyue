@@ -119,7 +119,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     }
     addSheet(wb, detail, [12, 14, 12, 14, 8, 34, 12], '明细')
 
-    // 考勤报表 —— 月度那张: 一人一行、每天一格、后面合计 (跟 /hr/report 同一份)。
+    // 考勤表 —— 月度那张: 一人一行、每天一格、后面合计 (跟 /hr/report 同一份)。
     if (period.length === 7) {
       const rep = buildAttendanceReport(period, records, seeAll ? await getHrRoster() : [])
       const days = Array.from({ length: rep.dayCount }, (_, i) => `${i + 1}`)
@@ -139,7 +139,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         wb,
         grid,
         [6, 10, 8, ...days.map(() => 5), ...HR_TYPES.map(() => 10)],
-        '考勤报表',
+        '考勤表',
       )
     }
 

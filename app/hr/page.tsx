@@ -22,6 +22,8 @@ import { today } from '@/lib/today'
 import { getDormEntries } from '@/lib/dorm'
 import { DormBoard } from './_dorm'
 import { HrBoard } from './_hr'
+import { AttendanceSheet } from './_attendance_sheet'
+import { buildAttendanceReport } from '@/lib/hr-report'
 
 export const dynamic = 'force-dynamic'
 
@@ -50,10 +52,20 @@ export default async function HrPage({
   // 是人事, 所以跟「看全部人事」同一档。
   const seeLoan = canApplyLoan(user)
   const view =
-    sp.v === 'dorm' && seeDorm ? 'dorm' : sp.v === 'loan' && seeLoan ? 'loan' : 'hr'
+    sp.v === 'dorm' && seeDorm
+      ? 'dorm'
+      : sp.v === 'loan' && seeLoan
+        ? 'loan'
+        : sp.v === 'sheet'
+          ? 'sheet'
+          : 'hr'
 
   const raw = (sp.p ?? '').trim()
-  const period = /^\d{4}(-\d{2})?$/.test(raw) ? raw : now.slice(0, 7)
+  // 考勤表是按月的一张纸 —— 带着年份过来就看这个月。
+  const period =
+    /^\d{4}(-\d{2})?$/.test(raw) && !(view === 'sheet' && raw.length === 4)
+      ? raw
+      : now.slice(0, 7)
   const isYear = period.length === 4
 
   const [allRecords, notes, months, users, extraNames, dormEntries, loans] =
@@ -106,18 +118,29 @@ export default async function HrPage({
         canSeeFinance={canSeeOrderLedger(user)}
       />
       <main className="px-4 md:px-10 py-8">
-        {(seeDorm || seeLoan) && (
-          <div className="mx-auto mb-5 flex max-w-4xl items-baseline gap-x-6">
+        <div
+          className={`mx-auto mb-5 flex items-baseline gap-x-6 ${view === 'sheet' ? 'max-w-[1240px]' : 'max-w-4xl'}`}
+        >
             <ViewTab href="/hr" label="考勤" active={view === 'hr'} />
+            <ViewTab
+              href={`/hr?v=sheet&p=${period.length === 7 ? period : now.slice(0, 7)}`}
+              label="考勤表"
+              active={view === 'sheet'}
+            />
             {seeDorm && (
               <ViewTab href="/hr?v=dorm" label="住宿" active={view === 'dorm'} />
             )}
             {seeLoan && (
               <ViewTab href="/hr?v=loan" label="借款" active={view === 'loan'} />
             )}
-          </div>
-        )}
-        {view === 'loan' ? (
+        </div>
+        {view === 'sheet' ? (
+          <SheetView
+            month={period}
+            report={buildAttendanceReport(period, records, seeAll ? extraNames : [])}
+            scope={seeAll ? '全厂' : `${myDept}部门`}
+          />
+        ) : view === 'loan' ? (
           <HrLoanBoard
             loans={loans}
             roster={roster}
@@ -174,5 +197,62 @@ function ViewTab({
     >
       {label}
     </Link>
+  )
+}
+
+// 考勤表 —— 由考勤记录排出来的那张月表: 一人一行、每天一格、后面合计。上面
+// 换月份, 打印 (横着的 A4) 和导出 (表格里也有这一页) 各一个。
+function SheetView({
+  month,
+  report,
+  scope,
+}: {
+  month: string
+  report: ReturnType<typeof buildAttendanceReport>
+  scope: string
+}) {
+  const [y, m] = month.split('-').map(Number)
+  const shift = (d: number) =>
+    new Date(Date.UTC(y, m - 1 + d, 1)).toISOString().slice(0, 7)
+  const btn =
+    'rounded-[2px] border border-[var(--color-border)] px-3 py-1 text-[12.5px] font-medium text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)]'
+  return (
+    <div className="mx-auto max-w-[1240px]">
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1">
+          <Link
+            href={`/hr?v=sheet&p=${shift(-1)}`}
+            aria-label="上一月"
+            className="px-1.5 text-[15px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+          >
+            ‹
+          </Link>
+          <span className="min-w-[92px] text-center text-[14px] font-semibold tabular-nums text-[var(--color-ink)]">
+            {y}年{m}月
+          </span>
+          <Link
+            href={`/hr?v=sheet&p=${shift(1)}`}
+            aria-label="下一月"
+            className="px-1.5 text-[15px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+          >
+            ›
+          </Link>
+        </div>
+        <span className="text-[12.5px] text-[var(--color-ink-3)]">
+          {scope} · {report.rows.length} 人
+        </span>
+        <span className="ml-auto flex items-center gap-2">
+          <a href={`/hr/report?p=${month}`} target="_blank" rel="noopener" className={btn}>
+            打印
+          </a>
+          <Link href={`/hr/export?p=${month}`} prefetch={false} className={btn}>
+            导出
+          </Link>
+        </span>
+      </div>
+      <div className="overflow-x-auto rounded-[2px] border border-[var(--color-border)] bg-white p-3">
+        <AttendanceSheet report={report} />
+      </div>
+    </div>
   )
 }
