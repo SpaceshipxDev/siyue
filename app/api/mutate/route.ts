@@ -72,6 +72,7 @@ import {
   setMemberReturnedQty,
   setPartRoute,
   setStageDoneQty,
+  backfillShipment,
   revokeStageFinish,
   setStageFinishBy,
   startJobStage,
@@ -288,6 +289,7 @@ import {
   monthBounds,
   pickCustomerLines,
 } from '@/lib/duizhang'
+import { setNoReconcile } from '@/lib/no-reconcile'
 import {
   addLoanRepayment,
   applyPayrollLoanDeductions,
@@ -1577,6 +1579,41 @@ async function dispatch(
     }
 
     // === 出货 ===
+    // 补开出货单 —— 生产表上出货已经打勾、没开出货单的单 (对账页上点)。开出
+    // 货的人或管钱的人都能点; 一张单一张出货单, 日期用当时点出货那天。
+    // 无需对账 —— 对账单上勾了哪几个工单号, 标掉 (on) 或恢复 (off)。管钱那一档。
+    case 'setNoReconcile': {
+      const nos = body.jobNos
+      if (!Array.isArray(nos) || nos.length === 0 || !nos.every(isString))
+        return err('先勾上要标的单')
+      const u = await requireUser()
+      if (!canSettleAccounts(u)) return err('标无需对账要找于海伟或财务', 403)
+      const clean = [...new Set((nos as string[]).map((n) => n.trim()).filter(Boolean))].slice(0, 500)
+      await setNoReconcile(clean, body.on !== false, u.name, new Date().toISOString())
+      revalidatePath('/duizhang')
+      return Response.json(ok())
+    }
+
+    case 'backfillShipments': {
+      const ids = body.jobIds
+      if (!Array.isArray(ids) || ids.length === 0 || !ids.every(isString))
+        return err('bad backfillShipments args')
+      const u = await requireUser()
+      if (!canClickStage(u, '出货') && !canSettleAccounts(u))
+        return err('补开出货单要找出货或财务', 403)
+      const docs: string[] = []
+      for (const id of [...new Set(ids as string[])].slice(0, 200)) {
+        const r = await backfillShipment(id, u.name)
+        if (r) {
+          docs.push(r.docNo)
+          revalidateStage(id, '出货')
+        }
+      }
+      revalidatePath('/duizhang')
+      revalidatePath('/finance')
+      return Response.json(ok({ docs }))
+    }
+
     case 'prepareShipping': {
       const jobId = body.jobId
       const selections = body.selections

@@ -20,6 +20,7 @@ import { DuizhangBar, DuizhangPartyList } from './_bar'
 import { ApprovalStrip } from './_approve'
 import { VendorSheet } from './_vendor_sheet'
 import { CustomerSheet } from './_customer_sheet'
+import { UndocumentedStrip } from './_undocumented'
 import { loadDuizhang } from './_load'
 
 export const dynamic = 'force-dynamic'
@@ -55,6 +56,8 @@ export default async function DuizhangPage({
     customerRecords,
     jobQuery,
     jobMatches,
+    undocumented,
+    skipped,
     canApprove,
     canOpenLedger,
   } = await loadDuizhang(params)
@@ -92,6 +95,9 @@ export default async function DuizhangPage({
           jobQuery={jobQuery}
         />
 
+        {/* 生产表上点了出货、没开出货单的 —— 补开了才上对账单。 */}
+        {kind === 'customer' && <UndocumentedStrip items={undocumented} />}
+
         {/* 这张纸认没认下来 —— 客户审批落应收。外协那边是勾着对的, 条和纸
             一起在 VendorSheet 里。空的月份没什么可认的。 */}
         {wholeApproved && sheet && (
@@ -109,7 +115,7 @@ export default async function DuizhangPage({
         )}
 
         {jobQuery && !sheet ? (
-          <JobMatches jobQuery={jobQuery} matches={jobMatches} />
+          <JobMatches jobQuery={jobQuery} matches={jobMatches} undocumented={undocumented.length > 0} />
         ) : sheet && sheet.kind === 'vendor' ? (
           <VendorSheet
             key={`${sheet.party}|${month}`}
@@ -130,6 +136,7 @@ export default async function DuizhangPage({
             todayStr={todayStr}
             records={customerRecords}
             initialQuery={jobQuery}
+            skipped={skipped}
             canApprove={canApprove}
             canOpenLedger={canOpenLedger}
           />
@@ -148,14 +155,19 @@ export default async function DuizhangPage({
 function JobMatches({
   jobQuery,
   matches,
+  undocumented,
 }: {
   jobQuery: string
   matches: { jobNo: string; customer: string; month: string; amountCny: number }[]
+  /** 号对上的单点了出货但没开出货单 (上面那一条可以补开)。 */
+  undocumented: boolean
 }) {
   if (matches.length === 0)
     return (
       <p className="py-24 text-center text-[13px] text-[var(--color-ink-3)]">
-        没找到工单号带「{jobQuery}」的出货 —— 还没出货的单不上对账单
+        {undocumented
+          ? '这张单还没有出货单 —— 点上面「补开出货单」，就会出现在它出货那个月的对账单上'
+          : `没找到工单号带「${jobQuery}」的出货 —— 还没出货的单不上对账单`}
       </p>
     )
   return (

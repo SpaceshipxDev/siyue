@@ -4977,6 +4977,118 @@ export async function prepareShipping(
   })
 }
 
+// 生产表上点了出货、却没开出货单的单 —— 商务那边算「已出货」(看的是出货那
+// 一格), 对账单只认出货单, 两边就对不上。这里把它们找出来 (对账页提示), 再
+// 由人点一下补开 (backfillShipment)。
+export type UndocumentedShipment = {
+  jobId: string
+  jobNo: string
+  customer: string
+  /** 点出货那一刻 (几个零件取最晚的); 老记录没留时间就是空。 */
+  shippedAt?: string
+  qty: number
+}
+
+export async function getUndocumentedShipments(filter: {
+  customer?: string
+  jobNoLike?: string
+}): Promise<UndocumentedShipment[]> {
+  let q = supabase.from('jobs').select('id, job_no, customer')
+  if (filter.customer) q = q.eq('customer', filter.customer.trim())
+  else if (filter.jobNoLike) q = q.ilike('job_no', `%${filter.jobNoLike.replace(/[%_]/g, '')}%`)
+  else return []
+  const jr = await q.limit(2000)
+  if (jr.error) throw jr.error
+  const jobs = (jr.data ?? []) as AnyRow[]
+  if (jobs.length === 0) return []
+  const jobIds = jobs.map((j) => j.id as string)
+  const [partRows, shipRows] = await Promise.all([
+    selectAllIn('parts', 'job_id', jobIds),
+    selectAllIn('shipments', 'job_id', jobIds),
+  ])
+  if (partRows.length === 0) return []
+  const [stageRows, spRows] = await Promise.all([
+    selectAllIn('part_stages', 'part_id', partRows.map((r) => r.id as string), {
+      column: 'stage',
+      values: ['出货'],
+    }),
+    shipRows.length > 0
+      ? selectAllIn('shipment_parts', 'shipment_id', shipRows.map((r) => r.id as string))
+      : Promise.resolve([] as AnyRow[]),
+  ])
+  const shipped = new Map<string, number>()
+  for (const sp of spRows) {
+    const pid = sp.part_id as string
+    shipped.set(pid, (shipped.get(pid) ?? 0) + Number(sp.qty ?? 0))
+  }
+  const stageOf = new Map(stageRows.map((r) => [r.part_id as string, fromPartStage(r)]))
+  const byJob = new Map<string, UndocumentedShipment>()
+  const meta = new Map(jobs.map((j) => [j.id as string, j]))
+  for (const r of partRows) {
+    const p = fromPart(r)
+    const st = stageOf.get(p.id)
+    if (!st || st.status !== 'done') continue
+    const left = Math.floor(p.qty) - (shipped.get(p.id) ?? 0)
+    if (left <= 0) continue
+    const j = meta.get(p.jobId)
+    if (!j) continue
+    let u = byJob.get(p.jobId)
+    if (!u) {
+      u = {
+        jobId: p.jobId,
+        jobNo: String(j.job_no ?? ''),
+        customer: String(j.customer ?? '').trim(),
+        qty: 0,
+      }
+      byJob.set(p.jobId, u)
+    }
+    u.qty += left
+    if (st.finishedAt && (!u.shippedAt || st.finishedAt > u.shippedAt)) u.shippedAt = st.finishedAt
+  }
+  return [...byJob.values()].sort((a, b) => a.jobNo.localeCompare(b.jobNo))
+}
+
+// 补开出货单 —— 出货那一格已经打了勾、还没进出货单的件, 一起开一张。日期用
+// 当时点出货的那一刻 (对账按它落月), 出货那一格不动 (本来就是完成)。
+export async function backfillShipment(
+  jobId: string,
+  actor: string,
+): Promise<{ docNo: string } | null> {
+  return withWriteLock(async () => {
+    const snap = await loadJobSnapshot(jobId)
+    const parts = snap.idx.partsByJob.get(jobId) ?? []
+    const cumulative = new Map<string, number>()
+    for (const s of snap.idx.shipmentsByJob.get(jobId) ?? []) {
+      for (const sp of snap.idx.shipmentPartsByShipment.get(s.id) ?? []) {
+        cumulative.set(sp.partId, (cumulative.get(sp.partId) ?? 0) + sp.qty)
+      }
+    }
+    const picks: ShipmentPartRow[] = []
+    let at: string | undefined
+    const shipmentId = uid('s')
+    for (const p of parts) {
+      const row = snap.idx.stageByPartStage.get(stageKey(p.id, '出货'))
+      if (!row || row.status !== 'done') continue
+      const left = Math.floor(p.qty) - (cumulative.get(p.id) ?? 0)
+      if (left <= 0) continue
+      picks.push({ shipmentId, partId: p.id, qty: left })
+      if (row.finishedAt && (!at || row.finishedAt > at)) at = row.finishedAt
+    }
+    if (picks.length === 0) return null
+    const when = at ? new Date(at) : new Date()
+    const prefix = docNoDayPrefix(when)
+    const seq = await nextSeqForPrefix('shipments', 'doc_no', prefix)
+    const docNo = formatDocNo(when, seq)
+    const insS = await supabase.from('shipments').insert(
+      toShipment({ id: shipmentId, jobId, docNo, createdAt: when.toISOString(), createdBy: actor }),
+    )
+    if (insS.error) throw insS.error
+    const insP = await supabase.from('shipment_parts').insert(picks.map(toShipmentPart))
+    if (insP.error) throw insP.error
+    return { docNo }
+  })
+}
+
 // 出货单开错了 — 改数量 / 整单删掉.
 //
 // 一张出货单不只是一条记录: prepareShipping 同时把 出货 工段推到 进行中 或

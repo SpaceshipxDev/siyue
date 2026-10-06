@@ -43,6 +43,7 @@ export function CustomerSheet({
   canApprove,
   canOpenLedger,
   initialQuery = '',
+  skipped = [],
 }: {
   sheet: Duizhang
   month: string
@@ -54,6 +55,8 @@ export function CustomerSheet({
   canOpenLedger: boolean
   /** 从顶上「按工单号找」过来的 —— 一打开就只勾对上的那几张。 */
   initialQuery?: string
+  /** 这个月标了「无需对账」的工单号 —— 不在纸上, 列在下面好恢复。 */
+  skipped?: string[]
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
@@ -124,6 +127,23 @@ export function CustomerSheet({
     }
     setPicked(next)
     setMiss(notFound)
+  }
+
+  // 无需对账 —— 勾上的这几张标掉 (再点一下确认); 标过的在下面一条里恢复。
+  const [armSkip, setArmSkip] = useState(false)
+  function markSkip(nos: string[], on: boolean) {
+    if (nos.length === 0) return
+    setError(null)
+    start(async () => {
+      try {
+        await mutate({ kind: 'setNoReconcile', jobNos: nos, on })
+        setArmSkip(false)
+        if (on) setPicked(new Set())
+        router.refresh()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '标不上')
+      }
+    })
   }
 
   function approve() {
@@ -259,6 +279,36 @@ export function CustomerSheet({
               >
                 打印 / 下载 PDF
               </a>
+              {canApprove &&
+                (armSkip ? (
+                  <span className="flex items-center gap-2 text-[12.5px]">
+                    <button
+                      type="button"
+                      onClick={() => markSkip(chosen.map((g) => g.no), true)}
+                      disabled={pending}
+                      className="font-medium text-[var(--color-overdue)] hover:underline disabled:opacity-50"
+                    >
+                      确认 {chosen.length} 张无需对账
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setArmSkip(false)}
+                      className="text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+                    >
+                      取消
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setArmSkip(true)}
+                    disabled={pending || chosen.length === 0}
+                    title="样品、现结之类不用跟客户对的单 —— 标掉之后不再出现在对账单上，随时能恢复"
+                    className="text-[12.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] disabled:opacity-40"
+                  >
+                    所选无需对账
+                  </button>
+                ))}
               {canApprove ? (
                 <button
                   type="button"
@@ -282,6 +332,28 @@ export function CustomerSheet({
           <p className="mt-2 text-[11.5px] text-[var(--color-ink-4)]">
             审过的单号下一回不再出现；没勾的留着，下回接着审。
           </p>
+        </div>
+      )}
+
+      {/* 这个月标了无需对账的 —— 不在纸上, 点一下恢复。 */}
+      {skipped.length > 0 && (
+        <div className="no-print mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 px-1 text-[12px] text-[var(--color-ink-3)]">
+          <span>无需对账 {skipped.length} 张：</span>
+          {skipped.map((no) => (
+            <span key={no} className="inline-flex items-baseline gap-1.5">
+              <span className="mono text-[var(--color-ink-2)]">{no}</span>
+              {canApprove && (
+                <button
+                  type="button"
+                  onClick={() => markSkip([no], false)}
+                  disabled={pending}
+                  className="text-[11.5px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)] disabled:opacity-50"
+                >
+                  恢复
+                </button>
+              )}
+            </span>
+          ))}
         </div>
       )}
 

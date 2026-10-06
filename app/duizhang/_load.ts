@@ -8,9 +8,12 @@ import {
   type AuthUser,
 } from '@/lib/auth'
 import { getReceivables } from '@/lib/receivable'
+import { getNoReconcile } from '@/lib/no-reconcile'
 import { getPayables, vendorSettledFrom } from '@/lib/payable'
 import { customerSettledFrom, type Payable, type Receivable } from '@/lib/settle-shared'
 import {
+  getUndocumentedShipments,
+  type UndocumentedShipment,
   getCustomerStatementLines,
   getFinanceRows,
   getOutsourceBlockRows,
@@ -61,6 +64,13 @@ export type DuizhangLoad = {
    */
   jobMatches: { jobNo: string; customer: string; month: string; amountCny: number }[]
   /**
+   * 生产表上点了出货、没开出货单的单 —— 对账单上看不到它们。选了客户就是这
+   * 个客户这个月的; 按工单号找没找到时, 是号对上的那几张。
+   */
+  undocumented: UndocumentedShipment[]
+  /** 客户: 这个客户这个月标了「无需对账」的工单号 —— 不在纸上, 列出来好恢复。 */
+  skipped: string[]
+  /**
    * 外协: 这一家这个月已经确认过的应付单 (一个月可以分几回对, 所以是一串)。
    * 它们认过的外协单已经不在对账单上了。
    */
@@ -99,16 +109,24 @@ export async function loadDuizhang(params: {
   let record: Receivable | Payable | null = null
   let vendorRecords: Payable[] = []
   let customerRecords: Receivable[] = []
+  let undocumented: UndocumentedShipment[] = []
+  let skipped: string[] = []
   const only = params.sel
     ? new Set(params.sel.split(',').map((x) => x.trim()).filter(Boolean))
     : undefined
   if (kind === 'customer') {
-    const rows = await getFinanceRows()
+    const [allRows, marks] = await Promise.all([
+      getFinanceRows(),
+      getNoReconcile().catch(() => ({}) as Record<string, unknown>),
+    ])
+    // 无需对账的单不进名单的数 (按工单号找还找得到, 好恢复)。
+    const skip = new Set(Object.keys(marks))
+    const rows = allRows.filter((r) => !skip.has(r.jobNo))
     // 按工单号找 —— 不分月、不分客户, 在所有出货里找。
     if (jobQuery) {
       const needle = jobQuery.toLowerCase()
       const byKey = new Map<string, DuizhangLoad['jobMatches'][number]>()
-      for (const r of rows) {
+      for (const r of allRows) {
         if (!r.jobNo.toLowerCase().includes(needle)) continue
         const m = shanghaiDay(r.shipDate).slice(0, 7)
         const k = `${r.customer.trim()}|${m}|${r.jobNo}`
@@ -127,6 +145,21 @@ export async function loadDuizhang(params: {
     }
     const { from, to } = monthBounds(month)
     parties = customerOptions(rows, from, to, shanghaiDay)
+    // 点了出货、没开出货单的 —— 读不到也不拦对账页。
+    try {
+      if (party) {
+        const thisMonth = month === todayStr.slice(0, 7)
+        undocumented = (await getUndocumentedShipments({ customer: party })).filter(
+          (u) =>
+            !skip.has(u.jobNo) &&
+            (u.shippedAt ? shanghaiDay(u.shippedAt).slice(0, 7) === month : thisMonth),
+        )
+      } else if (jobQuery && jobMatches.length === 0) {
+        undocumented = await getUndocumentedShipments({ jobNoLike: jobQuery })
+      }
+    } catch {
+      undocumented = []
+    }
     if (party) {
       // 零件级明细 —— 只有真的选了客户才去取 (四步窄查询, 见 lib/db)。
       const [detail, receivables] = await Promise.all([
@@ -134,7 +167,9 @@ export async function loadDuizhang(params: {
         getReceivables(),
       ])
       const settled = customerSettledFrom(receivables, party, month)
-      sheet = buildCustomerDuizhang(rows, party, from, to, shanghaiDay, detail)
+      sheet = buildCustomerDuizhang(allRows, party, from, to, shanghaiDay, detail)
+      skipped = [...new Set(sheet.lines.map((l) => l.docNo).filter((no) => skip.has(no)))]
+      if (skipped.length > 0) sheet = pickCustomerLines(sheet, (no) => !skip.has(no))
       record = settled.whole ?? null
       customerRecords = settled.whole ? [] : settled.records
       // 指名要这几个单号 (打印勾选的) 就照给; 否则审过的单号不再上纸。
@@ -184,6 +219,8 @@ export async function loadDuizhang(params: {
     customerRecords,
     jobQuery,
     jobMatches,
+    undocumented,
+    skipped,
     canApprove: canSettleAccounts(user),
     canOpenLedger: user.role === 'commerce',
   }
