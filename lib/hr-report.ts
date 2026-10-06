@@ -1,8 +1,8 @@
 // 考勤报表 —— 一个月一张: 一人一行, 1 号到月底一天一格, 后面几列合计。
 //
-// 格子里写的就是那天记了什么, 一个字代表一种 (加 / 事 / 病 / 伤 / 迟 / 旷 /
-// 违 / 质), 有时长的跟着小时数 ("加2" = 加班 2 小时)。一天记了几笔就并排写。
-// 什么都没记的格子空着 —— 系统里没有打卡记录, 不替人编"出勤"。
+// 每一格是那天的出勤小时 (含加班, 没出勤写 0, 怎么核见下面), 下面小字是那
+// 天记了什么, 一个字代表一种 (加 / 事 / 病 / 伤 / 迟 / 旷 / 违 / 质), 有时长
+// 的跟着小时数 ("加2" = 加班 2 小时)。
 //
 // 纯函数: 页面 (app/hr/report) 和导出 (app/hr/export) 共用一份, 屏幕上和表格
 // 里是同一张。
@@ -16,6 +16,8 @@ import { hoursForDept, saturdayHoursForDept, type PayrollRules } from './payroll
 //   减掉当天记的事假 / 病假 / 工伤 / 旷工 (没写时长的当一整天);
 //   剩下的就是这天出勤的小时, 占该上小时的几成就算几成天 (半天假 = 0.5 天)。
 //   一条都没记的工作日算全勤 —— 跟工资"没记就是满勤"一个口径。
+//   每天的出勤时间 = 这天出勤的小时 + 这天的加班; 没出勤就是 0 (周日没加班、
+//   整天请假旷工)。
 //   今天以后的日子不核 (还没到)。
 // 打卡机汇总导进来了的人, 实出勤和工时以打卡机为准 (工资也是这么取的)。
 const MISS: readonly HrType[] = ['事假', '病假', '工伤', '旷工']
@@ -42,8 +44,10 @@ export const HR_SHORT: Record<HrType, string> = {
 export type AttendanceRow = {
   name: string
   dept: string
-  /** 第 i 格 = (i+1) 号 */
+  /** 第 i 格 = (i+1) 号 —— 那天记了什么 (加2 / 事4 / 迟…) */
   days: string[]
+  /** 第 i 格那天的出勤时间 (小时, 含加班); 没核 (今天以后 / 没给制度) 是 null */
+  hours: (number | null)[]
   /** 每种的合计: 有时长的是小时, 别的是次数 */
   totals: Record<HrType, number>
   /** 出勤那几列的值, 跟 report.attendHeaders 一一对应。 */
@@ -109,6 +113,7 @@ export function buildAttendanceReport(
   for (const [name, list] of byName) {
     const days: string[][] = Array.from({ length: dayCount }, () => [])
     const missing: number[] = Array.from({ length: dayCount }, () => 0)
+    const overtime: number[] = Array.from({ length: dayCount }, () => 0)
     const totals = Object.fromEntries(HR_TYPES.map((t) => [t, 0])) as Record<HrType, number>
     const dept = calc?.deptOf[name] || list.find((r) => r.dept)?.dept || ''
     const weekdayHours = calc ? hoursForDept(calc.rules, dept || undefined) : 0
@@ -122,22 +127,22 @@ export function buildAttendanceReport(
       days[d - 1].push(`${HR_SHORT[r.type]}${h ? trim(h) : ''}`)
       totals[r.type] += hrHasHours(r.type) ? h : 1
       if (MISS.includes(r.type)) missing[d - 1] += h > 0 ? h : stdOf(d - 1) || 0
+      if (r.type === '加班') overtime[d - 1] += h
     }
 
-    // 逐天核: 格子前面打 √ (出勤 / 出勤一部分) 或 休, 后面跟当天的记录。
+    // 逐天核: 这天出勤几小时 (含加班), 没出勤是 0。
     let attendedDays = 0
     let attendedHours = 0
-    const cells = days.map((codes, i) => {
+    const cells = days.map((codes) => codes.join(' '))
+    const hours = days.map((_, i) => {
       const ymd = `${month}-${String(i + 1).padStart(2, '0')}`
-      const text = codes.join(' ')
-      if (!calc || ymd > calc.today) return text
+      if (!calc || ymd > calc.today) return null
       const std = stdOf(i)
-      if (std <= 0) return text ? text : '休'
-      const worked = Math.max(0, std - missing[i])
-      attendedHours += worked
-      attendedDays += worked / std
-      if (worked <= 0) return text
-      return text ? `√ ${text}` : '√'
+      const worked = std > 0 ? Math.max(0, std - missing[i]) : 0
+      if (std > 0) attendedDays += worked / std
+      const total = Math.round((worked + overtime[i]) * 10) / 10
+      attendedHours += total
+      return total
     })
 
     const sum = summary[name]
@@ -158,6 +163,7 @@ export function buildAttendanceReport(
       name,
       dept,
       days: cells,
+      hours,
       attend,
       totals: Object.fromEntries(
         HR_TYPES.map((t) => [t, Math.round(totals[t] * 10) / 10]),

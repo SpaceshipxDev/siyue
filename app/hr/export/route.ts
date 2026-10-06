@@ -140,7 +140,8 @@ export async function GET(request: NextRequest): Promise<Response> {
           i + 1,
           r.name,
           r.dept,
-          ...r.days,
+          // 每天一个数: 出勤小时 (含加班), 没出勤是 0; 还没到的日子留空。
+          ...r.hours.map((h, j) => (h === null ? r.days[j] : h)),
           ...r.attend,
           ...HR_TYPES.map((t) => r.totals[t] || ''),
         ])
