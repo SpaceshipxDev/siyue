@@ -19,6 +19,7 @@
 //
 // When adding a new mutation: prefer adding a `kind` to the dispatcher.
 
+import { setSpraySteps, SPRAY_STEPS } from '@/lib/spray-steps'
 import { revalidatePath } from 'next/cache'
 import type { Stage, JobStatus } from '@/lib/data'
 import { BRAND } from '@/lib/brand'
@@ -113,6 +114,24 @@ export async function startStageAction(
 
 // 出货那一格动了 —— 出货单跟着对齐, 点过出货的就进对账 (同 /api/mutate)。
 async function syncShipments(jobId: string, stage: Stage, actor: string): Promise<void> {
+  // 喷漆的底漆 / 面漆两小步跟着对齐 (同 /api/mutate)。
+  if (stage === '喷漆') {
+    try {
+      const job = await getJob(jobId)
+      if (!job) return
+      const doneItems = job.components
+        .filter((c) => c.stages['喷漆']?.status === 'done')
+        .flatMap((c) => SPRAY_STEPS.map((step) => ({ jobId, componentId: c.id, step })))
+      const undoItems = job.components
+        .filter((c) => c.stages['喷漆'] && c.stages['喷漆']?.status !== 'done')
+        .map((c) => ({ jobId, componentId: c.id, step: '面漆' as const }))
+      await setSpraySteps(doneItems, { by: actor, at: new Date().toISOString() })
+      await setSpraySteps(undoItems, null)
+    } catch (e) {
+      console.error('[syncSpray]', jobId, e)
+    }
+    return
+  }
   if (stage !== '出货') return
   try {
     await syncAutoShipments(jobId, actor)

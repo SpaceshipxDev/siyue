@@ -292,6 +292,7 @@ import {
 } from '@/lib/duizhang'
 import { getNoReconcile, LINE_MARK, setNoReconcile } from '@/lib/no-reconcile'
 import { savePunchHours, setDailyHours } from '@/lib/hr-daily'
+import { isSprayStep, setSpraySteps, type SprayStep } from '@/lib/spray-steps'
 import {
   addLoanRepayment,
   applyPayrollLoanDeductions,
@@ -469,12 +470,38 @@ async function recordPersonOutput(
 // 出货那一格动了 (点出货 / 填出货数 / 撤销) —— 出货单跟着对齐, 点过出货的就
 // 进对账 (lib/db syncAutoShipments)。对不齐不拦这一下点击, 下回对账页还会补。
 async function syncShipments(jobId: string, stage: Stage, actor: string): Promise<void> {
+  if (stage === '喷漆') return syncSpray(jobId, actor)
   if (stage !== '出货') return
   try {
     await syncAutoShipments(jobId, actor)
     revalidatePath('/duizhang')
   } catch (e) {
     console.error('[syncAutoShipments]', jobId, e)
+  }
+}
+
+// 喷漆那一格动了 (完成 / 撤销, 单个零件或整单) —— 底漆、面漆两小步跟着对齐:
+// 喷漆完成了, 两步都算做完 (没点过底漆的补上); 喷漆退回去了, 面漆跟着撤
+// (底漆留着, 那是真做过的)。见 lib/spray-steps。
+async function syncSpray(jobId: string, actor: string): Promise<void> {
+  try {
+    const job = await getJob(jobId)
+    if (!job) return
+    const done: { jobId: string; componentId: string; step: SprayStep }[] = []
+    const undone: { jobId: string; componentId: string; step: SprayStep }[] = []
+    for (const c of job.components) {
+      const st = c.stages['喷漆']
+      if (!st) continue
+      if (st.status === 'done') {
+        done.push({ jobId, componentId: c.id, step: '底漆' }, { jobId, componentId: c.id, step: '面漆' })
+      } else {
+        undone.push({ jobId, componentId: c.id, step: '面漆' })
+      }
+    }
+    await setSpraySteps(done, { by: actor, at: new Date().toISOString() })
+    await setSpraySteps(undone, null)
+  } catch (e) {
+    console.error('[syncSpray]', jobId, e)
   }
 }
 
@@ -1141,7 +1168,7 @@ async function dispatch(
         return err('bad finishStage args')
       const u = await requireOwnStage(stage)
       await finishStage(jobId, componentId, stage, reportActor(u, body))
-      await syncShipments(jobId, stage, u.name)
+      await syncShipments(jobId, stage, reportActor(u, body))
       // 操机、喷漆报工时当场选的人 (app/_who_did) —— 另记一份个人报工, 账号
       // 那边的统计照旧记在按的账号上。
       const people = normalizeShares(body.people)
@@ -2645,6 +2672,20 @@ async function dispatch(
       if (!canEditHrRecord(u)) return err('改考勤要找人事', 403)
       await setDailyHours(month, name.trim(), day, hours as number | null)
       revalidatePath('/hr')
+      return Response.json(ok())
+    }
+
+    // 喷漆里的「底漆」—— 点一下记上 (done), 再点撤掉。面漆不走这里: 面漆点完
+    // 就是喷漆完成, 走 finishStage (那边把两步都记上)。
+    case 'setSprayStep': {
+      const { jobId, componentId, step } = body
+      if (!isString(jobId) || !isString(componentId) || !isSprayStep(step))
+        return err('bad setSprayStep args')
+      const u = await requireOwnStage('喷漆')
+      await setSpraySteps(
+        [{ jobId, componentId, step }],
+        body.done === false ? null : { by: reportActor(u, body), at: new Date().toISOString() },
+      )
       return Response.json(ok())
     }
 

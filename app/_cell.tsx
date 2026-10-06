@@ -10,6 +10,8 @@ import { QtyEditor } from './_qty_editor'
 import { SplitEditor } from './_split_editor'
 import { useCanUndoDone, useStageGuard } from './_stage_scope'
 import { WhoDidSheet } from './_who_did'
+import { setLocalStep, useSpraySteps } from './_spray_steps'
+import { getReporterName } from './_reporter'
 
 // Stage button writes go through /api/mutate (~30-byte JSON) instead of
 // server actions. Server-action responses inline the current page's RSC,
@@ -51,6 +53,9 @@ export function StageCellButton({
   const [splitOpen, setSplitOpen] = useState(false)
   // 操机、喷漆按 ✓ 先问"谁做的" (app/_who_did)。
   const [whoOpen, setWhoOpen] = useState(false)
+  // 喷漆拆成底漆、面漆两小步 (lib/spray-steps): 先点底漆, 再点面漆 = 喷漆完成。
+  const isSpray = stage === '喷漆'
+  const steps = useSpraySteps(jobId, componentId, isSpray)
   // 报工范围 guard — out-of-scope taps open the denial dialog instead of
   // writing. The server re-checks, so a stale client only ever costs a
   // round-trip, never a wrong write.
@@ -97,6 +102,12 @@ export function StageCellButton({
   const finish = (who: { people?: { name: string; qty: number }[] }) => {
     setWhoOpen(false)
     setError(false)
+    if (isSpray) {
+      // 面漆点完 = 喷漆完成, 两小步都算做完 (服务端也这么记)。
+      const mark = { by: who.people?.[0]?.name || getReporterName() || '我', at: new Date().toISOString() }
+      if (!steps.底漆) setLocalStep(jobId, componentId, '底漆', mark)
+      setLocalStep(jobId, componentId, '面漆', mark)
+    }
     setOptimistic({ status: 'done', completedAt: 'now' })
     start(async () => {
       try {
@@ -127,6 +138,7 @@ export function StageCellButton({
   const onUndo = () => {
     if (!guard.check()) return
     setError(false)
+    if (isSpray) setLocalStep(jobId, componentId, '面漆', null)
     setOptimistic({ status: 'in_progress' })
     start(async () => {
       try {
@@ -200,6 +212,26 @@ export function StageCellButton({
     )
   }
 
+  // 底漆点一下记上, 再点撤掉 —— 不碰喷漆这一格本身。
+  const toggleBase = () => {
+    if (!guard.check()) return
+    const done = !steps.底漆
+    setLocalStep(
+      jobId,
+      componentId,
+      '底漆',
+      done ? { by: getReporterName() || '我', at: new Date().toISOString() } : null,
+    )
+    start(async () => {
+      try {
+        await mutate({ kind: 'setSprayStep', jobId, componentId, step: '底漆', done })
+      } catch (e) {
+        setLocalStep(jobId, componentId, '底漆', done ? null : (steps.底漆 ?? null))
+        if (!guard.denyIfScopeError(e)) setError(true)
+      }
+    })
+  }
+
   if (display.status === 'in_progress') {
     const doneSoFar = display.doneQty ?? 0
     return (
@@ -208,6 +240,33 @@ export function StageCellButton({
           error ? 'bg-[var(--color-overdue-soft)]' : 'bg-[var(--color-warning-soft)]'
         } ${pending ? 'opacity-60' : ''}`}
       >
+        {isSpray && !error ? (
+          // 喷漆: 两小步上下排 —— 底漆 (点了打勾, 再点撤掉), 面漆 (点了就是喷漆完成)。
+          <div className="flex w-full flex-1 flex-col items-stretch justify-center gap-0.5 px-1 py-1">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={toggleBase}
+              title={steps.底漆 ? `底漆 ${steps.底漆.by} · 点一下撤掉` : '底漆做完了点一下'}
+              className={`rounded-[2px] py-0.5 text-[10.5px] leading-tight transition-colors hover:brightness-95 disabled:cursor-not-allowed ${
+                steps.底漆
+                  ? 'font-semibold text-[var(--color-success)]'
+                  : 'text-[var(--color-warning)] hover:bg-white/60'
+              }`}
+            >
+              {steps.底漆 ? '底漆 ✓' : '底漆'}
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={onFinish}
+              title="面漆做完了点一下 —— 喷漆这一道就完成了"
+              className="rounded-[2px] py-0.5 text-[10.5px] leading-tight text-[var(--color-warning)] transition-colors hover:bg-white/60 disabled:cursor-not-allowed"
+            >
+              面漆
+            </button>
+          </div>
+        ) : (
         <button
           type="button"
           disabled={pending}
@@ -225,6 +284,7 @@ export function StageCellButton({
             <Pause size={12} className="text-[var(--color-warning)]" />
           )}
         </button>
+        )}
         {supportsPartial && !error ? (
           <button
             type="button"
@@ -335,8 +395,14 @@ export function StageCellButton({
   // gets clipped by the cell/row overflow in every grid this renders in, so the
   // title is the only thing that actually shows. `state.by` is server truth
   // (optimistic finishes don't carry it yet); it fills in on the server echo.
+  const sprayHint =
+    isSpray && (steps.底漆 || steps.面漆)
+      ? ` · ${[steps.底漆 ? `底漆 ${steps.底漆.by}` : '', steps.面漆 ? `面漆 ${steps.面漆.by}` : '']
+          .filter(Boolean)
+          .join(' · ')}`
+      : ''
   const attribution = state.by
-    ? `完成 ${state.by}${stageTimeHint(state.finishedAt)}`
+    ? `完成 ${state.by}${stageTimeHint(state.finishedAt)}${sprayHint}`
     : undefined
   return (
     <div className="group/cell relative h-full w-full">
