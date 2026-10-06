@@ -1,9 +1,7 @@
 import { canSeeAllHr, hrDeptOf, requireHrUser } from '@/lib/auth'
-import { getHrMonth } from '@/lib/hr'
-import { loadSheetInputs } from '../_sheet_data'
+import { loadAttendanceReport } from '../_sheet_data'
 import { BRAND } from '@/lib/brand'
 import { today } from '@/lib/today'
-import { buildAttendanceReport } from '@/lib/hr-report'
 import { AttendanceSheet } from '../_attendance_sheet'
 import { PrintButton } from '@/app/_print_button'
 
@@ -26,15 +24,7 @@ export default async function HrReportPage({
 
   const seeAll = canSeeAllHr(user)
   const myDept = hrDeptOf(user)
-  const [all, inputs] = await Promise.all([getHrMonth(month), loadSheetInputs(month, seeAll)])
-  const records = seeAll ? all : all.filter((r) => (r.dept ?? '商务') === myDept)
-  const report = buildAttendanceReport(
-    month,
-    records,
-    inputs.extraNames,
-    inputs.summary,
-    inputs.calc,
-  )
+  const report = await loadAttendanceReport(month)
   const [y, m] = month.split('-')
 
   return (

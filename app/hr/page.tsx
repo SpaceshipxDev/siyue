@@ -16,7 +16,7 @@ import {
 import { getLoans } from '@/lib/loan'
 import { HrLoanBoard } from './_loans'
 import { getActiveUsers, isAdminUser } from '@/lib/db'
-import { loadSheetInputs } from './_sheet_data'
+import { loadAttendanceReport } from './_sheet_data'
 import {
   getHrMonth,
   getHrMonths,
@@ -30,7 +30,7 @@ import { getDormEntries } from '@/lib/dorm'
 import { DormBoard } from './_dorm'
 import { HrBoard } from './_hr'
 import { AttendanceSheet } from './_attendance_sheet'
-import { buildAttendanceReport } from '@/lib/hr-report'
+import type { AttendanceReport } from '@/lib/hr-report'
 
 export const dynamic = 'force-dynamic'
 
@@ -75,7 +75,7 @@ export default async function HrPage({
       : now.slice(0, 7)
   const isYear = period.length === 4
 
-  const [allRecords, notes, months, users, extraNames, dormEntries, loans, sheetInputs] =
+  const [allRecords, notes, months, users, extraNames, dormEntries, loans, sheetReport] =
     await Promise.all([
       isYear ? getHrYear(period) : getHrMonth(period),
       // 请假条 — 跟记录同一个分片口径, 所以跟着同一趟读: 月度一个文件, 年度
@@ -87,7 +87,7 @@ export default async function HrPage({
       seeDorm ? getDormEntries() : Promise.resolve([]),
       view === 'loan' ? getLoans() : Promise.resolve([]),
       // 考勤表要的名单、部门、工时制度、打卡机汇总 (app/hr/_sheet_data)。
-      view === 'sheet' ? loadSheetInputs(period, canSeeAllHr(user)) : Promise.resolve(null),
+      view === 'sheet' ? loadAttendanceReport(period) : Promise.resolve(null),
     ])
 
   // 看全部 vs 看本部门. Scoped here, on the server, so a 工段长's page never
@@ -146,13 +146,7 @@ export default async function HrPage({
         {view === 'sheet' ? (
           <SheetView
             month={period}
-            report={buildAttendanceReport(
-              period,
-              records,
-              sheetInputs?.extraNames ?? [],
-              sheetInputs?.summary ?? {},
-              sheetInputs?.calc,
-            )}
+            report={sheetReport!}
             scope={seeAll ? '全厂' : `${myDept}部门`}
             canImport={canEditHrRecord(user)}
           />
@@ -225,7 +219,7 @@ function SheetView({
   canImport,
 }: {
   month: string
-  report: ReturnType<typeof buildAttendanceReport>
+  report: AttendanceReport
   scope: string
   /** 导入打卡机导出的考勤表 —— 读出来先过一眼, 记入后这张表就排出来了。 */
   canImport: boolean

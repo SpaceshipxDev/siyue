@@ -50,6 +50,7 @@ type Punch = {
   hours?: number
   in?: string
   out?: string
+  dept?: string
 }
 
 export function HrImport({
@@ -97,6 +98,8 @@ export function HrImport({
           const fd = new FormData()
           fd.append('file', file)
           fd.append('month', month)
+          // 考勤表页签上导的: 只读打卡时间, 不碰人事考勤和工资。
+          if (toSheet) fd.append('mode', 'punch')
           const res = await fetch(withBase('/api/hr-import'), {
             method: 'POST',
             body: fd,
@@ -114,12 +117,15 @@ export function HrImport({
             (data.summaries?.length ?? 0) +
             (data.punches?.length ?? 0)
           if (!data.ok || got === 0) {
-            failed.push(file.name)
+            // 读不出来的原因带上, 不然人只看到"失败"两个字不知道改哪儿。
+            failed.push(data.error ? `${file.name}（${data.error}）` : file.name)
           } else {
             const m = data.month ?? month
             seenMonths.add(m)
-            all.push(...(data.records ?? []))
-            allSums.push(...(data.summaries ?? []).map((r) => ({ ...r, month: m })))
+            if (!toSheet) {
+              all.push(...(data.records ?? []))
+              allSums.push(...(data.summaries ?? []).map((r) => ({ ...r, month: m })))
+            }
             allPunches.push(...(data.punches ?? []).map((r) => ({ ...r, month: m })))
           }
         } catch {

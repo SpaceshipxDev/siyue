@@ -93,6 +93,34 @@ export type PunchHours = Record<string, Record<number, PunchDay>>
 
 const HHMM = /^\d{2}:\d{2}$/
 
+// 同一个文件里放一份「打卡表上写的部门」—— 扣不扣午休看部门, 考勤表不去工资
+// 名单里找部门。
+const DEPT_KEY = '__dept__'
+
+async function readPunchRaw(month: string): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(punchKey(month))
+  if (error || !data) return {}
+  try {
+    const raw = JSON.parse(await data.text()) as unknown
+    return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+/** 打卡表上写的部门 { 姓名: 部门 }。 */
+export async function getPunchDepts(month: string): Promise<Record<string, string>> {
+  const d = (await readPunchRaw(month))[DEPT_KEY]
+  if (typeof d !== 'object' || d === null) return {}
+  return Object.fromEntries(
+    Object.entries(d as Record<string, unknown>).filter(
+      (e): e is [string, string] => typeof e[1] === 'string' && e[1].trim() !== '',
+    ),
+  )
+}
+
 export async function getPunchHours(month: string): Promise<PunchHours> {
   const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(punchKey(month))
   if (error || !data) return {}
@@ -101,6 +129,7 @@ export async function getPunchHours(month: string): Promise<PunchHours> {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {}
     const out: PunchHours = {}
     for (const [name, days] of Object.entries(raw as Record<string, unknown>)) {
+      if (name === DEPT_KEY) continue
       if (!name.trim() || typeof days !== 'object' || days === null) continue
       const m: Record<number, PunchDay> = {}
       for (const [d, h] of Object.entries(days as Record<string, unknown>)) {
@@ -124,14 +153,16 @@ export async function getPunchHours(month: string): Promise<PunchHours> {
 /** 存一批打卡 —— 出现的人整月换成这一份, 没出现的人原样留着。返回人数。 */
 export async function savePunchHours(
   month: string,
-  rows: { name: string; day: number; hours?: number; in?: string; out?: string }[],
+  rows: { name: string; day: number; hours?: number; in?: string; out?: string; dept?: string }[],
 ): Promise<number> {
   return withLock(async () => {
-    const map = await getPunchHours(month)
+    const map: Record<string, unknown> = await getPunchHours(month)
+    const depts = await getPunchDepts(month)
     const fresh: PunchHours = {}
     for (const r of rows) {
       const name = r.name.trim()
       if (!name || !(r.day >= 1 && r.day <= 31)) continue
+      if (r.dept?.trim()) depts[name] = r.dept.trim()
       const v: PunchDay =
         r.in && r.out && HHMM.test(r.in) && HHMM.test(r.out)
           ? { in: r.in, out: r.out }
@@ -139,6 +170,7 @@ export async function savePunchHours(
       fresh[name] = { ...(fresh[name] ?? {}), [r.day]: v }
     }
     Object.assign(map, fresh)
+    map[DEPT_KEY] = depts
     const { error } = await supabase.storage
       .from(STORAGE_BUCKET)
       .upload(punchKey(month), Buffer.from(JSON.stringify(map), 'utf8'), {

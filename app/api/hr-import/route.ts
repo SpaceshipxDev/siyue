@@ -5,6 +5,7 @@ import { extractAttendanceFromXlsx } from '@/lib/gemini'
 import { HR_TYPES, hrHasHours, type HrType } from '@/lib/data'
 import { isPayrollMonth } from '@/lib/payroll'
 import { errMessage } from '@/lib/err'
+import { guessMonth, parsePunchSheets } from '@/lib/punch-parse'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -44,6 +45,38 @@ export async function POST(request: NextRequest) {
     const wb = parseWorkbook(buf, file.name)
     // 整本读进去，让模型自己认哪张是考勤表；一张月考勤表的格子数对它不算多。
     const sheets = wb.sheets.map((s) => ({ name: s.name, aoa: s.aoa }))
+
+    // 考勤表页签上导的打卡表 (mode=punch) —— 只要每天的上下班时间, 别的一概
+    // 不读: 不往人事考勤里记, 不往工资里记。先按格子直接读 (快、读不断), 读
+    // 不出来才交给识别模型兜底。
+    if (String(form.get('mode') ?? '') === 'punch') {
+      const m = guessMonth(sheets, file.name) ?? month
+      let punches: { name: string; dept?: string; day: number; in?: string; out?: string; hours?: number }[] =
+        parsePunchSheets(sheets, m)
+      if (punches.length === 0) {
+        const ai = await extractAttendanceFromXlsx({ fileName: file.name, month: m, sheets })
+        const hhmm = (v: unknown) => {
+          const t = String(v ?? '').trim().match(/^(\d{1,2}):(\d{2})/)
+          return t && Number(t[1]) <= 23 && Number(t[2]) <= 59 ? `${t[1].padStart(2, '0')}:${t[2]}` : undefined
+        }
+        type P = (typeof punches)[number]
+        punches = (ai.punches ?? []).flatMap((p): P[] => {
+          const name = String(p.name ?? '').trim()
+          const date = String(p.date ?? '').trim()
+          if (!name || !date.startsWith(m)) return []
+          const day = Number(date.slice(8, 10))
+          const tin = hhmm(p.in)
+          const tout = hhmm(p.out)
+          if (tin && tout && tin !== tout) return [{ name, day, in: tin, out: tout }]
+          const h = typeof p.hours === 'number' && p.hours > 0 && p.hours <= 24 ? p.hours : 0
+          return h > 0 ? [{ name, day, hours: Math.round(h * 10) / 10 }] : []
+        })
+      }
+      if (punches.length === 0)
+        return Response.json({ ok: false, error: '没读出打卡时间 —— 表上要有姓名和每天的上下班时间' })
+      return Response.json({ ok: true, month: m, records: [], summaries: [], punches })
+    }
+
     const parsed = await extractAttendanceFromXlsx({
       fileName: file.name,
       month,

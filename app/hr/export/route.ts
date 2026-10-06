@@ -7,8 +7,7 @@ import {
   requireHrUser,
 } from '@/lib/auth'
 import { getHrMonth, getHrYear } from '@/lib/hr'
-import { loadSheetInputs } from '../_sheet_data'
-import { buildAttendanceReport, totalHeader } from '@/lib/hr-report'
+import { loadAttendanceReport } from '../_sheet_data'
 import { getDormEntries } from '@/lib/dorm'
 import { HR_TYPES, hrHasHours } from '@/lib/data'
 import { today } from '@/lib/today'
@@ -120,38 +119,16 @@ export async function GET(request: NextRequest): Promise<Response> {
     }
     addSheet(wb, detail, [12, 14, 12, 14, 8, 34, 12], '明细')
 
-    // 考勤表 —— 月度那张: 一人一行、每天一格、后面合计 (跟 /hr/report 同一份)。
+    // 考勤表 —— 月度那张: 一人一行、每天的上班时长、后面合计 (跟 /hr/report
+    // 同一份, 只看导入的打卡和手填的时长)。
     if (period.length === 7) {
-      const inputs = await loadSheetInputs(period, seeAll)
-      const rep = buildAttendanceReport(
-        period,
-        records,
-        inputs.extraNames,
-        inputs.summary,
-        inputs.calc,
-      )
+      const rep = await loadAttendanceReport(period)
       const days = Array.from({ length: rep.dayCount }, (_, i) => `${i + 1}`)
-      const worked = rep.attendHeaders
-      const grid: (string | number)[][] = [
-        ['序号', '姓名', '部门', ...days, ...worked, ...HR_TYPES.map(totalHeader)],
-      ]
+      const grid: (string | number)[][] = [['序号', '姓名', '部门', ...days, ...rep.attendHeaders]]
       rep.rows.forEach((r, i) => {
-        grid.push([
-          i + 1,
-          r.name,
-          r.dept,
-          // 每天一个数: 出勤小时 (含加班), 没出勤是 0; 还没到的日子留空。
-          ...r.hours.map((h, j) => (h === null ? r.days[j] : h)),
-          ...r.attend,
-          ...HR_TYPES.map((t) => r.totals[t] || ''),
-        ])
+        grid.push([i + 1, r.name, r.dept, ...r.hours.map((h) => h ?? ''), ...r.attend])
       })
-      addSheet(
-        wb,
-        grid,
-        [6, 10, 8, ...days.map(() => 5), ...worked.map(() => 10), ...HR_TYPES.map(() => 10)],
-        '考勤表',
-      )
+      addSheet(wb, grid, [6, 10, 8, ...days.map(() => 5), ...rep.attendHeaders.map(() => 10)], '考勤表')
     }
 
     base = `考勤_${period}`
