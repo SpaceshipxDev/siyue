@@ -288,10 +288,15 @@ export type ExtractedHrRecord = {
   note?: string
 }
 
-/** 打卡明细的一格 —— 某人某天打卡算出来上了几个小时。 */
+/** 打卡明细的一格 —— 某人某天第一次、最后一次打卡 (或者表上直接给的工时)。 */
 export type ExtractedPunchDay = {
   name: string
   date: string
+  /** 第一次打卡 HH:MM */
+  in?: string | null
+  /** 最后一次打卡 HH:MM */
+  out?: string | null
+  /** 表上只有当天工时、没有打卡时间时才填 */
   hours?: number | null
 }
 
@@ -342,10 +347,12 @@ const HR_SCHEMA = {
         properties: {
           name: { type: Type.STRING },
           date: { type: Type.STRING },
+          in: { type: Type.STRING, nullable: true },
+          out: { type: Type.STRING, nullable: true },
           hours: { type: Type.NUMBER, nullable: true },
         },
         required: ['name', 'date'],
-        propertyOrdering: ['name', 'date', 'hours'],
+        propertyOrdering: ['name', 'date', 'in', 'out', 'hours'],
       },
     },
   },
@@ -403,8 +410,10 @@ export async function extractAttendanceFromXlsx(input: {
 这一种输出到 punches，**每人每天一条**：
 - name 姓名
 - date 那一天 YYYY-MM-DD
-- hours 当天上班时长（小时，保留一位小数）：表上有当天工时/出勤时长就用它；只有打卡时间就用当天最后一次打卡减第一次打卡；表上标了午休/休息要扣的就扣，没标就不扣；只打了一次卡、或者没打卡的那天输出 0。
-这张表上出现的人，这个月每一天都要输出（没打卡的日子 hours 为 0）。
+- in 当天第一次打卡时间，out 当天最后一次打卡时间，一律 24 小时制 HH:MM（"8:02" 输出 "08:02"，"下午5:30" 输出 "17:30"）。不要自己算时长、不要扣午休，系统会按部门扣。
+- 只打了一次卡、或者没打卡的那天，in/out 都输出 null。
+- hours 只在表上**没有打卡时间、只有当天工时**的时候填那个工时，有打卡时间时 hours 输出 null。
+这张表上出现的人，这个月有打卡的每一天都要输出。
 打卡明细里如果还标着迟到、早退、请假、加班，同时照第二种的规矩输出到 records。
 
 type 只能是这几个词之一，不要自造：

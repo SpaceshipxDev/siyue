@@ -121,11 +121,22 @@ export async function POST(request: NextRequest) {
         const name = String(p.name ?? '').trim()
         const date = String(p.date ?? '').trim()
         if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !date.startsWith(sheetMonth)) return null
+        // 上下班时间原样带回去 (HH:MM) —— 扣不扣午休、扣多少, 考勤表上按这个
+        // 人的部门算; 表上只给了工时的, 才用工时。
+        const hhmm = (v: unknown) => {
+          const m = String(v ?? '').trim().match(/^(\d{1,2}):(\d{2})/)
+          if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return undefined
+          return `${m[1].padStart(2, '0')}:${m[2]}`
+        }
+        const tin = hhmm(p.in)
+        const tout = hhmm(p.out)
         const h =
           typeof p.hours === 'number' && Number.isFinite(p.hours) && p.hours >= 0 && p.hours <= 24
             ? Math.round(p.hours * 10) / 10
             : 0
-        return { name, day: Number(date.slice(8, 10)), hours: h }
+        return tin && tout && tin !== tout
+          ? { name, day: Number(date.slice(8, 10)), in: tin, out: tout }
+          : { name, day: Number(date.slice(8, 10)), hours: h }
       })
       .filter((p): p is NonNullable<typeof p> => p !== null)
 

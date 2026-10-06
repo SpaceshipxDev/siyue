@@ -35,7 +35,44 @@ export type AttendanceCalc = {
    * 导入的打卡时长 { 姓名: { 几号: 小时 } } —— 这个月导过打卡的人, 每天就是
    * 打卡的时长, 没打卡的日子是 0 (手填的还压在它上面)。
    */
-  punch?: Record<string, Record<number, number>>
+  punch?: Record<string, Record<number, number | { in: string; out: string }>>
+}
+
+// 打卡时间折成上班时长 ——
+//   操机 (塑料操机 / 金属操机 / 老的操机): 下班 − 上班, 不扣;
+//   其他部门: 下班 − 上班, 再扣中午 1.5 小时 (11:30–13:00) 和傍晚半小时
+//   (17:30–18:00) —— 只扣落在上下班之间的那一段, 没待到 17:30 就不扣那半小时。
+// 下班比上班早的是夜班, 跨到第二天。
+const BREAKS: [number, number][] = [
+  [11.5, 13],
+  [17.5, 18],
+]
+
+function clock(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return h + m / 60
+}
+
+export function isOperatorDept(dept: string): boolean {
+  return dept.includes('操机')
+}
+
+export function punchToHours(p: number | { in: string; out: string }, dept: string): number {
+  if (typeof p === 'number') return p
+  const start = clock(p.in)
+  let end = clock(p.out)
+  if (end <= start) end += 24
+  let h = end - start
+  if (!isOperatorDept(dept)) {
+    for (const [a, b] of BREAKS) {
+      for (const shift of [0, 24]) {
+        const lo = Math.max(start, a + shift)
+        const hi = Math.min(end, b + shift)
+        if (hi > lo) h -= hi - lo
+      }
+    }
+  }
+  return Math.max(0, Math.round(h * 10) / 10)
 }
 
 export const HR_SHORT: Record<HrType, string> = {
@@ -160,7 +197,8 @@ export function buildAttendanceReport(
       if (!calc) return null
       // 导过打卡的人: 打卡是几小时就是几小时, 没打卡就是 0。
       if (punch) {
-        const v = punch[i + 1] ?? 0
+        const p = punch[i + 1]
+        const v = p === undefined ? 0 : punchToHours(p, dept)
         if (std > 0) attendedDays += Math.min(v, std) / std
         attendedHours += v
         return v

@@ -84,20 +84,34 @@ function punchKey(month: string): string {
   return `hr/punch-hours-${month.replace(/[^0-9-]/g, '')}.json`
 }
 
-export async function getPunchHours(month: string): Promise<DailyHours> {
+/**
+ * 一天的打卡 —— 上下班时间 (时长到考勤表上按部门扣午休再算), 或者表上只给了
+ * 的工时 (小时数)。
+ */
+export type PunchDay = number | { in: string; out: string }
+export type PunchHours = Record<string, Record<number, PunchDay>>
+
+const HHMM = /^\d{2}:\d{2}$/
+
+export async function getPunchHours(month: string): Promise<PunchHours> {
   const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(punchKey(month))
   if (error || !data) return {}
   try {
     const raw = JSON.parse(await data.text()) as unknown
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {}
-    const out: DailyHours = {}
+    const out: PunchHours = {}
     for (const [name, days] of Object.entries(raw as Record<string, unknown>)) {
       if (!name.trim() || typeof days !== 'object' || days === null) continue
-      const m: Record<number, number> = {}
+      const m: Record<number, PunchDay> = {}
       for (const [d, h] of Object.entries(days as Record<string, unknown>)) {
         const day = Number(d)
-        if (day >= 1 && day <= 31 && typeof h === 'number' && Number.isFinite(h) && h >= 0 && h <= 24)
-          m[day] = h
+        if (!(day >= 1 && day <= 31)) continue
+        if (typeof h === 'number' && Number.isFinite(h) && h >= 0 && h <= 24) m[day] = h
+        else if (typeof h === 'object' && h !== null) {
+          const o = h as Record<string, unknown>
+          if (typeof o.in === 'string' && typeof o.out === 'string' && HHMM.test(o.in) && HHMM.test(o.out))
+            m[day] = { in: o.in, out: o.out }
+        }
       }
       out[name] = m
     }
@@ -107,18 +121,22 @@ export async function getPunchHours(month: string): Promise<DailyHours> {
   }
 }
 
-/** 存一批打卡时长 —— 出现的人整月换成这一份, 没出现的人原样留着。返回人数。 */
+/** 存一批打卡 —— 出现的人整月换成这一份, 没出现的人原样留着。返回人数。 */
 export async function savePunchHours(
   month: string,
-  rows: { name: string; day: number; hours: number }[],
+  rows: { name: string; day: number; hours?: number; in?: string; out?: string }[],
 ): Promise<number> {
   return withLock(async () => {
     const map = await getPunchHours(month)
-    const fresh: DailyHours = {}
+    const fresh: PunchHours = {}
     for (const r of rows) {
       const name = r.name.trim()
       if (!name || !(r.day >= 1 && r.day <= 31)) continue
-      fresh[name] = { ...(fresh[name] ?? {}), [r.day]: Math.round(r.hours * 10) / 10 }
+      const v: PunchDay =
+        r.in && r.out && HHMM.test(r.in) && HHMM.test(r.out)
+          ? { in: r.in, out: r.out }
+          : Math.round((r.hours ?? 0) * 10) / 10
+      fresh[name] = { ...(fresh[name] ?? {}), [r.day]: v }
     }
     Object.assign(map, fresh)
     const { error } = await supabase.storage

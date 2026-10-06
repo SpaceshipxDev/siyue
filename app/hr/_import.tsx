@@ -43,7 +43,14 @@ type Sum = {
 }
 
 /** 打卡明细的一格 —— 某人某天打卡上了几小时 (没打卡是 0)。 */
-type Punch = { month: string; name: string; day: number; hours: number }
+type Punch = {
+  month: string
+  name: string
+  day: number
+  hours?: number
+  in?: string
+  out?: string
+}
 
 export function HrImport({
   month,
@@ -308,7 +315,8 @@ export function HrImport({
                       {p.name}
                     </span>
                     <span className="mono text-[12.5px] text-[var(--color-ink-2)]">
-                      打卡 {p.days} 天 · 共 {p.hours}h
+                      打卡 {p.days} 天
+                      {p.hours > 0 ? ` · 表上工时共 ${p.hours}h` : ' · 时长按部门扣午休后算'}
                     </span>
                     <span className="min-w-0 flex-1" />
                     <button
@@ -470,8 +478,8 @@ function punchPeople(ps: Punch[]): { month: string; name: string; days: number; 
   for (const p of ps) {
     const k = `${p.month}|${p.name}`
     const cur = m.get(k) ?? { month: p.month, name: p.name, days: 0, hours: 0 }
-    if (p.hours > 0) cur.days += 1
-    cur.hours = Math.round((cur.hours + p.hours) * 10) / 10
+    if ((p.in && p.out) || (p.hours ?? 0) > 0) cur.days += 1
+    cur.hours = Math.round((cur.hours + (p.hours ?? 0)) * 10) / 10
     m.set(k, cur)
   }
   return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'zh'))

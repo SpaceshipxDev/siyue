@@ -2603,12 +2603,19 @@ async function dispatch(
       if (!isPayrollMonth(month) || !Array.isArray(rows) || rows.length === 0)
         return err('bad savePunchHours args')
       if (rows.length > 20000) return err('一次太多了')
-      const clean: { name: string; day: number; hours: number }[] = []
+      const clean: { name: string; day: number; hours?: number; in?: string; out?: string }[] = []
+      const hhmm = (v: unknown) => (isString(v) && /^\d{2}:\d{2}$/.test(v) ? v : undefined)
       for (const r of rows as Record<string, unknown>[]) {
-        if (!r || !isString(r.name) || typeof r.day !== 'number' || typeof r.hours !== 'number')
-          return err('有一行填得不全')
-        if (!(r.day >= 1 && r.day <= 31) || !(r.hours >= 0 && r.hours <= 24)) continue
-        clean.push({ name: r.name, day: Math.floor(r.day), hours: r.hours })
+        if (!r || !isString(r.name) || typeof r.day !== 'number') return err('有一行填得不全')
+        if (!(r.day >= 1 && r.day <= 31)) continue
+        const tin = hhmm(r.in)
+        const tout = hhmm(r.out)
+        if (tin && tout) {
+          clean.push({ name: r.name, day: Math.floor(r.day), in: tin, out: tout })
+          continue
+        }
+        const h = typeof r.hours === 'number' && r.hours >= 0 && r.hours <= 24 ? r.hours : 0
+        clean.push({ name: r.name, day: Math.floor(r.day), hours: h })
       }
       const u = await requireUser()
       if (!canEditHrRecord(u)) return err('导入考勤要找人事', 403)
