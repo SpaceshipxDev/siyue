@@ -446,7 +446,8 @@ async function cacheAndSend(
 // clear = 分工框里清空了, 这一条个人记录跟着去掉。
 async function recordPersonOutput(
   jobId: string,
-  stage: Stage,
+  // 一道工序, 或者喷漆里的一小步 ('底漆' / '面漆') —— 个人报工按它分开记。
+  stage: Stage | SprayStep,
   by: string,
   items: { componentId: string; shares: WorkShare[] }[],
   clear = false,
@@ -500,6 +501,16 @@ async function syncSpray(jobId: string, actor: string): Promise<void> {
     }
     await setSpraySteps(done, { by: actor, at: new Date().toISOString() })
     await setSpraySteps(undone, null)
+    // 喷漆退回去了 —— 面漆那一份个人报工也撤掉。
+    const undoneIds = undone.map((x) => x.componentId)
+    if (undoneIds.length > 0)
+      await recordPersonOutput(
+        jobId,
+        '面漆',
+        actor,
+        undoneIds.map((componentId) => ({ componentId, shares: [] })),
+        true,
+      )
   } catch (e) {
     console.error('[syncSpray]', jobId, e)
   }
@@ -1173,7 +1184,11 @@ async function dispatch(
       // 那边的统计照旧记在按的账号上。
       const people = normalizeShares(body.people)
       if (people.length > 0) {
-        await recordPersonOutput(jobId, stage, u.name, [{ componentId, shares: people }])
+        // 喷漆点完成就是面漆做完 —— 个人报工记在「面漆」上 (底漆另记, 见
+        // setSprayStep), 底漆、面漆是不同人做的, 统计要分开。
+        await recordPersonOutput(jobId, stage === '喷漆' ? '面漆' : stage, u.name, [
+          { componentId, shares: people },
+        ])
       }
       revalidateStage(jobId, stage)
       return Response.json(ok())
@@ -1460,7 +1475,8 @@ async function dispatch(
       }
       await finishJobStage(jobId, stage, reportActor(u, body))
       await syncShipments(jobId, stage, u.name)
-      if (finishing.length > 0) await recordPersonOutput(jobId, stage, u.name, finishing)
+      if (finishing.length > 0)
+        await recordPersonOutput(jobId, stage === '喷漆' ? '面漆' : stage, u.name, finishing)
       revalidateStage(jobId, stage)
       return Response.json(ok(await freshStageCounts(jobId, stage)))
     }
@@ -2682,10 +2698,18 @@ async function dispatch(
       if (!isString(jobId) || !isString(componentId) || !isSprayStep(step))
         return err('bad setSprayStep args')
       const u = await requireOwnStage('喷漆')
+      // 底漆是谁做的 (app/_who_did 里选的) —— 记在步骤上, 也记一份个人报工
+      // (「底漆」), 报工统计里跟面漆分开。撤掉就一起撤。
+      const people = normalizeShares(body.people)
+      const done = body.done !== false
       await setSpraySteps(
         [{ jobId, componentId, step }],
-        body.done === false ? null : { by: reportActor(u, body), at: new Date().toISOString() },
+        done
+          ? { by: people.map((p) => p.name).join('、') || reportActor(u, body), at: new Date().toISOString() }
+          : null,
       )
+      if (!done || people.length > 0)
+        await recordPersonOutput(jobId, step, u.name, [{ componentId, shares: done ? people : [] }], !done)
       return Response.json(ok())
     }
 

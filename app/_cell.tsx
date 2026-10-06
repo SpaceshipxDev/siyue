@@ -56,6 +56,7 @@ export function StageCellButton({
   // 喷漆拆成底漆、面漆两小步 (lib/spray-steps): 先点底漆, 再点面漆 = 喷漆完成。
   const isSpray = stage === '喷漆'
   const steps = useSpraySteps(jobId, componentId, isSpray)
+  const [baseWhoOpen, setBaseWhoOpen] = useState(false)
   // 报工范围 guard — out-of-scope taps open the denial dialog instead of
   // writing. The server re-checks, so a stale client only ever costs a
   // round-trip, never a wrong write.
@@ -212,24 +213,25 @@ export function StageCellButton({
     )
   }
 
-  // 底漆点一下记上, 再点撤掉 —— 不碰喷漆这一格本身。
-  const toggleBase = () => {
-    if (!guard.check()) return
-    const done = !steps.底漆
-    setLocalStep(
-      jobId,
-      componentId,
-      '底漆',
-      done ? { by: getReporterName() || '我', at: new Date().toISOString() } : null,
-    )
+  // 底漆: 点一下先问是谁做的 (底漆、面漆常是两个人, 个人报工分开记), 记上;
+  // 记过的再点一下就撤掉。不碰喷漆这一格本身。
+  const saveBase = (done: boolean, people: { name: string; qty: number }[] = []) => {
+    setBaseWhoOpen(false)
+    const by = people.map((p) => p.name).join('、') || getReporterName() || '我'
+    setLocalStep(jobId, componentId, '底漆', done ? { by, at: new Date().toISOString() } : null)
     start(async () => {
       try {
-        await mutate({ kind: 'setSprayStep', jobId, componentId, step: '底漆', done })
+        await mutate({ kind: 'setSprayStep', jobId, componentId, step: '底漆', done, people })
       } catch (e) {
         setLocalStep(jobId, componentId, '底漆', done ? null : (steps.底漆 ?? null))
         if (!guard.denyIfScopeError(e)) setError(true)
       }
     })
+  }
+  const toggleBase = () => {
+    if (!guard.check()) return
+    if (steps.底漆) saveBase(false)
+    else setBaseWhoOpen(true)
   }
 
   if (display.status === 'in_progress') {
@@ -350,7 +352,7 @@ export function StageCellButton({
         ) : null}
         {whoOpen ? (
           <WhoDidSheet
-            stage={stage}
+            stage={isSpray ? '面漆' : stage}
             label={componentName}
             totalQty={componentQty}
             onConfirm={({ names, shares }) =>
@@ -358,6 +360,18 @@ export function StageCellButton({
             }
             onSkip={() => finish({})}
             onCancel={() => setWhoOpen(false)}
+          />
+        ) : null}
+        {baseWhoOpen ? (
+          <WhoDidSheet
+            stage="底漆"
+            label={componentName}
+            totalQty={componentQty}
+            onConfirm={({ names, shares }) =>
+              saveBase(true, shares?.length ? shares : [{ name: names[0], qty: componentQty }])
+            }
+            onSkip={() => saveBase(true)}
+            onCancel={() => setBaseWhoOpen(false)}
           />
         ) : null}
         {editorOpen ? (
@@ -589,7 +603,7 @@ export function JobStageActionButton({
 
   const whoSheet = whoOpen ? (
     <WhoDidSheet
-      stage={stage}
+      stage={stage === '喷漆' ? '面漆' : stage}
       onConfirm={({ names }) => finish({ workers: names })}
       onSkip={() => finish()}
       onCancel={() => setWhoOpen(false)}

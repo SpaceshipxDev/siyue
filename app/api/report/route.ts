@@ -206,7 +206,9 @@ async function personOutput(
   const entries = await getPersonSplits()
   const byName = new Map<string, { name: string; finishes: number; pieces: number; lastTs: string; items: PersonItem[] }>()
   for (const e of entries) {
-    if (stage && e.stage !== stage) continue
+    // 喷漆里的底漆、面漆是分开记的 —— 选「喷漆」时一起列出来。
+    const st = e.stage === '底漆' || e.stage === '面漆' ? '喷漆' : e.stage
+    if (stage && st !== stage) continue
     for (const sh of e.shares) {
       if (!sh.at || sh.at < window.from || sh.at >= window.to) continue
       let p = byName.get(sh.name)
