@@ -422,10 +422,21 @@ export function HrBoard({
             {records.length} 条
           </span>
           {/* 导出的就是屏幕上这一批 — 同一个月/年, 同一个部门范围。 */}
+          {/* 考勤报表 —— 一人一行、每天一格的那张纸, 月度才有。 */}
+          {!isYear && (
+            <a
+              href={`/hr/report?p=${encodeURIComponent(period)}`}
+              target="_blank"
+              rel="noopener"
+              className="ml-auto rounded-[2px] border border-[var(--color-border)] px-3 py-1 text-[12.5px] font-medium text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)]"
+            >
+              考勤报表
+            </a>
+          )}
           <Link
             href={`/hr/export?p=${encodeURIComponent(period)}`}
             prefetch={false}
-            className="ml-auto rounded-[2px] border border-[var(--color-border)] px-3 py-1 text-[12.5px] font-medium text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)]"
+            className={`${isYear ? 'ml-auto ' : ''}rounded-[2px] border border-[var(--color-border)] px-3 py-1 text-[12.5px] font-medium text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)]`}
           >
             导出
           </Link>
