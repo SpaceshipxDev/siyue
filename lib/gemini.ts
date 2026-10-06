@@ -288,6 +288,13 @@ export type ExtractedHrRecord = {
   note?: string
 }
 
+/** 打卡明细的一格 —— 某人某天打卡算出来上了几个小时。 */
+export type ExtractedPunchDay = {
+  name: string
+  date: string
+  hours?: number | null
+}
+
 const HR_SCHEMA = {
   type: Type.OBJECT,
   properties: {
@@ -328,6 +335,19 @@ const HR_SCHEMA = {
         propertyOrdering: ['name', 'type', 'date', 'hours', 'note'],
       },
     },
+    punches: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          date: { type: Type.STRING },
+          hours: { type: Type.NUMBER, nullable: true },
+        },
+        required: ['name', 'date'],
+        propertyOrdering: ['name', 'date', 'hours'],
+      },
+    },
   },
   required: ['records'],
 }
@@ -336,6 +356,7 @@ type GeminiHrJson = {
   month?: string | null
   records: ExtractedHrRecord[]
   summaries?: ExtractedAttendanceSummary[]
+  punches?: ExtractedPunchDay[]
 }
 
 export async function extractAttendanceFromXlsx(input: {
@@ -347,6 +368,7 @@ export async function extractAttendanceFromXlsx(input: {
   month: string | null
   records: ExtractedHrRecord[]
   summaries: ExtractedAttendanceSummary[]
+  punches: ExtractedPunchDay[]
 }> {
   const ai = client()
 
@@ -357,7 +379,7 @@ export async function extractAttendanceFromXlsx(input: {
 考勤表几乎都是月初做上个月的，所以一定以表上写的为准，不要拿"今天是几月"去猜。
 表上和文件名里都完全看不出月份时 month 输出 null。
 
-厂里的考勤表有两种，先判断手上这张是哪一种，再按对应的方式输出：
+厂里的考勤表有三种，先判断手上这张是哪一种，再按对应的方式输出（一本里几张表可以各是各的）：
 
 **第一种：汇总表**（打卡机导出的月报最常见）
 一人一行，没有日期，只有这个月的合计：出勤天数、出勤小时（也叫上班工时/总工时）、平时加班、周末加班（也叫双休加班/休息日加班）。
@@ -375,6 +397,15 @@ export async function extractAttendanceFromXlsx(input: {
 这一种输出到 records，一条一条拆开，summaries 输出空数组。
 
 只输出"有事"的格子，正常上班的日子不要输出任何东西。
+
+**第三种：打卡明细**（打卡机导出的每日打卡记录 / 日报）
+一人一天一行（或一人一行、每天一格），写着当天的打卡时间（上班 08:00、下班 20:00，或一格里好几个时间）或者当天的工时/出勤时长。
+这一种输出到 punches，**每人每天一条**：
+- name 姓名
+- date 那一天 YYYY-MM-DD
+- hours 当天上班时长（小时，保留一位小数）：表上有当天工时/出勤时长就用它；只有打卡时间就用当天最后一次打卡减第一次打卡；表上标了午休/休息要扣的就扣，没标就不扣；只打了一次卡、或者没打卡的那天输出 0。
+这张表上出现的人，这个月每一天都要输出（没打卡的日子 hours 为 0）。
+打卡明细里如果还标着迟到、早退、请假、加班，同时照第二种的规矩输出到 records。
 
 type 只能是这几个词之一，不要自造：
 - 加班 —— 格子里是加班小时数，或写着"加班 2h"、"OT2.5"
@@ -433,6 +464,7 @@ note：格子里除时长以外的说明，比如"事假 家里有事"里的"家
         : null,
     records: Array.isArray(parsed.records) ? parsed.records : [],
     summaries: Array.isArray(parsed.summaries) ? parsed.summaries : [],
+    punches: Array.isArray(parsed.punches) ? parsed.punches : [],
   }
 }
 

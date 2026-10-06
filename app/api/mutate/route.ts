@@ -291,7 +291,7 @@ import {
   keepCustomerLines,
 } from '@/lib/duizhang'
 import { getNoReconcile, LINE_MARK, setNoReconcile } from '@/lib/no-reconcile'
-import { setDailyHours } from '@/lib/hr-daily'
+import { savePunchHours, setDailyHours } from '@/lib/hr-daily'
 import {
   addLoanRepayment,
   applyPayrollLoanDeductions,
@@ -2595,6 +2595,28 @@ async function dispatch(
     // 平时加班 / 周末加班。覆盖式写入, 同一张表导两遍不会翻倍。
     // 考勤表上手填某人某天实际上班几小时 (lib/hr-daily)。空 = 清掉, 回到系
     // 统算的数。跟改人事记录同一档 (canEditHrRecord)。
+    // 导入的打卡明细 —— 每人每天打卡上了几小时 (lib/hr-daily)。导过的人这
+    // 个月整行换成这一份。
+    case 'savePunchHours': {
+      const month = body.month
+      const rows = body.rows
+      if (!isPayrollMonth(month) || !Array.isArray(rows) || rows.length === 0)
+        return err('bad savePunchHours args')
+      if (rows.length > 20000) return err('一次太多了')
+      const clean: { name: string; day: number; hours: number }[] = []
+      for (const r of rows as Record<string, unknown>[]) {
+        if (!r || !isString(r.name) || typeof r.day !== 'number' || typeof r.hours !== 'number')
+          return err('有一行填得不全')
+        if (!(r.day >= 1 && r.day <= 31) || !(r.hours >= 0 && r.hours <= 24)) continue
+        clean.push({ name: r.name, day: Math.floor(r.day), hours: r.hours })
+      }
+      const u = await requireUser()
+      if (!canEditHrRecord(u)) return err('导入考勤要找人事', 403)
+      const count = await savePunchHours(month, clean)
+      revalidatePath('/hr')
+      return Response.json(ok({ count }))
+    }
+
     case 'setDailyHours': {
       const { month, name, day } = body
       if (!isPayrollMonth(month) || !isString(name) || !name.trim())

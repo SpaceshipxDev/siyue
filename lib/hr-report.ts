@@ -31,6 +31,11 @@ export type AttendanceCalc = {
   today: string
   /** 人事手填的实际上班时长 { 姓名: { 几号: 小时 } } —— 填了的那一格以它为准。 */
   actual?: Record<string, Record<number, number>>
+  /**
+   * 导入的打卡时长 { 姓名: { 几号: 小时 } } —— 这个月导过打卡的人, 每天就是
+   * 打卡的时长, 没打卡的日子是 0 (手填的还压在它上面)。
+   */
+  punch?: Record<string, Record<number, number>>
 }
 
 export const HR_SHORT: Record<HrType, string> = {
@@ -140,6 +145,7 @@ export function buildAttendanceReport(
     let attendedHours = 0
     const cells = days.map((codes) => codes.join(' '))
     const actual = calc?.actual?.[name] ?? {}
+    const punch = calc?.punch?.[name]
     const filled = days.map((_, i) => actual[i + 1] !== undefined)
     const hours = days.map((_, i) => {
       const ymd = `${month}-${String(i + 1).padStart(2, '0')}`
@@ -151,7 +157,15 @@ export function buildAttendanceReport(
         attendedHours += v
         return v
       }
-      if (!calc || ymd > calc.today) return null
+      if (!calc) return null
+      // 导过打卡的人: 打卡是几小时就是几小时, 没打卡就是 0。
+      if (punch) {
+        const v = punch[i + 1] ?? 0
+        if (std > 0) attendedDays += Math.min(v, std) / std
+        attendedHours += v
+        return v
+      }
+      if (ymd > calc.today) return null
       if (days[i].length === 0) return 0
       const worked = std > 0 ? Math.max(0, std - missing[i]) : 0
       if (std > 0) attendedDays += worked / std
@@ -164,10 +178,11 @@ export function buildAttendanceReport(
     const attend: (number | '')[] = calc
       ? [
           workdays,
-          // 人事逐天填过实际时长的, 合计按填的算; 没填过才认打卡机汇总。
-          (filled.some(Boolean) ? undefined : sum?.workedDays) ??
+          // 逐天有数 (手填过 / 导过打卡明细) 的, 合计按逐天的算; 都没有才认
+          // 打卡机月度汇总。
+          (filled.some(Boolean) || punch ? undefined : sum?.workedDays) ??
             Math.round(attendedDays * 10) / 10,
-          (filled.some(Boolean) ? undefined : sum?.workedHours) ??
+          (filled.some(Boolean) || punch ? undefined : sum?.workedHours) ??
             Math.round(attendedHours * 10) / 10,
           ...(hasSummary
             ? ([sum ? sum.otWeekdayHours || '' : '', sum ? sum.otWeekendHours || '' : ''] as (

@@ -71,3 +71,63 @@ export async function setDailyHours(
     if (error) throw error
   })
 }
+
+/*
+ * 打卡时长 —— 导入打卡机明细读出来的, 某人某天打卡上了几个小时。
+ *
+ * 跟手填的分开放: 手填的是人改过的, 永远压在打卡上面; 打卡的这个月导过的人,
+ * 没打卡的日子就是 0。同一个人再导一遍, 他这个月整行换成新的。
+ *
+ *   hr/punch-hours-<YYYY-MM>.json    { [姓名]: { [几号]: 小时 } }
+ */
+function punchKey(month: string): string {
+  return `hr/punch-hours-${month.replace(/[^0-9-]/g, '')}.json`
+}
+
+export async function getPunchHours(month: string): Promise<DailyHours> {
+  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(punchKey(month))
+  if (error || !data) return {}
+  try {
+    const raw = JSON.parse(await data.text()) as unknown
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {}
+    const out: DailyHours = {}
+    for (const [name, days] of Object.entries(raw as Record<string, unknown>)) {
+      if (!name.trim() || typeof days !== 'object' || days === null) continue
+      const m: Record<number, number> = {}
+      for (const [d, h] of Object.entries(days as Record<string, unknown>)) {
+        const day = Number(d)
+        if (day >= 1 && day <= 31 && typeof h === 'number' && Number.isFinite(h) && h >= 0 && h <= 24)
+          m[day] = h
+      }
+      out[name] = m
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/** 存一批打卡时长 —— 出现的人整月换成这一份, 没出现的人原样留着。返回人数。 */
+export async function savePunchHours(
+  month: string,
+  rows: { name: string; day: number; hours: number }[],
+): Promise<number> {
+  return withLock(async () => {
+    const map = await getPunchHours(month)
+    const fresh: DailyHours = {}
+    for (const r of rows) {
+      const name = r.name.trim()
+      if (!name || !(r.day >= 1 && r.day <= 31)) continue
+      fresh[name] = { ...(fresh[name] ?? {}), [r.day]: Math.round(r.hours * 10) / 10 }
+    }
+    Object.assign(map, fresh)
+    const { error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(punchKey(month), Buffer.from(JSON.stringify(map), 'utf8'), {
+        contentType: 'application/json',
+        upsert: true,
+      })
+    if (error) throw error
+    return Object.keys(fresh).length
+  })
+}

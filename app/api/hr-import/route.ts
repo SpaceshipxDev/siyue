@@ -115,11 +115,26 @@ export async function POST(request: NextRequest) {
       .filter((r): r is NonNullable<typeof r> => r !== null)
       .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name, 'zh'))
 
+    // 打卡明细 —— 每人每天打卡上了几小时 (没打卡是 0)。只认这张表那个月的日子。
+    const punches = (parsed.punches ?? [])
+      .map((p) => {
+        const name = String(p.name ?? '').trim()
+        const date = String(p.date ?? '').trim()
+        if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !date.startsWith(sheetMonth)) return null
+        const h =
+          typeof p.hours === 'number' && Number.isFinite(p.hours) && p.hours >= 0 && p.hours <= 24
+            ? Math.round(p.hours * 10) / 10
+            : 0
+        return { name, day: Number(date.slice(8, 10)), hours: h }
+      })
+      .filter((p): p is NonNullable<typeof p> => p !== null)
+
     return Response.json({
       ok: true,
       month: sheetMonth,
       records,
       summaries,
+      punches,
       dropped: raw.length - records.length,
     })
   } catch (err) {

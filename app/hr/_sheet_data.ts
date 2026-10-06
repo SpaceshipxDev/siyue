@@ -2,7 +2,7 @@ import 'server-only'
 import { hrDeptOf } from '@/lib/auth'
 import { getActiveUsers } from '@/lib/db'
 import { getAttendanceSummary, getHrMonth, getHrRoster } from '@/lib/hr'
-import { getDailyHours } from '@/lib/hr-daily'
+import { getDailyHours, getPunchHours } from '@/lib/hr-daily'
 import { getPayrollBase, getPayrollRules } from '@/lib/payroll-store'
 import { today } from '@/lib/today'
 import type { AttendanceCalc } from '@/lib/hr-report'
@@ -26,13 +26,14 @@ export async function loadSheetInputs(
 }> {
   const [y, m] = month.split('-').map(Number)
   const prev = (k: number) => new Date(Date.UTC(y, m - 1 - k, 1)).toISOString().slice(0, 7)
-  const [rules, base, users, roster, summary, actual, ...recent] = await Promise.all([
+  const [rules, base, users, roster, summary, actual, punch, ...recent] = await Promise.all([
     getPayrollRules(),
     getPayrollBase().catch(() => ({}) as Awaited<ReturnType<typeof getPayrollBase>>),
     getActiveUsers(),
     seeAll ? getHrRoster() : Promise.resolve([] as string[]),
     seeAll ? getAttendanceSummary(month) : Promise.resolve({}),
     getDailyHours(month).catch(() => ({})),
+    getPunchHours(month).catch(() => ({})),
     ...(seeAll ? [getHrMonth(month), getHrMonth(prev(1)), getHrMonth(prev(2))] : []),
   ])
   const recentRecords = recent.flat()
@@ -44,10 +45,11 @@ export async function loadSheetInputs(
     ...Object.keys(base),
     ...roster,
     ...recentRecords.map((r) => r.name),
+    ...Object.keys(punch),
   ])
   return {
     extraNames: seeAll ? [...names].filter((n) => n.trim()) : [],
     summary,
-    calc: { rules, deptOf, today: today(), actual },
+    calc: { rules, deptOf, today: today(), actual, punch },
   }
 }

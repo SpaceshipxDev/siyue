@@ -42,6 +42,9 @@ type Sum = {
   otWeekendHours: number
 }
 
+/** 打卡明细的一格 —— 某人某天打卡上了几小时 (没打卡是 0)。 */
+type Punch = { month: string; name: string; day: number; hours: number }
+
 export function HrImport({
   month,
   toSheet = false,
@@ -58,6 +61,7 @@ export function HrImport({
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [rows, setRows] = useState<Row[] | null>(null)
   const [sums, setSums] = useState<Sum[] | null>(null)
+  const [punches, setPunches] = useState<Punch[] | null>(null)
   const [fileName, setFileName] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -77,6 +81,7 @@ export function HrImport({
     )
     const all: Row[] = []
     const allSums: Sum[] = []
+    const allPunches: Punch[] = []
     const failed: string[] = []
     const seenMonths = new Set<string>()
     try {
@@ -95,9 +100,12 @@ export function HrImport({
             month?: string
             records?: Row[]
             summaries?: Omit<Sum, 'month'>[]
+            punches?: Omit<Punch, 'month'>[]
           }
           const got =
-            (data.records?.length ?? 0) + (data.summaries?.length ?? 0)
+            (data.records?.length ?? 0) +
+            (data.summaries?.length ?? 0) +
+            (data.punches?.length ?? 0)
           if (!data.ok || got === 0) {
             failed.push(file.name)
           } else {
@@ -105,6 +113,7 @@ export function HrImport({
             seenMonths.add(m)
             all.push(...(data.records ?? []))
             allSums.push(...(data.summaries ?? []).map((r) => ({ ...r, month: m })))
+            allPunches.push(...(data.punches ?? []).map((r) => ({ ...r, month: m })))
           }
         } catch {
           failed.push(file.name)
@@ -130,7 +139,12 @@ export function HrImport({
         a.name.localeCompare(b.name, 'zh'),
       )
 
-      if (merged.length === 0 && mergedSums.length === 0) {
+      // 打卡明细: 同一个人同一天, 后一张说了算。
+      const punchByKey = new Map<string, Punch>()
+      for (const p of allPunches) punchByKey.set(`${p.month}|${p.name}|${p.day}`, p)
+      const mergedPunches = [...punchByKey.values()]
+
+      if (merged.length === 0 && mergedSums.length === 0 && mergedPunches.length === 0) {
         setError(
           failed.length > 0
             ? `${failed.join('、')} 没读出考勤`
@@ -145,6 +159,7 @@ export function HrImport({
       setSheetMonths([...seenMonths].sort())
       setRows(merged.length > 0 ? merged : [])
       setSums(mergedSums.length > 0 ? mergedSums : null)
+      setPunches(mergedPunches.length > 0 ? mergedPunches : null)
       if (failed.length > 0) setError(`${failed.join('、')} 没读出来`)
     } finally {
       setBusy(false)
@@ -156,7 +171,8 @@ export function HrImport({
   const commit = async () => {
     const hasRows = rows && rows.length > 0
     const hasSums = sums && sums.length > 0
-    if (!hasRows && !hasSums) return
+    const hasPunches = punches && punches.length > 0
+    if (!hasRows && !hasSums && !hasPunches) return
     setBusy(true)
     try {
       let done = 0
@@ -169,6 +185,21 @@ export function HrImport({
         for (const [m, rowsOfMonth] of byMonth) {
           const r = await mutate<{ count: number }>({
             kind: 'saveAttendanceSummary',
+            month: m,
+            rows: rowsOfMonth,
+          })
+          done += r.data.count
+        }
+      }
+      if (hasPunches) {
+        // 打卡明细也按表上的月份分开存。
+        const byMonth = new Map<string, Omit<Punch, 'month'>[]>()
+        for (const { month: m, ...r } of punches!) {
+          byMonth.set(m, [...(byMonth.get(m) ?? []), r])
+        }
+        for (const [m, rowsOfMonth] of byMonth) {
+          const r = await mutate<{ count: number }>({
+            kind: 'savePunchHours',
             month: m,
             rows: rowsOfMonth,
           })
@@ -190,6 +221,7 @@ export function HrImport({
       }
       setRows(null)
       setSums(null)
+      setPunches(null)
       // 记进的是别的月份 —— 跳过去, 刚记的东西就在眼前。
       const only = sheetMonths.length === 1 ? sheetMonths[0] : null
       if (only && only !== month) {
@@ -236,13 +268,18 @@ export function HrImport({
         <span className="text-[12px] text-[var(--color-overdue)]">{error}</span>
       ) : null}
 
-      {rows || sums ? (
+      {rows || sums || punches ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 px-4">
           <div className="flex max-h-[82vh] w-full max-w-2xl flex-col rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
             <div className="flex items-baseline justify-between gap-4 border-b border-[var(--color-border)] px-5 py-3">
               <span className="text-[14px] font-semibold tracking-tight">
                 读到{' '}
-                {sums ? `${sums.length} 人的月度汇总` : `${rows?.length ?? 0} 条`}
+                {punches
+                  ? `${punchPeople(punches).length} 人的打卡明细`
+                  : sums
+                    ? `${sums.length} 人的月度汇总`
+                    : `${rows?.length ?? 0} 条`}
+                {punches && sums ? ` + ${sums.length} 人的汇总` : ''}
                 {sums && rows && rows.length > 0
                   ? ` + ${rows.length} 条明细`
                   : ''}{' '}
@@ -259,6 +296,38 @@ export function HrImport({
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-1">
+              {/* 打卡明细 —— 一人一行: 打卡了几天、一共几小时。考勤表上每天那一
+                  格就是它, 没打卡的日子是 0。 */}
+              {punches &&
+                punchPeople(punches).map((p) => (
+                  <div
+                    key={`p-${p.month}-${p.name}`}
+                    className="flex items-baseline gap-3 border-b border-[var(--color-border)] py-2 last:border-b-0"
+                  >
+                    <span className="w-[76px] shrink-0 truncate text-[13px] font-medium">
+                      {p.name}
+                    </span>
+                    <span className="mono text-[12.5px] text-[var(--color-ink-2)]">
+                      打卡 {p.days} 天 · 共 {p.hours}h
+                    </span>
+                    <span className="min-w-0 flex-1" />
+                    <button
+                      type="button"
+                      title="不记这个人"
+                      onClick={() =>
+                        setPunches((cur) => {
+                          const next = (cur ?? []).filter(
+                            (x) => !(x.name === p.name && x.month === p.month),
+                          )
+                          return next.length > 0 ? next : null
+                        })
+                      }
+                      className="shrink-0 px-1 text-[12px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
               {/* 汇总表 —— 一人一行: 出勤 / 平时加班 / 周末加班。工资那边要的
                   就是这几个数。 */}
               {sums?.map((r, i) => (
@@ -341,19 +410,27 @@ export function HrImport({
                 type="button"
                 onClick={commit}
                 disabled={
-                  busy || ((rows?.length ?? 0) === 0 && (sums?.length ?? 0) === 0)
+                  busy ||
+                  ((rows?.length ?? 0) === 0 &&
+                    (sums?.length ?? 0) === 0 &&
+                    (punches?.length ?? 0) === 0)
                 }
                 className="rounded-[2px] bg-[var(--color-ink)] px-4 py-1.5 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-40"
               >
                 {busy
                   ? '记入中…'
-                  : `记入 ${(rows?.length ?? 0) + (sums?.length ?? 0)} 条`}
+                  : `记入 ${
+                      (rows?.length ?? 0) +
+                      (sums?.length ?? 0) +
+                      (punches ? punchPeople(punches).length : 0)
+                    } ${punches && !rows?.length && !sums ? '人' : '条'}`}
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setRows(null)
                   setSums(null)
+                  setPunches(null)
                   setError(null)
                 }}
                 disabled={busy}
@@ -367,7 +444,9 @@ export function HrImport({
                 </span>
               ) : (
                 <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">
-                  {sums
+                  {punches
+                    ? '不对的划掉再记 · 同一个人再导一次整月换成新的 · 没打卡的日子是 0'
+                    : sums
                     ? '不对的划掉再记 · 同一个月再导一次是覆盖, 不会翻倍'
                     : '不对的划掉再记 · 加班会自动分平时和周末 · 重复的已并掉'}
                 </span>
@@ -383,4 +462,17 @@ export function HrImport({
 function monthLabel(m: string): string {
   const [y, mm] = m.split('-')
   return `${y}年${Number(mm)}月`
+}
+
+// 打卡明细按人并起来 —— 预览里一人一行。
+function punchPeople(ps: Punch[]): { month: string; name: string; days: number; hours: number }[] {
+  const m = new Map<string, { month: string; name: string; days: number; hours: number }>()
+  for (const p of ps) {
+    const k = `${p.month}|${p.name}`
+    const cur = m.get(k) ?? { month: p.month, name: p.name, days: 0, hours: 0 }
+    if (p.hours > 0) cur.days += 1
+    cur.hours = Math.round((cur.hours + p.hours) * 10) / 10
+    m.set(k, cur)
+  }
+  return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'zh'))
 }
