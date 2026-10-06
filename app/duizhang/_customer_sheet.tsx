@@ -83,10 +83,9 @@ export function CustomerSheet({
     return out
   }, [sheet.lines])
 
-  const priced = useMemo(
-    () => new Set(groups.filter((g) => g.priced).map((g) => g.no)),
-    [groups],
-  )
+  // 每张单都能勾 —— 有没价的行也能勾, 合计先算有价的; 只是审批前得把没价
+  // 的补上单价或「去掉」(拆件之类)。
+  const priced = useMemo(() => new Set(groups.map((g) => g.no)), [groups])
   const [picked, setPicked] = useState<Set<string>>(() => {
     const q = initialQuery.toLowerCase()
     // 按单号找过来的只勾对上的 (对上的没价就先一张都不勾), 别的单不碰。
@@ -99,7 +98,7 @@ export function CustomerSheet({
   const chosenQty = chosenLines.reduce((s, l) => s + l.qty, 0)
   const chosenAmount =
     Math.round(chosenLines.reduce((s, l) => s + (l.amountCny ?? 0), 0) * 100) / 100
-  const unpricedLeft = groups.length - priced.size
+  const chosenUnpriced = chosenLines.filter((l) => typeof l.amountCny !== 'number').length
 
   function toggle(no: string) {
     if (!priced.has(no)) return
@@ -198,7 +197,7 @@ export function CustomerSheet({
     count: chosenLines.length,
     totalQty: chosenQty,
     totalAmountCny: chosenAmount,
-    unpricedCount: 0,
+    unpricedCount: chosenUnpriced,
   }
   const pdfHref = withBase(
     `/duizhang/pdf?name=${encodeURIComponent(sheet.party)}&m=${month}${
@@ -287,9 +286,9 @@ export function CustomerSheet({
               {chosenQty} 件 · 应收{' '}
               <b className="mono font-medium text-[var(--color-ink)]">{formatCny(chosenAmount)}</b>
             </span>
-            {unpricedLeft > 0 && (
+            {chosenUnpriced > 0 && (
               <span className="text-[12px] text-[var(--color-overdue)]">
-                {unpricedLeft} 个单号有没定价的，补上单价才能勾
+                勾上的有 {chosenUnpriced} 行没定价 —— 补上单价，或点那一行的「去掉」，才能审批
               </span>
             )}
             <span className="ml-auto flex items-center gap-2">
@@ -339,7 +338,7 @@ export function CustomerSheet({
                 <button
                   type="button"
                   onClick={approve}
-                  disabled={pending || chosen.length === 0}
+                  disabled={pending || chosen.length === 0 || chosenUnpriced > 0}
                   className="h-9 rounded-[2px] bg-[var(--color-ink)] px-4 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-40"
                 >
                   {pending ? '审批中…' : '审批所选，生成应收单'}
@@ -492,7 +491,7 @@ export function CustomerSheet({
                                   disabled={!canPick}
                                   onChange={() => toggle(g.no)}
                                   onClick={(e) => e.stopPropagation()}
-                                  title={canPick ? '这一回审这张单' : '有没定价的，勾不上'}
+                                  title="这一回对这张单"
                                   className="h-4 w-4 cursor-pointer accent-[var(--color-ink)] disabled:cursor-not-allowed"
                                 />
                               </td>
@@ -518,7 +517,7 @@ export function CustomerSheet({
                             <td className="mono text-[var(--color-ink-2)]">{l.detail || '—'}</td>
                             <td className="font-medium">
                               {l.title}
-                              {canApprove && (
+                              {canApprove && typeof l.amountCny === 'number' && (
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -541,7 +540,23 @@ export function CustomerSheet({
                               {typeof l.amountCny === 'number' ? (
                                 formatCny(l.amountCny)
                               ) : (
-                                <span className="text-[var(--color-overdue)]">没定价</span>
+                                <span className="text-[var(--color-overdue)]">
+                                  没定价
+                                  {canApprove && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        markLine(l.key, true)
+                                      }}
+                                      disabled={pending}
+                                      title="这一行不参与对账（拆件之类），上面能恢复"
+                                      className="no-print mt-0.5 block w-full text-[11px] text-[var(--color-ink-3)] underline underline-offset-2 hover:text-[var(--color-overdue)] disabled:opacity-40"
+                                    >
+                                      去掉
+                                    </button>
+                                  )}
+                                </span>
                               )}
                             </td>
                           </tr>
