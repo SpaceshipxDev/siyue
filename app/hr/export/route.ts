@@ -6,8 +6,13 @@ import {
   hrDeptOf,
   requireHrUser,
 } from '@/lib/auth'
-import { getHrMonth, getHrRoster, getHrYear } from '@/lib/hr'
-import { buildAttendanceReport, totalHeader } from '@/lib/hr-report'
+import { getAttendanceSummary, getHrMonth, getHrRoster, getHrYear } from '@/lib/hr'
+import {
+  buildAttendanceReport,
+  totalHeader,
+  WORKED_HEADERS,
+  workedCells,
+} from '@/lib/hr-report'
 import { getDormEntries } from '@/lib/dorm'
 import { HR_TYPES, hrHasHours } from '@/lib/data'
 import { today } from '@/lib/today'
@@ -121,10 +126,16 @@ export async function GET(request: NextRequest): Promise<Response> {
 
     // 考勤表 —— 月度那张: 一人一行、每天一格、后面合计 (跟 /hr/report 同一份)。
     if (period.length === 7) {
-      const rep = buildAttendanceReport(period, records, seeAll ? await getHrRoster() : [])
+      const rep = buildAttendanceReport(
+        period,
+        records,
+        seeAll ? await getHrRoster() : [],
+        seeAll ? await getAttendanceSummary(period) : {},
+      )
       const days = Array.from({ length: rep.dayCount }, (_, i) => `${i + 1}`)
+      const worked = rep.hasSummary ? [...WORKED_HEADERS] : []
       const grid: (string | number)[][] = [
-        ['序号', '姓名', '部门', ...days, ...HR_TYPES.map(totalHeader)],
+        ['序号', '姓名', '部门', ...days, ...worked, ...HR_TYPES.map(totalHeader)],
       ]
       rep.rows.forEach((r, i) => {
         grid.push([
@@ -132,13 +143,14 @@ export async function GET(request: NextRequest): Promise<Response> {
           r.name,
           r.dept,
           ...r.days,
+          ...(rep.hasSummary ? workedCells(r) : []),
           ...HR_TYPES.map((t) => r.totals[t] || ''),
         ])
       })
       addSheet(
         wb,
         grid,
-        [6, 10, 8, ...days.map(() => 5), ...HR_TYPES.map(() => 10)],
+        [6, 10, 8, ...days.map(() => 5), ...worked.map(() => 10), ...HR_TYPES.map(() => 10)],
         '考勤表',
       )
     }

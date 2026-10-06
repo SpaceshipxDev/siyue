@@ -27,6 +27,8 @@ export type AttendanceRow = {
   days: string[]
   /** 每种的合计: 有时长的是小时, 别的是次数 */
   totals: Record<HrType, number>
+  /** 打卡机导进来的月度汇总 (出勤天数 / 工时 / 平时加班 / 周末加班) —— 没导就是空。 */
+  worked?: { days?: number; hours?: number; otWeekday: number; otWeekend: number }
 }
 
 export type AttendanceReport = {
@@ -35,6 +37,8 @@ export type AttendanceReport = {
   /** 每一天是星期几 (0 = 周日) —— 周日那一列淡一点 */
   weekdays: number[]
   rows: AttendanceRow[]
+  /** 这个月导过打卡机汇总 —— 表上多出出勤那几列。 */
+  hasSummary: boolean
 }
 
 function trim(n: number): string {
@@ -46,6 +50,11 @@ export function buildAttendanceReport(
   records: HrRecord[],
   /** 没有记录也要上表的人 (人事记过的名单)。 */
   extraNames: string[] = [],
+  /** 打卡机月度汇总, 按姓名 (lib/hr getAttendanceSummary)。 */
+  summary: Record<
+    string,
+    { workedDays?: number; workedHours?: number; otWeekdayHours: number; otWeekendHours: number }
+  > = {},
 ): AttendanceReport {
   const [y, m] = month.split('-').map(Number)
   const dayCount = new Date(Date.UTC(y, m, 0)).getUTCDate()
@@ -59,6 +68,8 @@ export function buildAttendanceReport(
     byName.set(r.name, [...(byName.get(r.name) ?? []), r])
   }
   for (const n of extraNames) if (!byName.has(n)) byName.set(n, [])
+  // 打卡机上有、人事没记过的人也上表 (他有出勤)。
+  for (const n of Object.keys(summary)) if (!byName.has(n)) byName.set(n, [])
 
   const rows: AttendanceRow[] = []
   for (const [name, list] of byName) {
@@ -78,6 +89,16 @@ export function buildAttendanceReport(
       totals: Object.fromEntries(
         HR_TYPES.map((t) => [t, Math.round(totals[t] * 10) / 10]),
       ) as Record<HrType, number>,
+      ...(summary[name]
+        ? {
+            worked: {
+              days: summary[name].workedDays,
+              hours: summary[name].workedHours,
+              otWeekday: summary[name].otWeekdayHours,
+              otWeekend: summary[name].otWeekendHours,
+            },
+          }
+        : null),
     })
   }
   // 按部门, 部门里按名字 —— 纸上找人是按部门找的。
@@ -85,11 +106,20 @@ export function buildAttendanceReport(
     (a, b) =>
       (a.dept || '~').localeCompare(b.dept || '~', 'zh') || a.name.localeCompare(b.name, 'zh'),
   )
-  return { month, dayCount, weekdays, rows }
+  return { month, dayCount, weekdays, rows, hasSummary: Object.keys(summary).length > 0 }
 }
 
 /** 合计那几列的表头: 有时长的写 (h), 别的写 (次)。 */
 export function totalHeader(t: HrType): string {
   const label = t === '重大质量异常' ? '质量异常' : t
   return `${label}${hrHasHours(t) ? '(h)' : '(次)'}`
+}
+
+/** 打卡机汇总那几列 (导过才有)。 */
+export const WORKED_HEADERS = ['出勤(天)', '工时(h)', '平时加班(h)', '周末加班(h)'] as const
+
+export function workedCells(r: AttendanceRow): (number | '')[] {
+  const w = r.worked
+  if (!w) return ['', '', '', '']
+  return [w.days ?? '', w.hours ?? '', w.otWeekday || '', w.otWeekend || '']
 }

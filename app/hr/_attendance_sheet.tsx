@@ -1,5 +1,11 @@
 import { HR_TYPES } from '@/lib/data'
-import { HR_SHORT, totalHeader, type AttendanceReport } from '@/lib/hr-report'
+import {
+  HR_SHORT,
+  totalHeader,
+  WORKED_HEADERS,
+  workedCells,
+  type AttendanceReport,
+} from '@/lib/hr-report'
 
 // 考勤表那一张格子 —— 人事「考勤表」页签和打印页共用 (口径在 lib/hr-report)。
 // 一人一行, 每天一格, 周日那一列浅一点; 旷工 / 违纪 / 质量异常红字; 最后几列
@@ -24,6 +30,8 @@ export function AttendanceSheet({ report }: { report: AttendanceReport }) {
           {report.weekdays.map((_, i) => (
             <col key={i} />
           ))}
+          {report.hasSummary &&
+            WORKED_HEADERS.map((h) => <col key={h} style={{ width: 36 }} />)}
           {HR_TYPES.map((t) => (
             <col key={t} style={{ width: 34 }} />
           ))}
@@ -44,6 +52,12 @@ export function AttendanceSheet({ report }: { report: AttendanceReport }) {
                 {i + 1}
               </th>
             ))}
+            {report.hasSummary &&
+              WORKED_HEADERS.map((h) => (
+                <th key={h} rowSpan={2} className={`${TH} bg-[#eef3ec]`}>
+                  {h}
+                </th>
+              ))}
             {HR_TYPES.map((t) => (
               <th key={t} rowSpan={2} className={`${TH} bg-[#f5f3ed]`}>
                 {totalHeader(t)}
@@ -77,6 +91,12 @@ export function AttendanceSheet({ report }: { report: AttendanceReport }) {
                   {d}
                 </td>
               ))}
+              {report.hasSummary &&
+                workedCells(r).map((v, k) => (
+                  <td key={`w${k}`} className={`${TD} bg-[#f6f9f5] font-medium`}>
+                    {v}
+                  </td>
+                ))}
               {HR_TYPES.map((t) => (
                 <td key={t} className={`${TD} bg-[#fbfaf6] font-medium`}>
                   {r.totals[t] || ''}
@@ -89,6 +109,7 @@ export function AttendanceSheet({ report }: { report: AttendanceReport }) {
       <p className="mt-2 text-[10.5px] text-[var(--color-ink-3)]">
         {HR_TYPES.map((t) => `${HR_SHORT[t]} = ${t}`).join('　')}
         　· 字后面的数字是小时（加2 = 加班 2 小时）· 空格 = 当天没有记录
+        {report.hasSummary ? ' · 出勤、工时、平时 / 周末加班来自导入的打卡机汇总' : ''}
       </p>
     </>
   )

@@ -42,7 +42,14 @@ type Sum = {
   otWeekendHours: number
 }
 
-export function HrImport({ month }: { month: string }) {
+export function HrImport({
+  month,
+  toSheet = false,
+}: {
+  month: string
+  /** 在「考勤表」页签上导的 —— 记完回到考勤表 (那个月)。 */
+  toSheet?: boolean
+}) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
@@ -187,7 +194,7 @@ export function HrImport({ month }: { month: string }) {
       const only = sheetMonths.length === 1 ? sheetMonths[0] : null
       if (only && only !== month) {
         showToast(`已记入${monthLabel(only)} ${done} 条`, 'success')
-        router.push(`/hr?p=${only}`)
+        router.push(toSheet ? `/hr?v=sheet&p=${only}` : `/hr?p=${only}`)
       } else {
         showToast(`已记入 ${done} 条`, 'success')
         router.refresh()

@@ -16,7 +16,14 @@ import {
 import { getLoans } from '@/lib/loan'
 import { HrLoanBoard } from './_loans'
 import { getActiveUsers, isAdminUser } from '@/lib/db'
-import { getHrMonth, getHrMonths, getHrRoster, getHrYear } from '@/lib/hr'
+import {
+  getAttendanceSummary,
+  getHrMonth,
+  getHrMonths,
+  getHrRoster,
+  getHrYear,
+} from '@/lib/hr'
+import { HrImport } from './_import'
 import { getHrNotesForMonth, getHrNotesForYear } from '@/lib/hr-note-file'
 import { today } from '@/lib/today'
 import { getDormEntries } from '@/lib/dorm'
@@ -68,7 +75,7 @@ export default async function HrPage({
       : now.slice(0, 7)
   const isYear = period.length === 4
 
-  const [allRecords, notes, months, users, extraNames, dormEntries, loans] =
+  const [allRecords, notes, months, users, extraNames, dormEntries, loans, summary] =
     await Promise.all([
       isYear ? getHrYear(period) : getHrMonth(period),
       // 请假条 — 跟记录同一个分片口径, 所以跟着同一趟读: 月度一个文件, 年度
@@ -79,6 +86,10 @@ export default async function HrPage({
       getHrRoster(),
       seeDorm ? getDormEntries() : Promise.resolve([]),
       view === 'loan' ? getLoans() : Promise.resolve([]),
+      // 打卡机月度汇总 —— 考勤表上出勤那几列。只看本部门的人不读 (汇总不分部门)。
+      view === 'sheet' && canSeeAllHr(user)
+        ? getAttendanceSummary(period)
+        : Promise.resolve({}),
     ])
 
   // 看全部 vs 看本部门. Scoped here, on the server, so a 工段长's page never
@@ -137,8 +148,9 @@ export default async function HrPage({
         {view === 'sheet' ? (
           <SheetView
             month={period}
-            report={buildAttendanceReport(period, records, seeAll ? extraNames : [])}
+            report={buildAttendanceReport(period, records, seeAll ? extraNames : [], summary)}
             scope={seeAll ? '全厂' : `${myDept}部门`}
+            canImport={canEditHrRecord(user)}
           />
         ) : view === 'loan' ? (
           <HrLoanBoard
@@ -206,10 +218,13 @@ function SheetView({
   month,
   report,
   scope,
+  canImport,
 }: {
   month: string
   report: ReturnType<typeof buildAttendanceReport>
   scope: string
+  /** 导入打卡机导出的考勤表 —— 读出来先过一眼, 记入后这张表就排出来了。 */
+  canImport: boolean
 }) {
   const [y, m] = month.split('-').map(Number)
   const shift = (d: number) =>
@@ -242,6 +257,7 @@ function SheetView({
           {scope} · {report.rows.length} 人
         </span>
         <span className="ml-auto flex items-center gap-2">
+          {canImport && <HrImport month={month} toSheet />}
           <a href={`/hr/report?p=${month}`} target="_blank" rel="noopener" className={btn}>
             打印
           </a>
