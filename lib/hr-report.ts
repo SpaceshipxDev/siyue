@@ -15,9 +15,10 @@ import { hoursForDept, saturdayHoursForDept, type PayrollRules } from './payroll
 //   的小时;
 //   减掉当天记的事假 / 病假 / 工伤 / 旷工 (没写时长的当一整天);
 //   剩下的就是这天出勤的小时, 占该上小时的几成就算几成天 (半天假 = 0.5 天)。
-//   一条都没记的工作日算全勤 —— 跟工资"没记就是满勤"一个口径。
-//   每天的出勤时间 = 这天出勤的小时 + 这天的加班; 没出勤就是 0 (周日没加班、
-//   整天请假旷工)。
+//   这一天一条考勤记录都没有 —— 就是 0 (不替人假设满勤; 实际上了多少, 人事
+//   在格子里填)。有记录的才按上面算 (迟到、加班说明人在, 请假按小时扣)。
+//   每天的出勤时间 = 这天出勤的小时 + 这天的加班; 没出勤就是 0。
+//   跟发工资不挂钩 —— 工资那边照它自己的口径算, 这张表只是考勤。
 //   今天以后的日子不核 (还没到)。
 // 打卡机汇总导进来了的人, 实出勤和工时以打卡机为准 (工资也是这么取的)。
 const MISS: readonly HrType[] = ['事假', '病假', '工伤', '旷工']
@@ -28,6 +29,8 @@ export type AttendanceCalc = {
   deptOf: Record<string, string>
   /** 今天 YYYY-MM-DD —— 之后的日子不核。 */
   today: string
+  /** 人事手填的实际上班时长 { 姓名: { 几号: 小时 } } —— 填了的那一格以它为准。 */
+  actual?: Record<string, Record<number, number>>
 }
 
 export const HR_SHORT: Record<HrType, string> = {
@@ -48,6 +51,8 @@ export type AttendanceRow = {
   days: string[]
   /** 第 i 格那天的出勤时间 (小时, 含加班); 没核 (今天以后 / 没给制度) 是 null */
   hours: (number | null)[]
+  /** 第 i 格是人事手填的实际时长 (不是系统算的)。 */
+  filled: boolean[]
   /** 每种的合计: 有时长的是小时, 别的是次数 */
   totals: Record<HrType, number>
   /** 出勤那几列的值, 跟 report.attendHeaders 一一对应。 */
@@ -134,10 +139,20 @@ export function buildAttendanceReport(
     let attendedDays = 0
     let attendedHours = 0
     const cells = days.map((codes) => codes.join(' '))
+    const actual = calc?.actual?.[name] ?? {}
+    const filled = days.map((_, i) => actual[i + 1] !== undefined)
     const hours = days.map((_, i) => {
       const ymd = `${month}-${String(i + 1).padStart(2, '0')}`
-      if (!calc || ymd > calc.today) return null
       const std = stdOf(i)
+      // 人事填过实际上班时长的 —— 就是它 (今天以后的也认, 有人提前排好)。
+      if (calc && actual[i + 1] !== undefined) {
+        const v = actual[i + 1]
+        if (std > 0) attendedDays += Math.min(v, std) / std
+        attendedHours += v
+        return v
+      }
+      if (!calc || ymd > calc.today) return null
+      if (days[i].length === 0) return 0
       const worked = std > 0 ? Math.max(0, std - missing[i]) : 0
       if (std > 0) attendedDays += worked / std
       const total = Math.round((worked + overtime[i]) * 10) / 10
@@ -149,8 +164,11 @@ export function buildAttendanceReport(
     const attend: (number | '')[] = calc
       ? [
           workdays,
-          sum?.workedDays ?? Math.round(attendedDays * 10) / 10,
-          sum?.workedHours ?? Math.round(attendedHours * 10) / 10,
+          // 人事逐天填过实际时长的, 合计按填的算; 没填过才认打卡机汇总。
+          (filled.some(Boolean) ? undefined : sum?.workedDays) ??
+            Math.round(attendedDays * 10) / 10,
+          (filled.some(Boolean) ? undefined : sum?.workedHours) ??
+            Math.round(attendedHours * 10) / 10,
           ...(hasSummary
             ? ([sum ? sum.otWeekdayHours || '' : '', sum ? sum.otWeekendHours || '' : ''] as (
                 | number
@@ -164,6 +182,7 @@ export function buildAttendanceReport(
       dept,
       days: cells,
       hours,
+      filled,
       attend,
       totals: Object.fromEntries(
         HR_TYPES.map((t) => [t, Math.round(totals[t] * 10) / 10]),

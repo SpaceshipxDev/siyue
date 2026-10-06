@@ -271,7 +271,7 @@ function SheetView({
         </span>
       </div>
       <div className="overflow-x-auto rounded-[2px] border border-[var(--color-border)] bg-white p-3">
-        <AttendanceSheet report={report} />
+        <AttendanceSheet report={report} editable={canImport} />
       </div>
     </div>
   )

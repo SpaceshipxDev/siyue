@@ -291,6 +291,7 @@ import {
   keepCustomerLines,
 } from '@/lib/duizhang'
 import { getNoReconcile, LINE_MARK, setNoReconcile } from '@/lib/no-reconcile'
+import { setDailyHours } from '@/lib/hr-daily'
 import {
   addLoanRepayment,
   applyPayrollLoanDeductions,
@@ -2592,6 +2593,24 @@ async function dispatch(
 
     // 考勤汇总导入 —— 打卡机月报那一张: 一人一行, 出勤天数 / 出勤小时 /
     // 平时加班 / 周末加班。覆盖式写入, 同一张表导两遍不会翻倍。
+    // 考勤表上手填某人某天实际上班几小时 (lib/hr-daily)。空 = 清掉, 回到系
+    // 统算的数。跟改人事记录同一档 (canEditHrRecord)。
+    case 'setDailyHours': {
+      const { month, name, day } = body
+      if (!isPayrollMonth(month) || !isString(name) || !name.trim())
+        return err('bad setDailyHours args')
+      if (typeof day !== 'number' || !Number.isInteger(day) || day < 1 || day > 31)
+        return err('bad setDailyHours args')
+      const hours = body.hours
+      if (hours !== null && (typeof hours !== 'number' || !Number.isFinite(hours) || hours < 0 || hours > 24))
+        return err('上班时长要填 0 到 24 之间的数')
+      const u = await requireUser()
+      if (!canEditHrRecord(u)) return err('改考勤要找人事', 403)
+      await setDailyHours(month, name.trim(), day, hours as number | null)
+      revalidatePath('/hr')
+      return Response.json(ok())
+    }
+
     case 'saveAttendanceSummary': {
       const month = body.month
       const rows = body.rows

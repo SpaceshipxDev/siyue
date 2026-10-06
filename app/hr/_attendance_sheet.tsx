@@ -1,5 +1,6 @@
 import { HR_TYPES } from '@/lib/data'
 import { HR_SHORT, totalHeader, type AttendanceReport } from '@/lib/hr-report'
+import { HourCell } from './_hour_cell'
 
 // 考勤表那一张格子 —— 人事「考勤表」页签和打印页共用 (口径在 lib/hr-report)。
 // 一人一行, 每天一格, 周日那一列浅一点; 旷工 / 违纪 / 质量异常红字; 最后几列
@@ -9,7 +10,14 @@ const WEEK = ['日', '一', '二', '三', '四', '五', '六']
 const TH = 'border border-[#14130f] px-0.5 py-1 font-medium'
 const TD = 'border border-[#14130f] px-0.5 py-1 break-all'
 
-export function AttendanceSheet({ report }: { report: AttendanceReport }) {
+export function AttendanceSheet({
+  report,
+  editable = false,
+}: {
+  report: AttendanceReport
+  /** 能改考勤的人在页签上: 每一格点一下填实际上班时长。打印页不给。 */
+  editable?: boolean
+}) {
   if (report.rows.length === 0)
     return (
       <p className="py-16 text-center text-[13px] text-[var(--color-ink-3)]">这个月没有考勤记录</p>
@@ -75,37 +83,23 @@ export function AttendanceSheet({ report }: { report: AttendanceReport }) {
               <td className={TD}>{i + 1}</td>
               <td className={`${TD} font-medium`}>{r.name}</td>
               <td className={`${TD} text-[var(--color-ink-2)]`}>{r.dept}</td>
-              {r.days.map((d, j) => {
-                const h = r.hours[j]
-                return (
-                  <td
-                    key={j}
-                    className={`${TD} ${report.weekdays[j] === 0 ? 'bg-[#f7f5ef]' : ''}`}
-                  >
-                    {/* 这天出勤几小时 (含加班), 没出勤写 0; 下面小字是那天记的事。 */}
-                    {h !== null && (
-                      <span
-                        className={`mono block text-[10.5px] ${
-                          h === 0 ? 'text-[var(--color-ink-4)]' : 'font-medium'
-                        }`}
-                      >
-                        {h}
-                      </span>
-                    )}
-                    {d && (
-                      <span
-                        className={`block text-[8.5px] ${
-                          /[旷违质]/.test(d)
-                            ? 'font-semibold text-[var(--color-overdue)]'
-                            : 'text-[var(--color-ink-3)]'
-                        }`}
-                      >
-                        {d}
-                      </span>
-                    )}
-                  </td>
-                )
-              })}
+              {r.days.map((d, j) => (
+                <td
+                  key={j}
+                  className={`${TD} ${report.weekdays[j] === 0 ? 'bg-[#f7f5ef]' : ''}`}
+                >
+                  {/* 这天出勤几小时 (含加班), 没出勤写 0; 下面小字是那天记的事。 */}
+                  <HourCell
+                    month={report.month}
+                    name={r.name}
+                    day={j + 1}
+                    value={r.hours[j]}
+                    filled={r.filled[j]}
+                    codes={d}
+                    editable={editable}
+                  />
+                </td>
+              ))}
               {r.attend.map((v, k) => (
                 <td key={`w${k}`} className={`${TD} bg-[#f6f9f5] font-medium`}>
                   {v}
@@ -124,7 +118,7 @@ export function AttendanceSheet({ report }: { report: AttendanceReport }) {
         {HR_TYPES.map((t) => `${HR_SHORT[t]} = ${t}`).join('　')}
         　· 字后面的数字是小时（加2 = 加班 2 小时）
         {report.attendHeaders.length > 0
-          ? ' · 每天的数字 = 当天出勤小时（含加班），没出勤是 0；该上几小时按工资里各部门的工时，周日休息，没有请假旷工记录的工作日按满勤算'
+          ? ' · 每天的数字 = 当天出勤小时（含加班），没出勤是 0；当天没有考勤记录的填 0；有记录的按各部门每天工时减请假旷工、加上加班算（周日休息）；数字带下划线的是手填的实际上班时长'
           : ' · 空格 = 当天没有记录'}
         {report.hasSummary ? ' · 导了打卡机汇总的人，实出勤和工时以打卡机为准' : ''}
       </p>
