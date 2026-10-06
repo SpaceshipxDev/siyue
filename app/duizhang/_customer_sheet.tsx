@@ -449,21 +449,20 @@ export function CustomerSheet({
           </p>
         ) : (
           <section className="py-4">
-            <table className="doc-grid">
+            <table className="doc-grid doc-grid-tight">
               <thead>
                 <tr>
-                  <th className="no-print" style={{ width: 28 }} />
-                  <th style={{ width: 30 }}>序号</th>
-                  <th style={{ width: 58 }}>{DUIZHANG_DATE_LABEL[K]}</th>
-                  <th style={{ width: 96 }}>{DUIZHANG_DOCNO_LABEL[K]}</th>
-                  <th style={{ width: 78 }}>合同号</th>
-                  <th style={{ width: 56 }}>图片</th>
-                  <th style={{ width: 82 }}>{DUIZHANG_DETAIL_LABEL[K]}</th>
+                  <th className="no-print" style={{ width: 22 }} />
+                  <th style={{ width: 26 }}>序号</th>
+                  <th style={{ width: 44 }}>{DUIZHANG_DATE_LABEL[K]}</th>
+                  <th style={{ width: 76 }}>{DUIZHANG_DOCNO_LABEL[K]}</th>
+                  <th style={{ width: 48 }}>合同号</th>
+                  <th style={{ width: 48 }}>图片</th>
+                  <th style={{ width: 62 }}>{DUIZHANG_DETAIL_LABEL[K]}</th>
                   <th>{DUIZHANG_TITLE_LABEL[K]}</th>
-                  <th style={{ width: 44 }}>数量</th>
-                  <th style={{ width: 58 }}>单价</th>
-                  <th style={{ width: 72 }}>金额</th>
-                  {canApprove && <th className="no-print" style={{ width: 40 }} />}
+                  <th style={{ width: 34 }}>数量</th>
+                  <th style={{ width: 52 }}>单价</th>
+                  <th style={{ width: 62 }}>金额</th>
                 </tr>
               </thead>
               <tbody>
@@ -517,7 +516,23 @@ export function CustomerSheet({
                               )}
                             </td>
                             <td className="mono text-[var(--color-ink-2)]">{l.detail || '—'}</td>
-                            <td className="font-medium">{l.title}</td>
+                            <td className="font-medium">
+                              {l.title}
+                              {canApprove && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    markLine(l.key, true)
+                                  }}
+                                  disabled={pending}
+                                  title="这一行不参与对账（拆件之类），上面能恢复"
+                                  className="no-print ml-1 text-[11px] font-normal text-[var(--color-ink-4)] opacity-0 transition-opacity hover:text-[var(--color-overdue)] group-hover/line:opacity-100 focus:opacity-100 disabled:opacity-40"
+                                >
+                                  去掉
+                                </button>
+                              )}
+                            </td>
                             <td className="mono">{l.qty}</td>
                             <td className="mono">
                               {typeof l.unitPriceCny === 'number' ? formatCny(l.unitPriceCny) : '—'}
@@ -529,22 +544,6 @@ export function CustomerSheet({
                                 <span className="text-[var(--color-overdue)]">没定价</span>
                               )}
                             </td>
-                            {canApprove && (
-                              <td className="no-print" style={{ textAlign: 'center' }}>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    markLine(l.key, true)
-                                  }}
-                                  disabled={pending}
-                                  title="这一行不参与对账（拆件之类），下面能恢复"
-                                  className="text-[11.5px] text-[var(--color-ink-4)] opacity-0 transition-opacity hover:text-[var(--color-overdue)] group-hover/line:opacity-100 focus:opacity-100 disabled:opacity-40"
-                                >
-                                  去掉
-                                </button>
-                              </td>
-                            )}
                           </tr>
                         )
                       })}
@@ -559,7 +558,6 @@ export function CustomerSheet({
                   <td className="mono font-semibold">{chosenQty}</td>
                   <td />
                   <td className="mono font-semibold">{formatCny(chosenAmount)}</td>
-                  {canApprove && <td className="no-print" />}
                 </tr>
               </tbody>
             </table>

@@ -524,6 +524,21 @@ input[type="number"] {
 .doc table.doc-grid input,
 .doc table.doc-grid textarea { text-align: inherit; }
 
+/* 对账单 —— 列多 (序号、日期、单号、合同号、图、料号、名称、数量、单价、金
+ * 额), A4 一行放不下出货单那么宽的格子。格子收紧、图缩小、表头不撑字距, 把
+ * 宽度留给名称那一列 (它不写宽度, 剩下的都给它)。 */
+.doc table.doc-grid.doc-grid-tight th,
+.doc table.doc-grid.doc-grid-tight td {
+  padding: 4px 4px;
+}
+.doc table.doc-grid.doc-grid-tight th {
+  letter-spacing: 0.02em;
+}
+.doc table.doc-grid.doc-grid-tight .doc-thumb {
+  width: 40px;
+  height: 40px;
+}
+
 /* 缩略图是块级元素 — 单元格居中管不到它, 得自己左右 auto。出货单这一栏放大
  * 了, 图跟着放大: 客户核对时看的就是这张图。 */
 .doc table.doc-grid .doc-thumb {

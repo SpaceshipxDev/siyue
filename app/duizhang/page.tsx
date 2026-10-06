@@ -248,19 +248,19 @@ function Sheet({
         <section className="py-4">
           {/* 客户版一行是一个物料 (带图、物料号、单价), 供应商版一行是一张
               外协单 —— 两边核的东西不一样, 列就不一样。 */}
-          <table className="doc-grid">
+          <table className="doc-grid doc-grid-tight">
             <thead>
               <tr>
-                <th style={{ width: 30 }}>序号</th>
-                <th style={{ width: 58 }}>{DUIZHANG_DATE_LABEL[k]}</th>
-                <th style={{ width: 96 }}>{DUIZHANG_DOCNO_LABEL[k]}</th>
-                {isCustomer && <th style={{ width: 78 }}>合同号</th>}
-                {isCustomer && <th style={{ width: 56 }}>图片</th>}
-                <th style={{ width: 82 }}>{DUIZHANG_DETAIL_LABEL[k]}</th>
+                <th style={{ width: 26 }}>序号</th>
+                <th style={{ width: 44 }}>{DUIZHANG_DATE_LABEL[k]}</th>
+                <th style={{ width: 76 }}>{DUIZHANG_DOCNO_LABEL[k]}</th>
+                {isCustomer && <th style={{ width: 48 }}>合同号</th>}
+                {isCustomer && <th style={{ width: 48 }}>图片</th>}
+                <th style={{ width: 62 }}>{DUIZHANG_DETAIL_LABEL[k]}</th>
                 <th>{DUIZHANG_TITLE_LABEL[k]}</th>
-                <th style={{ width: 44 }}>数量</th>
-                {isCustomer && <th style={{ width: 58 }}>单价</th>}
-                <th style={{ width: 72 }}>金额</th>
+                <th style={{ width: 34 }}>数量</th>
+                {isCustomer && <th style={{ width: 52 }}>单价</th>}
+                <th style={{ width: 62 }}>金额</th>
               </tr>
             </thead>
             <tbody>

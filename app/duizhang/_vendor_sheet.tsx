@@ -282,20 +282,20 @@ export function VendorSheet({
           </p>
         ) : (
           <section className="py-4">
-            <table className="doc-grid">
+            <table className="doc-grid doc-grid-tight">
               <thead>
                 <tr>
-                  <th className="no-print" style={{ width: 28 }} />
-                  <th style={{ width: 30 }}>序号</th>
-                  <th style={{ width: 58 }}>{DUIZHANG_DATE_LABEL[K]}</th>
-                  <th style={{ width: 110 }}>{DUIZHANG_DOCNO_LABEL[K]}</th>
-                  <th style={{ width: 64 }}>{DUIZHANG_DETAIL_LABEL[K]}</th>
-                  <th style={{ width: 56 }}>图片</th>
-                  <th style={{ width: 82 }}>料号</th>
+                  <th className="no-print" style={{ width: 22 }} />
+                  <th style={{ width: 26 }}>序号</th>
+                  <th style={{ width: 44 }}>{DUIZHANG_DATE_LABEL[K]}</th>
+                  <th style={{ width: 92 }}>{DUIZHANG_DOCNO_LABEL[K]}</th>
+                  <th style={{ width: 50 }}>{DUIZHANG_DETAIL_LABEL[K]}</th>
+                  <th style={{ width: 48 }}>图片</th>
+                  <th style={{ width: 70 }}>料号</th>
                   <th>{DUIZHANG_TITLE_LABEL[K]}</th>
-                  <th style={{ width: 44 }}>数量</th>
-                  <th style={{ width: 58 }}>单价</th>
-                  <th style={{ width: 72 }}>金额</th>
+                  <th style={{ width: 34 }}>数量</th>
+                  <th style={{ width: 52 }}>单价</th>
+                  <th style={{ width: 62 }}>金额</th>
                 </tr>
               </thead>
               <tbody>
