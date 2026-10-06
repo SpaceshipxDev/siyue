@@ -138,6 +138,46 @@ export function dateLabel(ymd: string): string {
  * 一个客户、一段期间的对账单。行 = 出货单 (这个月拉走的每一车)。
  * 金额取记账表那一栏 (财务改过的优先, 没改过就是零件单价 × 出货数)。
  */
+/**
+ * 零件上没填单价、钱填在整张单上的 (商务只填了工单金额) —— 对账单不能因此
+ * 一行都没价。用这张出货单在财务里的金额 (财务改过的数, 否则系统算的: 单次
+ * 出货就是整单金额) 减掉有单价那几行, 剩下的按件数摊给没单价的行。
+ * 有单价的行一个数都不动; 摊不出正数的照旧算没定价。
+ */
+function priceFromShipment(
+  detail: StatementLineInput[],
+  rows: FinanceRow[],
+): StatementLineInput[] {
+  const amountOf = new Map(rows.map((r) => [r.shipmentId, effectiveAmount(r)]))
+  const byShip = new Map<string, StatementLineInput[]>()
+  for (const d of detail) byShip.set(d.shipmentId, [...(byShip.get(d.shipmentId) ?? []), d])
+  const filled = new Map<StatementLineInput, StatementLineInput>()
+  for (const [shipId, ls] of byShip) {
+    const open = ls.filter((l) => typeof l.amountCny !== 'number')
+    const total = amountOf.get(shipId)
+    if (open.length === 0 || typeof total !== 'number') continue
+    const priced = ls.reduce((s, l) => s + (l.amountCny ?? 0), 0)
+    const left = Math.round((total - priced) * 100) / 100
+    const qty = open.reduce((s, l) => s + l.qty, 0)
+    if (left <= 0 || qty <= 0) continue
+    let given = 0
+    open.forEach((l, i) => {
+      // 最后一行兜零头, 合计正好等于那张单的金额。
+      const amt =
+        i === open.length - 1
+          ? Math.round((left - given) * 100) / 100
+          : Math.round(((left * l.qty) / qty) * 100) / 100
+      given += amt
+      filled.set(l, {
+        ...l,
+        amountCny: amt,
+        unitPriceCny: l.qty > 0 ? Math.round((amt / l.qty) * 100) / 100 : undefined,
+      })
+    })
+  }
+  return detail.map((d) => filled.get(d) ?? d)
+}
+
 export function buildCustomerDuizhang(
   all: FinanceRow[],
   party: string,
@@ -149,7 +189,7 @@ export function buildCustomerDuizhang(
 ): Duizhang {
   const mine = all.filter((r) => (r.customer ?? '').trim() === party)
 
-  const lines: DuizhangLine[] = detail
+  const lines: DuizhangLine[] = priceFromShipment(detail, mine)
     .map((d) => ({
       key: `${d.shipmentId}:${d.componentId}`,
       date: dayOf(d.shipDate),
