@@ -6,6 +6,9 @@
 //   ② 月报格子: 一行一个人, 1 号到 31 号排成一排, 每一格里是当天几次打卡的时
 //      间 ("08:01 12:02 13:00 17:31", 常常是换行隔开);
 //   ③ 跟②一样, 但人名写在格子上面那一行 ("姓名: 张三" / "姓名 | 张三")。
+// 钉钉导出的「考勤报表」就是②: 日期那一排周六写"六"、周日写"日"、节日写
+// "中秋节", 所以几号按位置从 1 号往后数, 不认格子里写的字。名字常带着
+// "（离职）", 也有把部门写在名字前面的 ("操机肖云飞")。
 // 不管哪一种, 一个人一天里出现的所有 HH:MM, 第一个是上班, 最后一个是下班。
 // 只有一个时间的那天算没打全, 不出。
 //
@@ -73,7 +76,24 @@ const isDeptHead = (s: string) => /^(部门|所属部门|部门名称)$/.test(s)
 const isDateHead = (s: string) => /^(日期|考勤日期|打卡日期|日期时间|打卡时间)$/.test(s)
 // 这些列里的 "9:30" 是时长 / 统计, 不是打卡时间。
 const isHeadWord = (s: string) =>
-  isNameHead(s) || isDeptHead(s) || isDateHead(s) || /上班|下班|签到|签退|时间|工号|序号|编号|职位/.test(s)
+  isNameHead(s) ||
+  isDeptHead(s) ||
+  isDateHead(s) ||
+  /上班|下班|签到|签退|时间|工号|序号|编号|职位|考勤组|UserId|用户|账号|手机/i.test(s)
+
+// 名字前面写着部门的 ("操机肖云飞") —— 拆开。
+const NAME_PREFIX_DEPTS = ['塑料操机', '金属操机', '操机', '打磨', '喷漆', '丝印', '手工', '编程', '质检', '检验']
+
+/** 表上的名字 → 人名 (+ 写在名字前面的部门); 不是人名 (手机号、空) 返回 null。 */
+export function cleanName(raw: string): { name: string; dept?: string } | null {
+  const n = raw.replace(/[（(][^）)]*[）)]/g, '').replace(/\s+/g, '').trim()
+  if (!n || /\d|\*/.test(n)) return null
+  for (const d of NAME_PREFIX_DEPTS) {
+    if (n.startsWith(d) && n.length > d.length + 1) return { name: n.slice(d.length), dept: d }
+  }
+  if (n.length > 12) return null
+  return { name: n }
+}
 const isNotPunchHead = (s: string) => /时长|工时|迟到|早退|加班|缺勤|合计|小时|分钟/.test(s)
 
 export function parsePunchSheets(
@@ -103,13 +123,21 @@ export function parsePunchSheets(
       const cells = row.map(str)
       const ni = cells.findIndex(isNameHead)
 
-      // 1 到 31 号那一排 (② ③ 的表头; ② 的姓名也在这一行)。
-      const dayHits = new Map<number, number>()
-      cells.forEach((c, i) => {
+      // 1 到 31 号那一排 (② ③ 的表头; ② 的姓名也在这一行)。几号按位置数:
+      // 从写着 1 的那一格往后, 一格一天 —— 周末、节日那几格写的是"六""日"
+      // "中秋节", 照样是那一天。
+      let numeric = 0
+      cells.forEach((c) => {
         const m = c.match(/^(\d{1,2})(日|号)?$/)
-        if (m && Number(m[1]) >= 1 && Number(m[1]) <= 31) dayHits.set(i, Number(m[1]))
+        if (m && Number(m[1]) >= 1 && Number(m[1]) <= 31) numeric += 1
       })
-      if (dayHits.size >= 20) {
+      const first = cells.findIndex((c) => /^0?1(日|号)?$/.test(c))
+      if (numeric >= 10 && first >= 0) {
+        const dayHits = new Map<number, number>()
+        for (let i = first; i < cells.length && i - first < 31; i++) {
+          if (cells[i] === '' && i - first >= 28) break
+          dayHits.set(i, i - first + 1)
+        }
         dayCols = dayHits
         if (ni >= 0) {
           nameCol = ni
@@ -142,9 +170,10 @@ export function parsePunchSheets(
       }
 
       const rowName = nameCol >= 0 ? cells[nameCol] : ''
-      const name = rowName || currentName
-      const dept = (deptCol >= 0 ? cells[deptCol] : '') || currentDept
-      if (!name) continue
+      const cleaned = cleanName(rowName || currentName)
+      if (!cleaned) continue
+      const name = cleaned.name
+      const dept = (deptCol >= 0 ? cells[deptCol] : '') || cleaned.dept || currentDept
       if (dept) deptOf.set(name, dept)
 
       if (dayCols) {
