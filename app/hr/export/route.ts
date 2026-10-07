@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import * as XLSX from 'xlsx'
 import {
   canSeeAllHr,
+  canSeeAttendance,
   canSeeDorm,
   hrDeptOf,
   requireHrUser,
@@ -121,7 +122,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
     // 考勤表 —— 月度那张: 一人一行、每天的上班时长、后面合计 (跟 /hr/report
     // 同一份, 只看导入的打卡和手填的时长)。
-    if (period.length === 7) {
+    if (period.length === 7 && canSeeAttendance(user)) {
       const rep = await loadAttendanceReport(period)
       const days = Array.from({ length: rep.dayCount }, (_, i) => `${i + 1}`)
       const grid: (string | number)[][] = [['序号', '姓名', '部门', ...days, ...rep.attendHeaders]]

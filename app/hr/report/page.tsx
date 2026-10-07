@@ -1,4 +1,5 @@
-import { canSeeAllHr, hrDeptOf, requireHrUser } from '@/lib/auth'
+import { canSeeAllHr, canSeeAttendance, hrDeptOf, requireHrUser } from '@/lib/auth'
+import { redirect } from 'next/navigation'
 import { loadAttendanceReport } from '../_sheet_data'
 import { BRAND } from '@/lib/brand'
 import { today } from '@/lib/today'
@@ -19,6 +20,7 @@ export default async function HrReportPage({
   searchParams: Promise<{ p?: string }>
 }) {
   const user = await requireHrUser()
+  if (!canSeeAttendance(user)) redirect('/hr')
   const sp = await searchParams
   const month = /^\d{4}-\d{2}$/.test(sp.p ?? '') ? (sp.p as string) : today().slice(0, 7)
 

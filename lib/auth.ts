@@ -199,6 +199,12 @@ export function canEditAttendance(u: AuthUser): boolean {
   return canEditHrRecord(u) || ATTENDANCE_EDITOR_USER_IDS.has(u.id)
 }
 
+// 看考勤表 —— 于海伟 2026-10-07 定: 只有人事、财务、老板和他。每个人每天上
+// 了几小时是记在人头上的, 跟工资一个性质, 所以是 能改考勤表的 + 工资那一档。
+export function canSeeAttendance(u: AuthUser): boolean {
+  return canEditAttendance(u) || canSeeExpenses(u)
+}
+
 // ─── 仓库 (出入库记录) ──────────────────────────────────────────────────
 //
 // 跟质量一个道理, 两档: 记一笔对全厂的账号开着 —— 东西是当场进出的, 让仓管

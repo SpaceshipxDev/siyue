@@ -6,6 +6,7 @@ import {
   requireHrUser,
   canDeleteHrRecord,
   canEditAttendance,
+  canSeeAttendance,
   canEditHrRecord,
   canSeeAllHr,
   canSeeReport,
@@ -59,12 +60,14 @@ export default async function HrPage({
   // 借款 —— 员工来借钱, 人事在这里填申请、等人批 (批下来转到财务)。收申请的
   // 是人事, 所以跟「看全部人事」同一档。
   const seeLoan = canApplyLoan(user)
+  // 考勤表只给人事、财务、老板和于海伟看 (canSeeAttendance)。
+  const seeSheet = canSeeAttendance(user)
   const view =
     sp.v === 'dorm' && seeDorm
       ? 'dorm'
       : sp.v === 'loan' && seeLoan
         ? 'loan'
-        : sp.v === 'sheet'
+        : sp.v === 'sheet' && seeSheet
           ? 'sheet'
           : 'hr'
 
@@ -132,11 +135,13 @@ export default async function HrPage({
           className={`mx-auto mb-5 flex items-baseline gap-x-6 ${view === 'sheet' ? 'max-w-[1240px]' : 'max-w-4xl'}`}
         >
             <ViewTab href="/hr" label="考勤" active={view === 'hr'} />
-            <ViewTab
-              href={`/hr?v=sheet&p=${period.length === 7 ? period : now.slice(0, 7)}`}
-              label="考勤表"
-              active={view === 'sheet'}
-            />
+            {seeSheet && (
+              <ViewTab
+                href={`/hr?v=sheet&p=${period.length === 7 ? period : now.slice(0, 7)}`}
+                label="考勤表"
+                active={view === 'sheet'}
+              />
+            )}
             {seeDorm && (
               <ViewTab href="/hr?v=dorm" label="住宿" active={view === 'dorm'} />
             )}
