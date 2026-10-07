@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { currentUser, canEditHrRecord } from '@/lib/auth'
+import { currentUser, canEditAttendance, canEditHrRecord } from '@/lib/auth'
 import { parseWorkbook } from '@/lib/xlsx'
 import { extractAttendanceFromXlsx } from '@/lib/gemini'
 import { HR_TYPES, hrHasHours, type HrType } from '@/lib/data'
@@ -20,7 +20,8 @@ export async function POST(request: NextRequest) {
   // 这条路上不能用 requireHrUser: 它没登录就 redirect, 在接口里会变成一个
   // 谁也看不懂的错误。自己判, 自己回话。
   const user = await currentUser()
-  if (!user || !canEditHrRecord(user)) {
+  // 考勤表页签上导打卡 (mode=punch) 人事也能导; 导进人事记录还是改删那一档。
+  if (!user || !canEditAttendance(user)) {
     return Response.json({ ok: false, error: '没有导入权限' }, { status: 403 })
   }
 
@@ -29,6 +30,10 @@ export async function POST(request: NextRequest) {
     form = await request.formData()
   } catch (err) {
     return Response.json({ ok: false, error: errMessage(err) }, { status: 400 })
+  }
+
+  if (String(form.get('mode') ?? '') !== 'punch' && !canEditHrRecord(user)) {
+    return Response.json({ ok: false, error: '没有导入权限' }, { status: 403 })
   }
 
   const file = form.get('file')

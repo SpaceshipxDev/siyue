@@ -144,6 +144,7 @@ import {
   canCreatePartRow,
   canDeleteHrRecord,
   canEditDorm,
+  canEditAttendance,
   canEditHrRecord,
   canDeletePartRow,
   canManageOutsource,
@@ -2637,7 +2638,7 @@ async function dispatch(
     // 考勤汇总导入 —— 打卡机月报那一张: 一人一行, 出勤天数 / 出勤小时 /
     // 平时加班 / 周末加班。覆盖式写入, 同一张表导两遍不会翻倍。
     // 考勤表上手填某人某天实际上班几小时 (lib/hr-daily)。空 = 清掉, 回到系
-    // 统算的数。跟改人事记录同一档 (canEditHrRecord)。
+    // 统算的数。改人事记录那一档加上人事 (canEditAttendance)。
     // 导入的打卡明细 —— 每人每天打卡上了几小时 (lib/hr-daily)。导过的人这
     // 个月整行换成这一份。
     case 'savePunchHours': {
@@ -2669,7 +2670,7 @@ async function dispatch(
         clean.push({ name: r.name, day: Math.floor(r.day), hours: h, dept })
       }
       const u = await requireUser()
-      if (!canEditHrRecord(u)) return err('导入考勤要找人事', 403)
+      if (!canEditAttendance(u)) return err('导入考勤要找人事', 403)
       const count = await savePunchHours(month, clean)
       revalidatePath('/hr')
       return Response.json(ok({ count }))
@@ -2685,7 +2686,7 @@ async function dispatch(
       if (hours !== null && (typeof hours !== 'number' || !Number.isFinite(hours) || hours < 0 || hours > 24))
         return err('上班时长要填 0 到 24 之间的数')
       const u = await requireUser()
-      if (!canEditHrRecord(u)) return err('改考勤要找人事', 403)
+      if (!canEditAttendance(u)) return err('改考勤要找人事', 403)
       await setDailyHours(month, name.trim(), day, hours as number | null)
       revalidatePath('/hr')
       return Response.json(ok())

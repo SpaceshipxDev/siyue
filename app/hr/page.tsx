@@ -5,6 +5,7 @@ import {
   canSeeDorm,
   requireHrUser,
   canDeleteHrRecord,
+  canEditAttendance,
   canEditHrRecord,
   canSeeAllHr,
   canSeeReport,
@@ -148,7 +149,7 @@ export default async function HrPage({
             month={period}
             report={sheetReport!}
             scope={seeAll ? '全厂' : `${myDept}部门`}
-            canImport={canEditHrRecord(user)}
+            canImport={canEditAttendance(user)}
           />
         ) : view === 'loan' ? (
           <HrLoanBoard

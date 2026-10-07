@@ -188,6 +188,17 @@ export function canEditHrRecord(u: AuthUser): boolean {
   return HR_EDITOR_USER_IDS.has(u.id)
 }
 
+// 考勤表 (导入打卡、改某人某天的时长) —— 于海伟 2026-10-07 开给人事: 打卡
+// 表是人事从打卡机导出来的, 谁哪天漏打了卡也是人事先知道。只管考勤表这一
+// 张, 人事记录的改 / 删还是上面那一档。
+const ATTENDANCE_EDITOR_USER_IDS = new Set<string>([
+  'u-mqoj62uq-olmh4c', // 采购人事
+])
+
+export function canEditAttendance(u: AuthUser): boolean {
+  return canEditHrRecord(u) || ATTENDANCE_EDITOR_USER_IDS.has(u.id)
+}
+
 // ─── 仓库 (出入库记录) ──────────────────────────────────────────────────
 //
 // 跟质量一个道理, 两档: 记一笔对全厂的账号开着 —— 东西是当场进出的, 让仓管
