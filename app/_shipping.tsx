@@ -50,8 +50,32 @@ export function ShippingComposerButton({
     components
       .filter((c) => isStageInRoute(c, '出货'))
       .every((c) => componentShippedTotal(c.id, shipments) >= c.qty)
+  // 车间点出货时系统自己开了一张 (开单人带「（点出货）」, 见 lib/db
+  // syncAutoShipments), 那张还没人打过 —— 商务要的就是把它打出来跟货走。
+  // 还有没出的件时, 「制作出货单」照样留着开剩下的。
+  const latest = shipments.reduce<Shipment | undefined>(
+    (b, s) => (!b || s.createdAt > b.createdAt ? s : b),
+    undefined,
+  )
+  const tapped =
+    !reprintOnly && latest?.createdBy?.endsWith('（点出货）') ? latest : undefined
   return (
     <>
+      {tapped && (
+        <button
+          type="button"
+          onClick={() =>
+            window.open(
+              withBase(`/jobs/${jobId}/print/shipping?shipment=${tapped.id}`),
+              '_blank',
+              'noopener',
+            )
+          }
+          className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80"
+        >
+          打印出货单
+        </button>
+      )}
       <button
         type="button"
         onClick={() => {
@@ -61,9 +85,17 @@ export function ShippingComposerButton({
           }
           setOpen(true)
         }}
-        className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80"
+        className={
+          tapped
+            ? 'px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border-strong)] text-[var(--color-ink-2)] rounded-[2px] hover:bg-[#f1eee4] hover:text-[var(--color-ink)] transition-colors'
+            : 'px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80'
+        }
       >
-        {reprintOnly ? '重新打印出货单' : '制作出货单'}
+        {reprintOnly
+          ? latest?.createdBy?.endsWith('（点出货）')
+            ? '打印出货单'
+            : '重新打印出货单'
+          : '制作出货单'}
       </button>
       {open && (
         <ShippingComposer
