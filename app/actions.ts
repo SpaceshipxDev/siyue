@@ -192,6 +192,7 @@ export async function prepareShippingAction(
 ): Promise<PrepareShippingResponse> {
   const u = await requireStage('出货')
   const result = await prepareShipping(jobId, selections, u.name)
+  await syncShipments(jobId, '出货', u.name)
   revalidateStage(jobId, '出货')
   revalidatePath(`/jobs/${jobId}/print/shipping`)
   revalidatePath(`/jobs/${jobId}/print/shipping/pdf`)

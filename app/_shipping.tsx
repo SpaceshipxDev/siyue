@@ -40,42 +40,22 @@ export function ShippingComposerButton({
   shipments: Shipment[]
 }) {
   const [open, setOpen] = useState(false)
+  // 别的部门在格子上点了出货, 系统替他们记的那几张 (开单人带「（点出货）」,
+  // 见 lib/db syncAutoShipments) 只是占个位, 不算正式出货单 —— 商务照常在
+  // 这里开, 开出来的那张把它们接过去。
+  const docs = shipments.filter((s) => !(s.createdBy ?? '').endsWith('（点出货）'))
   // Once every in-route part has been fully shipped there's nothing left to
   // compose, but the user still legitimately needs to reprint the last
   // 出货单 (customer lost it, mailroom asks for another copy, etc.). Skip the
   // picker in that state and open the print page directly — same artifact,
   // no new shipment row.
   const reprintOnly =
-    shipments.length > 0 &&
+    docs.length > 0 &&
     components
       .filter((c) => isStageInRoute(c, '出货'))
-      .every((c) => componentShippedTotal(c.id, shipments) >= c.qty)
-  // 车间点出货时系统自己开了一张 (开单人带「（点出货）」, 见 lib/db
-  // syncAutoShipments), 那张还没人打过 —— 商务要的就是把它打出来跟货走。
-  // 还有没出的件时, 「制作出货单」照样留着开剩下的。
-  const latest = shipments.reduce<Shipment | undefined>(
-    (b, s) => (!b || s.createdAt > b.createdAt ? s : b),
-    undefined,
-  )
-  const tapped =
-    !reprintOnly && latest?.createdBy?.endsWith('（点出货）') ? latest : undefined
+      .every((c) => componentShippedTotal(c.id, docs) >= c.qty)
   return (
     <>
-      {tapped && (
-        <button
-          type="button"
-          onClick={() =>
-            window.open(
-              withBase(`/jobs/${jobId}/print/shipping?shipment=${tapped.id}`),
-              '_blank',
-              'noopener',
-            )
-          }
-          className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80"
-        >
-          打印出货单
-        </button>
-      )}
       <button
         type="button"
         onClick={() => {
@@ -85,23 +65,15 @@ export function ShippingComposerButton({
           }
           setOpen(true)
         }}
-        className={
-          tapped
-            ? 'px-3 py-1.5 text-[12px] tracking-wider border border-[var(--color-border-strong)] text-[var(--color-ink-2)] rounded-[2px] hover:bg-[#f1eee4] hover:text-[var(--color-ink)] transition-colors'
-            : 'px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80'
-        }
+        className="px-3 py-1.5 text-[12px] tracking-wider bg-[var(--color-ink)] text-[var(--color-surface)] rounded-[2px] hover:opacity-80"
       >
-        {reprintOnly
-          ? latest?.createdBy?.endsWith('（点出货）')
-            ? '打印出货单'
-            : '重新打印出货单'
-          : '制作出货单'}
+        {reprintOnly ? '重新打印出货单' : '制作出货单'}
       </button>
       {open && (
         <ShippingComposer
           jobId={jobId}
           components={components}
-          shipments={shipments}
+          shipments={docs}
           onClose={() => setOpen(false)}
         />
       )}

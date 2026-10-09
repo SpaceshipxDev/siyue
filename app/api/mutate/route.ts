@@ -1703,6 +1703,8 @@ async function dispatch(
         u.name,
         returnId ? { returnId } : undefined,
       )
+      // 这张单接过去的数, 从别人点出货时系统记的那几张上拿掉。
+      await syncShipments(jobId, '出货', u.name)
       if (returnId) {
         await writeReturnFlow(
           returnId,

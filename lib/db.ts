@@ -4861,9 +4861,16 @@ export async function prepareShipping(
     // Validate every delta against the part's remaining headroom before any
     // write goes out so the whole submission is all-or-nothing.
     const cumulative = new Map<string, number>()
+    // 别的部门在格子上点了出货, 系统替他们记的那几张 (「（点出货）」, 见
+    // syncAutoShipments) 只是先占个位 —— 正式的出货单还是商务来开。所以开单
+    // 时不算它们占的数; 开完调用方再跑一遍 syncAutoShipments, 多出来的就从
+    // 点出货的单上拿掉, 等于这张单把它们接了过去。
+    const autoHeld = new Map<string, number>()
     for (const s of snap.idx.shipmentsByJob.get(jobId) ?? []) {
+      const auto = (s.createdBy ?? '').endsWith(AUTO_SHIP_MARK)
       for (const sp of snap.idx.shipmentPartsByShipment.get(s.id) ?? []) {
         cumulative.set(sp.partId, (cumulative.get(sp.partId) ?? 0) + sp.qty)
+        if (auto) autoHeld.set(sp.partId, (autoHeld.get(sp.partId) ?? 0) + sp.qty)
       }
     }
     // 返工再发货 —— 退回厂里的件重新做好, 理应能再开一张交货单; 按原数量算
@@ -4886,7 +4893,7 @@ export async function prepareShipping(
     for (const [partId, delta] of deltas) {
       const part = snap.idx.partById.get(partId)
       if (!part) throw new Error('零件不存在')
-      const already = cumulative.get(partId) ?? 0
+      const already = (cumulative.get(partId) ?? 0) - (autoHeld.get(partId) ?? 0)
       const remaining = Math.max(
         0,
         part.qty + (rework.get(partId) ?? 0) - already,
@@ -4929,8 +4936,17 @@ export async function prepareShipping(
       if (!part) continue
       const row = snap.idx.stageByPartStage.get(stageKey(partId, '出货'))
       if (!row) continue
-      const newCumulative = (cumulative.get(partId) ?? 0) + delta
+      // 接过去的那部分本来就算在格子上了, 不重复加。
+      const absorbed = Math.min(delta, autoHeld.get(partId) ?? 0)
+      const newCumulative = (cumulative.get(partId) ?? 0) - absorbed + delta
       const max = Math.max(0, Math.floor(part.qty))
+      // 别的部门点过的格子还记在点的那个人头上 —— 开单只是补张纸, 不改报工
+      // 算谁的。格子本来就完了、开完还是完的, 就不去动它。
+      const by = absorbed > 0 ? (row.by ?? actor) : actor
+      if (absorbed > 0 && row.status === 'done' && newCumulative >= max) {
+        fullyShippedPartIds.push(partId)
+        continue
+      }
       if (newCumulative >= max && max > 0) {
         // 发完了 — 只关 出货 这一格。前面哪几道没点就空着。
         stageUpdates.push({
@@ -4939,7 +4955,7 @@ export async function prepareShipping(
           completedAt: date,
           startedAt: row.startedAt ?? createdAt,
           finishedAt: createdAt,
-          by: actor,
+          by,
           doneQty: undefined,
         })
         fullyShippedPartIds.push(partId)
@@ -4950,7 +4966,7 @@ export async function prepareShipping(
           startedAt: row.startedAt ?? createdAt,
           completedAt: undefined,
           finishedAt: undefined,
-          by: actor,
+          by,
           doneQty: newCumulative > 0 ? newCumulative : undefined,
         })
       }
