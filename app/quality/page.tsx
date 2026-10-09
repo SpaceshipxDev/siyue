@@ -201,6 +201,7 @@ export default async function QualityPage({
             todayStr={todayStr}
             customers={customers}
             canEdit={canEdit}
+            userName={user.name}
           />
         ) : view === 'improve' ? (
           <ImprovementsBoard

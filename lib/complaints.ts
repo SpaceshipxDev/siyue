@@ -1,5 +1,6 @@
 import 'server-only'
 import { supabase, STORAGE_BUCKET } from './supabase'
+import { proxiedKeyUrl } from './storage-url'
 
 /*
  * 客诉异常 — 客户那边反馈回来的质量问题。
@@ -31,6 +32,15 @@ function withLock<T>(fn: () => Promise<T>): Promise<T> {
 
 const KEY = 'quality/complaints.json'
 
+// 不良图片 —— 客户发过来的照片, 一句"表面划伤"说不清伤在哪、伤成什么样。
+export type ComplaintPhoto = {
+  id: string
+  url: string
+  filename: string
+  uploadedBy?: string
+  createdAt: string
+}
+
 export type Complaint = {
   id: string
   date: string // 发生日期 YYYY-MM-DD
@@ -43,6 +53,7 @@ export type Complaint = {
   owner: string // 责任人
   action: string // 纠正预防措施
   lossCny: number // 损失金额
+  photos: ComplaintPhoto[] // 不良图片
   by?: string // 记录人
   createdAt: string
 }
@@ -74,6 +85,24 @@ function str(v: unknown): string {
   return typeof v === 'string' ? v.trim() : ''
 }
 
+function normalizePhotos(raw: unknown): ComplaintPhoto[] {
+  if (!Array.isArray(raw)) return []
+  const out: ComplaintPhoto[] = []
+  for (const v of raw as unknown[]) {
+    if (typeof v !== 'object' || v === null) continue
+    const p = v as Record<string, unknown>
+    if (typeof p.id !== 'string' || typeof p.url !== 'string') continue
+    out.push({
+      id: p.id,
+      url: p.url,
+      filename: str(p.filename) || '图',
+      uploadedBy: str(p.uploadedBy) || undefined,
+      createdAt: str(p.createdAt),
+    })
+  }
+  return out
+}
+
 function normalize(raw: unknown): Complaint[] {
   if (!Array.isArray(raw)) return []
   const out: Complaint[] = []
@@ -94,6 +123,7 @@ function normalize(raw: unknown): Complaint[] {
       owner: str(r.owner),
       action: str(r.action),
       lossCny: money(r.lossCny),
+      photos: normalizePhotos(r.photos),
       by: str(r.by) || undefined,
       createdAt: str(r.createdAt),
     })
@@ -148,11 +178,12 @@ export async function addComplaint(
   input: NewComplaint,
   by: string,
   nowIso: string,
-): Promise<void> {
+): Promise<string> {
+  const id = crypto.randomUUID()
   await withLock(async () => {
     const rows = await read()
     rows.push({
-      id: crypto.randomUUID(),
+      id,
       date: input.date,
       customer: input.customer.trim(),
       jobNo: input.jobNo?.trim() || undefined,
@@ -163,20 +194,26 @@ export async function addComplaint(
       owner: input.owner.trim(),
       action: input.action.trim(),
       lossCny: money(input.lossCny),
+      photos: [],
       by,
       createdAt: nowIso,
     })
     await write(rows)
   })
+  // 录入时一起选的图, 页面拿这个 id 接着传。
+  return id
 }
 
 // fillBlanksOnly = 直报那一档 (全厂账号): 空着的格子可以补 —— 处理方式、责
 // 任人、损失金额、措施本来就是几天后才定下来的; 已经填过的东西不给动, 那是
 // 工程 / 商务于海伟 那一档的事 (lib/auth canEditQuality)。
+//
+// 只有一个例外: 不良原因, 记这条的人自己能改 (editor === 记录人) —— 那是他
+// 听客户原话写下的, 写错了、问清楚了, 他最知道该怎么改。
 export async function updateComplaint(
   id: string,
   patch: ComplaintPatch,
-  opts?: { fillBlanksOnly?: boolean },
+  opts?: { fillBlanksOnly?: boolean; editor?: string },
 ): Promise<void> {
   await withLock(async () => {
     const rows = await read()
@@ -189,6 +226,7 @@ export async function updateComplaint(
       }
       for (const k of Object.keys(patch) as (keyof ComplaintPatch)[]) {
         if (patch[k] === undefined) continue
+        if (k === 'reason' && opts.editor && row.by === opts.editor) continue
         if (filled(k)) throw new Error('这一格填过了 — 要改找工程或于海伟')
       }
     }
@@ -204,6 +242,60 @@ export async function updateComplaint(
     if (patch.owner !== undefined) row.owner = patch.owner.trim()
     if (patch.action !== undefined) row.action = patch.action.trim()
     if (patch.lossCny !== undefined) row.lossCny = money(patch.lossCny)
+    await write(rows)
+  })
+}
+
+/**
+ * 往一条客诉上挂一张不良图片 —— 跟变更管理的配图一个路子 (lib/changes):
+ * 图直接转交 storage, 存的是代理过的地址。
+ */
+export async function addComplaintPhoto(input: {
+  complaintId: string
+  body: Blob
+  fileName: string
+  contentType: string
+  uploadedBy?: string
+  nowIso: string
+}): Promise<ComplaintPhoto> {
+  const id = crypto.randomUUID()
+  const m = input.fileName.toLowerCase().match(/\.([a-z0-9]+)$/)
+  const ext = m ? m[1] : 'png'
+  const key = `quality/complaints/${input.complaintId}-${id}.${ext}`
+  const upR = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(key, input.body, {
+      contentType: input.contentType || 'application/octet-stream',
+      upsert: false,
+    })
+  if (upR.error) throw upR.error
+
+  const photo: ComplaintPhoto = {
+    id,
+    url: proxiedKeyUrl(key),
+    filename: input.fileName,
+    uploadedBy: input.uploadedBy,
+    createdAt: input.nowIso,
+  }
+  await withLock(async () => {
+    const rows = await read()
+    const row = rows.find((r) => r.id === input.complaintId)
+    if (!row) throw new Error('这条客诉找不到了')
+    row.photos = [...row.photos, photo]
+    await write(rows)
+  })
+  return photo
+}
+
+export async function deleteComplaintPhoto(
+  complaintId: string,
+  photoId: string,
+): Promise<void> {
+  await withLock(async () => {
+    const rows = await read()
+    const row = rows.find((r) => r.id === complaintId)
+    if (!row) return
+    row.photos = row.photos.filter((p) => p.id !== photoId)
     await write(rows)
   })
 }

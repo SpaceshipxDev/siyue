@@ -1,13 +1,16 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
 import { EditableText, EditableTextArea } from '@/app/_editable'
 import { formatCny } from '@/lib/data'
-import type { Complaint } from '@/lib/complaints'
+import { withBase } from '@/lib/base-path'
+import { proxiedStorageUrl } from '@/lib/storage-url'
+import { PhotoViewer } from '@/app/_photo_viewer'
+import type { Complaint, ComplaintPhoto } from '@/lib/complaints'
 
 // 客诉异常 — 客户那边反馈回来的质量问题。
 //
@@ -39,6 +42,7 @@ export function ComplaintsBoard({
   todayStr,
   customers,
   canEdit,
+  userName,
 }: {
   rows: Complaint[]
   todayStr: string
@@ -49,6 +53,8 @@ export function ComplaintsBoard({
    * 记一条、补一个还空着的格, 有账号的人都可以, 不看这个。
    */
   canEdit: boolean
+  /** 登录的人 —— 自己记的那条, 不良原因自己能改。 */
+  userName: string
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
@@ -68,7 +74,11 @@ export function ComplaintsBoard({
   const [owner, setOwner] = useState('')
   const [action, setAction] = useState('')
   const [loss, setLoss] = useState('')
+  // 录入时一起选的不良图片 —— 记下之后接着传到这条上。
+  const [files, setFiles] = useState<File[]>([])
+  const fileRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
+  const [viewer, setViewer] = useState<{ photos: ComplaintPhoto[]; start: number } | null>(null)
 
   const monthRows = useMemo(() => {
     const ym = `${year}-${month}`
@@ -113,7 +123,7 @@ export function ComplaintsBoard({
     setError(null)
     start(async () => {
       try {
-        await mutate({
+        const r = await mutate<{ complaintId: string }>({
           kind: 'addComplaint',
           input: {
             date,
@@ -137,6 +147,11 @@ export function ComplaintsBoard({
         setOwner('')
         setAction('')
         setLoss('')
+        if (files.length > 0) {
+          const bad = await uploadComplaintPhotos(r.data.complaintId, files)
+          if (bad) showToast(`记下了, 但图没传上去: ${bad}`, 'warning')
+          setFiles([])
+        }
         setDate(todayStr)
         setMonth(date.slice(5, 7))
         router.refresh()
@@ -244,6 +259,30 @@ export function ComplaintsBoard({
             onKeyDown={(e) => e.key === 'Enter' && add()}
             className={`mono ${inp} w-[92px] text-right`}
           />
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const fs = Array.from(e.target.files ?? [])
+              if (fs.length > 0) setFiles((prev) => [...prev, ...fs])
+              e.target.value = ''
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => (files.length > 0 ? setFiles([]) : fileRef.current?.click())}
+            title={files.length > 0 ? '点一下清掉重选' : '客户发来的不良照片'}
+            className={`h-9 shrink-0 rounded-[2px] border border-dashed px-3 text-[12.5px] ${
+              files.length > 0
+                ? 'border-[var(--color-ink)] text-[var(--color-ink)]'
+                : 'border-[var(--color-border-strong)] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+            }`}
+          >
+            {files.length > 0 ? `图 ${files.length} ✕` : '＋ 图'}
+          </button>
           <button
             type="button"
             onClick={add}
@@ -371,11 +410,20 @@ export function ComplaintsBoard({
                 value={r.qty}
                 onSave={(v) => patch(r.id, { qty: v })}
               />
-              <Cell
-                canEdit={canEdit || !r.reason}
-                value={r.reason}
-                onSave={(v) => patch(r.id, { reason: v })}
-              />
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <Cell
+                  canEdit={canEdit || !r.reason || r.by === userName}
+                  value={r.reason}
+                  onSave={(v) => patch(r.id, { reason: v })}
+                />
+                <Photos
+                  complaintId={r.id}
+                  photos={r.photos}
+                  canDelete={canEdit}
+                  onOpen={(i) => setViewer({ photos: r.photos, start: i })}
+                  onChanged={() => router.refresh()}
+                />
+              </div>
               <Cell
                 canEdit={canEdit || !r.outflowReason}
                 value={r.outflowReason}
@@ -435,9 +483,123 @@ export function ComplaintsBoard({
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
         客诉是拖着办的——先记下客户说坏了几个，流出原因、处理方式、损失金额和
         纠正预防措施定下来再回来补，还空着的格谁都填得上；填过的要改，找工程或
-        于海伟。导出的就是屏幕上这一批。
+        于海伟；不良原因记的人自己也能改。不良图片能传多张，点一下放大。导出的就是屏幕上这一批。
       </p>
+
+      {viewer && (
+        <PhotoViewer
+          items={viewer.photos.map((p) => ({ url: p.url, filename: p.filename }))}
+          start={viewer.start}
+          onClose={() => setViewer(null)}
+        />
+      )}
     </div>
+  )
+}
+
+// 一张张传到这条客诉上; 传不上的那张的原因回给调用方, 后面的就不传了。
+async function uploadComplaintPhotos(
+  complaintId: string,
+  files: File[],
+): Promise<string | null> {
+  for (const f of files) {
+    const fd = new FormData()
+    fd.append('file', f)
+    fd.append('complaintId', complaintId)
+    try {
+      const res = await fetch(withBase('/api/upload-complaint-photo'), {
+        method: 'POST',
+        body: fd,
+      })
+      const data = (await res.json()) as { ok?: boolean; error?: string }
+      if (!data.ok) return data.error ?? '传不上去'
+    } catch {
+      return '网络断了'
+    }
+  }
+  return null
+}
+
+// 一条客诉的不良图片 —— 缩略图一排, 点开放大; 末尾一个「＋ 图」。
+function Photos({
+  complaintId,
+  photos,
+  canDelete,
+  onOpen,
+  onChanged,
+}: {
+  complaintId: string
+  photos: ComplaintPhoto[]
+  canDelete: boolean
+  onOpen: (index: number) => void
+  onChanged: () => void
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+
+  const upload = async (fs: File[]) => {
+    setBusy(true)
+    try {
+      const bad = await uploadComplaintPhotos(complaintId, fs)
+      if (bad) showToast(bad, 'warning')
+      onChanged()
+    } finally {
+      setBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      <input
+        ref={fileRef}
+        type="file"
+        multiple
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const fs = Array.from(e.target.files ?? [])
+          if (fs.length > 0) void upload(fs)
+        }}
+      />
+      {photos.map((p, i) => (
+        <span key={p.id} className="group/ph relative">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={proxiedStorageUrl(p.url)}
+            alt={p.filename}
+            title={`${p.filename}${p.uploadedBy ? ` · ${p.uploadedBy}` : ''} — 点开放大`}
+            onClick={() => onOpen(i)}
+            className="h-[34px] w-[34px] cursor-zoom-in rounded-[2px] border border-[var(--color-border)] object-cover"
+          />
+          {canDelete && (
+            <button
+              type="button"
+              title="删掉这张图"
+              onClick={async () => {
+                try {
+                  await mutate({ kind: 'deleteComplaintPhoto', complaintId, photoId: p.id })
+                  onChanged()
+                } catch (e) {
+                  showToast(e instanceof Error ? e.message : '删不掉', 'warning')
+                }
+              }}
+              className="absolute -right-1 -top-1 hidden h-[14px] w-[14px] items-center justify-center rounded-full bg-[var(--color-ink)] text-[9px] leading-none text-[var(--color-surface)] group-hover/ph:flex"
+            >
+              ✕
+            </button>
+          )}
+        </span>
+      ))}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => fileRef.current?.click()}
+        className="rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-1.5 py-0.5 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] disabled:opacity-50"
+      >
+        {busy ? '传…' : '＋ 图'}
+      </button>
+    </span>
   )
 }
 

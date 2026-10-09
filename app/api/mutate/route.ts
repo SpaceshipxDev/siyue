@@ -179,6 +179,7 @@ import {
 import {
   addComplaint,
   deleteComplaint,
+  deleteComplaintPhoto,
   updateComplaint,
 } from '@/lib/complaints'
 import { setDefectAction } from '@/lib/defect-actions'
@@ -3560,7 +3561,7 @@ async function dispatch(
       if (i.jobNo !== undefined && !isString(i.jobNo))
         return err('bad addComplaint args')
       const u = await requireUser()
-      await addComplaint(
+      const complaintId = await addComplaint(
         {
           date: i.date,
           customer: i.customer,
@@ -3577,7 +3578,7 @@ async function dispatch(
         new Date().toISOString(),
       )
       revalidatePath('/quality')
-      return Response.json(ok())
+      return Response.json(ok({ complaintId }))
     }
 
     case 'updateComplaint': {
@@ -3607,6 +3608,7 @@ async function dispatch(
       const u = await requireUser()
       await updateComplaint(complaintId, p, {
         fillBlanksOnly: !canEditQuality(u),
+        editor: u.name,
       })
       revalidatePath('/quality')
       return Response.json(ok())
@@ -3618,6 +3620,18 @@ async function dispatch(
       const u = await requireUser()
       if (!canEditQuality(u)) return err('删客诉要找工程或于海伟', 403)
       await deleteComplaint(complaintId)
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'deleteComplaintPhoto': {
+      const complaintId = body.complaintId
+      const photoId = body.photoId
+      if (!isString(complaintId) || !isString(photoId))
+        return err('bad deleteComplaintPhoto args')
+      const u = await requireUser()
+      if (!canEditQuality(u)) return err('删图要找工程或于海伟', 403)
+      await deleteComplaintPhoto(complaintId, photoId)
       revalidatePath('/quality')
       return Response.json(ok())
     }
