@@ -1,12 +1,13 @@
 import { currentUser, canSeeReport, canSeeMoney } from '@/lib/auth'
 import { PICK_WORKER_STAGES, STAGES, type Stage } from '@/lib/data'
-import { getPersonSplits } from '@/lib/work-split'
+import { getPersonSplits, workSplitKey } from '@/lib/work-split'
 import { shanghaiRangeWindow } from '@/lib/today'
 import {
   getWorkerOutput,
   getStationStuck,
   getWorkerTimeline,
   getStationDetailByOrder,
+  getPerPieceValues,
   getReportActorNames,
 } from '@/lib/pulse'
 import { getAllUsers } from '@/lib/db'
@@ -175,7 +176,7 @@ export async function GET(request: Request): Promise<Response> {
     const [people, stuck, persons] = await Promise.all([
       getWorkerOutput(window, stage),
       stage ? getStationStuck(stage, STUCK_DAYS) : Promise.resolve([]),
-      !stage || PICK_WORKER_STAGES.includes(stage) ? personOutput(window, stage) : Promise.resolve([]),
+      !stage || PICK_WORKER_STAGES.includes(stage) ? personOutput(window, stage, showMoney) : Promise.resolve([]),
     ])
     if (!showMoney) for (const p of people) p.valueCny = 0
     return Response.json(
@@ -200,26 +201,39 @@ type PersonItem = {
   qty: number
   partQty: number
   at: string
+  /** 经手金额 — 这个人这几件按件数算的钱 (看不到钱的账号是 0)。 */
+  valueCny: number
 }
+type PersonRow = { name: string; finishes: number; pieces: number; valueCny: number; lastTs: string; items: PersonItem[] }
 async function personOutput(
   window: { from: string; to: string },
-  stage?: Stage,
-): Promise<{ name: string; finishes: number; pieces: number; lastTs: string; items: PersonItem[] }[]> {
+  stage: Stage | undefined,
+  showMoney: boolean,
+): Promise<PersonRow[]> {
   const entries = await getPersonSplits()
-  const byName = new Map<string, { name: string; finishes: number; pieces: number; lastTs: string; items: PersonItem[] }>()
-  for (const e of entries) {
-    // 喷漆里的底漆、面漆是分开记的 —— 选「喷漆」时一起列出来。
-    const st = e.stage === '底漆' || e.stage === '面漆' ? '喷漆' : e.stage
-    if (stage && st !== stage) continue
+  // 每件多少钱 —— 底漆、面漆是喷漆里的小步, 价钱按喷漆那一道拿。
+  const eventStage = (st: string) => (st === '底漆' || st === '面漆' ? '喷漆' : st)
+  const inWindow = (at?: string) => !!at && at >= window.from && at < window.to
+  const shown = entries.filter(
+    (e) => (!stage || eventStage(e.stage) === stage) && e.shares.some((sh) => inWindow(sh.at)),
+  )
+  const per = showMoney
+    ? await getPerPieceValues(shown.map((e) => ({ partId: e.partId, stage: eventStage(e.stage) })))
+    : new Map<string, number>()
+  const byName = new Map<string, PersonRow>()
+  // 喷漆里的底漆、面漆是分开记的 —— 选「喷漆」时一起列出来。
+  for (const e of shown) {
     for (const sh of e.shares) {
-      if (!sh.at || sh.at < window.from || sh.at >= window.to) continue
+      if (!sh.at || !inWindow(sh.at)) continue
       let p = byName.get(sh.name)
       if (!p) {
-        p = { name: sh.name, finishes: 0, pieces: 0, lastTs: sh.at, items: [] }
+        p = { name: sh.name, finishes: 0, pieces: 0, valueCny: 0, lastTs: sh.at, items: [] }
         byName.set(sh.name, p)
       }
       p.finishes += 1
       p.pieces = Math.round((p.pieces + sh.qty) * 100) / 100
+      const value = Math.round(sh.qty * (per.get(workSplitKey(e.partId, eventStage(e.stage))) ?? 0) * 100) / 100
+      p.valueCny = Math.round((p.valueCny + value) * 100) / 100
       if (sh.at > p.lastTs) p.lastTs = sh.at
       p.items.push({
         partId: e.partId,
@@ -231,6 +245,7 @@ async function personOutput(
         qty: sh.qty,
         partQty: e.part?.qty ?? 0,
         at: sh.at,
+        valueCny: value,
       })
     }
   }

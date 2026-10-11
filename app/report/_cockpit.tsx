@@ -49,7 +49,9 @@ type PersonOut = {
     qty: number
     partQty: number
     at: string
+    valueCny: number
   }[]
+  valueCny: number
 }
 type StuckPart = {
   partId: string
@@ -299,6 +301,8 @@ export function ReportClient({
       <PersonOutputList
         persons={worker ? persons.filter((p) => p.name === worker) : persons}
         stage={stage}
+        exportName={`${worker ?? stage ?? '全部'}_${from === to ? from : `${from}_${to}`}`}
+        showMoney={showMoney}
         canFix={canFix}
         onChanged={onChanged}
       />
@@ -491,11 +495,16 @@ function Drill({
 function PersonOutputList({
   persons,
   stage,
+  exportName,
+  showMoney,
   canFix,
   onChanged,
 }: {
   persons: PersonOut[]
   stage: Stage | null
+  /** 文件名里 周期 / 人 / 工段 那一截。 */
+  exportName: string
+  showMoney: boolean
   canFix: boolean
   onChanged: () => void
 }) {
@@ -507,6 +516,9 @@ function PersonOutputList({
       <div className="mb-3 flex items-baseline gap-2">
         <h2 className="text-[13px] font-medium tracking-tight text-[var(--color-ink-2)]">个人报工</h2>
         <span className="label text-[var(--color-ink-3)]">{stage ?? '操机 · 喷漆'} · 报工时选的人</span>
+        <span className="ml-auto">
+          <PersonExportButton persons={persons} showMoney={showMoney} name={exportName} />
+        </span>
       </div>
       <div className="rounded-[2px] border border-[var(--color-border)] overflow-hidden">
         <div className={`grid ${cols} gap-x-6 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2`}>
@@ -577,6 +589,70 @@ function PersonOutputList({
         </ul>
       </div>
     </section>
+  )
+}
+
+// 个人报工导出 —— 一张按人汇总、一张逐条明细。数据就是这张表手上的那份, 不
+// 再回去查。钱按这个人报的件数算 (看不到钱的账号不出这一列)。
+function PersonExportButton({
+  persons,
+  showMoney,
+  name,
+}: {
+  persons: PersonOut[]
+  showMoney: boolean
+  name: string
+}) {
+  const [busy, setBusy] = useState(false)
+  const onExport = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const XLSX = await import('xlsx')
+      const wb = XLSX.utils.book_new()
+      const money = (v: number) => (showMoney ? [Math.round(v * 100) / 100] : [])
+
+      const sHead = ['姓名', '报工次数', '件数', ...(showMoney ? ['经手金额（按5%）'] : [])]
+      const sBody = persons.map((p) => [p.name, p.finishes, p.pieces, ...money(p.valueCny)])
+      const sum = persons.reduce(
+        (a, p) => ({ f: a.f + p.finishes, q: a.q + p.pieces, v: a.v + p.valueCny }),
+        { f: 0, q: 0, v: 0 },
+      )
+      sBody.push([], ['合计', sum.f, Math.round(sum.q * 100) / 100, ...money(sum.v)])
+      const sWs = XLSX.utils.aoa_to_sheet([sHead, ...sBody])
+      sWs['!cols'] = sHead.map((h) => ({ wch: h === '姓名' ? 14 : 12 }))
+      XLSX.utils.book_append_sheet(wb, sWs, '个人汇总')
+
+      const dHead = ['姓名', '工段', '工号', '客户', '零件', '件数', '零件总数', '报工时间', ...(showMoney ? ['经手金额（按5%）'] : [])]
+      const dBody: (string | number)[][] = []
+      persons.forEach((p, pi) => {
+        if (pi > 0) dBody.push([])
+        for (const it of p.items) {
+          dBody.push([p.name, it.stage, it.jobNo, it.customer, it.partName, it.qty, it.partQty || '', fmtTs(it.at), ...money(it.valueCny)])
+        }
+      })
+      const dWs = XLSX.utils.aoa_to_sheet([dHead, ...dBody])
+      dWs['!cols'] = dHead.map((h) =>
+        h === '客户' || h === '零件' ? { wch: 22 } : h === '工号' ? { wch: 16 } : h === '报工时间' ? { wch: 14 } : { wch: 10 },
+      )
+      XLSX.utils.book_append_sheet(wb, dWs, '个人明细')
+
+      XLSX.writeFile(wb, `个人报工_${name}.xlsx`)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={onExport}
+      disabled={busy}
+      title="导出个人报工为 Excel"
+      className="inline-flex items-baseline gap-1.5 rounded-[2px] border border-[var(--color-border)] px-2.5 py-[5px] text-[10px] tracking-[0.14em] uppercase text-[var(--color-ink-2)] transition-colors hover:border-[var(--color-border-strong)] hover:text-[var(--color-ink)] disabled:cursor-default disabled:text-[var(--color-ink-4)]"
+    >
+      <span className="translate-y-[1px]"><DownloadIcon /></span>
+      <span>{busy ? '导出中…' : '导出'}</span>
+    </button>
   )
 }
 

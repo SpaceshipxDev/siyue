@@ -486,9 +486,22 @@ export async function getPendingShares(
   }
   if (picked.length === 0) return picked
 
-  // 单价 — 从这个零件已有的开始/完成记录上拿 (经手金额按零件算), 同一道工序
-  // 的优先。一个零件几道工序、每道两条, 所以一次少查几个零件, 不撞 1000 行。
-  const ids = [...new Set(picked.map((p) => p.partId))]
+  const priced = await partPriceRows(picked)
+  for (const p of picked) {
+    const row = priced.get(workSplitKey(p.partId, p.stage))
+    if (!row) continue
+    p.row = row
+    p.valueCny = (p.qty * Number(row.value_cny ?? 0)) / Number(row.part_qty)
+  }
+  return picked
+}
+
+// 单价 — 从这个零件已有的开始/完成记录上拿 (经手金额按零件算), 同一道工序
+// 的优先。一个零件几道工序、每道两条, 所以一次少查几个零件, 不撞 1000 行。
+// 键是 workSplitKey(partId, stage); 一条记录都没有的零件不在里面 (算不出钱)。
+async function partPriceRows(keys: { partId: string; stage: string }[]): Promise<Map<string, AnyRow>> {
+  const out = new Map<string, AnyRow>()
+  const ids = [...new Set(keys.map((k) => k.partId).filter(Boolean))]
   const rows: AnyRow[] = []
   for (let i = 0; i < ids.length; i += 30) {
     const r = await supabase
@@ -499,19 +512,27 @@ export async function getPendingShares(
       .in('part_id', ids.slice(i, i + 30))
       .order('ts', { ascending: false })
     if (r.error) {
-      if (isSchemaLagError(r.error)) return picked
+      if (isSchemaLagError(r.error)) return out
       throw r.error
     }
     rows.push(...((r.data ?? []) as AnyRow[]))
   }
-  for (const p of picked) {
-    const mine = rows.filter((x) => x.part_id === p.partId && Number(x.part_qty ?? 0) > 0)
-    const row = mine.find((x) => x.stage === p.stage) ?? mine[0]
-    if (!row) continue
-    p.row = row
-    p.valueCny = (p.qty * Number(row.value_cny ?? 0)) / Number(row.part_qty)
+  for (const k of keys) {
+    const mine = rows.filter((x) => x.part_id === k.partId && Number(x.part_qty ?? 0) > 0)
+    const row = mine.find((x) => x.stage === k.stage) ?? mine[0]
+    if (row) out.set(workSplitKey(k.partId, k.stage), row)
   }
-  return picked
+  return out
+}
+
+/** 每件多少钱 (经手金额) — 个人报工按件数算钱用。键是 workSplitKey(partId, stage)。 */
+export async function getPerPieceValues(
+  keys: { partId: string; stage: string }[],
+): Promise<Map<string, number>> {
+  const rows = await partPriceRows(keys)
+  const out = new Map<string, number>()
+  for (const [k, row] of rows) out.set(k, Number(row.value_cny ?? 0) / Number(row.part_qty))
+  return out
 }
 
 /** 每个人的在制 — 件数, 和按件数算的钱。 */
