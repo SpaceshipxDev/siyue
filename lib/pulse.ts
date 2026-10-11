@@ -4,6 +4,7 @@ import { STAGES } from './data'
 import { supabase } from './supabase'
 import { today, shanghaiWindow, shanghaiRangeWindow, shiftDate } from './today'
 import { getWorkSplits, workSplitKey, type WorkShare } from './work-split'
+import { applyFamilyValues, getFamilyJobIds } from './part-family'
 
 // Read shapes for the /pulse (现场) surface. Hits the views from
 // migration 0019_pulse_views.sql — nothing here computes; the SQL does.
@@ -239,6 +240,14 @@ export async function getWorkerOutput(
     })
   }
 
+  // 拆件 · 加刀 —— 零件下面 1.1 那几行, 金额按原零件重新分 (lib/part-family)。
+  // worker_output 是库里汇总好的, 这里把差额补到按 ✓ 的人头上。
+  const famDeltas = await getFamilyDeltas(window, stage)
+  for (const r0 of out) {
+    const d = famDeltas.get(r0.actorName)
+    if (d) r0.valueCny = Math.max(0, Math.round((r0.valueCny + d) * 100) / 100)
+  }
+
   // 分工 — 两个人做的那几道工序, 按报工数量摊回各自头上 (见上面那一段)。
   // 没有分工记录时 getSplitDeltas 直接返回空, 这一段等于不存在。
   const deltas = await getSplitDeltas(window, stage)
@@ -308,6 +317,47 @@ export async function getWorkerOutput(
   )
 }
 
+/** 拆件 · 加刀改了金额的那几条完成 —— 每个按 ✓ 的人该加减多少。 */
+async function getFamilyDeltas(
+  window: { from: string; to: string },
+  stage?: Stage,
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>()
+  const jobIds = [...(await getFamilyJobIds())]
+  if (jobIds.length === 0) return out
+  const rows: AnyRow[] = []
+  // 一个月几十张单、每张几百条 —— 一次少查几张, 再分页, 不撞 1000 行的顶。
+  for (let i = 0; i < jobIds.length; i += 20) {
+    const chunk = jobIds.slice(i, i + 20)
+    for (let offset = 0; offset < 20000; offset += 1000) {
+      let q = supabase
+        .from('worker_stage_events')
+        .select('job_id, part_id, stage, actor_name, value_cny')
+        .eq('kind', 'finished')
+        .gte('ts', window.from)
+        .lt('ts', window.to)
+        .in('job_id', chunk)
+        .order('ts', { ascending: true })
+        .range(offset, offset + 999)
+      if (stage) q = q.eq('stage', stage)
+      const r = await q
+      if (r.error) {
+        if (isSchemaLagError(r.error)) return out
+        throw r.error
+      }
+      const batch = (r.data ?? []) as AnyRow[]
+      rows.push(...batch)
+      if (batch.length < 1000) break
+    }
+  }
+  const before = await applyFamilyValues(rows)
+  for (const [row, old] of before) {
+    const actor = ((row.actor_name as string | null) ?? '—') || '—'
+    out.set(actor, (out.get(actor) ?? 0) + Number(row.value_cny ?? 0) - old)
+  }
+  return out
+}
+
 // ── 报工分工 (lib/work-split) ────────────────────────────────────────────
 //
 // 一道工序两个人做, 系统只认按 ✓ 的那一个 —— 件数和金额全记在他头上。分工记
@@ -352,7 +402,7 @@ async function splitEventsInWindow(
   const rows = await fetchInChunks(partIds, async (chunk) => {
     let q = supabase
       .from('worker_stage_events')
-      .select('part_id, stage, actor_name, part_qty, value_cny')
+      .select('job_id, part_id, stage, actor_name, part_qty, value_cny')
       .eq('kind', 'finished')
       .gte('ts', window.from)
       .lt('ts', window.to)
@@ -365,6 +415,7 @@ async function splitEventsInWindow(
     }
     return (r.data ?? []) as AnyRow[]
   })
+  await applyFamilyValues(rows)
   const out: SplitEvent[] = []
   for (const e of rows) {
     const partId = e.part_id as string
@@ -520,8 +571,10 @@ async function partPriceRows(keys: { partId: string; stage: string }[]): Promise
   for (const k of keys) {
     const mine = rows.filter((x) => x.part_id === k.partId && Number(x.part_qty ?? 0) > 0)
     const row = mine.find((x) => x.stage === k.stage) ?? mine[0]
-    if (row) out.set(workSplitKey(k.partId, k.stage), row)
+    // 拷一份, 记成要的那一道 —— 拆件 · 加刀的金额是按道算的。
+    if (row) out.set(workSplitKey(k.partId, k.stage), { ...row, stage: k.stage })
   }
+  await applyFamilyValues([...out.values()])
   return out
 }
 
@@ -602,6 +655,7 @@ export async function getWorkerTimeline(opts: {
     partId: (row.part_id as string | null) ?? undefined,
   })
   const raw = (r.data ?? []) as AnyRow[]
+  await applyFamilyValues(raw)
   const out: WorkerStageEvent[] = raw.map(toEvent)
 
   // 分工 — 明细要跟统计说同一句话。两个人做的那道工序: 这个人的那一条按他
@@ -662,6 +716,7 @@ export async function getWorkerTimeline(opts: {
     }
     return (rr.data ?? []) as AnyRow[]
   })
+  await applyFamilyValues(extraRows)
   for (const row of extraRows) {
     const ev = toEvent(row)
     const shares = sharesOf((row.part_id as string | null) ?? undefined, ev.stage)
@@ -1174,6 +1229,9 @@ export async function getStationDetailByOrder(
       rows.push(...extra)
     }
   }
+
+  // 拆件 · 加刀 —— 按原零件的经手金额重新分 (lib/part-family)。
+  await applyFamilyValues(rows)
 
   // 一条原始事件 → 一到多条报表行 (谁 · 几件 · 多少钱)。
   type Line = { e: AnyRow; actor: string; qty: number; valueCny: number; ts?: string; stage?: Stage; pending?: boolean }
