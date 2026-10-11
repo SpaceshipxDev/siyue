@@ -199,6 +199,8 @@ export type WorkerStageEvent = {
   partId?: string
   /** 别人名下那一条里分给这个人的一份 —— 改错要去原来那个人名下改。 */
   shared?: boolean
+  /** 在制 — 报了几件, 这道工序还没做完。 */
+  pending?: boolean
 }
 
 // Daily/weekly/monthly scoreboard: one row per worker, sorted by output.
@@ -271,14 +273,18 @@ export async function getWorkerOutput(
     out = out.filter((r0) => r0.finishes > 0 || r0.pieces > 0 || r0.starts > 0)
   }
 
-  // 在制 — 报了几件但工序还没做完的。单列一栏, 不混进完成的件数里。
+  // 在制 — 报了几件但工序还没做完的。件数单列一栏, 不混进完成的件数里; 钱
+  // 报了就算, 进经手金额。
   const pending = await getPendingPieces(window, stage)
   if (pending.size > 0) {
     const byName = new Map(out.map((r0) => [r0.actorName, r0]))
-    for (const [name, qty] of pending) {
+    for (const [name, pd] of pending) {
+      const qty = pd.pieces
+      const value = Math.round(pd.valueCny * 100) / 100
       const row = byName.get(name)
       if (row) {
         row.pendingPieces = qty
+        row.valueCny = Math.round((row.valueCny + value) * 100) / 100
         continue
       }
       // 这段时间只报了在制、一道工序都没做完的人 —— 原来的统计里没有他。
@@ -287,7 +293,7 @@ export async function getWorkerOutput(
         finishes: 0,
         starts: 0,
         pieces: 0,
-        valueCny: 0,
+        valueCny: value,
         unpriced: 0,
         pendingPieces: qty,
       })
@@ -384,19 +390,26 @@ async function splitEventsInWindow(
  * 两个班组做同一个零件: 先做的那个班报了几件, 后做的那个班按 ✓ 收尾。报了数
  * 的按自己的件数算; 剩下没人认领的那几件是按 ✓ 的那个班做的。金额按件数比例
  * 分。认领的件数超过零件总数时按认领的算 (有人多报了)。
+ *
+ * window: 报了就算 —— 不在这段时间里报的那几件, 已经在报的那天算进「在制」了
+ * (getPendingShares), 这里只占着件数 (剩下的照样算按 ✓ 的), 不再给。
  */
 export function splitLines(
   actor: string,
   partQty: number,
   valueCny: number,
   shares: WorkShare[],
+  window?: { from: string; to: string },
 ): { name: string; qty: number; valueCny: number }[] {
   const claimed = shares.reduce((s, sh) => s + sh.qty, 0)
   const total = Math.max(partQty, claimed)
   const per = total > 0 ? valueCny / total : 0
   const remainder = Math.max(0, partQty - claimed)
   const qty = new Map<string, number>()
-  for (const sh of shares) qty.set(sh.name, (qty.get(sh.name) ?? 0) + sh.qty)
+  for (const sh of shares) {
+    if (window && sh.at && (sh.at < window.from || sh.at >= window.to)) continue
+    qty.set(sh.name, (qty.get(sh.name) ?? 0) + sh.qty)
+  }
   if (remainder > 0) qty.set(actor, (qty.get(actor) ?? 0) + remainder)
   return [...qty].map(([name, q]) => ({ name, qty: q, valueCny: q * per }))
 }
@@ -417,7 +430,7 @@ async function getSplitDeltas(
       pieces: -e.partQty,
       valueCny: -e.valueCny,
     })
-    for (const l of splitLines(e.actorName, e.partQty, e.valueCny, e.shares)) {
+    for (const l of splitLines(e.actorName, e.partQty, e.valueCny, e.shares, window)) {
       bumpDelta(deltas, l.name, { finishes: 1, pieces: l.qty, valueCny: l.valueCny })
     }
   }
@@ -431,30 +444,87 @@ async function getSplitDeltas(
  * 本来一个字都看不到 —— 要等另一个班把剩下的做完按下 ✓, 而那时整条又记在那
  * 个班头上。两个班做同一个产品, 前一个班就这么消失了。
  *
- * 所以在完成之外单列一栏: 这段时间里报了、但还没随工序结算的件数。工序一做
- * 完, 这几件就从"在制"挪到"完成"那一栏去 —— 两栏各算各的, 不会重复。
+ * 所以报了就算: 件数单列在「在制」里, 钱按件数当场算进经手金额, 落在报的那一
+ * 天。工序在同一段时间里做完, 这几件就挪到「完成」那一栏; 做完落在以后, 这几
+ * 件已经在报的那天算过了, 完成那天不再算 (splitLines 的 window)。每件只算一次。
  */
-export async function getPendingPieces(
+export type PendingShare = {
+  name: string
+  qty: number
+  valueCny: number
+  at: string
+  partId: string
+  stage: Stage
+  /** 这个零件的一条开始/完成记录 — 零件信息和单价从它上面拿; 没有就算不出钱。 */
+  row?: AnyRow
+}
+
+export async function getPendingShares(
   window: { from: string; to: string },
   stage?: Stage,
-): Promise<Map<string, number>> {
-  const out = new Map<string, number>()
+  actorName?: string,
+): Promise<PendingShare[]> {
   const splits = await getWorkSplits()
-  if (Object.keys(splits).length === 0) return out
+  if (Object.keys(splits).length === 0) return []
   // 这个窗口里已经结算掉的那几条 —— 它们的件数算在"完成"里, 不再算在制。
   const settled = new Set(
     (await splitEventsInWindow(splits, window, stage)).map((e) =>
       workSplitKey(e.partId, e.stage),
     ),
   )
+  const picked: PendingShare[] = []
   for (const [key, shares] of Object.entries(splits)) {
     if (settled.has(key)) continue
-    if (stage && key.split('::')[1] !== stage) continue
+    const [partId, st] = key.split('::') as [string, Stage]
+    if (stage && st !== stage) continue
     for (const sh of shares) {
+      if (actorName && sh.name !== actorName) continue
       // 没有时间的是早期手写的分工 — 算不出落在哪一天, 不进在制。
       if (!sh.at || sh.at < window.from || sh.at >= window.to) continue
-      out.set(sh.name, Math.round(((out.get(sh.name) ?? 0) + sh.qty) * 100) / 100)
+      picked.push({ name: sh.name, qty: sh.qty, valueCny: 0, at: sh.at, partId, stage: st })
     }
+  }
+  if (picked.length === 0) return picked
+
+  // 单价 — 从这个零件已有的开始/完成记录上拿 (经手金额按零件算), 同一道工序
+  // 的优先。一个零件几道工序、每道两条, 所以一次少查几个零件, 不撞 1000 行。
+  const ids = [...new Set(picked.map((p) => p.partId))]
+  const rows: AnyRow[] = []
+  for (let i = 0; i < ids.length; i += 30) {
+    const r = await supabase
+      .from('worker_stage_events')
+      .select(
+        'ts, kind, stage, part_id, part_name, part_no, part_qty, value_cny, is_unpriced, is_allocated, job_id, job_no, customer, material, surface_treatment, image_url',
+      )
+      .in('part_id', ids.slice(i, i + 30))
+      .order('ts', { ascending: false })
+    if (r.error) {
+      if (isSchemaLagError(r.error)) return picked
+      throw r.error
+    }
+    rows.push(...((r.data ?? []) as AnyRow[]))
+  }
+  for (const p of picked) {
+    const mine = rows.filter((x) => x.part_id === p.partId && Number(x.part_qty ?? 0) > 0)
+    const row = mine.find((x) => x.stage === p.stage) ?? mine[0]
+    if (!row) continue
+    p.row = row
+    p.valueCny = (p.qty * Number(row.value_cny ?? 0)) / Number(row.part_qty)
+  }
+  return picked
+}
+
+/** 每个人的在制 — 件数, 和按件数算的钱。 */
+export async function getPendingPieces(
+  window: { from: string; to: string },
+  stage?: Stage,
+): Promise<Map<string, { pieces: number; valueCny: number }>> {
+  const out = new Map<string, { pieces: number; valueCny: number }>()
+  for (const p of await getPendingShares(window, stage)) {
+    const cur = out.get(p.name) ?? { pieces: 0, valueCny: 0 }
+    cur.pieces = Math.round((cur.pieces + p.qty) * 100) / 100
+    cur.valueCny += p.valueCny
+    out.set(p.name, cur)
   }
   return out
 }
@@ -523,7 +593,7 @@ export async function getWorkerTimeline(opts: {
     partId ? splits[workSplitKey(partId, stage)] : undefined
   // 这个人在一条被分工的完成里那一份 (件数 + 按件数分的钱); 没他的份 = undefined。
   const mineOf = (ev: WorkerStageEvent, actor: string, shares: WorkShare[]) =>
-    splitLines(actor, ev.partQty, ev.valueCny, shares).find((l) => l.name === opts.actorName)
+    splitLines(actor, ev.partQty, ev.valueCny, shares, opts).find((l) => l.name === opts.actorName)
 
   const mine: WorkerStageEvent[] = []
   for (const [i, ev] of out.entries()) {
@@ -550,7 +620,7 @@ export async function getWorkerTimeline(opts: {
         .map(([k]) => k.split('::')[0]),
     ),
   ]
-  if (otherPartIds.length === 0 || opts.kind === 'started') return mine
+  if (opts.kind === 'started') return mine
 
   const extraRows = await fetchInChunks(otherPartIds, async (chunk) => {
     let q2 = supabase
@@ -582,6 +652,20 @@ export async function getWorkerTimeline(opts: {
       shared: true,
       partQty: Math.round(own.qty * 100) / 100,
       valueCny: Math.round(own.valueCny * 100) / 100,
+    })
+  }
+
+  // 报了、工序还没做完的那几件 —— 报了就算, 明细跟统计对得上。
+  for (const p of await getPendingShares(opts, opts.stage, opts.actorName)) {
+    if (!p.row) continue
+    mine.push({
+      ...toEvent(p.row),
+      ts: p.at,
+      stage: p.stage,
+      shared: true,
+      pending: true,
+      partQty: p.qty,
+      valueCny: Math.round(p.valueCny * 100) / 100,
     })
   }
   return mine
@@ -978,6 +1062,8 @@ export type OrderComponent = {
   /** 摊分 (0087) — no 单价 on this part, so its value is the order total split
    *  across the job's parts. An estimate, and the 导出 says so per row. */
   allocated: boolean
+  /** 在制 — 报了几件, 这道工序还没做完 (报了就算钱)。 */
+  pending?: boolean
 }
 export type OrderDetail = {
   jobId: string
@@ -1069,7 +1155,7 @@ export async function getStationDetailByOrder(
   }
 
   // 一条原始事件 → 一到多条报表行 (谁 · 几件 · 多少钱)。
-  type Line = { e: AnyRow; actor: string; qty: number; valueCny: number }
+  type Line = { e: AnyRow; actor: string; qty: number; valueCny: number; ts?: string; stage?: Stage; pending?: boolean }
   const lines: Line[] = []
   for (const e of rows) {
     const own = ((e.actor_name as string | null) ?? '—') || '—'
@@ -1084,7 +1170,7 @@ export async function getStationDetailByOrder(
       })
       continue
     }
-    for (const l of splitLines(own, Number(e.part_qty ?? 0), Number(e.value_cny ?? 0), shares)) {
+    for (const l of splitLines(own, Number(e.part_qty ?? 0), Number(e.value_cny ?? 0), shares, window)) {
       if (actorName && l.name !== actorName) continue
       lines.push({
         e,
@@ -1093,6 +1179,19 @@ export async function getStationDetailByOrder(
         valueCny: Math.round(l.valueCny * 100) / 100,
       })
     }
+  }
+  // 报了、工序还没做完的那几件 —— 报了就算, 报表跟统计对得上。
+  for (const p of await getPendingShares(window, stage, actorName)) {
+    if (!p.row) continue
+    lines.push({
+      e: p.row,
+      actor: p.name,
+      qty: p.qty,
+      valueCny: Math.round(p.valueCny * 100) / 100,
+      ts: p.at,
+      stage: p.stage,
+      pending: true,
+    })
   }
 
   const map = new Map<string, OrderDetail>()
@@ -1115,12 +1214,13 @@ export async function getStationDetailByOrder(
     }
     const qty = line.qty
     const val = line.valueCny
-    o.finishes += 1
+    if (!line.pending) o.finishes += 1
     o.pieces += qty
     o.valueCny += val
     o.components.push({
-      ts: e.ts as string,
-      stage: e.stage as Stage,
+      ts: line.ts ?? (e.ts as string),
+      stage: line.stage ?? (e.stage as Stage),
+      pending: line.pending,
       actorName: line.actor,
       partName: (e.part_name as string | null) ?? '部件',
       partNo: (e.part_no as string | null) ?? undefined,

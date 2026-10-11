@@ -141,6 +141,7 @@ export async function GET(request: Request): Promise<Response> {
             imageUrl?: string
             partId?: string
             shared?: boolean
+            pending?: boolean
           }[]
         }
       >()
@@ -150,7 +151,7 @@ export async function GET(request: Request): Promise<Response> {
           j = { jobId: e.jobId, jobNo: e.jobNo, customer: e.customer, finishes: 0, pieces: 0, valueCny: 0, components: [] }
           jobMap.set(e.jobId, j)
         }
-        j.finishes += 1
+        if (!e.pending) j.finishes += 1
         j.pieces += e.partQty
         j.valueCny += showMoney ? e.valueCny : 0
         j.components.push({
@@ -163,6 +164,7 @@ export async function GET(request: Request): Promise<Response> {
           imageUrl: e.imageUrl,
           partId: e.partId,
           shared: e.shared,
+          pending: e.pending,
         })
       }
       const jobs = [...jobMap.values()].sort((a, b) => b.finishes - a.finishes)

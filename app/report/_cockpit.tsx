@@ -73,6 +73,7 @@ type DrillComponent = {
   imageUrl?: string
   partId?: string
   shared?: boolean
+  pending?: boolean
 }
 type DrillJob = {
   jobId: string
@@ -453,7 +454,11 @@ function Drill({
                 {j.components.map((c, i) => (
                   <li key={`${c.partName}-${c.ts}-${i}`} className="group/fix flex items-center gap-2.5 text-[12.5px] text-[var(--color-ink-2)]">
                     <Thumb src={c.imageUrl} size={20} />
-                    <span className="text-[var(--color-success)]">完成{c.stage}</span>
+                    {c.pending ? (
+                      <span className="text-[var(--color-warning)]">在制{c.stage}</span>
+                    ) : (
+                      <span className="text-[var(--color-success)]">完成{c.stage}</span>
+                    )}
                     <span className="text-[var(--color-ink)]">{c.partName}</span>
                     <span className="tabular-nums text-[var(--color-ink-3)]">×{c.qty}</span>
                     <span className="ml-auto tabular-nums text-[var(--color-ink-4)]">{fmtTs(c.ts)}</span>
@@ -833,6 +838,7 @@ type ExportOrder = {
     valueCny: number
     unpriced: boolean
     allocated: boolean
+    pending?: boolean
   }[]
 }
 
@@ -894,10 +900,10 @@ function ExportButton({
           const alloc = c.allocated ? c.valueCny : 0
           let s = byStage.get(c.stage)
           if (!s) { s = { finishes: 0, pieces: 0, jobs: new Set(), workers: new Set(), valueCny: 0, allocCny: 0 }; byStage.set(c.stage, s) }
-          s.finishes += 1; s.pieces += c.qty; s.jobs.add(o.jobId); s.workers.add(c.actorName); s.valueCny += c.valueCny; s.allocCny += alloc
+          s.finishes += c.pending ? 0 : 1; s.pieces += c.qty; s.jobs.add(o.jobId); s.workers.add(c.actorName); s.valueCny += c.valueCny; s.allocCny += alloc
           let w = byWorker.get(c.actorName)
           if (!w) { w = { finishes: 0, pieces: 0, valueCny: 0, allocCny: 0 }; byWorker.set(c.actorName, w) }
-          w.finishes += 1; w.pieces += c.qty; w.valueCny += c.valueCny; w.allocCny += alloc
+          w.finishes += c.pending ? 0 : 1; w.pieces += c.qty; w.valueCny += c.valueCny; w.allocCny += alloc
         }
       }
 
@@ -1002,7 +1008,7 @@ function ExportButton({
             c.partName,
             c.partNo ?? '',
             c.qty,
-            c.stage,
+            c.pending ? `${c.stage}（在制）` : c.stage,
             c.actorName,
             fmtTs(c.ts),
             // Always a number — the old '未定价' string sat in the money column
