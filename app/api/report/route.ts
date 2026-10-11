@@ -232,7 +232,9 @@ async function personOutput(
       }
       p.finishes += 1
       p.pieces = Math.round((p.pieces + sh.qty) * 100) / 100
-      const value = Math.round(sh.qty * (per.get(workSplitKey(e.partId, eventStage(e.stage))) ?? 0) * 100) / 100
+      // 底漆、面漆是喷漆那一道 (5%) 的两半 —— 平分, 各拿一半, 合起来还是一道。
+      const share = e.stage === '底漆' || e.stage === '面漆' ? 0.5 : 1
+      const value = Math.round(sh.qty * (per.get(workSplitKey(e.partId, eventStage(e.stage))) ?? 0) * share * 100) / 100
       p.valueCny = Math.round((p.valueCny + value) * 100) / 100
       if (sh.at > p.lastTs) p.lastTs = sh.at
       p.items.push({
