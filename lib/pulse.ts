@@ -377,6 +377,30 @@ async function splitEventsInWindow(
   return out
 }
 
+/*
+ * 一条被分工的完成事件 → 每个人几件、多少钱。统计、明细、导出都走这一个, 三
+ * 处说同一句话。
+ *
+ * 两个班组做同一个零件: 先做的那个班报了几件, 后做的那个班按 ✓ 收尾。报了数
+ * 的按自己的件数算; 剩下没人认领的那几件是按 ✓ 的那个班做的。金额按件数比例
+ * 分。认领的件数超过零件总数时按认领的算 (有人多报了)。
+ */
+export function splitLines(
+  actor: string,
+  partQty: number,
+  valueCny: number,
+  shares: WorkShare[],
+): { name: string; qty: number; valueCny: number }[] {
+  const claimed = shares.reduce((s, sh) => s + sh.qty, 0)
+  const total = Math.max(partQty, claimed)
+  const per = total > 0 ? valueCny / total : 0
+  const remainder = Math.max(0, partQty - claimed)
+  const qty = new Map<string, number>()
+  for (const sh of shares) qty.set(sh.name, (qty.get(sh.name) ?? 0) + sh.qty)
+  if (remainder > 0) qty.set(actor, (qty.get(actor) ?? 0) + remainder)
+  return [...qty].map(([name, q]) => ({ name, qty: q, valueCny: q * per }))
+}
+
 /** 每个人该加 / 该减多少 — 叠在 worker_output 的结果上。 */
 async function getSplitDeltas(
   window: { from: string; to: string },
@@ -387,32 +411,14 @@ async function getSplitDeltas(
   if (Object.keys(splits).length === 0) return deltas
   const events = await splitEventsInWindow(splits, window, stage)
   for (const e of events) {
-    const claimed = e.shares.reduce((s, sh) => s + sh.qty, 0)
-    if (claimed <= 0) continue
-    // 认领的件数超过零件总数时按认领的算 (有人多报了), 否则按总数算 —— 剩下
-    // 没人认领的那几件是按 ✓ 的那个人做的。
-    const total = Math.max(e.partQty, claimed)
-    const per = total > 0 ? e.valueCny / total : 0
-    const remainder = Math.max(0, e.partQty - claimed)
-    // 记录在案的那个人先退掉整条, 再按他自己那一份进来。
+    // 记录在案的那个人先退掉整条, 再按各人的件数进来 (他自己的那一份也在里面)。
     bumpDelta(deltas, e.actorName, {
       finishes: -1,
       pieces: -e.partQty,
       valueCny: -e.valueCny,
     })
-    if (remainder > 0) {
-      bumpDelta(deltas, e.actorName, {
-        finishes: 1,
-        pieces: remainder,
-        valueCny: remainder * per,
-      })
-    }
-    for (const sh of e.shares) {
-      bumpDelta(deltas, sh.name, {
-        finishes: 1,
-        pieces: sh.qty,
-        valueCny: sh.qty * per,
-      })
+    for (const l of splitLines(e.actorName, e.partQty, e.valueCny, e.shares)) {
+      bumpDelta(deltas, l.name, { finishes: 1, pieces: l.qty, valueCny: l.valueCny })
     }
   }
   return deltas
@@ -513,29 +519,26 @@ export async function getWorkerTimeline(opts: {
   const splits = await getWorkSplits()
   if (Object.keys(splits).length === 0) return out
 
-  const shareOf = (partId: string | undefined, stage: Stage) => {
-    if (!partId) return undefined
-    const shares = splits[workSplitKey(partId, stage)]
-    if (!shares || shares.length === 0) return undefined
-    const total = shares.reduce((s, sh) => s + sh.qty, 0)
-    if (total <= 0) return undefined
-    return { shares, total }
-  }
+  const sharesOf = (partId: string | undefined, stage: Stage) =>
+    partId ? splits[workSplitKey(partId, stage)] : undefined
+  // 这个人在一条被分工的完成里那一份 (件数 + 按件数分的钱); 没他的份 = undefined。
+  const mineOf = (ev: WorkerStageEvent, actor: string, shares: WorkShare[]) =>
+    splitLines(actor, ev.partQty, ev.valueCny, shares).find((l) => l.name === opts.actorName)
 
   const mine: WorkerStageEvent[] = []
   for (const [i, ev] of out.entries()) {
     const partId = (raw[i].part_id as string | null) ?? undefined
-    const sp = ev.kind === 'finished' ? shareOf(partId, ev.stage) : undefined
-    if (!sp) {
+    const shares = ev.kind === 'finished' ? sharesOf(partId, ev.stage) : undefined
+    if (!shares || shares.length === 0) {
       mine.push(ev)
       continue
     }
-    const own = sp.shares.find((x) => x.name === opts.actorName)
+    const own = mineOf(ev, opts.actorName, shares)
     if (!own) continue // 这条整条给了别人
     mine.push({
       ...ev,
-      partQty: own.qty,
-      valueCny: Math.round(((ev.valueCny * own.qty) / sp.total) * 100) / 100,
+      partQty: Math.round(own.qty * 100) / 100,
+      valueCny: Math.round(own.valueCny * 100) / 100,
     })
   }
 
@@ -570,15 +573,15 @@ export async function getWorkerTimeline(opts: {
   })
   for (const row of extraRows) {
     const ev = toEvent(row)
-    const sp = shareOf((row.part_id as string | null) ?? undefined, ev.stage)
-    if (!sp) continue
-    const own = sp.shares.find((x) => x.name === opts.actorName)
+    const shares = sharesOf((row.part_id as string | null) ?? undefined, ev.stage)
+    if (!shares || shares.length === 0) continue
+    const own = mineOf(ev, ((row.actor_name as string | null) ?? '—') || '—', shares)
     if (!own) continue
     mine.push({
       ...ev,
       shared: true,
-      partQty: own.qty,
-      valueCny: Math.round(((ev.valueCny * own.qty) / sp.total) * 100) / 100,
+      partQty: Math.round(own.qty * 100) / 100,
+      valueCny: Math.round(own.valueCny * 100) / 100,
     })
   }
   return mine
@@ -1026,14 +1029,11 @@ export async function getStationDetailByOrder(
   // 分工 — 报表要跟统计说同一句话: 两个人做的那道工序拆成两行, 各自的件数和
   // 按件数分下来的金额。没有分工记录时这一段等于不存在。
   const splits = await getWorkSplits()
-  const shareOf = (e: AnyRow) => {
+  const sharesOf = (e: AnyRow) => {
     const partId = (e.part_id as string | null) ?? undefined
     if (!partId) return undefined
     const shares = splits[workSplitKey(partId, e.stage as Stage)]
-    if (!shares || shares.length === 0) return undefined
-    const total = shares.reduce((s, sh) => s + sh.qty, 0)
-    if (total <= 0) return undefined
-    return { shares, total }
+    return shares && shares.length > 0 ? shares : undefined
   }
   if (Object.keys(splits).length > 0 && actorName) {
     // 一个人的报表: 记在别人名下、但分给了他的那几条也要进来。
@@ -1073,8 +1073,8 @@ export async function getStationDetailByOrder(
   const lines: Line[] = []
   for (const e of rows) {
     const own = ((e.actor_name as string | null) ?? '—') || '—'
-    const sp = shareOf(e)
-    if (!sp) {
+    const shares = sharesOf(e)
+    if (!shares) {
       if (actorName && own !== actorName) continue
       lines.push({
         e,
@@ -1084,14 +1084,13 @@ export async function getStationDetailByOrder(
       })
       continue
     }
-    const value = Number(e.value_cny ?? 0)
-    for (const sh of sp.shares) {
-      if (actorName && sh.name !== actorName) continue
+    for (const l of splitLines(own, Number(e.part_qty ?? 0), Number(e.value_cny ?? 0), shares)) {
+      if (actorName && l.name !== actorName) continue
       lines.push({
         e,
-        actor: sh.name,
-        qty: sh.qty,
-        valueCny: Math.round(((value * sh.qty) / sp.total) * 100) / 100,
+        actor: l.name,
+        qty: Math.round(l.qty * 100) / 100,
+        valueCny: Math.round(l.valueCny * 100) / 100,
       })
     }
   }
