@@ -4,6 +4,7 @@ import { requireQualityEditor } from '@/lib/auth'
 import { getDefectRows } from '@/lib/db'
 import { getComplaints } from '@/lib/complaints'
 import { getProcessDefects } from '@/lib/process-defects'
+import { getScrapRecords } from '@/lib/scrap'
 import { getDefectActions } from '@/lib/defect-actions'
 import { getImprovements } from '@/lib/improvements'
 import { getIncomingDefects, getInspectionLinks } from '@/lib/incoming-defects'
@@ -48,6 +49,19 @@ const PROCESS_HEADERS = [
   '记录人',
 ]
 const PROCESS_WIDTHS = [12, 16, 10, 28, 24, 12, 12, 34, 12]
+
+const SCRAP_HEADERS = [
+  '日期',
+  '工单号',
+  '报废数量',
+  '报废原因',
+  '来源',
+  '责任部门',
+  '责任人',
+  '纠正预防措施',
+  '填写人员',
+]
+const SCRAP_WIDTHS = [12, 16, 10, 28, 10, 12, 12, 34, 12]
 
 const COMPLAINT_HEADERS = [
   '日期',
@@ -115,6 +129,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   const view = sp.get('v')
   const complaints = view === 'complaint'
   const process = view === 'process'
+  const scrap = view === 'scrap'
   const improve = view === 'improve'
   const incoming = view === 'incoming'
   const change = view === 'change'
@@ -230,6 +245,31 @@ export async function GET(request: NextRequest): Promise<Response> {
     sheetName = '改善建议'
     base = `改善建议_${month}`
     file = `improvements_${month}.xlsx`
+  } else if (scrap) {
+    const rows = (await getScrapRecords())
+      .filter((r) => r.date.slice(0, 7) === month)
+      .filter((r) =>
+        !q
+          ? true
+          : [r.jobNo, r.reason, r.source, r.dept, r.owner, r.action, r.by]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase()
+              .includes(q),
+      )
+    aoa.push(SCRAP_HEADERS.slice())
+    for (const r of rows) {
+      aoa.push([r.date, r.jobNo, r.qty, r.reason, r.source, r.dept, r.owner, r.action, r.by ?? ''])
+    }
+    // 合计 — 这个月一共报废多少件。
+    const total: (string | number)[] = SCRAP_HEADERS.map(() => '')
+    total[0] = '合计'
+    total[SCRAP_HEADERS.indexOf('报废数量')] = rows.reduce((s, r) => s + r.qty, 0)
+    aoa.push(total)
+    widths = SCRAP_WIDTHS
+    sheetName = '报废登记'
+    base = `报废登记_${month}`
+    file = `scrap_${month}.xlsx`
   } else if (process) {
     const rows = (await getProcessDefects())
       .filter((r) => r.date.slice(0, 7) === month)

@@ -10,6 +10,8 @@ import {
 import { getDefectRows, getPartPhotosFor } from '@/lib/db'
 import { getComplaints } from '@/lib/complaints'
 import { getProcessDefects } from '@/lib/process-defects'
+import { getScrapRecords } from '@/lib/scrap'
+import { getQualityFiles } from '@/lib/quality-files'
 import { getDefectActions } from '@/lib/defect-actions'
 import { getImprovements } from '@/lib/improvements'
 import { getIncomingDefects, getInspectionLinks } from '@/lib/incoming-defects'
@@ -18,6 +20,8 @@ import { today } from '@/lib/today'
 import { DefectsBoard } from './_defects'
 import { ComplaintsBoard } from './_complaints'
 import { ProcessBoard } from './_process'
+import { ScrapBoard } from './_scrap'
+import { FilesBoard } from './_files'
 import { ImprovementsBoard } from './_improvements'
 import { IncomingBoard } from './_incoming'
 import { ChangesBoard } from './_changes'
@@ -64,7 +68,11 @@ export default async function QualityPage({
       ? 'complaint'
       : sp?.v === 'process'
         ? 'process'
-        : sp?.v === 'incoming'
+        : sp?.v === 'scrap'
+          ? 'scrap'
+          : sp?.v === 'files'
+            ? 'files'
+            : sp?.v === 'incoming'
           ? 'incoming'
           : sp?.v === 'change'
             ? 'change'
@@ -83,6 +91,8 @@ export default async function QualityPage({
     incoming,
     changes,
     links,
+    scraps,
+    files,
   ] = await Promise.all([
       view === 'defects' ? getDefectRows() : Promise.resolve([]),
       view === 'defects'
@@ -95,6 +105,8 @@ export default async function QualityPage({
       view === 'change' ? getChangeRecords() : Promise.resolve([]),
       // 检验判不良时选了「外协」的那几条 —— 它们在来料异常里, 不算厂里自己的。
       view === 'defects' ? getInspectionLinks() : Promise.resolve(new Set<string>()),
+      view === 'scrap' ? getScrapRecords() : Promise.resolve([]),
+      view === 'files' ? getQualityFiles() : Promise.resolve([]),
     ])
 
   // 质量异常只留厂里自己做坏的: 外协做坏的已经转到来料异常, 不在这里重复记。
@@ -127,6 +139,7 @@ export default async function QualityPage({
       hrDeptOf(user),
       ...improvements.map((r) => r.dept),
       ...changes.map((r) => r.dept),
+      ...scraps.map((r) => r.dept),
     ]),
   ]
     .filter(Boolean)
@@ -141,7 +154,11 @@ export default async function QualityPage({
             ? '客诉异常'
             : view === 'process'
               ? '制程不良记录'
-              : view === 'incoming'
+              : view === 'scrap'
+                ? '报废登记'
+                : view === 'files'
+                  ? '文件管理'
+                  : view === 'incoming'
                 ? '来料异常登记'
                 : view === 'change'
                   ? '变更管理'
@@ -157,7 +174,7 @@ export default async function QualityPage({
         canSeeFinance={canSeeOrderLedger(user)}
       />
       <main className="mx-auto w-full max-w-[1240px] px-4 md:px-10 py-8 md:py-12 flex-1">
-        <div className="mb-7 flex items-baseline gap-x-6">
+        <div className="mb-7 flex flex-wrap items-baseline gap-x-6 gap-y-2">
           <ViewTab
             href="/quality"
             label="质量异常"
@@ -167,6 +184,11 @@ export default async function QualityPage({
             href="/quality?v=process"
             label="制程不良"
             active={view === 'process'}
+          />
+          <ViewTab
+            href="/quality?v=scrap"
+            label="报废登记"
+            active={view === 'scrap'}
           />
           <ViewTab
             href="/quality?v=incoming"
@@ -187,6 +209,11 @@ export default async function QualityPage({
             href="/quality?v=improve"
             label="改善建议"
             active={view === 'improve'}
+          />
+          <ViewTab
+            href="/quality?v=files"
+            label="文件管理"
+            active={view === 'files'}
           />
           <Link
             href="/?stage=质量"
@@ -227,6 +254,15 @@ export default async function QualityPage({
             photos={incomingPhotos}
             todayStr={todayStr}
             suppliers={incomingSuppliers}
+            canEdit={canEdit}
+          />
+        ) : view === 'files' ? (
+          <FilesBoard rows={files} todayStr={todayStr} canEdit={canEdit} />
+        ) : view === 'scrap' ? (
+          <ScrapBoard
+            rows={scraps}
+            todayStr={todayStr}
+            depts={depts}
             canEdit={canEdit}
           />
         ) : view === 'process' ? (

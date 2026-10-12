@@ -221,6 +221,12 @@ import {
   updateProcessDefect,
 } from '@/lib/process-defects'
 import {
+  addScrapRecord,
+  deleteScrapRecord,
+  updateScrapRecord,
+} from '@/lib/scrap'
+import { deleteQualityFile, updateQualityFile } from '@/lib/quality-files'
+import {
   isRateList,
   isScalarRateKey,
   setQuoteRateItem,
@@ -3728,6 +3734,90 @@ async function dispatch(
       const u = await requireUser()
       if (!canEditQuality(u)) return err('删记录要找工程或于海伟', 403)
       await deleteProcessDefect(defectId)
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    // 报废登记 — 跟制程不良同一档: 记一条、补空格谁都行, 改填过的和删是
+    // canEditQuality 那一档。填写人员是落笔那一刻的账号, 不从前端收。
+    case 'addScrap': {
+      const input = body.input
+      if (typeof input !== 'object' || input === null) return err('bad addScrap args')
+      const i = input as Record<string, unknown>
+      if (!isString(i.jobNo) || !i.jobNo.trim()) return err('先填工单号')
+      if (!isString(i.date) || !/^\d{4}-\d{2}-\d{2}$/.test(i.date))
+        return err('bad addScrap args')
+      for (const k of ['reason', 'source', 'dept', 'owner', 'action']) {
+        if (i[k] !== undefined && !isString(i[k])) return err('bad addScrap args')
+      }
+      const u = await requireUser()
+      await addScrapRecord(
+        {
+          date: i.date,
+          jobNo: i.jobNo,
+          qty: typeof i.qty === 'number' ? i.qty : 0,
+          reason: isString(i.reason) ? i.reason : '',
+          source: isString(i.source) ? i.source : '',
+          dept: isString(i.dept) ? i.dept : '',
+          owner: isString(i.owner) ? i.owner : '',
+          action: isString(i.action) ? i.action : '',
+        },
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'updateScrap': {
+      const scrapId = body.scrapId
+      const patch = body.patch
+      if (!isString(scrapId) || typeof patch !== 'object' || patch === null)
+        return err('bad updateScrap args')
+      const p = patch as Record<string, unknown>
+      for (const k of ['date', 'jobNo', 'reason', 'source', 'dept', 'owner', 'action']) {
+        if (p[k] !== undefined && !isString(p[k])) return err('bad updateScrap args')
+      }
+      if (p.qty !== undefined && typeof p.qty !== 'number') return err('数量不对')
+      const u = await requireUser()
+      await updateScrapRecord(scrapId, p, { fillBlanksOnly: !canEditQuality(u) })
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'deleteScrap': {
+      const scrapId = body.scrapId
+      if (!isString(scrapId)) return err('bad deleteScrap args')
+      const u = await requireUser()
+      if (!canEditQuality(u)) return err('删记录要找工程或于海伟', 403)
+      await deleteScrapRecord(scrapId)
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    // 文件管理 — 传在 /api/upload-quality-file。补空格谁都行, 改填过的和删
+    // 是 canEditQuality 那一档。
+    case 'updateQualityFile': {
+      const fileId = body.fileId
+      const patch = body.patch
+      if (!isString(fileId) || typeof patch !== 'object' || patch === null)
+        return err('bad updateQualityFile args')
+      const p = patch as Record<string, unknown>
+      for (const k of ['date', 'title', 'drawing', 'signer']) {
+        if (p[k] !== undefined && !isString(p[k])) return err('bad updateQualityFile args')
+      }
+      const u = await requireUser()
+      await updateQualityFile(fileId, p, { fillBlanksOnly: !canEditQuality(u) })
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'deleteQualityFile': {
+      const fileId = body.fileId
+      if (!isString(fileId)) return err('bad deleteQualityFile args')
+      const u = await requireUser()
+      if (!canEditQuality(u)) return err('删文件要找工程或于海伟', 403)
+      await deleteQualityFile(fileId)
       revalidatePath('/quality')
       return Response.json(ok())
     }
