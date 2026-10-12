@@ -225,7 +225,7 @@ import {
   deleteScrapRecord,
   updateScrapRecord,
 } from '@/lib/scrap'
-import { deleteQualityFile, updateQualityFile } from '@/lib/quality-files'
+import { deleteQualityFile, deleteQualityFilePhoto, updateQualityFile } from '@/lib/quality-files'
 import {
   isRateList,
   isScalarRateKey,
@@ -3818,6 +3818,17 @@ async function dispatch(
       const u = await requireUser()
       if (!canEditQuality(u)) return err('删文件要找工程或于海伟', 403)
       await deleteQualityFile(fileId)
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'deleteQualityFilePhoto': {
+      const fileId = body.fileId
+      const photoId = body.photoId
+      if (!isString(fileId) || !isString(photoId)) return err('bad deleteQualityFilePhoto args')
+      const u = await requireUser()
+      if (!canEditQuality(u)) return err('删图要找工程或于海伟', 403)
+      await deleteQualityFilePhoto(fileId, photoId)
       revalidatePath('/quality')
       return Response.json(ok())
     }

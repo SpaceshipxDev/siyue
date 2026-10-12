@@ -23,6 +23,14 @@ function withLock<T>(fn: () => Promise<T>): Promise<T> {
 
 const KEY = 'quality/files.json'
 
+export type QualityFilePhoto = {
+  id: string
+  url: string
+  filename: string
+  uploadedBy?: string
+  createdAt: string
+}
+
 export type QualityFile = {
   id: string
   date: string // 日期 YYYY-MM-DD
@@ -31,6 +39,7 @@ export type QualityFile = {
   signer: string // 签字人
   url: string
   filename: string // 传上来时的文件名 — 下载时用它
+  photos: QualityFilePhoto[] // 图片 — 签字页、实物照片, 点开放大
   by?: string // 上传人
   createdAt: string
 }
@@ -61,6 +70,22 @@ function normalize(raw: unknown): QualityFile[] {
       signer: str(r.signer),
       url: str(r.url),
       filename: str(r.filename),
+      photos: Array.isArray(r.photos)
+        ? (r.photos as unknown[]).flatMap((x) => {
+            if (typeof x !== 'object' || x === null) return []
+            const ph = x as Record<string, unknown>
+            if (typeof ph.id !== 'string' || !str(ph.url)) return []
+            return [
+              {
+                id: ph.id,
+                url: str(ph.url),
+                filename: str(ph.filename),
+                uploadedBy: str(ph.uploadedBy) || undefined,
+                createdAt: str(ph.createdAt),
+              },
+            ]
+          })
+        : [],
       by: str(r.by) || undefined,
       createdAt: str(r.createdAt),
     })
@@ -131,6 +156,7 @@ export async function addQualityFile(input: {
     signer: input.signer.trim(),
     url: proxiedKeyUrl(key),
     filename: input.fileName,
+    photos: [],
     by: input.by,
     createdAt: input.nowIso,
   }
@@ -163,6 +189,53 @@ export async function updateQualityFile(
     if (patch.title !== undefined && patch.title.trim()) row.title = patch.title.trim()
     if (patch.drawing !== undefined) row.drawing = patch.drawing.trim()
     if (patch.signer !== undefined) row.signer = patch.signer.trim()
+    await write(rows)
+  })
+}
+
+/** 往一份文件上挂一张图 —— 跟变更管理的配图一个路子。 */
+export async function addQualityFilePhoto(input: {
+  fileId: string
+  body: Blob
+  fileName: string
+  contentType: string
+  uploadedBy?: string
+  nowIso: string
+}): Promise<QualityFilePhoto> {
+  const id = crypto.randomUUID()
+  const m = input.fileName.toLowerCase().match(/\.([a-z0-9]+)$/)
+  const ext = m ? m[1] : 'png'
+  const key = `quality/files/${input.fileId}-${id}.${ext}`
+  const upR = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(key, input.body, {
+      contentType: input.contentType || 'application/octet-stream',
+      upsert: false,
+    })
+  if (upR.error) throw upR.error
+  const photo: QualityFilePhoto = {
+    id,
+    url: proxiedKeyUrl(key),
+    filename: input.fileName,
+    uploadedBy: input.uploadedBy,
+    createdAt: input.nowIso,
+  }
+  await withLock(async () => {
+    const rows = await read()
+    const row = rows.find((r) => r.id === input.fileId)
+    if (!row) throw new Error('这份文件找不到了')
+    row.photos = [...row.photos, photo]
+    await write(rows)
+  })
+  return photo
+}
+
+export async function deleteQualityFilePhoto(fileId: string, photoId: string): Promise<void> {
+  await withLock(async () => {
+    const rows = await read()
+    const row = rows.find((r) => r.id === fileId)
+    if (!row) return
+    row.photos = row.photos.filter((p) => p.id !== photoId)
     await write(rows)
   })
 }

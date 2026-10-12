@@ -7,7 +7,8 @@ import { withBase } from '@/lib/base-path'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { showToast } from '@/app/_toast'
 import { EditableText } from '@/app/_editable'
-import type { QualityFile } from '@/lib/quality-files'
+import { PhotoViewer, type ViewerItem } from '@/app/_photo_viewer'
+import type { QualityFile, QualityFilePhoto } from '@/lib/quality-files'
 
 // 文件管理 — 质量的受控文件。
 //
@@ -15,7 +16,8 @@ import type { QualityFile } from '@/lib/quality-files'
 // 一个图名, 所以顶上一个搜索框什么都能搜。文件不按月看 —— 它是一直有效的东西,
 // 不是某个月出的事。
 
-const COLS = 'grid-cols-[72px_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.8fr)_72px_28px]'
+const COLS =
+  'grid-cols-[72px_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,1.1fr)_64px_28px]'
 
 const IMAGE = /\.(png|jpe?g|webp|gif|bmp)$/i
 const PDF = /\.pdf$/i
@@ -43,6 +45,8 @@ export function FilesBoard({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const picker = useRef<HTMLInputElement>(null)
+  // 看大图 —— 这一行的图 (文件本身是图片的, 排在最前面)。
+  const [viewer, setViewer] = useState<{ items: ViewerItem[]; start: number } | null>(null)
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -187,6 +191,7 @@ export function FilesBoard({
           <span className="label">文件名称</span>
           <span className="label">图名</span>
           <span className="label">签字</span>
+          <span className="label">图片</span>
           <span className="label">上传人</span>
           <span />
         </div>
@@ -200,6 +205,11 @@ export function FilesBoard({
             const href = proxiedStorageUrl(r.url)
             // 图片、PDF 在新页里直接看; 别的 (Word / Excel / 图纸) 下载, 带原来的文件名。
             const view = IMAGE.test(r.filename) || PDF.test(r.filename)
+            const mainImage = IMAGE.test(r.filename)
+            const items: ViewerItem[] = [
+              ...(mainImage ? [{ url: r.url, filename: r.filename }] : []),
+              ...r.photos.map((p) => ({ url: p.url, filename: p.filename })),
+            ]
             return (
               <div
                 key={r.id}
@@ -211,6 +221,12 @@ export function FilesBoard({
                 <span className="flex min-w-0 items-baseline gap-2">
                   <a
                     href={href}
+                    onClick={(e) => {
+                      // 文件本身是图片的, 就地放大, 不开新页。
+                      if (!mainImage) return
+                      e.preventDefault()
+                      setViewer({ items, start: 0 })
+                    }}
                     {...(view ? { target: '_blank', rel: 'noreferrer' } : { download: r.filename })}
                     title={r.filename}
                     className="break-words text-[12.5px] font-medium text-[var(--color-ink)] underline decoration-[var(--color-border-strong)] underline-offset-2 hover:decoration-[var(--color-ink)]"
@@ -220,6 +236,13 @@ export function FilesBoard({
                 </span>
                 <Cell canEdit={canEdit || !r.drawing} value={r.drawing} onSave={(v) => patch(r.id, { drawing: v })} />
                 <Cell canEdit={canEdit || !r.signer} value={r.signer} placeholder="待签" onSave={(v) => patch(r.id, { signer: v })} />
+                <Photos
+                  fileId={r.id}
+                  photos={r.photos}
+                  canDelete={canEdit}
+                  onOpen={(i) => setViewer({ items, start: (mainImage ? 1 : 0) + i })}
+                  onChanged={() => router.refresh()}
+                />
                 <span
                   className="break-words text-[12.5px] text-[var(--color-ink-2)]"
                   title={r.createdAt ? `传于 ${r.createdAt.slice(0, 10)}` : undefined}
@@ -254,9 +277,105 @@ export function FilesBoard({
       </div>
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
-        点文件名称就能打开或下载。图名、签字人还空着的谁都能补，填过的要改找工程或于海伟。
+        点文件名称就能打开或下载，点图片放大看。图名、签字人还空着的谁都能补，填过的要改找工程或于海伟。
       </p>
+
+      {viewer && (
+        <PhotoViewer items={viewer.items} start={viewer.start} onClose={() => setViewer(null)} />
+      )}
     </div>
+  )
+}
+
+// 一份文件的图 —— 缩略图一排, 点开放大; 末尾一个「＋ 图」。跟变更管理那一格一样。
+function Photos({
+  fileId,
+  photos,
+  canDelete,
+  onOpen,
+  onChanged,
+}: {
+  fileId: string
+  photos: QualityFilePhoto[]
+  canDelete: boolean
+  onOpen: (index: number) => void
+  onChanged: () => void
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+
+  const upload = async (files: File[]) => {
+    setBusy(true)
+    try {
+      for (const f of files) {
+        const fd = new FormData()
+        fd.append('file', f)
+        fd.append('fileId', fileId)
+        const res = await fetch(withBase('/api/upload-quality-file'), { method: 'POST', body: fd })
+        const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string }
+        if (!data.ok) {
+          showToast(data.error ?? '传不上去', 'warning')
+          break
+        }
+      }
+      onChanged()
+    } finally {
+      setBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      <input
+        ref={fileRef}
+        type="file"
+        multiple
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const fs = Array.from(e.target.files ?? [])
+          if (fs.length > 0) void upload(fs)
+        }}
+      />
+      {photos.map((p, i) => (
+        <span key={p.id} className="group/ph relative">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={proxiedStorageUrl(p.url)}
+            alt={p.filename}
+            title={`${p.filename}${p.uploadedBy ? ` · ${p.uploadedBy}` : ''} — 点开放大`}
+            onClick={() => onOpen(i)}
+            className="h-[34px] w-[34px] cursor-zoom-in rounded-[2px] border border-[var(--color-border)] object-cover"
+          />
+          {canDelete && (
+            <button
+              type="button"
+              title="删掉这张图"
+              onClick={async () => {
+                try {
+                  await mutate({ kind: 'deleteQualityFilePhoto', fileId, photoId: p.id })
+                  onChanged()
+                } catch (e) {
+                  showToast(e instanceof Error ? e.message : '删不掉', 'warning')
+                }
+              }}
+              className="absolute -right-1 -top-1 hidden h-[14px] w-[14px] items-center justify-center rounded-full bg-[var(--color-ink)] text-[9px] leading-none text-[var(--color-surface)] group-hover/ph:flex"
+            >
+              ✕
+            </button>
+          )}
+        </span>
+      ))}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => fileRef.current?.click()}
+        className="rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-1.5 py-1 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)] disabled:opacity-50"
+      >
+        {busy ? '传…' : '＋ 图'}
+      </button>
+    </span>
   )
 }
 
