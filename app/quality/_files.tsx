@@ -17,7 +17,7 @@ import type { QualityFile, QualityFilePhoto } from '@/lib/quality-files'
 // 不是某个月出的事。
 
 const COLS =
-  'grid-cols-[72px_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,1.1fr)_64px_28px]'
+  'grid-cols-[112px_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,1.1fr)_64px_28px]'
 
 const IMAGE = /\.(png|jpe?g|webp|gif|bmp)$/i
 const PDF = /\.pdf$/i
@@ -46,6 +46,7 @@ export function FilesBoard({
   const [error, setError] = useState<string | null>(null)
   const picker = useRef<HTMLInputElement>(null)
   // 看大图 —— 这一行的图 (文件本身是图片的, 排在最前面)。
+  const [editingTitle, setEditingTitle] = useState<string | null>(null)
   const [viewer, setViewer] = useState<{ items: ViewerItem[]; start: number } | null>(null)
 
   const shown = useMemo(() => {
@@ -215,10 +216,45 @@ export function FilesBoard({
                 key={r.id}
                 className={`grid ${COLS} items-start gap-3 border-b border-[var(--color-border)] px-4 py-2.5 last:border-b-0 hover:bg-[#faf8f2] md:px-5`}
               >
-                <span className="mono text-[12.5px] tabular-nums text-[var(--color-ink-2)]">
-                  {r.date.slice(2)}
-                </span>
-                <span className="flex min-w-0 items-baseline gap-2">
+                {canEdit ? (
+                  <input
+                    type="date"
+                    value={r.date}
+                    max={todayStr}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      if (v && v !== r.date)
+                        patch(r.id, { date: v }).catch((err) =>
+                          showToast(err instanceof Error ? err.message : '改不了', 'warning'),
+                        )
+                    }}
+                    className="mono -ml-1 w-full bg-transparent text-[12.5px] tabular-nums text-[var(--color-ink-2)] outline-none"
+                  />
+                ) : (
+                  <span className="mono text-[12.5px] tabular-nums text-[var(--color-ink-2)]">
+                    {r.date}
+                  </span>
+                )}
+                {editingTitle === r.id ? (
+                  <input
+                    autoFocus
+                    defaultValue={r.title}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') e.currentTarget.blur()
+                      if (e.key === 'Escape') setEditingTitle(null)
+                    }}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim()
+                      setEditingTitle(null)
+                      if (v && v !== r.title)
+                        patch(r.id, { title: v }).catch((err) =>
+                          showToast(err instanceof Error ? err.message : '改不了', 'warning'),
+                        )
+                    }}
+                    className="h-7 w-full rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-bg)] px-2 text-[12.5px] text-[var(--color-ink)] outline-none"
+                  />
+                ) : (
+                <span className="group/t flex min-w-0 items-baseline gap-2">
                   <a
                     href={href}
                     onClick={(e) => {
@@ -233,7 +269,17 @@ export function FilesBoard({
                   >
                     {r.title || r.filename}
                   </a>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingTitle(r.id)}
+                      className="shrink-0 text-[11px] text-[var(--color-ink-4)] opacity-0 hover:text-[var(--color-ink)] group-hover/t:opacity-100"
+                    >
+                      改
+                    </button>
+                  )}
                 </span>
+                )}
                 <Cell canEdit={canEdit || !r.drawing} value={r.drawing} onSave={(v) => patch(r.id, { drawing: v })} />
                 <Cell canEdit={canEdit || !r.signer} value={r.signer} placeholder="待签" onSave={(v) => patch(r.id, { signer: v })} />
                 <Photos
@@ -277,7 +323,7 @@ export function FilesBoard({
       </div>
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
-        点文件名称就能打开或下载，点图片放大看。图名、签字人还空着的谁都能补，填过的要改找工程或于海伟。
+        点文件名称就能打开或下载，点图片放大看。图名、签字人还空着的谁都能补；文件名称、日期和填过的格要改找工程或于海伟（鼠标移到文件名称上点「改」）。
       </p>
 
       {viewer && (
