@@ -340,6 +340,7 @@ import { isDimRow, type InspectionReportPatch } from '@/lib/inspection-report'
 import { removeInspectionPhotoObject } from '@/lib/inspection-photo'
 import { deleteContractFile } from '@/lib/contract-file'
 import { deleteExpenseVoucher } from '@/lib/voucher-file'
+import { filerDeptOf } from '@/lib/hr-dept'
 
 // Single JSON dispatcher for mutating writes. Every existing inline-edit
 // surface (job/component fields, stage cells, routing chips, outsource block
@@ -2596,11 +2597,13 @@ async function dispatch(
       // back to the filer's 部门, which is the only team he could be on.
       const roster = await getActiveUsers()
       const target = roster.find((x) => x.name === input.name.trim())
-      const dept = target ? hrDeptOf(target) : hrDeptOf(u)
+      // 录入的人的部门 —— 他自己选的 (lib/hr-dept), 没选过就是账号的工段。
+      const filerDept = await filerDeptOf(u)
+      const dept = target ? hrDeptOf(target) : filerDept
       // A filer without the whole-factory view may only file on his own 部门 —
       // otherwise he could write a line he then isn't allowed to read.
-      if (!canSeeAllHr(u) && dept !== hrDeptOf(u)) {
-        return err(`${input.name.trim()} 不是${hrDeptOf(u)}的人`, 403)
+      if (!canSeeAllHr(u) && dept !== filerDept) {
+        return err(`${input.name.trim()} 不是${filerDept}的人`, 403)
       }
       const row = await addHrRecord(
         input,
@@ -2624,7 +2627,7 @@ async function dispatch(
       const u = await requireHrUser()
       if (!canEditHrRecord(u)) return err('无权导入考勤表', 403)
       const roster = await getActiveUsers()
-      const mine = hrDeptOf(u)
+      const mine = await filerDeptOf(u)
       const deptOf = (name: string) => {
         const target = roster.find((x) => x.name === name)
         return target ? hrDeptOf(target) : mine
@@ -2800,8 +2803,9 @@ async function dispatch(
         const roster = await getActiveUsers()
         const target = roster.find((x) => x.name === patch.name!.trim())
         if (target) dept = hrDeptOf(target)
-        if (dept && !canSeeAllHr(u) && dept !== hrDeptOf(u)) {
-          return err(`${patch.name.trim()} 不是${hrDeptOf(u)}的人`, 403)
+        const filerDept = await filerDeptOf(u)
+        if (dept && !canSeeAllHr(u) && dept !== filerDept) {
+          return err(`${patch.name.trim()} 不是${filerDept}的人`, 403)
         }
       }
       let movedTo: string | null

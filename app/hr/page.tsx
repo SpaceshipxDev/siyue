@@ -33,6 +33,7 @@ import { DormBoard } from './_dorm'
 import { HrBoard } from './_hr'
 import { AttendanceSheet } from './_attendance_sheet'
 import type { AttendanceReport } from '@/lib/hr-report'
+import { filerDeptOf } from '@/lib/hr-dept'
 
 export const dynamic = 'force-dynamic'
 
@@ -100,7 +101,8 @@ export default async function HrPage({
   // existed carry none; they read as the office's, which is where the people
   // who filed them sit.
   const seeAll = canSeeAllHr(user)
-  const myDept = hrDeptOf(user)
+  // 录入的人自己选的部门 (lib/hr-dept); 没选过就是账号的工段。
+  const myDept = await filerDeptOf(user)
   const records = seeAll
     ? allRecords
     : allRecords.filter((r) => (r.dept ?? '商务') === myDept)
@@ -183,6 +185,14 @@ export default async function HrPage({
             canDelete={canDeleteHrRecord(user)}
             canEdit={canEditHrRecord(user)}
             scope={seeAll ? null : myDept}
+            // 录入的人能选的部门 —— 厂里账号上实际有的那几个, 办公室那一档除外。
+            depts={
+              seeAll
+                ? []
+                : [...new Set([myDept, ...users.map((u) => hrDeptOf(u))])]
+                    .filter((d) => d && d !== '商务')
+                    .sort((a, b) => a.localeCompare(b, 'zh'))
+            }
             today={now}
           />
         )}

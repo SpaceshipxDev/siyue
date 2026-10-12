@@ -64,6 +64,7 @@ export function HrBoard({
   canDelete,
   canEdit,
   scope,
+  depts = [],
   today,
 }: {
   records: HrRecord[]
@@ -77,6 +78,8 @@ export function HrBoard({
   canEdit: boolean
   /** null = 看全部; otherwise the one 部门 this reader is scoped to. */
   scope: string | null
+  /** 录入的人可以换成自己的部门 (lib/hr-dept)。空 = 不给选。 */
+  depts?: string[]
   today: string
 }) {
   const router = useRouter()
@@ -281,7 +284,27 @@ export function HrBoard({
     <div className="mx-auto max-w-4xl">
       {scope !== null && (
         <p className="mb-3 text-[12.5px] text-[var(--color-ink-3)]">
-          你看到的是<span className="text-[var(--color-ink)]">{scope}</span>
+          你看到的是
+          {depts.length > 1 ? (
+            <select
+              value={scope}
+              onChange={(e) => {
+                // 记在这台机器上, 一年有效 —— 共用账号在哪个工位开就是哪个部门。
+                document.cookie = `hr-dept=${encodeURIComponent(e.target.value)}; path=/; max-age=31536000; samesite=lax`
+                router.refresh()
+              }}
+              title="换成你自己的部门"
+              className="mx-1 cursor-pointer rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 text-[12.5px] font-medium text-[var(--color-ink)] outline-none hover:border-[var(--color-border-strong)]"
+            >
+              {depts.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-[var(--color-ink)]">{scope}</span>
+          )}
           的人，记的也只能是{scope}的人。
         </p>
       )}

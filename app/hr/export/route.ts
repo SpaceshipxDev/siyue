@@ -4,7 +4,6 @@ import {
   canSeeAllHr,
   canSeeAttendance,
   canSeeDorm,
-  hrDeptOf,
   requireHrUser,
 } from '@/lib/auth'
 import { getHrMonth, getHrYear } from '@/lib/hr'
@@ -12,6 +11,7 @@ import { loadAttendanceReport } from '../_sheet_data'
 import { getDormEntries } from '@/lib/dorm'
 import { HR_TYPES, hrHasHours } from '@/lib/data'
 import { today } from '@/lib/today'
+import { filerDeptOf } from '@/lib/hr-dept'
 
 // 考勤 / 住宿 → .xlsx. 导的就是屏幕上那一张表 —— 同一个月 (或同一年)、同一个
 // 部门范围, 所以"导出"永远等于"我现在看到的这些"。
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
     // 同一条部门边界: 看本部门的人, 导出来的也只有本部门。
     const seeAll = canSeeAllHr(user)
-    const myDept = hrDeptOf(user)
+    const myDept = await filerDeptOf(user)
     const records = seeAll
       ? all
       : all.filter((r) => (r.dept ?? '商务') === myDept)

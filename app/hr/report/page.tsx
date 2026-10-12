@@ -1,10 +1,11 @@
-import { canSeeAllHr, canSeeAttendance, hrDeptOf, requireHrUser } from '@/lib/auth'
+import { canSeeAllHr, canSeeAttendance, requireHrUser } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { loadAttendanceReport } from '../_sheet_data'
 import { BRAND } from '@/lib/brand'
 import { today } from '@/lib/today'
 import { AttendanceSheet } from '../_attendance_sheet'
 import { PrintButton } from '@/app/_print_button'
+import { filerDeptOf } from '@/lib/hr-dept'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,7 +26,7 @@ export default async function HrReportPage({
   const month = /^\d{4}-\d{2}$/.test(sp.p ?? '') ? (sp.p as string) : today().slice(0, 7)
 
   const seeAll = canSeeAllHr(user)
-  const myDept = hrDeptOf(user)
+  const myDept = await filerDeptOf(user)
   const report = await loadAttendanceReport(month)
   const [y, m] = month.split('-')
 

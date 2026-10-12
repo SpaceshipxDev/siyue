@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server'
 import { revalidatePath } from 'next/cache'
-import { canSeeAllHr, currentUser, hrDeptOf } from '@/lib/auth'
+import { canSeeAllHr, currentUser } from '@/lib/auth'
 import { getHrMonth } from '@/lib/hr'
 import { addHrNote, isAllowedHrNoteName } from '@/lib/hr-note-file'
+import { filerDeptOf } from '@/lib/hr-dept'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
   if (!rec) {
     return Response.json({ ok: false, error: '找不到这条记录' }, { status: 404 })
   }
-  if (!canSeeAllHr(user) && (rec.dept ?? '商务') !== hrDeptOf(user)) {
+  if (!canSeeAllHr(user) && (rec.dept ?? '商务') !== (await filerDeptOf(user))) {
     return Response.json({ ok: false, error: 'forbidden' }, { status: 403 })
   }
 
