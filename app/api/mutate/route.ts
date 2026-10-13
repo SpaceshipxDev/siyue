@@ -163,6 +163,7 @@ import {
   canUndoFinishedStage,
   canFixReport,
   canSeeFactoryPulse,
+  canEditPlan,
   canSeeMoney,
   canUseNotes,
   currentUser,
@@ -341,6 +342,7 @@ import { removeInspectionPhotoObject } from '@/lib/inspection-photo'
 import { deleteContractFile } from '@/lib/contract-file'
 import { deleteExpenseVoucher } from '@/lib/voucher-file'
 import { filerDeptOf } from '@/lib/hr-dept'
+import { addPlanRow, deletePlanRow, isPlanStage, updatePlanRow, type PlanPatch } from '@/lib/plan'
 
 // Single JSON dispatcher for mutating writes. Every existing inline-edit
 // surface (job/component fields, stage cells, routing chips, outsource block
@@ -449,6 +451,22 @@ async function cacheAndSend(
     void recordMutationResponse(requestId, status, body)
   }
   return Response.json(body, { status })
+}
+
+// 计划一行能改的那几格 —— 字符串的就是字符串, 人员是 [{name, side?}]。不认
+// 识的形状整个退回 (null)。
+function planPatchOf(r: Record<string, unknown>): PlanPatch | null {
+  const out: PlanPatch = {}
+  for (const k of ['date', 'jobNo', 'seq', 'machine', 'doneAt', 'note', 'reason'] as const) {
+    if (r[k] === undefined) continue
+    if (!isString(r[k])) return null
+    out[k] = r[k] as string
+  }
+  if (r.workers !== undefined) {
+    if (!Array.isArray(r.workers)) return null
+    out.workers = r.workers as PlanPatch['workers']
+  }
+  return out
 }
 
 // 个人报工 (操机、喷漆选的人) —— 连同零件信息一起记, 报工统计页直接列。
@@ -4678,6 +4696,46 @@ async function dispatch(
       if (!canUseNotes(u)) return err('forbidden', 403)
       await deleteNote(noteId, u.id)
       revalidatePath('/notes')
+      return Response.json(ok())
+    }
+
+    // === 计划 (lib/plan) — 商务、工程, 加上编程的程江华 (canEditPlan)。每一格都手填。 ===
+    case 'addPlanRow': {
+      const input = body.input
+      if (typeof input !== 'object' || input === null) return err('bad addPlanRow args')
+      const i = input as Record<string, unknown>
+      if (!isPlanStage(i.stage)) return err('bad addPlanRow args')
+      const p = planPatchOf(i)
+      if (!p) return err('bad addPlanRow args')
+      if (!p.jobNo?.trim()) return err('先填工单号')
+      const u = await requireUser()
+      if (!canEditPlan(u)) return err('计划由商务、工程和程江华来排', 403)
+      const row = await addPlanRow({ ...p, stage: i.stage }, u.name, new Date().toISOString())
+      revalidatePath('/plan')
+      return Response.json(ok({ row }))
+    }
+
+    case 'updatePlanRow': {
+      const rowId = body.rowId
+      const patch = body.patch
+      if (!isString(rowId) || typeof patch !== 'object' || patch === null)
+        return err('bad updatePlanRow args')
+      const p = planPatchOf(patch as Record<string, unknown>)
+      if (!p) return err('bad updatePlanRow args')
+      const u = await requireUser()
+      if (!canEditPlan(u)) return err('计划由商务、工程和程江华来排', 403)
+      await updatePlanRow(rowId, p)
+      revalidatePath('/plan')
+      return Response.json(ok())
+    }
+
+    case 'deletePlanRow': {
+      const rowId = body.rowId
+      if (!isString(rowId)) return err('bad deletePlanRow args')
+      const u = await requireUser()
+      if (!canEditPlan(u)) return err('计划由商务、工程和程江华来排', 403)
+      await deletePlanRow(rowId)
+      revalidatePath('/plan')
       return Response.json(ok())
     }
 

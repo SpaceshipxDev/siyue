@@ -555,6 +555,21 @@ export function canSeeFactoryPulse(s: Scope): boolean {
   return s.role === 'commerce' || s.defaultStage === '工程'
 }
 
+// 计划 (/plan) —— 谁来排: 商务、工程, 加上编程的程江华 (于海伟 2026-10-13 定)。
+// 编程的活最先排, 排编程的人自己最清楚哪张单先编。名单制, 加人 = 加一行。
+const PLAN_EDITOR_USER_IDS = new Set<string>([
+  'u-mpc3rcje-6987yo', // 程江华 — 编程
+])
+export const PLAN_EDITOR_NAMES = ['程江华'] as const
+
+export function canEditPlan(u: AuthUser): boolean {
+  return (
+    canSeeFactoryPulse(u) ||
+    PLAN_EDITOR_USER_IDS.has(u.id) ||
+    (PLAN_EDITOR_NAMES as readonly string[]).includes(u.name)
+  )
+}
+
 export async function requirePulseViewer(): Promise<AuthUser> {
   const u = await requireUser()
   if (canSeeFactoryPulse(u)) return u

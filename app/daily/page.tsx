@@ -70,7 +70,8 @@ export default async function DailyFocusPage({
       <TopBar
         title="重点"
         subtitle="当日必须完成的工单"
-        currentTab="重点"
+        // 重点现在挂在「计划」底下 (计划页上有入口), 导航亮「计划」。
+        currentTab="计划"
         role={user.role}
         defaultStage={user.defaultStage}
         userName={user.name}

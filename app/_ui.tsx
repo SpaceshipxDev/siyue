@@ -12,6 +12,7 @@ export type TabKey =
   | '商务'
   | '笔记'
   | '重点'
+  | '计划'
   | '现场'
   | '交接'
   | '采购'
@@ -39,11 +40,16 @@ type Tab = { key: TabKey; label: string; href: string }
 // EVERY role now carries the stage row (scoped floor accounts included):
 // one universal nav, your own station highlighted, the rest of the factory
 // one click away.
+// 计划 —— 商务、工程之外, 编程的程江华也排计划 (lib/auth canEditPlan, 那边按
+// 账号认; 这里只管导航上露不露这一格, 只拿得到名字)。
+const PLAN_EXTRA_NAMES = ['程江华']
+
 function tabsForRole(
   role: Role,
   defaultStage?: string,
   canSeeReport = false,
   canSeeFinance = false,
+  userName = '',
 ): Tab[] {
   // 采购 is a Stage (board column, route picker) but NOT a station tab — the
   // nav already carries one 采购 tab pointing at /procurement, and that ledger
@@ -77,7 +83,7 @@ function tabsForRole(
         // 笔记 — same slot as commerce (right before 重点). The boss turned
         // it into his command channel; the 工程 head gets the same scratchpad.
         { key: '笔记', label: '笔记', href: '/notes' },
-        { key: '重点', label: '重点', href: '/daily' },
+        { key: '计划', label: '计划', href: '/plan' },
         { key: '现场', label: '现场', href: '/pulse' },
         { key: '交接', label: '交接', href: '/handover' },
         { key: '采购', label: '采购', href: '/procurement' },
@@ -130,6 +136,9 @@ function tabsForRole(
     }
     return [
       { key: '工单', label: '全部', href: '/' },
+      ...(PLAN_EXTRA_NAMES.includes(userName)
+        ? [{ key: '计划' as TabKey, label: '计划', href: '/plan' }]
+        : []),
       ...programmingDesk(stageTabs()),
       { key: '采购', label: '采购', href: '/procurement' },
       { key: '仓库', label: '仓库', href: '/warehouse' },
@@ -141,7 +150,7 @@ function tabsForRole(
     // 笔记 — the boss's private scratchpad, right before 重点. Per-author, so
     // each 商务 user only ever sees their own notes (it reads as "his").
     { key: '笔记', label: '笔记', href: '/notes' },
-    { key: '重点', label: '重点', href: '/daily' },
+    { key: '计划', label: '计划', href: '/plan' },
     { key: '现场', label: '现场', href: '/pulse' },
     { key: '交接', label: '交接', href: '/handover' },
     { key: '采购', label: '采购', href: '/procurement' },
@@ -183,7 +192,7 @@ export function TopBar({
   /** Granted the 财务 tab (all 商务, plus allowlisted production — canSeeOrderLedger). */
   canSeeFinance?: boolean
 }) {
-  const tabs = tabsForRole(role, defaultStage, canSeeReport, canSeeFinance)
+  const tabs = tabsForRole(role, defaultStage, canSeeReport, canSeeFinance, userName)
   const isCommerce = role === 'commerce'
   // 工程 head's "home" is the holistic master view at bare / (same as
    // commerce). Other production stations land on their station-filtered
