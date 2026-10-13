@@ -4708,9 +4708,16 @@ async function dispatch(
       const p = planPatchOf(i)
       if (!p) return err('bad addPlanRow args')
       if (!p.jobNo?.trim()) return err('先填工单号')
+      // 工程排的那一行 (engKey = jobId:工序): 第一次改才存; dismiss = 删掉它。
+      const engKey = isString(i.engKey) && /^[^:]+:.+$/.test(i.engKey) ? i.engKey : undefined
       const u = await requireUser()
       if (!canEditPlan(u)) return err('计划由商务、工程和程江华来排', 403)
-      const row = await addPlanRow({ ...p, stage: i.stage }, u.name, new Date().toISOString())
+      const row = await addPlanRow(
+        { ...p, stage: i.stage, engKey, engFollow: i.engFollow === false ? false : undefined },
+        u.name,
+        new Date().toISOString(),
+      )
+      if (engKey && i.dismiss === true) await deletePlanRow(row.id)
       revalidatePath('/plan')
       return Response.json(ok({ row }))
     }

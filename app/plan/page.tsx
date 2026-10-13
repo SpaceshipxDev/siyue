@@ -9,7 +9,7 @@ import {
 } from '@/lib/auth'
 import { getActiveUsers, getJob, getMasterRows } from '@/lib/db'
 import { getHrRoster } from '@/lib/hr'
-import { getPlanRows, isPlanStage, PLAN_STAGES, type PlanStage } from '@/lib/plan'
+import { getPlanRows, isPlanStage, PLAN_STAGES, type PlanRow, type PlanStage } from '@/lib/plan'
 import type { Stage } from '@/lib/data'
 import type { MasterRow } from '@/lib/master'
 import { today } from '@/lib/today'
@@ -27,6 +27,15 @@ const STAGE_OF: Record<PlanStage, Stage> = {
   编程: '编程',
   操机: '操机',
   车铣: '操机',
+  手工: '手工',
+  打磨: '打磨',
+}
+
+// 工程在工单上给哪一道排了计划交期, 计划里那一张表就自动带出这一行。车铣在
+// 工单上没有单独的一道 (走的是操机), 不往车铣里带。
+const ENG_STAGE: Partial<Record<PlanStage, Stage>> = {
+  编程: '编程',
+  操机: '操机',
   手工: '手工',
   打磨: '打磨',
 }
@@ -83,10 +92,38 @@ export default async function PlanPage({
     getActiveUsers(),
     getHrRoster(),
   ])
-  const rows = all.filter((r) => r.stage === stage)
+  const stored = all.filter((r) => r.stage === stage)
+  const rows: PlanRow[] = stored.filter((r) => !r.dismissed)
 
   const byJobNo = new Map<string, MasterRow>()
   for (const m of masterRows) if (m.jobNo) byJobNo.set(norm(m.jobNo), m)
+
+  // 工程排的 —— 在产的单, 这一道排了计划交期的, 每张单一行。已经存过 (有人改
+  // 过一格) 的用存下来的那一行, 日期没被手改过就跟着工程排的日子走。
+  const engPlan: Record<string, string> = {}
+  const engSt = ENG_STAGE[stage]
+  if (engSt) {
+    const byKey = new Map(stored.filter((r) => r.engKey).map((r) => [r.engKey!, r]))
+    for (const m of masterRows) {
+      if (m.isShipped || m.status === 'draft' || m.status === 'failed' || m.status === 'parsing') continue
+      if (!m.cells[engSt]) continue
+      const v = m.stagePlan?.[engSt]
+      const d = v?.slice(0, 10)
+      if (!v || !d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) continue
+      const key = `${m.id}:${engSt}`
+      const ex = byKey.get(key)
+      if (ex) {
+        if (ex.dismissed) continue
+        if (ex.engDate) ex.date = d
+        engPlan[ex.id] = v
+        continue
+      }
+      const id = `eng:${key}`
+      rows.push({ id, stage, date: d, jobNo: m.jobNo, workers: [], by: '工程', createdAt: '', engKey: key, engDate: true, virtual: true })
+      engPlan[id] = v
+    }
+    rows.sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : a.createdAt < b.createdAt ? -1 : 1))
+  }
 
   // 报工 → 完成情况。编程填了序列号的看那一个零件, 其余看整张单在那一道上。
   const auto: Record<string, PlanAuto> = {}
@@ -149,6 +186,7 @@ export default async function PlanPage({
           stages={[...PLAN_STAGES]}
           rows={rows}
           auto={auto}
+          engPlan={engPlan}
           names={names}
           jobNos={jobNos}
           todayStr={todayStr}

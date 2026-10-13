@@ -42,6 +42,17 @@ export type PlanRow = {
   reason?: string // 未完成原因说明
   by?: string
   createdAt: string
+  /**
+   * 工程排的 —— 工单上那一道的计划交期自动带进来的那一行 (jobId:工序)。改过一
+   * 格就存成这里的一行, 用这个键认回去, 不会再冒出第二行。
+   */
+  engKey?: string
+  /** 日期跟着工程排的走 —— 有人手改了日期就不再跟。 */
+  engDate?: boolean
+  /** 工程排的那一行被删掉了 —— 记着, 不然下次又自动冒出来。 */
+  dismissed?: boolean
+  /** 还没存过的工程排那一行 (页面上现算的), 不落盘。 */
+  virtual?: boolean
 }
 
 export type PlanPatch = {
@@ -97,6 +108,9 @@ function normalize(raw: unknown): PlanRow[] {
       reason: str(r.reason) || undefined,
       by: str(r.by, 40) || undefined,
       createdAt: str(r.createdAt),
+      engKey: str(r.engKey, 120) || undefined,
+      engDate: r.engDate === true ? true : undefined,
+      dismissed: r.dismissed === true ? true : undefined,
     })
   }
   return out
@@ -131,10 +145,19 @@ export async function getPlanRows(): Promise<PlanRow[]> {
 }
 
 export async function addPlanRow(
-  input: { stage: PlanStage } & PlanPatch,
+  // engFollow === false: 第一次存就是手改了日期, 不再跟工程排的日子。
+  input: { stage: PlanStage; engKey?: string; engFollow?: boolean } & PlanPatch,
   by: string,
   nowIso: string,
 ): Promise<PlanRow> {
+  // 工程排的那一行第一次被改: 已经存过就改那一行, 没存过才新建。
+  if (input.engKey) {
+    const existing = (await read()).find((r) => r.engKey === input.engKey)
+    if (existing) {
+      await updatePlanRow(existing.id, input)
+      return existing
+    }
+  }
   const row: PlanRow = {
     id: crypto.randomUUID(),
     stage: input.stage,
@@ -148,6 +171,9 @@ export async function addPlanRow(
     reason: str(input.reason) || undefined,
     by,
     createdAt: nowIso,
+    ...(input.engKey
+      ? { engKey: str(input.engKey, 120), engDate: input.engFollow === false ? undefined : true }
+      : null),
   }
   await withLock(async () => {
     const rows = await read()
@@ -162,7 +188,11 @@ export async function updatePlanRow(id: string, patch: PlanPatch): Promise<void>
     const rows = await read()
     const row = rows.find((r) => r.id === id)
     if (!row) throw new Error('这一行已经没有了，刷新看看')
-    if (patch.date !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(patch.date)) row.date = patch.date
+    if (patch.date !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(patch.date) && patch.date !== row.date) {
+      row.date = patch.date
+      // 手改了日期 —— 这一行不再跟着工程排的日子挪。
+      if (row.engKey) row.engDate = undefined
+    }
     if (patch.jobNo !== undefined) row.jobNo = str(patch.jobNo, 60)
     if (patch.seq !== undefined) row.seq = str(patch.seq, 20) || undefined
     if (patch.machine !== undefined) row.machine = str(patch.machine, 40) || undefined
@@ -177,7 +207,14 @@ export async function updatePlanRow(id: string, patch: PlanPatch): Promise<void>
 export async function deletePlanRow(id: string): Promise<void> {
   await withLock(async () => {
     const rows = await read()
-    if (!rows.some((r) => r.id === id)) return
+    const row = rows.find((r) => r.id === id)
+    if (!row) return
+    // 工程排的那一行不真删, 记一笔"不要了" —— 不然下次打开又自动冒出来。
+    if (row.engKey) {
+      row.dismissed = true
+      await write(rows)
+      return
+    }
     await write(rows.filter((r) => r.id !== id))
   })
 }

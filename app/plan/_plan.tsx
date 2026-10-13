@@ -46,6 +46,7 @@ export function PlanBoard({
   stages,
   rows,
   auto,
+  engPlan,
   names,
   jobNos,
   todayStr,
@@ -54,6 +55,8 @@ export function PlanBoard({
   stages: PlanStage[]
   rows: PlanRow[]
   auto: Record<string, PlanAuto>
+  /** 工程在工单上排的那一道的计划交期 (行 id → 'YYYY-MM-DD' 或带时间)。 */
+  engPlan: Record<string, string>
   names: string[]
   jobNos: string[]
   todayStr: string
@@ -124,15 +127,33 @@ export function PlanBoard({
     })
   }
 
+  // 工程排的那一行还没存过 —— 第一次改一格才存成一行 (带着它的 engKey 认回去)。
+  const materialize = (r: PlanRow, p: Record<string, unknown>) =>
+    mutate({
+      kind: 'addPlanRow',
+      input: {
+        stage,
+        date: r.date,
+        jobNo: r.jobNo,
+        engKey: r.engKey,
+        ...('date' in p ? { engFollow: false } : null),
+        ...p,
+      },
+    })
+
   async function patch(id: string, p: Record<string, unknown>) {
-    await mutate({ kind: 'updatePlanRow', rowId: id, patch: p })
+    const r = rows.find((x) => x.id === id)
+    if (r?.virtual) await materialize(r, p)
+    else await mutate({ kind: 'updatePlanRow', rowId: id, patch: p })
     router.refresh()
   }
 
   function remove(id: string) {
+    const r = rows.find((x) => x.id === id)
     start(async () => {
       try {
-        await mutate({ kind: 'deletePlanRow', rowId: id })
+        if (r?.virtual) await mutate({ kind: 'addPlanRow', input: { stage, date: r.date, jobNo: r.jobNo, engKey: r.engKey, dismiss: true } })
+        else await mutate({ kind: 'deletePlanRow', rowId: id })
         setArmDelete(null)
         router.refresh()
       } catch (e) {
@@ -331,12 +352,23 @@ export function PlanBoard({
                   }}
                   className="mono -ml-1 w-full bg-transparent text-[12.5px] tabular-nums text-[var(--color-ink-2)] outline-none"
                 />
-                <EditableText
-                  mono
-                  value={r.jobNo}
-                  className="text-[12.5px] font-medium text-[var(--color-ink)]"
-                  onSave={(v) => patch(r.id, { jobNo: v })}
-                />
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <EditableText
+                    mono
+                    value={r.jobNo}
+                    className="text-[12.5px] font-medium text-[var(--color-ink)]"
+                    onSave={(v) => patch(r.id, { jobNo: v })}
+                  />
+                  {engPlan[r.id] && (
+                    <span
+                      className="text-[11px] text-[var(--color-ink-3)]"
+                      title="工程在工单上给这一道排的计划交期，自动带进来的"
+                    >
+                      工程排 {engPlan[r.id].slice(5, 10)}
+                      {engPlan[r.id].length > 10 ? ` ${engPlan[r.id].slice(11, 16)}` : ''}
+                    </span>
+                  )}
+                </div>
                 <EditableText
                   mono
                   value={isProg ? r.seq : r.machine}
@@ -395,7 +427,7 @@ export function PlanBoard({
       </div>
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
-        每一格点一下就能改。完成时间手填了就算完成；没填的看报工——这张单在这一道上报完了也算完成。做完的自动收进「已完成」，点上面「已完成」能看到。
+        工程在工单上给这一道排了计划交期的，自动带进来，标着「工程排」。每一格点一下就能改。完成时间手填了就算完成；没填的看报工——这张单在这一道上报完了也算完成。做完的自动收进「已完成」，点上面「已完成」能看到。
         {isProg ? '填了序列号的只看那一个零件。' : '人员点一下可以标正面、反面或者写别的。'}
       </p>
     </div>
