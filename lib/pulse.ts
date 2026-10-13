@@ -325,31 +325,46 @@ async function getFamilyDeltas(
   const out = new Map<string, number>()
   const jobIds = [...(await getFamilyJobIds())]
   if (jobIds.length === 0) return out
-  const rows: AnyRow[] = []
   // 一个月几十张单、每张几百条 —— 一次少查几张, 再分页, 不撞 1000 行的顶。
-  for (let i = 0; i < jobIds.length; i += 20) {
-    const chunk = jobIds.slice(i, i + 20)
-    for (let offset = 0; offset < 20000; offset += 1000) {
-      let q = supabase
-        .from('worker_stage_events')
-        .select('job_id, part_id, stage, actor_name, value_cny')
-        .eq('kind', 'finished')
-        .gte('ts', window.from)
-        .lt('ts', window.to)
-        .in('job_id', chunk)
-        .order('ts', { ascending: true })
-        .range(offset, offset + 999)
-      if (stage) q = q.eq('stage', stage)
-      const r = await q
-      if (r.error) {
-        if (isSchemaLagError(r.error)) return out
-        throw r.error
-      }
-      const batch = (r.data ?? []) as AnyRow[]
-      rows.push(...batch)
-      if (batch.length < 1000) break
-    }
+  const chunks: string[][] = []
+  for (let i = 0; i < jobIds.length; i += 20) chunks.push(jobIds.slice(i, i + 20))
+  // 各块互不相干, 每次并发查 6 块 —— 原来一块一块排队, 十几个来回叠起来,
+  // 工人首页要多等好几秒。结果仍按块的顺序拼回去, 跟原来一模一样。
+  const perChunk: AnyRow[][] = new Array(chunks.length)
+  let schemaLag = false
+  for (let c = 0; c < chunks.length; c += 6) {
+    await Promise.all(
+      chunks.slice(c, c + 6).map(async (chunk, k) => {
+        const got: AnyRow[] = []
+        for (let offset = 0; offset < 20000; offset += 1000) {
+          let q = supabase
+            .from('worker_stage_events')
+            .select('job_id, part_id, stage, actor_name, value_cny')
+            .eq('kind', 'finished')
+            .gte('ts', window.from)
+            .lt('ts', window.to)
+            .in('job_id', chunk)
+            .order('ts', { ascending: true })
+            .range(offset, offset + 999)
+          if (stage) q = q.eq('stage', stage)
+          const r = await q
+          if (r.error) {
+            if (isSchemaLagError(r.error)) {
+              schemaLag = true
+              return
+            }
+            throw r.error
+          }
+          const batch = (r.data ?? []) as AnyRow[]
+          got.push(...batch)
+          if (batch.length < 1000) break
+        }
+        perChunk[c + k] = got
+      }),
+    )
+    if (schemaLag) return out
   }
+  const rows: AnyRow[] = perChunk.flat()
   const before = await applyFamilyValues(rows)
   for (const [row, old] of before) {
     const actor = ((row.actor_name as string | null) ?? '—') || '—'
