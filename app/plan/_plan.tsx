@@ -77,6 +77,7 @@ export function PlanBoard({
   const [jobNo, setJobNo] = useState('')
   const [extra, setExtra] = useState('') // 序列号 / 机台号
   const [workers, setWorkers] = useState<PlanWorker[]>([])
+  const [workerDraft, setWorkerDraft] = useState('') // 打了还没回车的名字
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -111,13 +112,20 @@ export function PlanBoard({
             date,
             jobNo: jobNo.trim(),
             ...(isProg ? { seq: extra.trim() } : { machine: extra.trim() }),
-            workers,
+            // 打了还没回车的名字也算上。
+            workers: [
+              ...workers,
+              ...splitNames(workerDraft)
+                .filter((n) => !workers.some((w) => w.name === n))
+                .map((name) => ({ name })),
+            ],
             note: note.trim(),
           },
         })
         setJobNo('')
         setExtra('')
         setWorkers([])
+        setWorkerDraft('')
         setNote('')
         if (day) setDay(date)
         router.refresh()
@@ -217,7 +225,14 @@ export function PlanBoard({
             className={`mono ${inp} w-[84px]`}
           />
           <div className="min-h-9 min-w-[200px] flex-1 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5">
-            <Workers value={workers} names={names} sides={!isProg} onChange={async (w) => setWorkers(w)} />
+            <Workers
+              value={workers}
+              names={names}
+              sides={!isProg}
+              onChange={async (w) => setWorkers(w)}
+              draft={workerDraft}
+              onDraft={setWorkerDraft}
+            />
           </div>
           <input
             value={note}
@@ -453,19 +468,35 @@ function AutoLine({ a }: { a: PlanAuto }) {
   return <span className="text-[11.5px] text-[var(--color-ink-4)]">报工未开始</span>
 }
 
+// 一次打好几个人: 逗号、顿号、空格、分号都算分隔。
+function splitNames(t: string): string[] {
+  return [...new Set(t.split(/[,，、;；\s]+/).map((x) => x.trim()).filter(Boolean))]
+}
+
 // 操作人员 —— 多选; 操机那几张表每个人后面能标 正面 / 反面 / 别的。
+//
+// 直接打字: 一个名字回车, 或者逗号 / 空格隔开一次打几个; 下拉里有厂里的人名
+// 可以点, 名单上没有的照样能打 (临时工、外来帮忙的)。
+// 录入那一行的输入框是外面管着的 (draft / onDraft), 点「记下」时还没回车的
+// 那几个名字也一起带上。
 function Workers({
   value,
   names,
   sides,
   onChange,
+  draft: outerDraft,
+  onDraft,
 }: {
   value: PlanWorker[]
   names: string[]
   sides: boolean
   onChange: (next: PlanWorker[]) => Promise<void>
+  draft?: string
+  onDraft?: (v: string) => void
 }) {
-  const [adding, setAdding] = useState(false)
+  const [innerDraft, setInnerDraft] = useState('')
+  const draft = outerDraft ?? innerDraft
+  const setDraft = onDraft ?? setInnerDraft
   const [open, setOpen] = useState<string | null>(null)
   const [other, setOther] = useState('')
   const listId = `plan-names-${useId()}`
@@ -473,11 +504,10 @@ function Workers({
   const save = (next: PlanWorker[]) =>
     onChange(next).catch((e) => showToast(e instanceof Error ? e.message : '改不了', 'warning'))
 
-  const addName = (raw: string) => {
-    const name = raw.trim()
-    setAdding(false)
-    if (!name || value.some((w) => w.name === name)) return
-    void save([...value, { name }])
+  const commit = (text: string) => {
+    setDraft('')
+    const add = splitNames(text).filter((n) => !value.some((w) => w.name === n))
+    if (add.length > 0) void save([...value, ...add.map((name) => ({ name }))])
   }
   const setSide = (name: string, side: string) => {
     setOpen(null)
@@ -505,18 +535,18 @@ function Workers({
           {sides && open === w.name && (
             <span className="absolute left-0 top-full z-20 mt-1 flex w-[168px] flex-col gap-1.5 rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-2 shadow-[0_6px_20px_rgba(0,0,0,0.12)]">
               <span className="flex gap-1.5">
-                {['正面', '反面'].map((s) => (
+                {['正面', '反面'].map((sd) => (
                   <button
-                    key={s}
+                    key={sd}
                     type="button"
-                    onClick={() => setSide(w.name, s)}
+                    onClick={() => setSide(w.name, sd)}
                     className={`flex-1 rounded-[2px] border px-2 py-1 text-[12px] ${
-                      w.side === s
+                      w.side === sd
                         ? 'border-[var(--color-ink)] text-[var(--color-ink)]'
                         : 'border-[var(--color-border)] text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)]'
                     }`}
                   >
-                    {s}
+                    {sd}
                   </button>
                 ))}
               </span>
@@ -547,38 +577,35 @@ function Workers({
           )}
         </span>
       ))}
-      {adding ? (
-        <>
-          <input
-            autoFocus
-            list={listId}
-            placeholder="姓名"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') addName(e.currentTarget.value)
-              if (e.key === 'Escape') setAdding(false)
-            }}
-            onBlur={(e) => addName(e.target.value)}
-            onChange={(e) => {
-              // 从下拉里点中一个名字, 直接加上 (走 blur 那一下, 只加一次)。
-              if (names.includes(e.target.value)) e.currentTarget.blur()
-            }}
-            className="h-6 w-[88px] rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-bg)] px-1.5 text-[12px] outline-none"
-          />
-          <datalist id={listId}>
-            {names.map((n) => (
-              <option key={n} value={n} />
-            ))}
-          </datalist>
-        </>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setAdding(true)}
-          className="rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-1.5 py-0.5 text-[11px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
-        >
-          ＋ 人
-        </button>
-      )}
+      <input
+        list={listId}
+        value={draft}
+        placeholder={value.length === 0 ? '打姓名 · 回车' : '＋'}
+        onChange={(e) => {
+          const v = e.target.value
+          // 打了分隔符 (逗号、空格…) 就把前面的名字加上。
+          if (/[,，、;；\s]$/.test(v)) commit(v)
+          else setDraft(v)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            commit(draft)
+          }
+          // 录入那一行里退格能删掉最后一个人; 表里已经存下的不这么删, 免得手滑。
+          if (e.key === 'Backspace' && onDraft && !draft && value.length > 0)
+            removeName(value[value.length - 1].name)
+        }}
+        onBlur={() => draft.trim() && commit(draft)}
+        className={`h-6 min-w-[64px] flex-1 bg-transparent px-1 text-[12px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] ${
+          value.length === 0 ? 'w-[96px]' : 'w-[48px]'
+        }`}
+      />
+      <datalist id={listId}>
+        {names.map((n) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
     </span>
   )
 }
