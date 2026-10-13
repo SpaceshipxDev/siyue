@@ -1077,22 +1077,35 @@ async function selectAllIn(
   if (values.length === 0) return []
   if (also && also.values.length === 0) return []
   const IN_CHUNK = 100
-  const out: AnyRow[] = []
+  const chunks: string[][] = []
   for (let i = 0; i < values.length; i += IN_CHUNK) {
-    const chunk = values.slice(i, i + IN_CHUNK)
-    let from = 0
-    while (true) {
-      let q = supabase.from(table).select('*').in(column, chunk)
-      if (also) q = q.in(also.column, also.values)
-      const { data, error } = await q.range(from, from + PAGE_SIZE - 1)
-      if (error) throw error
-      const rows = (data ?? []) as AnyRow[]
-      out.push(...rows)
-      if (rows.length < PAGE_SIZE) break
-      from += PAGE_SIZE
+    chunks.push(values.slice(i, i + IN_CHUNK))
+  }
+  // 几块同时取, 不再一块等一块 —— 零件多的单子原来要排好几趟队。同时在路上
+  // 的块数限住, 别一下把整张总表的请求全压出去。拼回来的顺序跟原来一样。
+  const results: AnyRow[][] = new Array(chunks.length)
+  let next = 0
+  const worker = async () => {
+    while (next < chunks.length) {
+      const ci = next++
+      const chunk = chunks[ci]
+      const got: AnyRow[] = []
+      let from = 0
+      while (true) {
+        let q = supabase.from(table).select('*').in(column, chunk)
+        if (also) q = q.in(also.column, also.values)
+        const { data, error } = await q.range(from, from + PAGE_SIZE - 1)
+        if (error) throw error
+        const rows = (data ?? []) as AnyRow[]
+        got.push(...rows)
+        if (rows.length < PAGE_SIZE) break
+        from += PAGE_SIZE
+      }
+      results[ci] = got
     }
   }
-  return out
+  await Promise.all(Array.from({ length: Math.min(6, chunks.length) }, worker))
+  return results.flat()
 }
 
 // Run a SELECT/UPDATE/DELETE whose only large filter is a `.in(col, ids)`
@@ -1244,14 +1257,17 @@ export async function recordMutationResponse(
 async function loadJobSnapshot(jobId: string): Promise<DbSnapshot> {
   await ensureSeeded()
 
-  const [jobR, partsR, returnsR] = await Promise.all([
+  // 出货单只认 jobId, 跟工单、零件同一趟取, 不用排在后面再跑一趟。
+  const [jobR, partsR, returnsR, shipmentsR] = await Promise.all([
     supabase.from('jobs').select('*').eq('id', jobId).maybeSingle(),
     supabase.from('parts').select('*').eq('job_id', jobId),
     supabase.from('returns').select('*').eq('job_id', jobId),
+    supabase.from('shipments').select('*').eq('job_id', jobId),
   ])
   if (jobR.error) throw jobR.error
   if (partsR.error) throw partsR.error
   if (returnsR.error) throw returnsR.error
+  if (shipmentsR.error) throw shipmentsR.error
 
   if (!jobR.data) {
     const empty = {
@@ -1274,19 +1290,22 @@ async function loadJobSnapshot(jobId: string): Promise<DbSnapshot> {
   const jobs = [fromJob(jobR.data as AnyRow)]
   const parts = (partsR.data ?? []).map(fromPart)
   const returns = (returnsR.data ?? []).map(fromReturn)
+  const shipments = (shipmentsR.data ?? []).map(fromShipment)
   const partIds = parts.map((p) => p.id)
   const returnIds = returns.map((r) => r.id)
+  const shipmentIds = shipments.map((s) => s.id)
 
   // Every `.in()` here goes through selectAllIn so the PostgREST 1000-row
   // cap doesn't silently lop off the tail. part_stages is the one that
   // actually trips on real factory jobs (≥112 parts × 9 stages > 1000) —
   // see the selectAll comment for the ghost-state bug that follows when
   // it does.
-  const [partStagesRaw, blockPartsRaw, returnPartsRaw, pinsRaw] =
+  const [partStagesRaw, blockPartsRaw, returnPartsRaw, shipmentPartsRaw, pinsRaw] =
     await Promise.all([
       selectAllIn('part_stages', 'part_id', partIds),
       selectAllIn('outsource_block_parts', 'part_id', partIds),
       selectAllIn('return_parts', 'return_id', returnIds),
+      selectAllIn('shipment_parts', 'shipment_id', shipmentIds),
       (async () => {
         try {
           const { data, error } = await supabase
@@ -1304,22 +1323,12 @@ async function loadJobSnapshot(jobId: string): Promise<DbSnapshot> {
         }
       })(),
     ])
-  const shipmentsR = await supabase
-    .from('shipments')
-    .select('*')
-    .eq('job_id', jobId)
-  if (shipmentsR.error) throw shipmentsR.error
 
   const partStages = partStagesRaw.map(fromPartStage)
   const blockParts = blockPartsRaw.map(fromBlockPart)
   const returnParts = returnPartsRaw.map(fromReturnPart)
-  const shipments = (shipmentsR.data ?? []).map(fromShipment)
+  const shipmentParts = shipmentPartsRaw.map(fromShipmentPart)
   const pins = pinsRaw.map(fromPin)
-
-  const shipmentIds = shipments.map((s) => s.id)
-  const shipmentParts = (
-    await selectAllIn('shipment_parts', 'shipment_id', shipmentIds)
-  ).map(fromShipmentPart)
 
   const blockIds = [...new Set(blockParts.map((bp) => bp.blockId))]
   const outsourceBlocks = (
@@ -4312,12 +4321,16 @@ export async function getJob(id: string): Promise<Job | undefined> {
   if (partIds.length > 0) {
     // Tolerate a not-yet-migrated DB (same posture as job_stage_pins) — the
     // job page must not 500 just because 0048 hasn't been applied.
-    let photoRows: AnyRow[] = []
-    try {
-      photoRows = await selectAllIn('part_photos', 'part_id', partIds)
-    } catch (e) {
-      if (!isMissingTableError(e)) throw e
-    }
+    // 检验照片和图纸变更 (下面) 一趟同时取, 不一个等一个。
+    const scoped = (table: string) =>
+      selectAllIn(table, 'part_id', partIds).catch((e) => {
+        if (!isMissingTableError(e)) throw e
+        return [] as AnyRow[]
+      })
+    const [photoRows, dcRows] = await Promise.all([
+      scoped('part_photos'),
+      scoped('part_drawing_changes'),
+    ])
     const byPart = new Map<string, PartPhoto[]>()
     for (const r of photoRows) {
       const pid = trimPartId(r.part_id as string)
@@ -4339,12 +4352,6 @@ export async function getJob(id: string): Promise<Job | undefined> {
 
     // 图纸变更 revisions — same scoped/merged pattern as 检验照片. Tolerates a
     // pre-0067 DB (renders no badges instead of 500'ing).
-    let dcRows: AnyRow[] = []
-    try {
-      dcRows = await selectAllIn('part_drawing_changes', 'part_id', partIds)
-    } catch (e) {
-      if (!isMissingTableError(e)) throw e
-    }
     const dcByPart = new Map<string, PartDrawingChange[]>()
     for (const r of dcRows) {
       const pid = trimPartId(r.part_id as string)
