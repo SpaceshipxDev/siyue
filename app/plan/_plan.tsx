@@ -65,7 +65,8 @@ export function PlanBoard({
   // 筛选
   const [day, setDay] = useState<string>(todayStr) // '' = 全部日期
   const [person, setPerson] = useState('')
-  const [status, setStatus] = useState<StatusFilter>('all')
+  // 默认只看没做完的 —— 做完的 (手填了完成时间, 或者报工报完了) 自己收进「已完成」。
+  const [status, setStatus] = useState<StatusFilter>('open')
   const [armDelete, setArmDelete] = useState<string | null>(null)
 
   // 记一行
@@ -83,18 +84,17 @@ export function PlanBoard({
     [rows],
   )
 
-  const shown = useMemo(
+  // 先按日期、人员筛, 再分没做完 / 做完。
+  const base = useMemo(
     () =>
       rows.filter(
-        (r) =>
-          (!day || r.date === day) &&
-          (!person || r.workers.some((w) => w.name === person)) &&
-          (status === 'all' || (status === 'done') === isDone(r)),
+        (r) => (!day || r.date === day) && (!person || r.workers.some((w) => w.name === person)),
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows, day, person, status, auto],
+    [rows, day, person],
   )
-  const doneCount = shown.filter(isDone).length
+  const doneCount = base.filter(isDone).length
+  const openCount = base.length - doneCount
+  const shown = status === 'all' ? base : base.filter((r) => (status === 'done') === isDone(r))
 
   function add() {
     if (!jobNo.trim()) return setError('先填工单号')
@@ -269,9 +269,9 @@ export function PlanBoard({
         <div className="flex overflow-hidden rounded-[2px] border border-[var(--color-border)]">
           {(
             [
+              ['open', `未完成 ${openCount}`],
+              ['done', `已完成 ${doneCount}`],
               ['all', '全部'],
-              ['open', '未完成'],
-              ['done', '已完成'],
             ] as const
           ).map(([k, label]) => (
             <button
@@ -288,9 +288,6 @@ export function PlanBoard({
             </button>
           ))}
         </div>
-        <span className="ml-auto text-[12.5px] tabular-nums text-[var(--color-ink-3)]">
-          {shown.length} 行 · 已完成 {doneCount} · 未完成 {shown.length - doneCount}
-        </span>
       </div>
 
       {/* 表 */}
@@ -307,7 +304,11 @@ export function PlanBoard({
         </div>
         {shown.length === 0 ? (
           <p className="px-5 py-12 text-center text-[13px] text-[var(--color-ink-3)]">
-            {rows.length === 0 ? `${stage}还没有计划` : '没有符合的计划'}
+            {rows.length === 0
+              ? `${stage}还没有计划`
+              : status === 'open' && doneCount > 0
+                ? '都做完了，在「已完成」里'
+                : '没有符合的计划'}
           </p>
         ) : (
           shown.map((r) => {
@@ -348,7 +349,10 @@ export function PlanBoard({
                     value={r.doneAt}
                     placeholder={a?.state === 'done' ? '' : '填完成时间…'}
                     className={`text-[12.5px] ${r.doneAt ? 'font-medium text-[var(--color-success)]' : 'text-[var(--color-ink-2)]'}`}
-                    onSave={(v) => patch(r.id, { doneAt: v })}
+                    onSave={async (v) => {
+                      await patch(r.id, { doneAt: v })
+                      if (v.trim() && status === 'open') showToast('做完了，收进「已完成」里')
+                    }}
                   />
                   {!r.doneAt && a && <AutoLine a={a} />}
                 </div>
@@ -391,7 +395,7 @@ export function PlanBoard({
       </div>
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
-        每一格点一下就能改。完成时间手填了就算完成；没填的看报工——这张单在这一道上报完了会自动显示「报工完成」和报工的人。
+        每一格点一下就能改。完成时间手填了就算完成；没填的看报工——这张单在这一道上报完了也算完成。做完的自动收进「已完成」，点上面「已完成」能看到。
         {isProg ? '填了序列号的只看那一个零件。' : '人员点一下可以标正面、反面或者写别的。'}
       </p>
     </div>
