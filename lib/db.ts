@@ -56,6 +56,7 @@ import type { Note, PartDrawingChange } from './data'
 import { isDimRow } from './inspection-report'
 import type { InspectionReport, InspectionReportPatch } from './inspection-report'
 import { buildRows } from './fenqi'
+import { sharedRead } from './shared-read'
 import type { FenqiData, FenqiJob, FenqiLine, FenqiEvent } from './fenqi'
 
 /*
@@ -2003,7 +2004,12 @@ export async function getJobsComponents(
 // Per-stage average flow minutes — the StationSummary "平均工段时长" tile.
 // Fed by the stage_flow_minutes view; null per stage until the view has at
 // least 3 fully-stamped samples for that stage.
-export async function getStageFlowMinutes(): Promise<Map<Stage, number>> {
+// 各工段平均停留 —— 几个月的平均, 五分钟里不会变。
+export function getStageFlowMinutes(): Promise<Map<Stage, number>> {
+  return sharedRead('stage-flow-minutes', 5 * 60_000, loadStageFlowMinutes)
+}
+
+async function loadStageFlowMinutes(): Promise<Map<Stage, number>> {
   const r = await supabase
     .from('stage_flow_minutes')
     .select('stage, avg_minutes')
@@ -2179,7 +2185,15 @@ const EMPTY_MASTER_AGGREGATES: MasterAggregates = {
   byStage: {},
 }
 
-export async function getMasterAggregates(): Promise<MasterAggregates> {
+// 逾期 / 今日 / 在产 —— 每个人的看板顶上都是这几个数, 每次刷新都要整张总表
+// 汇总一遍。同时来的一起等, 十秒内共用; 这边一有写就重算。
+export function getMasterAggregates(): Promise<MasterAggregates> {
+  return sharedRead('master-aggregates', 10_000, loadMasterAggregates, {
+    followWrites: true,
+  })
+}
+
+async function loadMasterAggregates(): Promise<MasterAggregates> {
   await ensureSeeded()
   const r = await supabase
     .from('master_board_summary')
@@ -3190,7 +3204,13 @@ export async function getCustomerStatementLines(
  * 比把全厂几万行零件拉回来求每张单的最大值轻一个数量级。看板上要回答的也就
  * 是一个是非题 ("这是不是大单"), 具体是 12 件还是 300 件, 点进工单去看。
  */
-export async function getJobsWithBigPartQty(
+export function getJobsWithBigPartQty(threshold: number): Promise<Set<string>> {
+  return sharedRead(`big-part-qty:${threshold}`, 60_000, () =>
+    loadJobsWithBigPartQty(threshold),
+  )
+}
+
+async function loadJobsWithBigPartQty(
   threshold: number,
 ): Promise<Set<string>> {
   const out = new Set<string>()
@@ -3418,7 +3438,13 @@ export type OrderMoneyLite = {
   settle?: 'reconciled' | 'paid'
 }
 
-export async function getOrderMoneyLightByJob(): Promise<
+// 五张整表的读 —— 商务打开看板一次就要三份 (页面 + 在产 + 已出货), 几个商务
+// 同时开就是十几份。全厂同一个答案, 二十秒内共用一份 (lib/shared-read)。
+export function getOrderMoneyLightByJob(): Promise<Map<string, OrderMoneyLite>> {
+  return sharedRead('order-money-light', 20_000, loadOrderMoneyLightByJob)
+}
+
+async function loadOrderMoneyLightByJob(): Promise<
   Map<string, OrderMoneyLite>
 > {
   const todayStr = today()

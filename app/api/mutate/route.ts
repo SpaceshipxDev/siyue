@@ -342,6 +342,7 @@ import { removeInspectionPhotoObject } from '@/lib/inspection-photo'
 import { deleteContractFile } from '@/lib/contract-file'
 import { deleteExpenseVoucher } from '@/lib/voucher-file'
 import { filerDeptOf } from '@/lib/hr-dept'
+import { markWritten } from '@/lib/shared-read'
 import { addPlanRow, deletePlanRow, isPlanStage, updatePlanRow, type PlanPatch } from '@/lib/plan'
 
 // Single JSON dispatcher for mutating writes. Every existing inline-edit
@@ -858,6 +859,9 @@ export async function POST(request: NextRequest): Promise<Response> {
       { ok: false, error: message } satisfies Err,
       500,
     )
+  } finally {
+    // 写完了 —— 看板顶上那几个共用的数下次重算 (lib/shared-read)。
+    markWritten()
   }
 
   // dispatch() returns its result via Response.json(). Read it back so we
