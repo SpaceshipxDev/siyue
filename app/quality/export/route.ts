@@ -74,9 +74,10 @@ const COMPLAINT_HEADERS = [
   '责任人',
   '纠正预防措施',
   '损失金额',
+  '备注',
   '记录人',
 ]
-const COMPLAINT_WIDTHS = [12, 22, 16, 10, 28, 28, 22, 12, 32, 12, 12]
+const COMPLAINT_WIDTHS = [12, 22, 16, 10, 28, 28, 22, 12, 32, 12, 28, 12]
 
 const IMPROVE_HEADERS = [
   '日期',
@@ -342,6 +343,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         r.owner,
         r.action,
         r.lossCny,
+        r.note,
         r.by ?? '',
       ])
     }

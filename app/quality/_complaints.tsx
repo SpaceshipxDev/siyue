@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState, useTransition } from 'react'
+import { useCallback, useMemo, useRef, useState, useTransition, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
@@ -10,6 +10,7 @@ import { formatCny } from '@/lib/data'
 import { withBase } from '@/lib/base-path'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { PhotoViewer } from '@/app/_photo_viewer'
+import { imageFromClipboard, usePasteImage } from '@/app/_paste_image'
 import type { Complaint, ComplaintPhoto } from '@/lib/complaints'
 
 // 客诉异常 — 客户那边反馈回来的质量问题。
@@ -35,7 +36,7 @@ const MONTHS = [
 ]
 
 const COLS =
-  'grid-cols-[56px_minmax(0,0.62fr)_96px_44px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.85fr)_60px_minmax(0,1fr)_76px_26px]'
+  'grid-cols-[56px_minmax(0,0.62fr)_96px_44px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.85fr)_60px_minmax(0,1fr)_76px_minmax(0,0.8fr)_26px]'
 
 export function ComplaintsBoard({
   rows,
@@ -79,6 +80,21 @@ export function ComplaintsBoard({
   const fileRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [viewer, setViewer] = useState<{ photos: ComplaintPhoto[]; start: number } | null>(null)
+
+  // 录入那一行也能贴图: 鼠标停在上面 Ctrl+V; 光标在输入框里时, 剪贴板里只有
+  // 图 (微信截图) 也照收 —— 有字就让字照常粘进框里。
+  const formRef = useRef<HTMLDivElement>(null)
+  const addPasted = useCallback((f: File) => setFiles((prev) => [...prev, f]), [])
+  usePasteImage(formRef, addPasted)
+  const onFormPaste = (e: React.ClipboardEvent) => {
+    const t = e.target as HTMLElement
+    if (!(t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
+    if (e.clipboardData.getData('text/plain')) return
+    const f = imageFromClipboard(e.clipboardData)
+    if (!f) return
+    e.preventDefault()
+    addPasted(f)
+  }
 
   const monthRows = useMemo(() => {
     const ym = `${year}-${month}`
@@ -187,7 +203,11 @@ export function ComplaintsBoard({
 
   return (
     <div>
-      <div className="mb-5 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-4 md:px-5">
+      <div
+        ref={formRef}
+        onPaste={onFormPaste}
+        className="mb-5 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-4 md:px-5"
+      >
         <div className="flex flex-wrap items-center gap-2.5">
           <input
             type="date"
@@ -274,7 +294,7 @@ export function ComplaintsBoard({
           <button
             type="button"
             onClick={() => (files.length > 0 ? setFiles([]) : fileRef.current?.click())}
-            title={files.length > 0 ? '点一下清掉重选' : '客户发来的不良照片'}
+            title={files.length > 0 ? '点一下清掉重选' : '客户发来的不良照片 · 截图可以直接 Ctrl+V 粘贴'}
             className={`h-9 shrink-0 rounded-[2px] border border-dashed px-3 text-[12.5px] ${
               files.length > 0
                 ? 'border-[var(--color-ink)] text-[var(--color-ink)]'
@@ -377,6 +397,7 @@ export function ComplaintsBoard({
           <span className="label">责任人</span>
           <span className="label">纠正预防措施</span>
           <span className="label text-right">损失金额</span>
+          <span className="label">备注</span>
           <span />
         </div>
 
@@ -386,8 +407,10 @@ export function ComplaintsBoard({
           </p>
         ) : (
           monthRows.map((r) => (
-            <div
+            <PasteRow
               key={r.id}
+              complaintId={r.id}
+              onChanged={() => router.refresh()}
               className={`grid ${COLS} items-start gap-3 border-b border-[var(--color-border)] px-4 py-2.5 last:border-b-0 hover:bg-[#faf8f2] md:px-5`}
             >
               <span className="mono text-[12.5px] tabular-nums text-[var(--color-ink-2)]">
@@ -454,6 +477,12 @@ export function ComplaintsBoard({
                 money
                 onSave={(v) => patch(r.id, { lossCny: v })}
               />
+              {/* 备注 — 谁都能写、能改。 */}
+              <Cell
+                canEdit
+                value={r.note}
+                onSave={(v) => patch(r.id, { note: v })}
+              />
               <span className="text-right">
                 {canEdit &&
                   (armDelete === r.id ? (
@@ -475,7 +504,7 @@ export function ComplaintsBoard({
                     </button>
                   ))}
               </span>
-            </div>
+            </PasteRow>
           ))
         )}
       </div>
@@ -483,7 +512,7 @@ export function ComplaintsBoard({
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
         客诉是拖着办的——先记下客户说坏了几个，流出原因、处理方式、损失金额和
         纠正预防措施定下来再回来补，还空着的格谁都填得上；填过的要改，找工程或
-        于海伟；不良原因记的人自己也能改。不良图片能传多张，点一下放大。导出的就是屏幕上这一批。
+        于海伟；不良原因记的人自己也能改，备注谁都能改。不良图片能传多张，截图可以把鼠标停在那一行上直接 Ctrl+V 粘贴，点一下放大。导出的就是屏幕上这一批。
       </p>
 
       {viewer && (
@@ -518,6 +547,36 @@ async function uploadComplaintPhotos(
     }
   }
   return null
+}
+
+// 一条客诉的那一行 —— 鼠标停在上面按 Ctrl+V, 剪贴板里的截图就贴到这条上。
+function PasteRow({
+  complaintId,
+  onChanged,
+  className,
+  children,
+}: {
+  complaintId: string
+  onChanged: () => void
+  className: string
+  children: ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const onImage = useCallback(
+    async (f: File) => {
+      const bad = await uploadComplaintPhotos(complaintId, [f])
+      if (bad) showToast(bad, 'warning')
+      else showToast('图贴上了')
+      onChanged()
+    },
+    [complaintId, onChanged],
+  )
+  usePasteImage(ref, onImage)
+  return (
+    <div ref={ref} className={className}>
+      {children}
+    </div>
+  )
 }
 
 // 一条客诉的不良图片 —— 缩略图一排, 点开放大; 末尾一个「＋ 图」。

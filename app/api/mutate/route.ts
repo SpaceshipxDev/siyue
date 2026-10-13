@@ -3607,6 +3607,7 @@ async function dispatch(
         'handling',
         'owner',
         'action',
+        'note',
       ]) {
         if (p[k] !== undefined && !isString(p[k]))
           return err('bad updateComplaint args')

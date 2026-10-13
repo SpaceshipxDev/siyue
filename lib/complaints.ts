@@ -54,6 +54,7 @@ export type Complaint = {
   action: string // 纠正预防措施
   lossCny: number // 损失金额
   photos: ComplaintPhoto[] // 不良图片
+  note: string // 备注 — 谁都能随手写、随手改
   by?: string // 记录人
   createdAt: string
 }
@@ -69,6 +70,7 @@ export type ComplaintPatch = {
   owner?: string
   action?: string
   lossCny?: number
+  note?: string
 }
 
 function money(v: unknown): number {
@@ -124,6 +126,7 @@ function normalize(raw: unknown): Complaint[] {
       action: str(r.action),
       lossCny: money(r.lossCny),
       photos: normalizePhotos(r.photos),
+      note: str(r.note),
       by: str(r.by) || undefined,
       createdAt: str(r.createdAt),
     })
@@ -195,6 +198,7 @@ export async function addComplaint(
       action: input.action.trim(),
       lossCny: money(input.lossCny),
       photos: [],
+      note: '',
       by,
       createdAt: nowIso,
     })
@@ -227,6 +231,8 @@ export async function updateComplaint(
       for (const k of Object.keys(patch) as (keyof ComplaintPatch)[]) {
         if (patch[k] === undefined) continue
         if (k === 'reason' && opts.editor && row.by === opts.editor) continue
+        // 备注是随手记的话, 不是拿来算账的 —— 谁都能改。
+        if (k === 'note') continue
         if (filled(k)) throw new Error('这一格填过了 — 要改找工程或于海伟')
       }
     }
@@ -242,6 +248,7 @@ export async function updateComplaint(
     if (patch.owner !== undefined) row.owner = patch.owner.trim()
     if (patch.action !== undefined) row.action = patch.action.trim()
     if (patch.lossCny !== undefined) row.lossCny = money(patch.lossCny)
+    if (patch.note !== undefined) row.note = patch.note.trim()
     await write(rows)
   })
 }
