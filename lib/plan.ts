@@ -37,6 +37,7 @@ export type PlanRow = {
   seq?: string // 序列号 — 编程: 零件那一行的 # (01 / 1.1)
   machine?: string // 机台号 — 操机 / 车铣 / 手工 / 打磨
   workers: PlanWorker[]
+  due?: string // 计划完成 — 几点前要做完 (HH:mm, 当天)
   doneAt?: string // 完成时间 — 手填的
   note?: string // 备注说明
   reason?: string // 未完成原因说明
@@ -61,6 +62,7 @@ export type PlanPatch = {
   seq?: string
   machine?: string
   workers?: PlanWorker[]
+  due?: string
   doneAt?: string
   note?: string
   reason?: string
@@ -68,6 +70,12 @@ export type PlanPatch = {
 
 function str(v: unknown, max = 500): string {
   return typeof v === 'string' ? v.trim().slice(0, max) : ''
+}
+
+// 计划完成只认 HH:mm —— 别的写法当没填。
+function dueOf(v: unknown): string | undefined {
+  const t = str(v, 5)
+  return /^\d{2}:\d{2}$/.test(t) ? t : undefined
 }
 
 export function isPlanStage(v: unknown): v is PlanStage {
@@ -103,6 +111,7 @@ function normalize(raw: unknown): PlanRow[] {
       seq: str(r.seq, 20) || undefined,
       machine: str(r.machine, 40) || undefined,
       workers: normalizeWorkers(r.workers),
+      due: dueOf(r.due),
       doneAt: str(r.doneAt, 40) || undefined,
       note: str(r.note) || undefined,
       reason: str(r.reason) || undefined,
@@ -166,6 +175,7 @@ export async function addPlanRow(
     seq: str(input.seq, 20) || undefined,
     machine: str(input.machine, 40) || undefined,
     workers: normalizeWorkers(input.workers),
+    due: dueOf(input.due),
     doneAt: str(input.doneAt, 40) || undefined,
     note: str(input.note) || undefined,
     reason: str(input.reason) || undefined,
@@ -197,6 +207,7 @@ export async function updatePlanRow(id: string, patch: PlanPatch): Promise<void>
     if (patch.seq !== undefined) row.seq = str(patch.seq, 20) || undefined
     if (patch.machine !== undefined) row.machine = str(patch.machine, 40) || undefined
     if (patch.workers !== undefined) row.workers = normalizeWorkers(patch.workers)
+    if (patch.due !== undefined) row.due = dueOf(patch.due)
     if (patch.doneAt !== undefined) row.doneAt = str(patch.doneAt, 40) || undefined
     if (patch.note !== undefined) row.note = str(patch.note) || undefined
     if (patch.reason !== undefined) row.reason = str(patch.reason) || undefined

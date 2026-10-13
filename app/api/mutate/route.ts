@@ -457,7 +457,7 @@ async function cacheAndSend(
 // 识的形状整个退回 (null)。
 function planPatchOf(r: Record<string, unknown>): PlanPatch | null {
   const out: PlanPatch = {}
-  for (const k of ['date', 'jobNo', 'seq', 'machine', 'doneAt', 'note', 'reason'] as const) {
+  for (const k of ['date', 'jobNo', 'seq', 'machine', 'due', 'doneAt', 'note', 'reason'] as const) {
     if (r[k] === undefined) continue
     if (!isString(r[k])) return null
     out[k] = r[k] as string

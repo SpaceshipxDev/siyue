@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useMemo, useState, useTransition } from 'react'
+import { useEffect, useId, useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
@@ -78,6 +78,21 @@ export function PlanBoard({
   const [extra, setExtra] = useState('') // 序列号 / 机台号
   const [workers, setWorkers] = useState<PlanWorker[]>([])
   const [workerDraft, setWorkerDraft] = useState('') // 打了还没回车的名字
+  const [due, setDue] = useState('') // 需求完成 HH:mm
+
+  // 现在几点 —— 过了需求完成时间还没做完的标红。装上之后才算, 每分钟走一次
+  // (服务端和浏览器的钟不一样, 先算会对不上)。
+  const [nowKey, setNowKey] = useState('')
+  useEffect(() => {
+    const tick = () => {
+      const d = new Date()
+      const p = (n: number) => String(n).padStart(2, '0')
+      setNowKey(`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`)
+    }
+    tick()
+    const t = window.setInterval(tick, 60_000)
+    return () => window.clearInterval(t)
+  }, [])
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -119,6 +134,7 @@ export function PlanBoard({
                 .filter((n) => !workers.some((w) => w.name === n))
                 .map((name) => ({ name })),
             ],
+            due,
             note: note.trim(),
           },
         })
@@ -126,6 +142,7 @@ export function PlanBoard({
         setExtra('')
         setWorkers([])
         setWorkerDraft('')
+        setDue('')
         setNote('')
         if (day) setDay(date)
         router.refresh()
@@ -172,7 +189,7 @@ export function PlanBoard({
 
   const inp =
     'h-9 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]'
-  const COLS = 'grid-cols-[104px_120px_76px_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_28px]'
+  const COLS = 'grid-cols-[104px_120px_76px_minmax(0,1.3fr)_76px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_28px]'
   const extraLabel = isProg ? '序列号' : '机台号'
 
   return (
@@ -234,6 +251,15 @@ export function PlanBoard({
               onDraft={setWorkerDraft}
             />
           </div>
+          <label className={`${inp} flex items-center gap-1.5`} title="几点前要做完 · 可不填">
+            <span className="text-[12px] text-[var(--color-ink-4)]">需求完成</span>
+            <input
+              type="time"
+              value={due}
+              onChange={(e) => setDue(e.target.value)}
+              className="mono bg-transparent text-[13px] text-[var(--color-ink)] outline-none"
+            />
+          </label>
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -333,6 +359,7 @@ export function PlanBoard({
           <span className="label">工单号</span>
           <span className="label">{extraLabel}</span>
           <span className="label">操作人员</span>
+          <span className="label">需求完成</span>
           <span className="label">完成时间</span>
           <span className="label">备注说明</span>
           <span className="label">未完成原因</span>
@@ -391,6 +418,22 @@ export function PlanBoard({
                   onSave={(v) => patch(r.id, isProg ? { seq: v } : { machine: v })}
                 />
                 <Workers value={r.workers} names={names} sides={!isProg} onChange={(w) => patch(r.id, { workers: w })} />
+                <input
+                  key={r.due ?? ''}
+                  type="time"
+                  defaultValue={r.due ?? ''}
+                  title={!done && r.due && nowKey > `${r.date}T${r.due}` ? '过了需求完成时间还没做完' : '几点前要做完'}
+                  onBlur={(e) => {
+                    const v = e.target.value
+                    if (v !== (r.due ?? ''))
+                      patch(r.id, { due: v }).catch((err) => showToast(err instanceof Error ? err.message : '改不了', 'warning'))
+                  }}
+                  className={`mono -ml-1 w-full bg-transparent text-[12.5px] tabular-nums outline-none ${
+                    !done && r.due && nowKey && nowKey > `${r.date}T${r.due}`
+                      ? 'font-semibold text-[var(--color-overdue)]'
+                      : 'text-[var(--color-ink-2)]'
+                  }`}
+                />
                 <div className="flex min-w-0 flex-col gap-0.5">
                   <EditableText
                     value={r.doneAt}
