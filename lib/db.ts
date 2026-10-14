@@ -9067,6 +9067,22 @@ export async function createReturn(input: CreateReturnInput): Promise<JobReturn>
   })
 }
 
+// 二次交期开单时填一次, 之后跟客户再谈定了, 商务直接改。只改进行中的那条。
+export async function setReturnDueDate(
+  returnId: string,
+  dueDate: string,
+): Promise<void> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) throw new Error('请选择有效的日期')
+  await withWriteLock(async () => {
+    const { error } = await supabase
+      .from('returns')
+      .update({ due_date: dueDate })
+      .eq('id', returnId)
+      .eq('status', 'open')
+    if (error) throw error
+  })
+}
+
 export async function closeReturn(returnId: string): Promise<void> {
   await withWriteLock(async () => {
     const { error } = await supabase

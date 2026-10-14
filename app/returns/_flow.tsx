@@ -37,6 +37,7 @@ export function ReturnFlowPanel({
     cause: boolean
     rework: boolean
     ship: boolean
+    open: boolean
   }
 }) {
   const router = useRouter()
@@ -72,9 +73,12 @@ export function ReturnFlowPanel({
             不良原因 · {row.ret.reason}
             {row.ret.reasonText ? ` — ${row.ret.reasonText}` : ''}
           </p>
-          <p className="mt-1 text-[13px] text-[var(--color-ink-2)]">
-            二次交期 · <span className="mono">{row.ret.dueDate}</span>
-          </p>
+          <DueDateLine
+            returnId={row.ret.id}
+            jobId={row.ret.jobId}
+            value={row.ret.dueDate}
+            canEdit={perms.open}
+          />
         </Section>
 
         {/* ② 处理方案 —— 工程 */}
@@ -345,6 +349,64 @@ function WriteSection({
         <p className="text-[13px] text-[var(--color-ink-3)]">等{owner}填</p>
       )}
     </Section>
+  )
+}
+
+// 二次交期 —— 跟客户再谈定了就直接改, 点日期选一天, 选完即存。
+function DueDateLine({
+  returnId,
+  jobId,
+  value,
+  canEdit,
+}: {
+  returnId: string
+  jobId: string
+  value: string
+  canEdit: boolean
+}) {
+  const router = useRouter()
+  const [date, setDate] = useState(value)
+  const [saved, setSaved] = useState(value)
+  const [pending, start] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  const commit = (next: string) => {
+    setDate(next)
+    // 手敲年份时会一位一位变 (0002 → 0020 → 2026), 敲完整了才存。
+    if (!next || next === saved || next < '2000-01-01') return
+    const prev = saved
+    setSaved(next)
+    setError(null)
+    start(async () => {
+      try {
+        await mutate({ kind: 'setReturnDueDate', returnId, jobId, dueDate: next })
+        router.refresh()
+      } catch (e) {
+        setDate(prev)
+        setSaved(prev)
+        setError(e instanceof Error ? e.message : '保存失败')
+      }
+    })
+  }
+
+  return (
+    <p className="mt-1 flex items-baseline gap-1 text-[13px] text-[var(--color-ink-2)]">
+      二次交期 ·
+      {canEdit ? (
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => commit(e.target.value)}
+          disabled={pending}
+          className="mono cursor-pointer border-b border-dashed border-[var(--color-border-strong)] bg-transparent text-[13px] text-[var(--color-ink)] hover:border-[var(--color-ink)] focus:border-[var(--color-ink)] focus:outline-none disabled:opacity-40"
+        />
+      ) : (
+        <span className="mono">{date}</span>
+      )}
+      {error && (
+        <span className="ml-2 text-[12px] text-[var(--color-overdue)]">{error}</span>
+      )}
+    </p>
   )
 }
 

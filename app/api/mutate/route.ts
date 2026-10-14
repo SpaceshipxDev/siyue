@@ -19,6 +19,7 @@ import {
   assignJobToStage,
   assignToStage,
   closeReturn,
+  setReturnDueDate,
   createDailyFocusItem,
   createExpense,
   createExpenses,
@@ -2286,6 +2287,19 @@ async function dispatch(
       )
       revalidatePath('/returns')
       return Response.json(ok(saved))
+    }
+
+    case 'setReturnDueDate': {
+      const returnId = body.returnId
+      const dueDate = body.dueDate
+      if (!isString(returnId) || !isString(dueDate))
+        return err('bad setReturnDueDate args')
+      await requirePartRouteEditor()
+      await setReturnDueDate(returnId, dueDate)
+      revalidatePath('/')
+      if (isString(body.jobId)) revalidatePath(`/jobs/${body.jobId}`)
+      revalidatePath('/returns')
+      return Response.json(ok())
     }
 
     case 'closeReturn': {
