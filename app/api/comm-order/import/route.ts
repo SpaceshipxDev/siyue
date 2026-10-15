@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     for (const r of parsed.rows) {
       rows.push({ ...r, images: await up(r.images), reqImages: await up(r.reqImages) })
     }
-    const sheet = await addCommOrderRows(jobNo, rows, user.name)
+    const sheet = await addCommOrderRows(jobNo, rows, user.name, parsed.dueDate)
     revalidatePath('/comm')
     return Response.json({ ok: true, jobNo: sheet?.jobNo ?? jobNo, count: rows.length })
   } catch (err) {

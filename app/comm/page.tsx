@@ -8,7 +8,7 @@ import {
   requireUser,
 } from '@/lib/auth'
 import { getMasterRows } from '@/lib/db'
-import { listCommOrders } from '@/lib/comm-order'
+import { cleanJobNo, dueOf, listCommOrders } from '@/lib/comm-order'
 import { CommOrderList } from './_list'
 
 export const dynamic = 'force-dynamic'
@@ -18,6 +18,7 @@ export default async function CommPage() {
   const user = await requireUser()
   if (!canWriteCommSheet(user)) redirect(landingPathFor(user))
   const [sheets, rows] = await Promise.all([listCommOrders(), getMasterRows()])
+  const jobDue = new Map(rows.filter((r) => r.jobNo && r.dueDate).map((r) => [cleanJobNo(r.jobNo).toLowerCase(), r.dueDate]))
   const jobNos = rows
     .filter((r) => r.status !== 'draft' && r.status !== 'failed' && r.status !== 'parsing')
     .map((r) => r.jobNo)
@@ -38,6 +39,7 @@ export default async function CommPage() {
         <CommOrderList
           sheets={sheets.map((s) => ({
             jobNo: s.jobNo,
+            due: dueOf(s.jobNo, s.dueDate, jobDue),
             rounds: s.rows.length,
             by: s.updatedBy ?? '',
             at: s.updatedAt,

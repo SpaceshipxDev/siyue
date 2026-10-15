@@ -10,8 +10,9 @@ import {
 } from '@/lib/comm-order'
 import { roundLabel } from '@/lib/comm-order-label'
 
-// 工单分析沟通确认单 ⇄ Excel。表头照厂里原来那张: 标题一行, 表头两行 (缺失说明
-// 下面还有一行小字), 每次沟通一行, 图片嵌在格子里。用 exceljs (能读写图片)。
+// 工单分析沟通确认单 ⇄ Excel。表头照厂里原来那张: 标题一行, 交期一行, 表头两
+// 行 (缺失说明下面还有一行小字), 每次沟通一行, 图片嵌在格子里。用 exceljs (能
+// 读写图片)。
 
 const FONT = '宋体'
 const THIN = { style: 'thin' as const, color: { argb: 'FF000000' } }
@@ -19,8 +20,8 @@ const BORDER = { top: THIN, left: THIN, bottom: THIN, right: THIN }
 
 const COLS = [
   { head: '序号', width: 10 },
-  { head: '图片', width: 22 },
   { head: '文件名/图号', width: 20 },
+  { head: '图片', width: 22 },
   { head: '文件/图纸要求（截图）', width: 24 },
   { head: '不满足与问题说明', width: 24 },
   { head: '改善建议', width: 24 },
@@ -71,7 +72,10 @@ function shortDay(iso: string): string {
   return iso ? iso.slice(5, 10) : ''
 }
 
-export async function buildCommOrderWorkbook(sheet: CommOrder): Promise<ExcelJS.Workbook> {
+// 表头从第几行起 (标题 · 交期 在上面)。
+const HEAD = 3
+
+export async function buildCommOrderWorkbook(sheet: CommOrder, due: string): Promise<ExcelJS.Workbook> {
   const all = sheet.rows.flatMap((r) => [...r.images, ...r.reqImages].map((x) => x.url))
   const pics = await fetchImages(all)
 
@@ -88,32 +92,39 @@ export async function buildCommOrderWorkbook(sheet: CommOrder): Promise<ExcelJS.
   title.alignment = { horizontal: 'center', vertical: 'middle' }
   ws.getRow(1).height = 40
 
+  ws.mergeCells(2, 1, 2, last)
+  const dueCell = ws.getCell(2, 1)
+  dueCell.value = `交期：${due}`
+  dueCell.font = { name: FONT, size: 12 }
+  dueCell.alignment = { horizontal: 'left', vertical: 'middle' }
+  ws.getRow(2).height = 24
+
   const missingCol = COLS.findIndex((c) => c.head === '缺失说明') + 1
   COLS.forEach((c, i) => {
     const col = i + 1
-    if (col !== missingCol) ws.mergeCells(2, col, 3, col)
-    const cell = ws.getCell(2, col)
+    if (col !== missingCol) ws.mergeCells(HEAD, col, HEAD + 1, col)
+    const cell = ws.getCell(HEAD, col)
     cell.value = c.head
   })
-  ws.getCell(3, missingCol).value = MISSING_SUB
-  for (const r of [2, 3]) {
+  ws.getCell(HEAD + 1, missingCol).value = MISSING_SUB
+  for (const r of [HEAD, HEAD + 1]) {
     for (let col = 1; col <= last; col++) {
       const cell = ws.getCell(r, col)
-      cell.font = { name: FONT, size: r === 3 && col === missingCol ? 10 : 11 }
+      cell.font = { name: FONT, size: r === HEAD + 1 && col === missingCol ? 10 : 11 }
       cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
       cell.border = BORDER
     }
   }
-  ws.getRow(2).height = 24
-  ws.getRow(3).height = 32
+  ws.getRow(HEAD).height = 24
+  ws.getRow(HEAD + 1).height = 32
 
   sheet.rows.forEach((r, i) => {
-    const rowNum = 4 + i
+    const rowNum = HEAD + 2 + i
     const row = ws.getRow(rowNum)
     const values: string[] = [
       roundLabel(i),
-      '',
       r.fileName ?? '',
+      '',
       r.req ?? '',
       r.problem ?? '',
       r.suggestion ?? '',
@@ -155,7 +166,7 @@ export async function buildCommOrderWorkbook(sheet: CommOrder): Promise<ExcelJS.
         })
       })
     }
-    place(a, 1)
+    place(a, 2)
     place(b, 3)
   })
 
@@ -183,7 +194,7 @@ const FIELD_OF: [RegExp, keyof ParsedRow][] = [
 /** 读厂里那种沟通确认单 —— 标题里的工号、每次沟通一行、格子里的图。 */
 export async function parseCommOrderWorkbook(
   buf: ArrayBuffer,
-): Promise<{ jobNo: string; rows: ParsedRow[] }> {
+): Promise<{ jobNo: string; dueDate?: string; rows: ParsedRow[] }> {
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buf)
   const ws = wb.worksheets[0]
@@ -193,6 +204,7 @@ export async function parseCommOrderWorkbook(
 
   // 标题: 「YN-123工单分析沟通确认单」/「YN-123 沟通确认单」。
   let jobNo = ''
+  let dueDate: string | undefined
   let headRow = 0
   for (let r = 1; r <= Math.min(ws.rowCount, 15); r++) {
     for (let c = 1; c <= Math.max(ws.columnCount, 1); c++) {
@@ -203,6 +215,11 @@ export async function parseCommOrderWorkbook(
         if (raw && !/^x+$/i.test(raw)) jobNo = raw
       }
       if (!headRow && t === '序号') headRow = r
+      // 「交期：2026-10-20」/「交期 10/20」—— 一格里写全, 或者标签和日期分两格。
+      if (!dueDate && !headRow && /交期/.test(t)) {
+        const d = ymd(t.replace(/.*交期[:：\s]*/, '')) ?? ymd(text(r, c + 1)) ?? ymdCell(ws.getCell(r, c + 1).value)
+        if (d) dueDate = d
+      }
     }
   }
   if (!headRow) throw new Error('没找到表头（序号那一行）')
@@ -256,5 +273,17 @@ export async function parseCommOrderWorkbook(
     }
     if (any) rows.push(out)
   }
-  return { jobNo, rows }
+  return { jobNo, dueDate, rows }
+}
+
+function ymd(t: string): string | undefined {
+  const m = t.trim().match(/^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/)
+  if (!m) return undefined
+  return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+}
+
+function ymdCell(v: ExcelJS.CellValue): string | undefined {
+  if (!(v instanceof Date)) return undefined
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${v.getUTCFullYear()}-${p(v.getUTCMonth() + 1)}-${p(v.getUTCDate())}`
 }

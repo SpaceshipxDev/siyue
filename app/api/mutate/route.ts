@@ -351,6 +351,7 @@ import {
   deleteCommOrderRow,
   isCommOrderImageField,
   isCommOrderTextField,
+  setCommOrderDueDate,
   updateCommOrderRow,
 } from '@/lib/comm-order'
 
@@ -4793,6 +4794,16 @@ async function dispatch(
       const u = await requireUser()
       if (!canWriteCommSheet(u)) return err('沟通确认单由工程或商务填', 403)
       const sheet = await updateCommOrderRow(jobNo, rowId, field, text, u.name)
+      revalidatePath('/comm')
+      return Response.json(ok({ sheet }))
+    }
+
+    case 'commOrderSetDue': {
+      const { jobNo, dueDate } = body
+      if (!isString(jobNo) || !jobNo.trim() || !isString(dueDate)) return err('bad commOrderSetDue args')
+      const u = await requireUser()
+      if (!canWriteCommSheet(u)) return err('沟通确认单由工程或商务填', 403)
+      const sheet = await setCommOrderDueDate(jobNo, dueDate, u.name)
       revalidatePath('/comm')
       return Response.json(ok({ sheet }))
     }

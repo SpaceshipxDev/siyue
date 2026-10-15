@@ -7,7 +7,7 @@ import {
   landingPathFor,
   requireUser,
 } from '@/lib/auth'
-import { cleanJobNo, getCommOrder } from '@/lib/comm-order'
+import { cleanJobNo, getCommOrder, jobDueDates } from '@/lib/comm-order'
 import { CommOrderSheet } from './_sheet'
 
 export const dynamic = 'force-dynamic'
@@ -26,7 +26,7 @@ export default async function CommSheetPage({ params }: { params: Promise<{ no: 
   if (!canWriteCommSheet(user)) redirect(landingPathFor(user))
   const no = cleanJobNo(decode((await params).no))
   if (!no) redirect('/comm')
-  const sheet = await getCommOrder(no)
+  const [sheet, jobDue] = await Promise.all([getCommOrder(no), jobDueDates()])
   return (
     <div className="min-h-dvh bg-[var(--color-bg)]">
       <TopBar
@@ -40,7 +40,13 @@ export default async function CommSheetPage({ params }: { params: Promise<{ no: 
         canSeeFinance={canSeeOrderLedger(user)}
       />
       <main className="w-full px-4 py-8 md:px-10">
-        <CommOrderSheet key={sheet?.updatedAt ?? no} jobNo={sheet?.jobNo ?? no} initial={sheet?.rows ?? []} />
+        <CommOrderSheet
+          key={sheet?.updatedAt ?? no}
+          jobNo={sheet?.jobNo ?? no}
+          initial={sheet?.rows ?? []}
+          initialDue={sheet?.dueDate ?? ''}
+          jobDue={jobDue.get(cleanJobNo(sheet?.jobNo ?? no).toLowerCase()) ?? ''}
+        />
       </main>
     </div>
   )

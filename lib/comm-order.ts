@@ -1,13 +1,14 @@
 import 'server-only'
 import { supabase, STORAGE_BUCKET } from './supabase'
 import { proxiedKeyUrl, storageKeyFromUrl } from './storage-url'
+import { getMasterRows } from './db'
 
 /*
  * 工单分析沟通确认单 —— 工程跟客户一次次沟通的记录, 一个工号一张表。
  *
- * 表头照厂里原来那张 Excel: 序号 (第几次沟通) · 图片 · 文件名/图号 · 文件/图纸
+ * 表头照厂里原来那张 Excel: 序号 (第几次沟通) · 文件名/图号 · 图片 · 文件/图纸
  * 要求 (截图) · 不满足与问题说明 · 改善建议 · 缺失说明 · 客户确认结果 · 客户对
- * 接人, 再加一列记录人 (谁、哪天记的)。按工号找, 能导入原来的 Excel, 也能按
+ * 接人, 再加一列记录人 (谁、哪天记的); 标题下面一个交期。按工号找, 能导入原来的 Excel, 也能按
  * 工号导出成同样的 Excel。
  *
  * 跟工单页上那张 (已取消的) 沟通单不是一回事, 那张按七个沟通项排。
@@ -35,6 +36,8 @@ export type CommOrderRow = {
 
 export type CommOrder = {
   jobNo: string
+  /** 交期 YYYY-MM-DD —— 手填的; 没填就看系统里这个工号的工单交期 (jobDueDates)。 */
+  dueDate?: string
   rows: CommOrderRow[]
   createdBy?: string
   createdAt: string
@@ -120,8 +123,10 @@ function sheet(jobNo: string, v: unknown): CommOrder | undefined {
   const rows = Array.isArray(r.rows)
     ? (r.rows as unknown[]).map(row).filter((x): x is CommOrderRow => !!x)
     : []
+  const due = str(r.dueDate, 10)
   return {
     jobNo,
+    dueDate: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : undefined,
     rows,
     createdBy: str(r.createdBy, 40) || undefined,
     createdAt: str(r.createdAt, 40),
@@ -179,7 +184,7 @@ function uid(): string {
   return `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-/** 改一张表 —— 没有就新开一张; 改完一行都不剩的, 这张表也去掉。 */
+/** 改一张表 —— 没有就新开一张; 改完一行都不剩、也没填交期的, 这张表也去掉。 */
 async function edit(
   jobNo: string,
   by: string,
@@ -195,7 +200,7 @@ async function edit(
     fn(s)
     s.updatedBy = by
     s.updatedAt = now
-    if (s.rows.length > 0) all[k] = s
+    if (s.rows.length > 0 || s.dueDate) all[k] = s
     else delete all[k]
     await write(all)
     return all[k]
@@ -210,10 +215,37 @@ export async function addCommOrderRows(
   jobNo: string,
   rows: Omit<CommOrderRow, 'id' | 'by' | 'at'>[],
   by: string,
+  dueDate?: string,
 ): Promise<CommOrder | undefined> {
   return edit(jobNo, by, (s) => {
     for (const r of rows) s.rows.push({ ...blankRow(by), ...r })
+    if (dueDate && !s.dueDate) s.dueDate = dueDate
   })
+}
+
+/** 交期 —— 空的就是不手填了, 回到按工单。 */
+export async function setCommOrderDueDate(
+  jobNo: string,
+  dueDate: string,
+  by: string,
+): Promise<CommOrder | undefined> {
+  if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) throw new Error('日期不对')
+  return edit(jobNo, by, (s) => {
+    s.dueDate = dueDate || undefined
+  })
+}
+
+/** 系统里各工号的工单交期 (小写工号 → YYYY-MM-DD), 沟通单没手填交期时用它。 */
+export async function jobDueDates(): Promise<Map<string, string>> {
+  const rows = await getMasterRows()
+  const out = new Map<string, string>()
+  for (const r of rows) if (r.jobNo && r.dueDate) out.set(cleanJobNo(r.jobNo).toLowerCase(), r.dueDate)
+  return out
+}
+
+/** 这张沟通单的交期 —— 手填的优先, 没有就按工单。 */
+export function dueOf(jobNo: string, own: string | undefined, jobDue: Map<string, string>): string {
+  return own || jobDue.get(cleanJobNo(jobNo).toLowerCase()) || ''
 }
 
 export async function updateCommOrderRow(

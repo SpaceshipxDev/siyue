@@ -26,8 +26,8 @@ type Col =
   | { kind: 'image'; field: CommOrderImageField; head: string; w: number; text?: CommOrderTextField }
 
 const COLS: Col[] = [
-  { kind: 'image', field: 'images', head: '图片', w: 170 },
   { kind: 'text', field: 'fileName', head: '文件名/图号', w: 150 },
+  { kind: 'image', field: 'images', head: '图片', w: 170 },
   { kind: 'image', field: 'reqImages', head: '文件/图纸要求（截图）', w: 210, text: 'req' },
   { kind: 'text', field: 'problem', head: '不满足与问题说明', w: 200 },
   { kind: 'text', field: 'suggestion', head: '改善建议', w: 190 },
@@ -46,12 +46,28 @@ const th =
   'border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-2 text-center text-[12px] font-medium text-[var(--color-ink-2)] align-middle'
 const td = 'border border-[var(--color-border)] px-2 py-1.5 align-top text-[13px] text-[var(--color-ink)]'
 
-export function CommOrderSheet({ jobNo, initial }: { jobNo: string; initial: CommOrderRow[] }) {
+export function CommOrderSheet({
+  jobNo,
+  initial,
+  initialDue,
+  jobDue,
+}: {
+  jobNo: string
+  initial: CommOrderRow[]
+  /** 手填的交期 */
+  initialDue: string
+  /** 系统里这个工号的工单交期 —— 没手填时显示它 */
+  jobDue: string
+}) {
   const router = useRouter()
   const [rows, setRows] = useState(initial)
+  const [due, setDue] = useState(initialDue)
   const [adding, setAdding] = useState(false)
 
-  const apply = (sheet?: CommOrder) => setRows(sheet?.rows ?? [])
+  const apply = (sheet?: CommOrder) => {
+    setRows(sheet?.rows ?? [])
+    setDue(sheet?.dueDate ?? '')
+  }
   const call = async (body: Record<string, unknown> & { kind: string }) => {
     const res = await mutate<{ sheet?: CommOrder }>({ ...body, jobNo })
     apply(res.data?.sheet)
@@ -87,9 +103,31 @@ export function CommOrderSheet({ jobNo, initial }: { jobNo: string; initial: Com
         </span>
       </div>
 
-      <h2 className="mb-5 text-center text-[24px] font-semibold tracking-tight text-[var(--color-ink)]">
+      <h2 className="text-center text-[24px] font-semibold tracking-tight text-[var(--color-ink)]">
         <span className="mono">{jobNo}</span>工单分析沟通确认单
       </h2>
+
+      {/* 交期 —— 没手填就是系统里这张工单的交期; 改了就按改的。 */}
+      <label className="mb-5 mt-2 flex items-baseline justify-center gap-2 text-[13px] text-[var(--color-ink-2)]">
+        交期
+        <input
+          type="date"
+          value={due || jobDue}
+          onChange={(e) => {
+            const v = e.target.value
+            if (v && v < '2000-01-01') return
+            if (v === (due || jobDue)) return
+            const prev = due
+            setDue(v)
+            call({ kind: 'commOrderSetDue', dueDate: v }).catch((err) => {
+              setDue(prev)
+              showToast(err instanceof Error ? err.message : '改不了', 'warning')
+            })
+          }}
+          className="mono border-b border-dashed border-[var(--color-border-strong)] bg-transparent text-[14px] text-[var(--color-ink)] outline-none hover:border-[var(--color-ink)] focus:border-[var(--color-ink)]"
+        />
+        {!due && jobDue && <span className="text-[11.5px] text-[var(--color-ink-4)]">按工单</span>}
+      </label>
 
       <div className="overflow-x-auto">
         <table className="mx-auto border-collapse bg-[var(--color-surface)]">

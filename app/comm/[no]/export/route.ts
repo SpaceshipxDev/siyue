@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 import { canWriteCommSheet, landingPathFor, requireUser } from '@/lib/auth'
-import { commOrderTitle, getCommOrder } from '@/lib/comm-order'
+import { commOrderTitle, dueOf, getCommOrder, jobDueDates } from '@/lib/comm-order'
 import { buildCommOrderWorkbook } from '@/lib/comm-order-xlsx'
 import { contentDisposition } from '@/lib/content-disposition'
 
@@ -19,7 +19,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ no: string }> 
   } catch {}
   const sheet = await getCommOrder(jobNo)
   if (!sheet) notFound()
-  const wb = await buildCommOrderWorkbook(sheet)
+  const wb = await buildCommOrderWorkbook(sheet, dueOf(sheet.jobNo, sheet.dueDate, await jobDueDates()))
   const body = await wb.xlsx.writeBuffer()
   return new Response(body, {
     headers: {

@@ -8,7 +8,7 @@ import { withBase } from '@/lib/base-path'
 // 沟通单列表 —— 输工号: 有就点开, 没有就新开一张。导入原来的 Excel 也在这里,
 // 工号认标题。
 
-export type CommOrderBrief = { jobNo: string; rounds: number; by: string; at: string }
+export type CommOrderBrief = { jobNo: string; due: string; rounds: number; by: string; at: string }
 
 export const commHref = (jobNo: string) => `/comm/${encodeURIComponent(jobNo)}`
 
@@ -70,6 +70,9 @@ export function CommOrderList({ sheets, jobNos }: { sheets: CommOrderBrief[]; jo
             >
               <span className="mono w-40 shrink-0 truncate text-[13px] font-medium text-[var(--color-ink)]">
                 {s.jobNo}
+              </span>
+              <span className="mono w-28 shrink-0 text-[12.5px] text-[var(--color-ink-2)]">
+                {s.due ? `交期 ${s.due.slice(5)}` : ''}
               </span>
               <span className="flex-1 text-[13px] text-[var(--color-ink-2)]">
                 沟通 {s.rounds} 次
