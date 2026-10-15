@@ -30,8 +30,6 @@ import { shanghaiDay } from '@/lib/today'
 import { getContractFiles } from '@/lib/contract-file'
 import { getDrawingFiles } from '@/lib/drawing-file'
 import { getNcPrograms } from '@/lib/nc-program-store'
-import { getCommSheet } from '@/lib/comm-sheet-store'
-import { commProgress } from '@/lib/comm-sheet'
 import { findReusable, reuseKey, type NcProgram } from '@/lib/nc-program'
 import { BRAND } from '@/lib/brand'
 import {
@@ -45,7 +43,6 @@ import {
   canManageOutsource,
   canRenameUploadedJob,
   canUploadDrawing,
-  canWriteCommSheet,
   canWriteNcProgram,
   canSeeCustomerData,
   canSeeMoney,
@@ -105,7 +102,6 @@ import { PartDrawingChange } from '@/app/_part_drawing_change'
 import { ShippingComposerButton } from '@/app/_shipping'
 import { ShipmentHistoryButton } from '@/app/_shipment_history'
 import { ProgrammingTab } from '@/app/_programming'
-import { CommSheetPanel } from '@/app/_comm_sheet'
 import { JobTypeEditor } from '@/app/_type_chip'
 import { DeletePartButton } from './_part_delete'
 import { DeleteOrderButton } from './_job_delete'
@@ -147,7 +143,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
     contractFiles,
     drawingFiles,
     allPrograms,
-    commSheet,
     incomingLinks,
   ] = await Promise.all([
       getJob(id),
@@ -155,7 +150,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
       showMoney ? getContractFiles(id) : Promise.resolve([]),
       getDrawingFiles(id),
       getNcPrograms(),
-      getCommSheet(id),
       // 检验判不良时选了「外协」的那几格 —— 弹窗打开时要记得是外协。
       getInspectionLinks(id).catch(() => new Set<string>()),
     ])
@@ -342,21 +336,12 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
     badge: partsMissingDrawing > 0 ? String(partsMissingDrawing) : undefined,
     alarm: partsMissingDrawing > 0,
   }
-  // 沟通单 — 跟客户谈定的技术细节。全厂可读 (喷漆、丝印那几段本来就是写给他
-  // 们看的), 工程和商务可写。tab 上的数字是"几项已有结论"。
-  const commDone = commProgress(commSheet)
-  const commTab = {
-    key: 'comm',
-    label: '沟通单',
-    badge:
-      commDone.agreed > 0 ? `${commDone.agreed}/${commDone.total}` : undefined,
-    alarm: false,
-  }
+  // 沟通单 2026-10-15 取消了 (于海伟)。填过的还存着 (lib/comm-sheet-store),
+  // 只是工单页上不再挂这一栏。
   const jobTabs = [
     ...(isProgrammer ? [programmingTab] : []),
     { key: 'parts', label: '零件' },
     ...(isProgrammer ? [] : [programmingTab]),
-    commTab,
     ...(canManageOutsource(user)
       ? [
           {
@@ -1195,18 +1180,6 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               reuse={programReuse}
               canUpload={canUploadDrawing(user)}
               canWrite={canWriteNcProgram(user)}
-            />
-          </div>
-
-          {/* 沟通单 — 工程部跟客户把技术细节谈定的那张纸。 */}
-          <div data-jobtab="comm" hidden>
-            <CommSheetPanel
-              jobId={job.id}
-              jobNo={job.jobNo}
-              productName={job.product}
-              initial={commSheet}
-              canWrite={canWriteCommSheet(user)}
-              myStage={user.defaultStage}
             />
           </div>
 
