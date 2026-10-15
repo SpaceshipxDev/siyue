@@ -41,8 +41,9 @@ const TONE: Record<PartStageFilterKind, StatusTone> = {
 }
 
 type PartFilterCtx = {
-  statusByStage: Partial<Record<Stage, PartStageFilterKind>>
-  setStageStatus: (stage: Stage, kind: PartStageFilterKind | null) => void
+  statusByStage: Partial<Record<Stage, PartStageFilterKind[]>>
+  /** 勾上 / 去掉一种状态; kind 为 null = 这一列不筛了。 */
+  toggleStageStatus: (stage: Stage, kind: PartStageFilterKind | null) => void
   clearAll: () => void
   countsFor: (stage: Stage) => FacetCounts
   activeStageCount: number
@@ -77,16 +78,19 @@ export function JobPartFilterProvider({
   children: ReactNode
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  // 一列可以勾好几种状态 (于海伟 2026-10-15), 零件落在其中一种就留下。
   const [statusByStage, setStatusByStage] = useState<
-    Partial<Record<Stage, PartStageFilterKind>>
+    Partial<Record<Stage, PartStageFilterKind[]>>
   >({})
 
-  const setStageStatus = useCallback(
+  const toggleStageStatus = useCallback(
     (stage: Stage, kind: PartStageFilterKind | null) =>
       setStatusByStage((prev) => {
         const next = { ...prev }
-        if (kind === null) delete next[stage]
-        else next[stage] = kind
+        const cur = prev[stage] ?? []
+        const list = kind === null ? [] : cur.includes(kind) ? cur.filter((k) => k !== kind) : [...cur, kind]
+        if (list.length === 0) delete next[stage]
+        else next[stage] = list
         return next
       }),
     [],
@@ -105,7 +109,7 @@ export function JobPartFilterProvider({
       for (const s of STAGES) {
         const v = statusByStage[s]
         if (!v || s === except) continue
-        if (code[STAGE_INDEX[s]] !== PART_STAGE_CODE[v]) return false
+        if (!v.some((k) => code[STAGE_INDEX[s]] === PART_STAGE_CODE[k])) return false
       }
       return true
     },
@@ -161,7 +165,7 @@ export function JobPartFilterProvider({
 
   const value: PartFilterCtx = {
     statusByStage,
-    setStageStatus,
+    toggleStageStatus,
     clearAll,
     countsFor,
     activeStageCount,
@@ -198,9 +202,9 @@ export function JobPartFilterProvider({
 // board carries in its column headers, sliced to this job's parts. Idle = a
 // caret; once a status is picked it becomes a filled funnel.
 export function JobPartStageFunnel({ stage }: { stage: Stage }) {
-  const { statusByStage, setStageStatus, countsFor } = usePartFilter()
+  const { statusByStage, toggleStageStatus, countsFor } = usePartFilter()
   const counts = countsFor(stage)
-  const value = statusByStage[stage] ?? 'all'
+  const value = statusByStage[stage] ?? []
   const rows: FunnelRow[] = PART_STAGE_FILTER_ORDER.map((k) => ({
     key: k,
     label: PART_STAGE_FILTER_LABEL[k],
@@ -220,9 +224,8 @@ export function JobPartStageFunnel({ stage }: { stage: Stage }) {
       align={align}
       ariaLabel={`筛选 ${stage} 状态`}
       title={`按状态筛选 · ${stage}`}
-      onChange={(next) =>
-        setStageStatus(stage, next === 'all' ? null : (next as PartStageFilterKind))
-      }
+      onToggle={(k) => toggleStageStatus(stage, k as PartStageFilterKind)}
+      onClear={() => toggleStageStatus(stage, null)}
     />
   )
 }

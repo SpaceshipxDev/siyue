@@ -109,24 +109,26 @@ export function FilterFunnel({
   allLabel,
   allCount,
   rows,
-  onChange,
+  onToggle,
+  onClear,
   align = 'left',
   ariaLabel,
   title,
 }: {
-  /** Selected key — 'all' or one of rows[].key. */
-  value: string
+  /** 勾上的那几个 rows[].key —— 空的就是「全部」。可以勾好几个。 */
+  value: string[]
   allLabel: string
   allCount: number
   rows: FunnelRow[]
-  onChange: (next: string) => void
+  onToggle: (key: string) => void
+  onClear: () => void
   align?: 'left' | 'right'
   ariaLabel: string
   title: string
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLSpanElement>(null)
-  const active = value !== 'all'
+  const active = value.length > 0
 
   useEffect(() => {
     if (!open) return
@@ -166,6 +168,7 @@ export function FilterFunnel({
       {open && (
         <div
           role="listbox"
+          aria-multiselectable="true"
           aria-label={ariaLabel}
           className={`absolute top-[calc(100%+8px)] z-40 min-w-[148px] overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] py-1 text-left shadow-[0_10px_34px_-12px_rgba(20,19,15,0.28)] ${
             align === 'right' ? 'right-0' : 'left-0'
@@ -174,9 +177,9 @@ export function FilterFunnel({
           <FilterMenuRow
             label={allLabel}
             count={allCount}
-            active={value === 'all'}
+            active={!active}
             onClick={() => {
-              onChange('all')
+              onClear()
               setOpen(false)
             }}
           />
@@ -187,13 +190,13 @@ export function FilterFunnel({
               label={r.label}
               count={r.count}
               tone={r.tone}
-              active={value === r.key}
-              onClick={() => {
-                onChange(r.key)
-                setOpen(false)
-              }}
+              active={value.includes(r.key)}
+              onClick={() => onToggle(r.key)}
             />
           ))}
+          <p className="border-t border-[var(--color-border)] mt-1 px-3 pt-1.5 pb-0.5 text-[11px] text-[var(--color-ink-4)]">
+            可以点好几种 · 点别处收起
+          </p>
         </div>
       )}
     </span>
