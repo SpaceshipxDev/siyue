@@ -768,7 +768,7 @@ const STAGE_SCOPE_BY_USER_ID: Record<string, StageScope> = {
   // — 工程 (the real team) — routing owners act anywhere —
   'u-mose92lt-a0cutz': 'all', // 于海伟
   'u-mose0apu-9ugtd8': 'all', // 周江华
-  'u-mpc3rcje-6987yo': 'all', // 程江华
+  'u-mpc3rcje-6987yo': ['编程', '操机'], // 程江华 — 于海伟 2026-10-15: 只报编程、操机
   'u-mroawaab-g84mo6': 'all', // 彭炳才
   'u-mose7y1k-r91xn7': 'all', // 涂明杰
   'u-mose8blz-dnkt24': 'all', // 工程003
@@ -824,8 +824,14 @@ function fallbackStageScope(u: AuthUser): StageScope {
   return u.defaultStage ? [u.defaultStage] : []
 }
 
+// 按人名定的 —— 一个人换了 / 多开了账号也认得出。程江华只报编程、操机 (于海伟
+// 2026-10-15), 不管他登的是哪个号。
+const STAGE_SCOPE_BY_NAME: [string, StageScope][] = [['程江华', ['编程', '操机']]]
+
 export function stageScopeFor(u: AuthUser): StageScope {
   if (isAdminUser(u.id)) return 'all'
+  const byName = STAGE_SCOPE_BY_NAME.find(([n]) => u.name.includes(n))
+  if (byName) return byName[1]
   return STAGE_SCOPE_BY_USER_ID[u.id] ?? fallbackStageScope(u)
 }
 
