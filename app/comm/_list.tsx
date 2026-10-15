@@ -56,6 +56,14 @@ export function CommOrderList({ sheets, jobNos }: { sheets: CommOrderBrief[]; jo
         </button>
       )}
 
+      {/* 下面这张就是沟通过的工单 —— 写明白, 不然看着像一张待办。 */}
+      <p className="mb-2 flex items-baseline gap-2 text-[12.5px] text-[var(--color-ink-2)]">
+        已沟通的工单
+        <span className="mono text-[var(--color-ink-3)]">
+          {needle ? `${shown.length} / ${sheets.length}` : sheets.length}
+        </span>
+        <span className="ml-auto text-[11.5px] text-[var(--color-ink-4)]">点一行打开</span>
+      </p>
       <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
         {shown.length === 0 ? (
           <p className="px-5 py-12 text-center text-[13px] text-[var(--color-ink-3)]">
