@@ -2,13 +2,14 @@
 
 import { useEffect, useSyncExternalStore } from 'react'
 import { withBase } from '@/lib/base-path'
+import type { SubStep } from '@/lib/data'
 
-// 喷漆格子要知道底漆 / 面漆做到哪一步 (lib/spray-steps)。一页上几十上百个喷漆
+// 喷漆 / 操机格子要知道两小步做到哪一步 (lib/spray-steps)。一页上几十上百个
 // 格子, 不能一格一请求: 同一刻要的工单并成一批去拿, 拿回来放在这里, 格子从这
 // 里读; 点了底漆先在这里改掉, 屏幕马上跟着变。
 
 export type StepMark = { by: string; at: string }
-export type PartSteps = { 底漆?: StepMark; 面漆?: StepMark }
+export type PartSteps = Partial<Record<SubStep, StepMark>>
 
 const store = new Map<string, PartSteps>()
 const loaded = new Set<string>()
@@ -49,7 +50,7 @@ function request(jobId: string) {
 export function setLocalStep(
   jobId: string,
   componentId: string,
-  step: '底漆' | '面漆',
+  step: SubStep,
   mark: StepMark | null,
 ) {
   const k = `${jobId}|${componentId}`

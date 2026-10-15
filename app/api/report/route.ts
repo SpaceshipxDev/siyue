@@ -1,5 +1,5 @@
 import { currentUser, canSeeReport, canSeeMoney } from '@/lib/auth'
-import { PICK_WORKER_STAGES, STAGES, type Stage } from '@/lib/data'
+import { PICK_WORKER_STAGES, STAGES, stageOfStep, type Stage } from '@/lib/data'
 import { getPersonSplits, workSplitKey } from '@/lib/work-split'
 import { shanghaiRangeWindow } from '@/lib/today'
 import {
@@ -211,8 +211,8 @@ async function personOutput(
   showMoney: boolean,
 ): Promise<PersonRow[]> {
   const entries = await getPersonSplits()
-  // 每件多少钱 —— 底漆、面漆是喷漆里的小步, 价钱按喷漆那一道拿。
-  const eventStage = (st: string) => (st === '底漆' || st === '面漆' ? '喷漆' : st)
+  // 每件多少钱 —— 底漆、面漆是喷漆里的小步, 正面、反面是操机里的, 价钱按那一道拿。
+  const eventStage = (st: string) => stageOfStep(st) ?? st
   const inWindow = (at?: string) => !!at && at >= window.from && at < window.to
   const shown = entries.filter(
     (e) => (!stage || eventStage(e.stage) === stage) && e.shares.some((sh) => inWindow(sh.at)),
@@ -221,7 +221,7 @@ async function personOutput(
     ? await getPerPieceValues(shown.map((e) => ({ partId: e.partId, stage: eventStage(e.stage) })))
     : new Map<string, number>()
   const byName = new Map<string, PersonRow>()
-  // 喷漆里的底漆、面漆是分开记的 —— 选「喷漆」时一起列出来。
+  // 底漆、面漆 / 正面、反面是分开记的 —— 选「喷漆」/「操机」时一起列出来。
   for (const e of shown) {
     for (const sh of e.shares) {
       if (!sh.at || !inWindow(sh.at)) continue
@@ -232,8 +232,8 @@ async function personOutput(
       }
       p.finishes += 1
       p.pieces = Math.round((p.pieces + sh.qty) * 100) / 100
-      // 底漆、面漆是喷漆那一道 (5%) 的两半 —— 平分, 各拿一半, 合起来还是一道。
-      const share = e.stage === '底漆' || e.stage === '面漆' ? 0.5 : 1
+      // 两小步是那一道 (5%) 的两半 —— 平分, 各拿一半, 合起来还是一道。
+      const share = stageOfStep(e.stage) ? 0.5 : 1
       const value = Math.round(sh.qty * (per.get(workSplitKey(e.partId, eventStage(e.stage))) ?? 0) * share * 100) / 100
       p.valueCny = Math.round((p.valueCny + value) * 100) / 100
       if (sh.at > p.lastTs) p.lastTs = sh.at

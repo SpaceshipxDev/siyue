@@ -336,7 +336,7 @@ import {
 import { logStageAction } from '@/lib/access-log'
 import type { JobType, PlanKey, Stage, Verdict } from '@/lib/data'
 import { rowStageCounts } from '@/lib/master'
-import { isCaiwuSheet, JOB_TYPES, PICK_WORKER_STAGES, STAGES, VERDICTS } from '@/lib/data'
+import { finishStepOf, isCaiwuSheet, JOB_TYPES, PICK_WORKER_STAGES, STAGES, stageOfStep, stepsOf, VERDICTS } from '@/lib/data'
 import { isExpenseCategory } from '@/lib/expenses'
 import { isDimRow, type InspectionReportPatch } from '@/lib/inspection-report'
 import { removeInspectionPhotoObject } from '@/lib/inspection-photo'
@@ -475,7 +475,7 @@ function planPatchOf(r: Record<string, unknown>): PlanPatch | null {
 // clear = 分工框里清空了, 这一条个人记录跟着去掉。
 async function recordPersonOutput(
   jobId: string,
-  // 一道工序, 或者喷漆里的一小步 ('底漆' / '面漆') —— 个人报工按它分开记。
+  // 一道工序, 或者里面的一小步 ('底漆' / '面漆' / '正面' / '反面') —— 个人报工按它分开记。
   stage: Stage | SprayStep,
   by: string,
   items: { componentId: string; shares: WorkShare[] }[],
@@ -500,7 +500,7 @@ async function recordPersonOutput(
 // 出货那一格动了 (点出货 / 填出货数 / 撤销) —— 出货单跟着对齐, 点过出货的就
 // 进对账 (lib/db syncAutoShipments)。对不齐不拦这一下点击, 下回对账页还会补。
 async function syncShipments(jobId: string, stage: Stage, actor: string): Promise<void> {
-  if (stage === '喷漆') return syncSpray(jobId, actor)
+  if (stepsOf(stage)) return syncSteps(jobId, stage, actor)
   if (stage !== '出货') return
   try {
     await syncAutoShipments(jobId, actor)
@@ -510,38 +510,41 @@ async function syncShipments(jobId: string, stage: Stage, actor: string): Promis
   }
 }
 
-// 喷漆那一格动了 (完成 / 撤销, 单个零件或整单) —— 底漆、面漆两小步跟着对齐:
-// 喷漆完成了, 两步都算做完 (没点过底漆的补上); 喷漆退回去了, 面漆跟着撤
-// (底漆留着, 那是真做过的)。见 lib/spray-steps。
-async function syncSpray(jobId: string, actor: string): Promise<void> {
+// 喷漆 / 操机那一格动了 (完成 / 撤销, 单个零件或整单) —— 两小步跟着对齐:
+// 这一道完成了, 两步都算做完 (没点过前一步的补上); 退回去了, 后一步跟着撤
+// (前一步留着, 那是真做过的)。见 lib/spray-steps。
+async function syncSteps(jobId: string, stage: Stage, actor: string): Promise<void> {
+  const pair = stepsOf(stage)
+  if (!pair) return
+  const [first, last] = pair
   try {
     const job = await getJob(jobId)
     if (!job) return
     const done: { jobId: string; componentId: string; step: SprayStep }[] = []
     const undone: { jobId: string; componentId: string; step: SprayStep }[] = []
     for (const c of job.components) {
-      const st = c.stages['喷漆']
+      const st = c.stages[stage]
       if (!st) continue
       if (st.status === 'done') {
-        done.push({ jobId, componentId: c.id, step: '底漆' }, { jobId, componentId: c.id, step: '面漆' })
+        done.push({ jobId, componentId: c.id, step: first }, { jobId, componentId: c.id, step: last })
       } else {
-        undone.push({ jobId, componentId: c.id, step: '面漆' })
+        undone.push({ jobId, componentId: c.id, step: last })
       }
     }
     await setSpraySteps(done, { by: actor, at: new Date().toISOString() })
     await setSpraySteps(undone, null)
-    // 喷漆退回去了 —— 面漆那一份个人报工也撤掉。
+    // 退回去了 —— 后一步那一份个人报工也撤掉。
     const undoneIds = undone.map((x) => x.componentId)
     if (undoneIds.length > 0)
       await recordPersonOutput(
         jobId,
-        '面漆',
+        last,
         actor,
         undoneIds.map((componentId) => ({ componentId, shares: [] })),
         true,
       )
   } catch (e) {
-    console.error('[syncSpray]', jobId, e)
+    console.error('[syncSteps]', jobId, e)
   }
 }
 
@@ -1212,13 +1215,13 @@ async function dispatch(
       const u = await requireOwnStage(stage)
       await finishStage(jobId, componentId, stage, reportActor(u, body))
       await syncShipments(jobId, stage, reportActor(u, body))
-      // 操机、喷漆报工时当场选的人 (app/_who_did) —— 另记一份个人报工, 账号
-      // 那边的统计照旧记在按的账号上。
+      // 操机、车铣、喷漆报工时当场选的人 (app/_who_did) —— 另记一份个人报工,
+      // 账号那边的统计照旧记在按的账号上。
       const people = normalizeShares(body.people)
       if (people.length > 0) {
-        // 喷漆点完成就是面漆做完 —— 个人报工记在「面漆」上 (底漆另记, 见
-        // setSprayStep), 底漆、面漆是不同人做的, 统计要分开。
-        await recordPersonOutput(jobId, stage === '喷漆' ? '面漆' : stage, u.name, [
+        // 喷漆点完成就是面漆做完、操机点完成就是反面做完 —— 个人报工记在后一
+        // 步上 (前一步另记, 见 setSprayStep), 两步常是不同人做的, 统计要分开。
+        await recordPersonOutput(jobId, finishStepOf(stage), u.name, [
           { componentId, shares: people },
         ])
       }
@@ -1508,7 +1511,7 @@ async function dispatch(
       await finishJobStage(jobId, stage, reportActor(u, body))
       await syncShipments(jobId, stage, u.name)
       if (finishing.length > 0)
-        await recordPersonOutput(jobId, stage === '喷漆' ? '面漆' : stage, u.name, finishing)
+        await recordPersonOutput(jobId, finishStepOf(stage), u.name, finishing)
       revalidateStage(jobId, stage)
       return Response.json(ok(await freshStageCounts(jobId, stage)))
     }
@@ -2740,14 +2743,14 @@ async function dispatch(
       return Response.json(ok())
     }
 
-    // 喷漆里的「底漆」—— 点一下记上 (done), 再点撤掉。面漆不走这里: 面漆点完
-    // 就是喷漆完成, 走 finishStage (那边把两步都记上)。
+    // 前一步 (喷漆的「底漆」、操机的「正面」) —— 点一下记上 (done), 再点撤掉。
+    // 后一步不走这里: 点完就是这一道完成, 走 finishStage (那边把两步都记上)。
     case 'setSprayStep': {
       const { jobId, componentId, step } = body
       if (!isString(jobId) || !isString(componentId) || !isSprayStep(step))
         return err('bad setSprayStep args')
-      const u = await requireOwnStage('喷漆')
-      // 底漆是谁做的 (app/_who_did 里选的) —— 记在步骤上, 也记一份个人报工
+      const u = await requireOwnStage(stageOfStep(step)!)
+      // 底漆 / 正面是谁做的 (app/_who_did 里选的) —— 记在步骤上, 也记一份个人报工
       // (「底漆」), 报工统计里跟面漆分开。撤掉就一起撤。
       const people = normalizeShares(body.people)
       const done = body.done !== false

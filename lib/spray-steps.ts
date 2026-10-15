@@ -1,20 +1,21 @@
 import 'server-only'
 import { supabase, STORAGE_BUCKET } from './supabase'
+import { SUB_STEPS, stageOfStep, type SubStep } from './data'
 
 /*
- * 喷漆的两小步 —— 底漆、面漆。
+ * 一道工序里的两小步 —— 喷漆: 底漆、面漆; 操机: 正面、反面 (lib/data STAGE_STEPS)。
  *
- * 工序还是「喷漆」一道 (生产表、统计、金额都只认它), 只是喷漆的人在这一道
- * 里先点「底漆」完成、再点「面漆」完成; 面漆点完, 喷漆这一道就完成了。报工
- * 统计和金额只在喷漆完成时算一次, 底漆、面漆不另算钱。
+ * 工序还是「喷漆」/「操机」一道 (生产表、统计、金额都只认它), 只是做的人在
+ * 这一道里先点前一步、再点后一步; 后一步点完, 这一道就完成了。
  *
  * 只记谁、什么时候点的。按 工单 + 零件 记 (格子上手里就是这两个号, 不用再查)。
+ * 文件名还叫 spray-steps (最早只有喷漆), 操机的两步也记在这里, 键不冲突。
  *
- * TABLE-FREE: production/spray-steps.json  { "<jobId>|<componentId>": { 底漆?: {by,at}, 面漆?: {by,at} } }
+ * TABLE-FREE: production/spray-steps.json  { "<jobId>|<componentId>": { 底漆?: {by,at}, 面漆?: …, 正面?: …, 反面?: … } }
  */
 
-export const SPRAY_STEPS = ['底漆', '面漆'] as const
-export type SprayStep = (typeof SPRAY_STEPS)[number]
+export const SPRAY_STEPS = SUB_STEPS
+export type SprayStep = SubStep
 export type StepMark = { by: string; at: string }
 export type PartSteps = Partial<Record<SprayStep, StepMark>>
 
@@ -32,7 +33,7 @@ export function stepKey(jobId: string, componentId: string): string {
 }
 
 export function isSprayStep(x: unknown): x is SprayStep {
-  return x === '底漆' || x === '面漆'
+  return typeof x === 'string' && stageOfStep(x) !== undefined
 }
 
 async function read(): Promise<Record<string, PartSteps>> {

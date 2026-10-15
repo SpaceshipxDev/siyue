@@ -19,9 +19,9 @@
 //
 // When adding a new mutation: prefer adding a `kind` to the dispatcher.
 
-import { setSpraySteps, SPRAY_STEPS } from '@/lib/spray-steps'
+import { setSpraySteps } from '@/lib/spray-steps'
 import { revalidatePath } from 'next/cache'
-import type { Stage, JobStatus } from '@/lib/data'
+import { stepsOf, type Stage, type JobStatus } from '@/lib/data'
 import { BRAND } from '@/lib/brand'
 import type { Customer, Vendor } from '@/lib/data'
 import {
@@ -114,21 +114,22 @@ export async function startStageAction(
 
 // 出货那一格动了 —— 出货单跟着对齐, 点过出货的就进对账 (同 /api/mutate)。
 async function syncShipments(jobId: string, stage: Stage, actor: string): Promise<void> {
-  // 喷漆的底漆 / 面漆两小步跟着对齐 (同 /api/mutate)。
-  if (stage === '喷漆') {
+  // 喷漆 / 操机的两小步跟着对齐 (同 /api/mutate)。
+  const pair = stepsOf(stage)
+  if (pair) {
     try {
       const job = await getJob(jobId)
       if (!job) return
       const doneItems = job.components
-        .filter((c) => c.stages['喷漆']?.status === 'done')
-        .flatMap((c) => SPRAY_STEPS.map((step) => ({ jobId, componentId: c.id, step })))
+        .filter((c) => c.stages[stage]?.status === 'done')
+        .flatMap((c) => pair.map((step) => ({ jobId, componentId: c.id, step })))
       const undoItems = job.components
-        .filter((c) => c.stages['喷漆'] && c.stages['喷漆']?.status !== 'done')
-        .map((c) => ({ jobId, componentId: c.id, step: '面漆' as const }))
+        .filter((c) => c.stages[stage] && c.stages[stage]?.status !== 'done')
+        .map((c) => ({ jobId, componentId: c.id, step: pair[1] }))
       await setSpraySteps(doneItems, { by: actor, at: new Date().toISOString() })
       await setSpraySteps(undoItems, null)
     } catch (e) {
-      console.error('[syncSpray]', jobId, e)
+      console.error('[syncSteps]', jobId, e)
     }
     return
   }

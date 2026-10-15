@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import type { Stage, StageState } from '@/lib/data'
-import { PICK_WORKER_STAGES, STAGES } from '@/lib/data'
+import { PICK_WORKER_STAGES, STAGES, finishStepOf, stepsOf } from '@/lib/data'
 import { Pause, stageTimeHint } from './_ui'
 import { mutate } from '@/lib/mutate'
 import { RowTimer } from './_row_timer'
@@ -53,9 +53,12 @@ export function StageCellButton({
   const [splitOpen, setSplitOpen] = useState(false)
   // 操机、喷漆按 ✓ 先问"谁做的" (app/_who_did)。
   const [whoOpen, setWhoOpen] = useState(false)
-  // 喷漆拆成底漆、面漆两小步 (lib/spray-steps): 先点底漆, 再点面漆 = 喷漆完成。
-  const isSpray = stage === '喷漆'
-  const steps = useSpraySteps(jobId, componentId, isSpray)
+  // 喷漆拆成底漆、面漆两小步, 操机拆成正面、反面 (lib/data STAGE_STEPS): 先点
+  // 前一步, 再点后一步 = 这一道完成。
+  const pair = stepsOf(stage)
+  const hasSteps = !!pair
+  const [first, last] = pair ?? (['底漆', '面漆'] as const)
+  const steps = useSpraySteps(jobId, componentId, hasSteps)
   const [baseWhoOpen, setBaseWhoOpen] = useState(false)
   // 报工范围 guard — out-of-scope taps open the denial dialog instead of
   // writing. The server re-checks, so a stale client only ever costs a
@@ -103,11 +106,11 @@ export function StageCellButton({
   const finish = (who: { people?: { name: string; qty: number }[] }) => {
     setWhoOpen(false)
     setError(false)
-    if (isSpray) {
-      // 面漆点完 = 喷漆完成, 两小步都算做完 (服务端也这么记)。
+    if (hasSteps) {
+      // 后一步点完 = 这一道完成, 两小步都算做完 (服务端也这么记)。
       const mark = { by: who.people?.[0]?.name || getReporterName() || '我', at: new Date().toISOString() }
-      if (!steps.底漆) setLocalStep(jobId, componentId, '底漆', mark)
-      setLocalStep(jobId, componentId, '面漆', mark)
+      if (!steps[first]) setLocalStep(jobId, componentId, first, mark)
+      setLocalStep(jobId, componentId, last, mark)
     }
     setOptimistic({ status: 'done', completedAt: 'now' })
     start(async () => {
@@ -139,7 +142,7 @@ export function StageCellButton({
   const onUndo = () => {
     if (!guard.check()) return
     setError(false)
-    if (isSpray) setLocalStep(jobId, componentId, '面漆', null)
+    if (hasSteps) setLocalStep(jobId, componentId, last, null)
     setOptimistic({ status: 'in_progress' })
     start(async () => {
       try {
@@ -213,24 +216,24 @@ export function StageCellButton({
     )
   }
 
-  // 底漆: 点一下先问是谁做的 (底漆、面漆常是两个人, 个人报工分开记), 记上;
-  // 记过的再点一下就撤掉。不碰喷漆这一格本身。
+  // 前一步 (底漆 / 正面): 点一下先问是谁做的 (两步常是两个人, 个人报工分开
+  // 记), 记上; 记过的再点一下就撤掉。不碰这一格本身。
   const saveBase = (done: boolean, people: { name: string; qty: number }[] = []) => {
     setBaseWhoOpen(false)
     const by = people.map((p) => p.name).join('、') || getReporterName() || '我'
-    setLocalStep(jobId, componentId, '底漆', done ? { by, at: new Date().toISOString() } : null)
+    setLocalStep(jobId, componentId, first, done ? { by, at: new Date().toISOString() } : null)
     start(async () => {
       try {
-        await mutate({ kind: 'setSprayStep', jobId, componentId, step: '底漆', done, people })
+        await mutate({ kind: 'setSprayStep', jobId, componentId, step: first, done, people })
       } catch (e) {
-        setLocalStep(jobId, componentId, '底漆', done ? null : (steps.底漆 ?? null))
+        setLocalStep(jobId, componentId, first, done ? null : (steps[first] ?? null))
         if (!guard.denyIfScopeError(e)) setError(true)
       }
     })
   }
   const toggleBase = () => {
     if (!guard.check()) return
-    if (steps.底漆) saveBase(false)
+    if (steps[first]) saveBase(false)
     else setBaseWhoOpen(true)
   }
 
@@ -242,30 +245,30 @@ export function StageCellButton({
           error ? 'bg-[var(--color-overdue-soft)]' : 'bg-[var(--color-warning-soft)]'
         } ${pending ? 'opacity-60' : ''}`}
       >
-        {isSpray && !error ? (
-          // 喷漆: 两小步上下排 —— 底漆 (点了打勾, 再点撤掉), 面漆 (点了就是喷漆完成)。
+        {hasSteps && !error ? (
+          // 两小步上下排 —— 前一步 (点了打勾, 再点撤掉), 后一步 (点了就是这一道完成)。
           <div className="flex w-full flex-1 flex-col items-stretch justify-center gap-0.5 px-1 py-1">
             <button
               type="button"
               disabled={pending}
               onClick={toggleBase}
-              title={steps.底漆 ? `底漆 ${steps.底漆.by} · 点一下撤掉` : '底漆做完了点一下'}
+              title={steps[first] ? `${first} ${steps[first]!.by} · 点一下撤掉` : `${first}做完了点一下`}
               className={`rounded-[2px] py-0.5 text-[10.5px] leading-tight transition-colors hover:brightness-95 disabled:cursor-not-allowed ${
-                steps.底漆
+                steps[first]
                   ? 'font-semibold text-[var(--color-success)]'
                   : 'text-[var(--color-warning)] hover:bg-white/60'
               }`}
             >
-              {steps.底漆 ? '底漆 ✓' : '底漆'}
+              {steps[first] ? `${first} ✓` : first}
             </button>
             <button
               type="button"
               disabled={pending}
               onClick={onFinish}
-              title="面漆做完了点一下 —— 喷漆这一道就完成了"
+              title={`${last}做完了点一下 —— ${stage}这一道就完成了`}
               className="rounded-[2px] py-0.5 text-[10.5px] leading-tight text-[var(--color-warning)] transition-colors hover:bg-white/60 disabled:cursor-not-allowed"
             >
-              面漆
+              {last}
             </button>
           </div>
         ) : (
@@ -352,7 +355,7 @@ export function StageCellButton({
         ) : null}
         {whoOpen ? (
           <WhoDidSheet
-            stage={isSpray ? '面漆' : stage}
+            stage={hasSteps ? last : stage}
             label={componentName}
             totalQty={componentQty}
             onConfirm={({ names, shares }) =>
@@ -364,7 +367,7 @@ export function StageCellButton({
         ) : null}
         {baseWhoOpen ? (
           <WhoDidSheet
-            stage="底漆"
+            stage={first}
             label={componentName}
             totalQty={componentQty}
             onConfirm={({ names, shares }) =>
@@ -409,14 +412,14 @@ export function StageCellButton({
   // gets clipped by the cell/row overflow in every grid this renders in, so the
   // title is the only thing that actually shows. `state.by` is server truth
   // (optimistic finishes don't carry it yet); it fills in on the server echo.
-  const sprayHint =
-    isSpray && (steps.底漆 || steps.面漆)
-      ? ` · ${[steps.底漆 ? `底漆 ${steps.底漆.by}` : '', steps.面漆 ? `面漆 ${steps.面漆.by}` : '']
+  const stepsHint =
+    hasSteps && (steps[first] || steps[last])
+      ? ` · ${[steps[first] ? `${first} ${steps[first]!.by}` : '', steps[last] ? `${last} ${steps[last]!.by}` : '']
           .filter(Boolean)
           .join(' · ')}`
       : ''
   const attribution = state.by
-    ? `完成 ${state.by}${stageTimeHint(state.finishedAt)}${sprayHint}`
+    ? `完成 ${state.by}${stageTimeHint(state.finishedAt)}${stepsHint}`
     : undefined
   return (
     <div className="group/cell relative h-full w-full">
@@ -603,7 +606,7 @@ export function JobStageActionButton({
 
   const whoSheet = whoOpen ? (
     <WhoDidSheet
-      stage={stage === '喷漆' ? '面漆' : stage}
+      stage={finishStepOf(stage)}
       onConfirm={({ names }) => finish({ workers: names })}
       onSkip={() => finish()}
       onCancel={() => setWhoOpen(false)}

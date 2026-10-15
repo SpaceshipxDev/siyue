@@ -94,6 +94,34 @@ export type PlanKey = Stage | '外协'
 // 序照旧一按就完成, 不多问。
 export const PICK_WORKER_STAGES: Stage[] = ['操机', '车铣', '喷漆']
 
+// 一道工序里分两小步报的 —— 先点前一步 (记上谁做的, 再点撤掉), 再点后一步 =
+// 这一道完成。喷漆: 底漆 → 面漆 (老板 2026-10-05); 操机: 正面 → 反面 (10-15,
+// 两面常是两个人、两个班)。两步各记各的人, 报工金额各拿这一道的一半。
+export const STAGE_STEPS = {
+  喷漆: ['底漆', '面漆'],
+  操机: ['正面', '反面'],
+} as const satisfies Partial<Record<Stage, readonly [string, string]>>
+export type StepStage = keyof typeof STAGE_STEPS
+export type SubStep = (typeof STAGE_STEPS)[StepStage][number]
+export const SUB_STEPS: readonly SubStep[] = Object.values(STAGE_STEPS).flat()
+
+/** 这一道分哪两小步 (不分的是 undefined)。 */
+export function stepsOf(stage: string): readonly [SubStep, SubStep] | undefined {
+  return (STAGE_STEPS as Partial<Record<string, readonly [SubStep, SubStep]>>)[stage]
+}
+
+/** 一小步属于哪一道 (不是小步的是 undefined)。 */
+export function stageOfStep(step: string): StepStage | undefined {
+  return (Object.keys(STAGE_STEPS) as StepStage[]).find((s) =>
+    (STAGE_STEPS[s] as readonly string[]).includes(step),
+  )
+}
+
+/** 个人报工记在哪儿: 分两小步的那几道, 点完成就是后一步做完。 */
+export function finishStepOf(stage: Stage): Stage | SubStep {
+  return stepsOf(stage)?.[1] ?? stage
+}
+
 // 喷漆 · 丝印 共用一个时间节点 (老板 2026-10-05 定的; 当天先是 打磨·喷漆·丝印
 // 三道, 再往前 9-30 是连操机、手工五道, 最后落在这两道)。
 //
