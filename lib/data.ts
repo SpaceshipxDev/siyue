@@ -117,9 +117,19 @@ export function stageOfStep(step: string): StepStage | undefined {
   )
 }
 
-/** 个人报工记在哪儿: 分两小步的那几道, 点完成就是后一步做完。 */
-export function finishStepOf(stage: Stage): Stage | SubStep {
-  return stepsOf(stage)?.[1] ?? stage
+// 操机的「正面」是可选的 (于海伟 2026-10-15): 大多数件一次成型, 照旧一下点
+// 完, 记整道; 只有正反面的件才先点「正面」, 这时格子才变成 正面 ✓ / 反面。
+export const OPTIONAL_FIRST_STEP_STAGES: Stage[] = ['操机']
+
+/**
+ * 个人报工记在哪儿: 分两小步的那几道, 点完成就是后一步做完。操机没点过正面
+ * 的 (一次成型) 记整道。
+ */
+export function finishStepOf(stage: Stage, hasFirst = true): Stage | SubStep {
+  const pair = stepsOf(stage)
+  if (!pair) return stage
+  if (!hasFirst && OPTIONAL_FIRST_STEP_STAGES.includes(stage)) return stage
+  return pair[1]
 }
 
 // 喷漆 · 丝印 共用一个时间节点 (老板 2026-10-05 定的; 当天先是 打磨·喷漆·丝印

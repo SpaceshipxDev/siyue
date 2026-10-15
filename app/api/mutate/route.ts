@@ -302,7 +302,7 @@ import {
 } from '@/lib/duizhang'
 import { getNoReconcile, LINE_MARK, setNoReconcile } from '@/lib/no-reconcile'
 import { savePunchHours, setDailyHours } from '@/lib/hr-daily'
-import { isSprayStep, setSpraySteps, type SprayStep } from '@/lib/spray-steps'
+import { getSpraySteps, isSprayStep, setSpraySteps, type SprayStep } from '@/lib/spray-steps'
 import {
   addLoanRepayment,
   applyPayrollLoanDeductions,
@@ -336,7 +336,7 @@ import {
 import { logStageAction } from '@/lib/access-log'
 import type { JobType, PlanKey, Stage, Verdict } from '@/lib/data'
 import { rowStageCounts } from '@/lib/master'
-import { finishStepOf, isCaiwuSheet, JOB_TYPES, PICK_WORKER_STAGES, STAGES, stageOfStep, stepsOf, VERDICTS } from '@/lib/data'
+import { finishStepOf, isCaiwuSheet, OPTIONAL_FIRST_STEP_STAGES, JOB_TYPES, PICK_WORKER_STAGES, STAGES, stageOfStep, stepsOf, VERDICTS } from '@/lib/data'
 import { isExpenseCategory } from '@/lib/expenses'
 import { isDimRow, type InspectionReportPatch } from '@/lib/inspection-report'
 import { removeInspectionPhotoObject } from '@/lib/inspection-photo'
@@ -510,9 +510,21 @@ async function syncShipments(jobId: string, stage: Stage, actor: string): Promis
   }
 }
 
+// 这张单上哪几个零件点过前一步 —— 只有前一步可选的那几道 (操机的正面) 要问;
+// 别的 (喷漆) 当作都点过, 返回 undefined。
+async function firstStepDone(jobId: string, stage: Stage): Promise<Set<string> | undefined> {
+  const pair = stepsOf(stage)
+  if (!pair || !OPTIONAL_FIRST_STEP_STAGES.includes(stage)) return undefined
+  const all = await getSpraySteps([jobId])
+  const out = new Set<string>()
+  for (const [k, v] of Object.entries(all)) if (v[pair[0]]) out.add(k.split('|')[1])
+  return out
+}
+
 // 喷漆 / 操机那一格动了 (完成 / 撤销, 单个零件或整单) —— 两小步跟着对齐:
-// 这一道完成了, 两步都算做完 (没点过前一步的补上); 退回去了, 后一步跟着撤
-// (前一步留着, 那是真做过的)。见 lib/spray-steps。
+// 这一道完成了, 两步都算做完 (没点过前一步的补上 —— 操机除外: 没点正面的是
+// 一次成型, 不补); 退回去了, 后一步跟着撤 (前一步留着, 那是真做过的)。见
+// lib/spray-steps。
 async function syncSteps(jobId: string, stage: Stage, actor: string): Promise<void> {
   const pair = stepsOf(stage)
   if (!pair) return
@@ -520,12 +532,14 @@ async function syncSteps(jobId: string, stage: Stage, actor: string): Promise<vo
   try {
     const job = await getJob(jobId)
     if (!job) return
+    const hadFirst = await firstStepDone(jobId, stage)
     const done: { jobId: string; componentId: string; step: SprayStep }[] = []
     const undone: { jobId: string; componentId: string; step: SprayStep }[] = []
     for (const c of job.components) {
       const st = c.stages[stage]
       if (!st) continue
       if (st.status === 'done') {
+        if (hadFirst && !hadFirst.has(c.id)) continue
         done.push({ jobId, componentId: c.id, step: first }, { jobId, componentId: c.id, step: last })
       } else {
         undone.push({ jobId, componentId: c.id, step: last })
@@ -1213,6 +1227,8 @@ async function dispatch(
       if (!isString(jobId) || !isString(componentId) || !isStage(stage))
         return err('bad finishStage args')
       const u = await requireOwnStage(stage)
+      // 先看点没点过正面 (下面对齐两小步时会补记, 得在那之前看)。
+      const hadFirst = await firstStepDone(jobId, stage)
       await finishStage(jobId, componentId, stage, reportActor(u, body))
       await syncShipments(jobId, stage, reportActor(u, body))
       // 操机、车铣、喷漆报工时当场选的人 (app/_who_did) —— 另记一份个人报工,
@@ -1221,7 +1237,7 @@ async function dispatch(
       if (people.length > 0) {
         // 喷漆点完成就是面漆做完、操机点完成就是反面做完 —— 个人报工记在后一
         // 步上 (前一步另记, 见 setSprayStep), 两步常是不同人做的, 统计要分开。
-        await recordPersonOutput(jobId, finishStepOf(stage), u.name, [
+        await recordPersonOutput(jobId, finishStepOf(stage, !hadFirst || hadFirst.has(componentId)), u.name, [
           { componentId, shares: people },
         ])
       }
@@ -1508,10 +1524,16 @@ async function dispatch(
             return { componentId: c.id, shares: workers.map((name) => ({ name, qty: each })) }
           })
       }
+      const hadFirst = finishing.length > 0 ? await firstStepDone(jobId, stage) : undefined
       await finishJobStage(jobId, stage, reportActor(u, body))
       await syncShipments(jobId, stage, u.name)
-      if (finishing.length > 0)
-        await recordPersonOutput(jobId, finishStepOf(stage), u.name, finishing)
+      if (finishing.length > 0) {
+        // 点过正面的记反面, 一次成型的记整道 (操机); 别的照旧记后一步。
+        const two = finishing.filter((f) => !hadFirst || hadFirst.has(f.componentId))
+        const one = finishing.filter((f) => hadFirst && !hadFirst.has(f.componentId))
+        if (two.length > 0) await recordPersonOutput(jobId, finishStepOf(stage), u.name, two)
+        if (one.length > 0) await recordPersonOutput(jobId, stage, u.name, one)
+      }
       revalidateStage(jobId, stage)
       return Response.json(ok(await freshStageCounts(jobId, stage)))
     }
