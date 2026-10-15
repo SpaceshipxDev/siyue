@@ -519,7 +519,8 @@ function splitNames(t: string): string[] {
 // 操作人员 —— 多选; 操机那几张表每个人后面能标 正面 / 反面 / 别的。
 //
 // 直接打字: 一个名字回车, 或者逗号 / 空格隔开一次打几个; 下拉里有厂里的人名
-// 可以点, 名单上没有的照样能打 (临时工、外来帮忙的)。
+// 可以点, 点一个加一个 (以前点了不算数, 再点第二个就把第一个顶掉, 一行只剩一
+// 个人); 名单上没有的照样能打 (临时工、外来帮忙的)。
 // 录入那一行的输入框是外面管着的 (draft / onDraft), 点「记下」时还没回车的
 // 那几个名字也一起带上。
 function Workers({
@@ -623,12 +624,16 @@ function Workers({
       <input
         list={listId}
         value={draft}
-        placeholder={value.length === 0 ? '打姓名 · 回车' : '＋'}
+        placeholder={value.length === 0 ? '打姓名 · 可多人' : '＋'}
         onChange={(e) => {
           const v = e.target.value
           // 打了分隔符 (逗号、空格…) 就把前面的名字加上。
-          if (/[,，、;；\s]$/.test(v)) commit(v)
-          else setDraft(v)
+          if (/[,，、;；\s]$/.test(v)) return commit(v)
+          // 从下拉里点的名字 —— 不是一个字一个字打出来的, 点了就加上。
+          const how = (e.nativeEvent as InputEvent).inputType ?? ''
+          const typed = how.startsWith('insertText') || how.startsWith('insertComposition') || how.startsWith('delete')
+          if (!typed && names.includes(v.trim())) return commit(v)
+          setDraft(v)
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
