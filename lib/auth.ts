@@ -978,6 +978,7 @@ export function permissionDigest(u: AuthUser): PermissionDigest {
       [canApproveProcurement(u), '采购审批'],
       [canEditShipment(u), '出货单'],
       [canSeeReturnsDesk(u), '退货台'],
+      [canWriteCommSheet(u), '沟通单'],
       [canUploadDrawing(u), '传图纸'],
       [canWriteNcProgram(u), '程序单'],
       [canEditHrRecord(u), '人事·改'],

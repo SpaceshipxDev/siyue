@@ -345,6 +345,14 @@ import { deleteExpenseVoucher } from '@/lib/voucher-file'
 import { filerDeptOf } from '@/lib/hr-dept'
 import { markWritten } from '@/lib/shared-read'
 import { addPlanRow, deletePlanRow, isPlanStage, updatePlanRow, type PlanPatch } from '@/lib/plan'
+import {
+  addCommOrderRows,
+  deleteCommOrderImage,
+  deleteCommOrderRow,
+  isCommOrderImageField,
+  isCommOrderTextField,
+  updateCommOrderRow,
+} from '@/lib/comm-order'
 
 // Single JSON dispatcher for mutating writes. Every existing inline-edit
 // surface (job/component fields, stage cells, routing chips, outsource block
@@ -4765,6 +4773,49 @@ async function dispatch(
       await deletePlanRow(rowId)
       revalidatePath('/plan')
       return Response.json(ok())
+    }
+
+    // === 工单分析沟通确认单 (lib/comm-order) — 工程、商务填, 一个工号一张。 ===
+    case 'commOrderAddRow': {
+      const jobNo = body.jobNo
+      if (!isString(jobNo) || !jobNo.trim()) return err('先填工单号')
+      const u = await requireUser()
+      if (!canWriteCommSheet(u)) return err('沟通确认单由工程或商务填', 403)
+      const sheet = await addCommOrderRows(jobNo, [{ images: [], reqImages: [] }], u.name)
+      revalidatePath('/comm')
+      return Response.json(ok({ sheet }))
+    }
+
+    case 'commOrderUpdateRow': {
+      const { jobNo, rowId, field, text } = body
+      if (!isString(jobNo) || !isString(rowId) || !isCommOrderTextField(field) || !isString(text))
+        return err('bad commOrderUpdateRow args')
+      const u = await requireUser()
+      if (!canWriteCommSheet(u)) return err('沟通确认单由工程或商务填', 403)
+      const sheet = await updateCommOrderRow(jobNo, rowId, field, text, u.name)
+      revalidatePath('/comm')
+      return Response.json(ok({ sheet }))
+    }
+
+    case 'commOrderDeleteRow': {
+      const { jobNo, rowId } = body
+      if (!isString(jobNo) || !isString(rowId)) return err('bad commOrderDeleteRow args')
+      const u = await requireUser()
+      if (!canWriteCommSheet(u)) return err('沟通确认单由工程或商务改', 403)
+      const sheet = await deleteCommOrderRow(jobNo, rowId, u.name)
+      revalidatePath('/comm')
+      return Response.json(ok({ sheet }))
+    }
+
+    case 'commOrderDeleteImage': {
+      const { jobNo, rowId, field, imageId } = body
+      if (!isString(jobNo) || !isString(rowId) || !isCommOrderImageField(field) || !isString(imageId))
+        return err('bad commOrderDeleteImage args')
+      const u = await requireUser()
+      if (!canWriteCommSheet(u)) return err('沟通确认单由工程或商务改', 403)
+      const sheet = await deleteCommOrderImage(jobNo, rowId, field, imageId, u.name)
+      revalidatePath('/comm')
+      return Response.json(ok({ sheet }))
     }
 
     // === 重点 (daily focus list) — same gate as the /daily page (现场 view:

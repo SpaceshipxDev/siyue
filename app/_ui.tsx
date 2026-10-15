@@ -11,6 +11,7 @@ import { ReporterChip } from './_reporter'
 export type TabKey =
   | '商务'
   | '笔记'
+  | '沟通单'
   | '重点'
   | '计划'
   | '现场'
@@ -80,6 +81,8 @@ function tabsForRole(
       // same way commerce can.
       return [
         { key: '工程', label: '工程', href: '/' },
+        // 沟通单 —— 工单分析沟通确认单, 一个工号一张 (app/comm)。
+        { key: '沟通单', label: '沟通单', href: '/comm' },
         // 笔记 — same slot as commerce (right before 重点). The boss turned
         // it into his command channel; the 工程 head gets the same scratchpad.
         { key: '笔记', label: '笔记', href: '/notes' },
@@ -147,6 +150,7 @@ function tabsForRole(
   }
   return [
     { key: '商务', label: '商务', href: '/' },
+    { key: '沟通单', label: '沟通单', href: '/comm' },
     // 笔记 — the boss's private scratchpad, right before 重点. Per-author, so
     // each 商务 user only ever sees their own notes (it reads as "his").
     { key: '笔记', label: '笔记', href: '/notes' },
