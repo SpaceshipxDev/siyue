@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { formatCny, PICK_WORKER_STAGES, STAGES, type Stage } from '@/lib/data'
+import { REPORT_VIEWS, type ReportView } from '@/lib/report-view'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { withBase } from '@/lib/base-path'
 import { PersonSearch, type RosterPerson } from './_person_search'
@@ -96,7 +97,7 @@ export function ReportClient({
   showMoney,
   canFix = false,
 }: {
-  initialStage: Stage | null
+  initialStage: ReportView | null
   initialGran: Gran
   initialAnchor: string
   initialWorker: string | null
@@ -105,7 +106,7 @@ export function ReportClient({
   /** 改·删报工记录 (商务于海伟)。 */
   canFix?: boolean
 }) {
-  const [stage, setStage] = useState<Stage | null>(initialStage)
+  const [stage, setStage] = useState<ReportView | null>(initialStage)
   const [gran, setGran] = useState<Gran>(initialGran)
   const [anchor, setAnchor] = useState<string>(initialAnchor)
   const [worker, setWorker] = useState<string | null>(initialWorker)
@@ -501,7 +502,7 @@ function PersonOutputList({
   onChanged,
 }: {
   persons: PersonOut[]
-  stage: Stage | null
+  stage: ReportView | null
   /** 文件名里 周期 / 人 / 工段 那一截。 */
   exportName: string
   showMoney: boolean
@@ -753,7 +754,7 @@ function FixControls({
 
 // --- ② 停留超期 (bottom) ------------------------------------------------------
 
-function StuckBlock({ stage, stuck, stuckDays }: { stage: Stage; stuck: StuckPart[]; stuckDays: number }) {
+function StuckBlock({ stage, stuck, stuckDays }: { stage: ReportView; stuck: StuckPart[]; stuckDays: number }) {
   return (
     <section className="mt-4 pt-8 border-t border-[var(--color-border)]">
       <div className="mb-3 flex items-baseline gap-2">
@@ -796,10 +797,11 @@ function StuckBlock({ stage, stuck, stuckDays }: { stage: Stage; stuck: StuckPar
 
 // --- controls ----------------------------------------------------------------
 
-function StationChips({ current, onSelect }: { current: Stage | null; onSelect: (s: Stage | null) => void }) {
-  const chips: { label: string; stage: Stage | null }[] = [
+// 打磨、丝印合成一个按钮 (lib/report-view) —— 喷漆单独一个。
+function StationChips({ current, onSelect }: { current: ReportView | null; onSelect: (s: ReportView | null) => void }) {
+  const chips: { label: string; stage: ReportView | null }[] = [
     { label: '全部', stage: null },
-    ...STAGES.map((s) => ({ label: s, stage: s })),
+    ...REPORT_VIEWS.map((s) => ({ label: s, stage: s })),
   ]
   return (
     <div className="flex flex-wrap items-center gap-1">
@@ -938,7 +940,7 @@ function ExportButton({
   hasData,
   stuck,
 }: {
-  stage: Stage | null
+  stage: ReportView | null
   /** Selected 经手人 — narrows every sheet to their activity. */
   worker: string | null
   from: string

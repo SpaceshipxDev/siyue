@@ -1,5 +1,6 @@
 import { currentUser, canSeeReport, canSeeMoney } from '@/lib/auth'
-import { PICK_WORKER_STAGES, STAGES, stageOfRecordedStep, type Stage } from '@/lib/data'
+import { PICK_WORKER_STAGES, stageOfRecordedStep, type Stage } from '@/lib/data'
+import { isReportView, stagesOfView } from '@/lib/report-view'
 import { getPersonSplits, workSplitKey } from '@/lib/work-split'
 import { shanghaiRangeWindow } from '@/lib/today'
 import {
@@ -9,6 +10,8 @@ import {
   getStationDetailByOrder,
   getPerPieceValues,
   getReportActorNames,
+  type OrderDetail,
+  type WorkerOutputRow,
 } from '@/lib/pulse'
 import { getAllUsers } from '@/lib/db'
 
@@ -88,11 +91,12 @@ export async function GET(request: Request): Promise<Response> {
   const hi = from <= to ? to : from
   const window = shanghaiRangeWindow(lo, hi)
 
+  // stage 可以是一道工段, 也可以是合起来看的一组 (「打磨·丝印」, lib/report-view)。
+  // 一组的: 每道各取一遍, 再按人 / 按工单加起来。
   const stageParam = sp.get('stage')
-  const stage: Stage | undefined =
-    stageParam && (STAGES as readonly string[]).includes(stageParam)
-      ? (stageParam as Stage)
-      : undefined
+  const stages: Stage[] | undefined = isReportView(stageParam) ? stagesOfView(stageParam) : undefined
+  const stage: Stage | undefined = stages?.length === 1 ? stages[0] : undefined
+  const multi = (stages?.length ?? 0) > 1
 
   const worker = sp.get('w')
 
@@ -100,7 +104,9 @@ export async function GET(request: Request): Promise<Response> {
     // 报表 export: 工单-first, components underneath.
     if (sp.get('mode') === 'export') {
       // `w` narrows the 报表 to one 经手人 — the 找人 filter's export.
-      const { orders, truncated } = await getStationDetailByOrder(stage, window, worker ?? undefined)
+      const { orders, truncated } = multi
+        ? mergeOrders(await Promise.all(stages!.map((s) => getStationDetailByOrder(s, window, worker ?? undefined))))
+        : await getStationDetailByOrder(stage, window, worker ?? undefined)
       if (!showMoney) {
         for (const o of orders) {
           o.amountCny = 0
@@ -116,13 +122,13 @@ export async function GET(request: Request): Promise<Response> {
 
     // Per-worker drill-down (expanded inline on the client), grouped by 工单.
     if (worker) {
-      const events = await getWorkerTimeline({
-        actorName: worker,
-        ...window,
-        kind: 'finished',
-        stage,
-        limit: 500,
-      })
+      const events = (
+        await Promise.all(
+          (multi ? stages! : [stage]).map((s) =>
+            getWorkerTimeline({ actorName: worker, ...window, kind: 'finished', stage: s, limit: 500 }),
+          ),
+        )
+      ).flat()
       const jobMap = new Map<
         string,
         {
@@ -174,9 +180,17 @@ export async function GET(request: Request): Promise<Response> {
 
     // Summary: the people list (hero) + stuck (bottom, station-scoped only).
     const [people, stuck, persons] = await Promise.all([
-      getWorkerOutput(window, stage),
-      stage ? getStationStuck(stage, STUCK_DAYS) : Promise.resolve([]),
-      !stage || PICK_WORKER_STAGES.includes(stage) ? personOutput(window, stage, showMoney) : Promise.resolve([]),
+      multi
+        ? Promise.all(stages!.map((s) => getWorkerOutput(window, s))).then(mergeWorkers)
+        : getWorkerOutput(window, stage),
+      stages
+        ? Promise.all(stages.map((s) => getStationStuck(s, STUCK_DAYS))).then((l) => l.flat())
+        : Promise.resolve([]),
+      multi
+        ? Promise.resolve([])
+        : !stage || PICK_WORKER_STAGES.includes(stage)
+          ? personOutput(window, stage, showMoney)
+          : Promise.resolve([]),
     ])
     if (!showMoney) for (const p of people) p.valueCny = 0
     return Response.json(
@@ -187,6 +201,49 @@ export async function GET(request: Request): Promise<Response> {
     const message = e instanceof Error ? e.message : String(e)
     return Response.json({ ok: false, error: message }, { status: 500 })
   }
+}
+
+// 合起来看的一组 (打磨·丝印): 每道各算一张榜, 按人加起来。
+function mergeWorkers(lists: WorkerOutputRow[][]): WorkerOutputRow[] {
+  const by = new Map<string, WorkerOutputRow>()
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  for (const r of lists.flat()) {
+    const m = by.get(r.actorName)
+    if (!m) {
+      by.set(r.actorName, { ...r })
+      continue
+    }
+    m.finishes += r.finishes
+    m.starts += r.starts
+    m.pieces = r2(m.pieces + r.pieces)
+    m.valueCny = r2(m.valueCny + r.valueCny)
+    m.unpriced += r.unpriced
+    m.pendingPieces = r2(m.pendingPieces + r.pendingPieces)
+    if ((r.lastActiveTs ?? '') > (m.lastActiveTs ?? '')) m.lastActiveTs = r.lastActiveTs
+  }
+  return [...by.values()].sort(
+    (a, b) => b.finishes - a.finishes || b.valueCny - a.valueCny || b.pendingPieces - a.pendingPieces,
+  )
+}
+
+// 同一组的报表: 同一张工单的几道合成一张, 零件按时间排。
+function mergeOrders(parts: { orders: OrderDetail[]; truncated: boolean }[]): { orders: OrderDetail[]; truncated: boolean } {
+  const by = new Map<string, OrderDetail>()
+  for (const o of parts.flatMap((p) => p.orders)) {
+    const m = by.get(o.jobId)
+    if (!m) {
+      by.set(o.jobId, { ...o, components: [...o.components] })
+      continue
+    }
+    m.finishes += o.finishes
+    m.pieces += o.pieces
+    m.valueCny += o.valueCny
+    m.components.push(...o.components)
+  }
+  const orders = [...by.values()]
+  for (const o of orders) o.components.sort((a, b) => a.ts.localeCompare(b.ts))
+  orders.sort((a, b) => a.jobNo.localeCompare(b.jobNo))
+  return { orders, truncated: parts.some((p) => p.truncated) }
 }
 
 // 个人报工 —— 操机、喷漆报工时选的人 (lib/work-split 个人那一份), 按人汇总。

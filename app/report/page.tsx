@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { STAGES, type Stage } from '@/lib/data'
+import { isReportView, type ReportView } from '@/lib/report-view'
 import {
   requireReportViewer,
   canSeeMoney,
@@ -51,10 +51,7 @@ export default async function ReportPage({
   const sp = await searchParams
   const view = sp?.v === 'plan' ? 'plan' : 'work'
 
-  const stage: Stage | null =
-    typeof sp?.stage === 'string' && (STAGES as readonly string[]).includes(sp.stage)
-      ? (sp.stage as Stage)
-      : null
+  const stage: ReportView | null = isReportView(sp?.stage) ? sp.stage : null
   const gran: Gran = sp?.g === 'week' || sp?.g === 'month' ? sp.g : 'day'
   const anchor = typeof sp?.d === 'string' && ISO_DATE.test(sp.d) ? sp.d : todayStr
   // 找人 — a pre-selected 经手人 (deep link / refresh), free text like the
