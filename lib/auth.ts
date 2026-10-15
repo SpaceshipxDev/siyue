@@ -782,18 +782,19 @@ const STAGE_SCOPE_BY_USER_ID: Record<string, StageScope> = {
   'u-moseby56-6vvs6y': COMMERCE_STAGE_SCOPE, // 商务005
   'u-mpvyxug7-9qo3hr': [], // 费会计 — reads the books, never taps a stage
   // — floor (most were seed-parked at default_stage=工程; this map is truth) —
-  'u-mpkp07b5-fo939e': ['操机', '车铣'], // 塑料操机001吴亦能
-  'u-mpdgnrqb-66dbhr': ['操机', '车铣'], // 塑料操机002罗杰
-  'u-mpdgme24-aqp6cm': ['操机', '车铣'], // 金属操机001高发祥
-  'u-mpdgmq1d-q1celf': ['操机', '车铣'], // 金属操机002小伍
+  'u-mpkp07b5-fo939e': ['操机'], // 塑料操机001吴亦能
+  'u-mpdgnrqb-66dbhr': ['操机'], // 塑料操机002罗杰
+  'u-mpdgme24-aqp6cm': ['操机'], // 金属操机001高发祥
+  'u-mpdgmq1d-q1celf': ['操机'], // 金属操机002小伍
+  // 车铣只给两个车工 (于海伟 2026-10-15)。
   'u-mpdgklfi-3r0tfm': ['编程', '操机', '车铣'], // 车工李元发 — 车工 run both per ERP matrix
   'u-mpdgkaii-we81gu': ['编程', '操机', '车铣'], // 车工徐兴旺
-  'u-mpdgg8zl-6vavvt': ['编程', '操机', '车铣'], // 编程001高浩灿
-  'u-mpdgirjs-facsb5': ['编程', '操机', '车铣'], // 编程002李军军
-  'u-mpdgj774-wnwgsf': ['编程', '操机', '车铣'], // 编程003吴润静
-  'u-mpdgjdiu-lq2hso': ['编程', '操机', '车铣'], // 编程004毛伟超
-  'u-mpdgjma9-lgyznp': ['编程', '操机', '车铣'], // 编程005戴棵
-  'u-mpdgjtj2-nzx055': ['编程', '操机', '车铣'], // 编程006宋跃文
+  'u-mpdgg8zl-6vavvt': ['编程', '操机'], // 编程001高浩灿
+  'u-mpdgirjs-facsb5': ['编程', '操机'], // 编程002李军军
+  'u-mpdgj774-wnwgsf': ['编程', '操机'], // 编程003吴润静
+  'u-mpdgjdiu-lq2hso': ['编程', '操机'], // 编程004毛伟超
+  'u-mpdgjma9-lgyznp': ['编程', '操机'], // 编程005戴棵
+  'u-mpdgjtj2-nzx055': ['编程', '操机'], // 编程006宋跃文
   'u-mpdg0tcr-beaxrv': ['手工', '打磨'], // 手工001潘健 — 299 real 打磨 taps/45d
   // 打磨喷漆 — 老板 2026-09-17 定的三道：打磨 · 喷漆 · 丝印。
   //
