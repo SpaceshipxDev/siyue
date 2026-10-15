@@ -192,6 +192,8 @@ const SHIP_SCOPE_LABEL: Record<ShipFilter, string> = {
 // Mirrors lib/master#RowRollupKind minus 'na' (jobs that skip the stage are
 // never status-filterable and drop out of every non-'all' bucket).
 type StatusFilter = 'all' | 'pending' | 'partial' | 'done'
+// 一列可以同时勾几种 (于海伟 2026-10-15: 比如 未开始 + 进行中 = 还没做完的)。
+type StatusKind = Exclude<StatusFilter, 'all'>
 
 // 工段 floor vocabulary. Order is the lifecycle order a job moves through, so
 // the segmented control reads left→right like the work actually flows.
@@ -382,22 +384,34 @@ export function MasterSheet({
   // carries its own independent filter, applied with AND across columns
   // ("未开始 at 编程 AND 已完成 at 工程"). Persisted per view context. A column
   // is "filtered" when its entry exists and isn't 'all'.
+  // 每一列勾的是一组状态 (多选), 行的状态落在这组里就留下。键换了名 (原来
+  // 一列只存一个状态), 旧的单选记录不再读。
   const [statusByStage, setStatusByStage] = usePersistentState<
-    Partial<Record<Stage, StatusFilter>>
-  >(`${persistKey}:statusByStage`, {})
-  const setStageStatus = (stage: Stage, next: StatusFilter) =>
+    Partial<Record<Stage, StatusKind[]>>
+  >(`${persistKey}:statusSets`, {})
+  const toggleStageStatus = (stage: Stage, kind: StatusKind) =>
     setStatusByStage((prev) => {
+      const cur = prev[stage] ?? []
+      const next = cur.includes(kind) ? cur.filter((k) => k !== kind) : [...cur, kind]
       const out = { ...prev }
-      if (next === 'all') delete out[stage]
+      if (next.length === 0) delete out[stage]
       else out[stage] = next
       return out
     })
+  const clearStageStatus = (stage: Stage) =>
+    setStatusByStage((prev) => {
+      const out = { ...prev }
+      delete out[stage]
+      return out
+    })
   const clearStageStatuses = () => setStatusByStage({})
-  // The columns with a live (non-'all') filter, in board order.
+  // The columns with a live filter, in board order.
   const activeFilterStages = useMemo(
-    () => STAGES.filter((s) => statusByStage[s] && statusByStage[s] !== 'all'),
+    () => STAGES.filter((s) => Array.isArray(statusByStage[s]) && statusByStage[s]!.length > 0),
     [statusByStage],
   )
+  const rowInStatus = (r: MasterRow, s: Stage) =>
+    (statusByStage[s] as string[] | undefined)?.includes(rowRollupStage(r, s).kind) ?? true
   // 滞留 funnel — 按"这张单卡在哪一道"切。工段列回答的是每一道各自的状态,
   // 这一个回答的是"最前面那道没做完的是谁", 留下卡在选中那几道的单子, 那就是
   // 一张车间的催活清单。
@@ -632,7 +646,7 @@ export function MasterSheet({
       let partial = 0
       let done = 0
       for (const r of dateFiltered) {
-        if (!others.every((o) => rowRollupStage(r, o).kind === statusByStage[o]))
+        if (!others.every((o) => rowInStatus(r, o)))
           continue
         const k = rowRollupStage(r, s).kind
         if (k === 'pending') pending++
@@ -693,9 +707,7 @@ export function MasterSheet({
         activeFilterStages.length === 0
           ? dateFiltered
           : dateFiltered.filter((r) =>
-              activeFilterStages.every(
-                (s) => rowRollupStage(r, s).kind === statusByStage[s],
-              ),
+              activeFilterStages.every((s) => rowInStatus(r, s)),
             )
       const stuckScoped = stuckActive
         ? statusScoped.filter((r) => {
@@ -1047,7 +1059,7 @@ export function MasterSheet({
               // Cool wash on a column with a live filter — the one remaining
               // column tint.
               const isFilteredCol =
-                treatAsOverview && Boolean(statusByStage[s])
+                treatAsOverview && activeFilterStages.includes(s)
               const colBg = isFilteredCol ? 'var(--color-info-soft)' : undefined
               return (
                 <col
@@ -1105,8 +1117,8 @@ export function MasterSheet({
               </th>
               {STAGES.map((s, si) => {
                 const isHighlighted = s === highlightStage
-                const colStatus = statusByStage[s]
-                const isFilteredCol = treatAsOverview && Boolean(colStatus)
+                const colStatus = statusByStage[s] ?? []
+                const isFilteredCol = treatAsOverview && colStatus.length > 0
                 // The stage name is a plain label — the column header doesn't
                 // navigate anywhere (the per-stage drill-down wasn't useful from
                 // the dashboard). All interaction lives in the filter funnel
@@ -1133,7 +1145,7 @@ export function MasterSheet({
                       {treatAsOverview && (
                         <HeaderFilter
                           stage={s}
-                          value={colStatus ?? 'all'}
+                          value={colStatus}
                           counts={
                             statusCountsByStage?.[s] ?? {
                               pending: 0,
@@ -1143,7 +1155,8 @@ export function MasterSheet({
                             }
                           }
                           align={si >= STAGES.length - 2 ? 'right' : 'left'}
-                          onChange={(next) => setStageStatus(s, next)}
+                          onToggle={(k) => toggleStageStatus(s, k)}
+                          onClear={() => clearStageStatus(s)}
                         />
                       )}
                     </span>
@@ -1281,7 +1294,7 @@ export function MasterSheet({
                 ? `未找到 “${q}” · 「${SHIP_SCOPE_LABEL[shipFilter]}」内`
                 : statusActive
                   ? `${activeFilterStages
-                      .map((s) => `${s} · ${STATUS_LABEL[statusByStage[s]!]}`)
+                      .map((s) => `${s} · ${statusByStage[s]!.map((k) => STATUS_LABEL[k]).join('、')}`)
                       .join(' / ')} 暂无工单`
                   : '该范围暂无工单'}
             </p>
@@ -1508,7 +1521,8 @@ function ScopeJumpHints({
 
 // Excel-style per-column status filter. A small triangle sits beside each
 // 工段 header name; clicking it drops a menu to slice that column's rows by
-// state (全部 / 未开始 / 进行中 / 已完成) with live counts. Once a state is
+// state (全部 / 未开始 / 进行中 / 已完成) with live counts. 可以勾好几种 (跟滞留
+// 那一列一个手势: 点一下勾上 / 去掉, 点别处收起)。 Once a state is
 // picked the trigger becomes a filled funnel and the column lights up (accent
 // bar + cool wash). The header itself doesn't navigate — the funnel is the only
 // interactive target. Closes on outside-click / Esc.
@@ -1517,17 +1531,19 @@ function HeaderFilter({
   value,
   counts,
   align,
-  onChange,
+  onToggle,
+  onClear,
 }: {
   stage: Stage
-  value: StatusFilter
+  value: StatusKind[]
   counts: { pending: number; partial: number; done: number; total: number }
   align: 'left' | 'right'
-  onChange: (next: StatusFilter) => void
+  onToggle: (kind: StatusKind) => void
+  onClear: () => void
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLSpanElement>(null)
-  const active = value !== 'all'
+  const active = value.length > 0
 
   useEffect(() => {
     if (!open) return
@@ -1545,7 +1561,7 @@ function HeaderFilter({
     }
   }, [open])
 
-  const rows: { key: StatusFilter; tone: StatusTone; count: number }[] = [
+  const rows: { key: StatusKind; tone: StatusTone; count: number }[] = [
     { key: 'pending', tone: 'pending', count: counts.pending },
     { key: 'partial', tone: 'warning', count: counts.partial },
     { key: 'done', tone: 'success', count: counts.done },
@@ -1573,6 +1589,7 @@ function HeaderFilter({
       {open && (
         <div
           role="listbox"
+          aria-multiselectable="true"
           aria-label={`${stage} 状态`}
           className={`absolute top-[calc(100%+8px)] z-40 min-w-[148px] overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] py-1 text-left shadow-[0_10px_34px_-12px_rgba(20,19,15,0.28)] ${
             align === 'right' ? 'right-0' : 'left-0'
@@ -1581,9 +1598,9 @@ function HeaderFilter({
           <FilterMenuRow
             label="全部"
             count={counts.total}
-            active={value === 'all'}
+            active={!active}
             onClick={() => {
-              onChange('all')
+              onClear()
               setOpen(false)
             }}
           />
@@ -1594,13 +1611,13 @@ function HeaderFilter({
               label={STATUS_LABEL[r.key]}
               count={r.count}
               tone={r.tone}
-              active={value === r.key}
-              onClick={() => {
-                onChange(r.key)
-                setOpen(false)
-              }}
+              active={value.includes(r.key)}
+              onClick={() => onToggle(r.key)}
             />
           ))}
+          <p className="border-t border-[var(--color-border)] mt-1 px-3 pt-1.5 pb-0.5 text-[11px] text-[var(--color-ink-4)]">
+            可以点好几种 · 点别处收起
+          </p>
         </div>
       )}
     </span>
