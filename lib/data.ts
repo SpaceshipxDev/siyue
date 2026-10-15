@@ -95,12 +95,15 @@ export type PlanKey = Stage | '外协'
 export const PICK_WORKER_STAGES: Stage[] = ['操机', '车铣', '喷漆']
 
 // 一道工序里分两小步报的 —— 先点前一步 (记上谁做的, 再点撤掉), 再点后一步 =
-// 这一道完成。喷漆: 底漆 → 面漆 (老板 2026-10-05); 操机: 正面 → 反面 (10-15,
-// 两面常是两个人、两个班)。两步各记各的人, 报工金额各拿这一道的一半。
+// 这一道完成。喷漆: 底漆 → 面漆 (老板 2026-10-05)。两步各记各的人, 报工金额
+// 各拿这一道的一半。
+//
+// 操机 10-15 试过分 正面 → 反面, 当天又取消了 (于海伟: 操机还是一下点完)。
+// 那几天记下的 正面/反面 个人报工还在, 统计里照旧算操机的两半 (LEGACY_STEPS)。
 export const STAGE_STEPS = {
   喷漆: ['底漆', '面漆'],
-  操机: ['正面', '反面'],
 } as const satisfies Partial<Record<Stage, readonly [string, string]>>
+const LEGACY_STEPS: Record<string, Stage> = { 正面: '操机', 反面: '操机' }
 export type StepStage = keyof typeof STAGE_STEPS
 export type SubStep = (typeof STAGE_STEPS)[StepStage][number]
 export const SUB_STEPS: readonly SubStep[] = Object.values(STAGE_STEPS).flat()
@@ -117,19 +120,14 @@ export function stageOfStep(step: string): StepStage | undefined {
   )
 }
 
-// 操机的「正面」是可选的 (于海伟 2026-10-15): 大多数件一次成型, 照旧一下点
-// 完, 记整道; 只有正反面的件才先点「正面」, 这时格子才变成 正面 ✓ / 反面。
-export const OPTIONAL_FIRST_STEP_STAGES: Stage[] = ['操机']
+/** 个人报工里记的是哪一道的一小步 —— 含已取消的操机 正面/反面。报工统计用。 */
+export function stageOfRecordedStep(step: string): Stage | undefined {
+  return stageOfStep(step) ?? LEGACY_STEPS[step]
+}
 
-/**
- * 个人报工记在哪儿: 分两小步的那几道, 点完成就是后一步做完。操机没点过正面
- * 的 (一次成型) 记整道。
- */
-export function finishStepOf(stage: Stage, hasFirst = true): Stage | SubStep {
-  const pair = stepsOf(stage)
-  if (!pair) return stage
-  if (!hasFirst && OPTIONAL_FIRST_STEP_STAGES.includes(stage)) return stage
-  return pair[1]
+/** 个人报工记在哪儿: 分两小步的那几道, 点完成就是后一步做完。 */
+export function finishStepOf(stage: Stage): Stage | SubStep {
+  return stepsOf(stage)?.[1] ?? stage
 }
 
 // 喷漆 · 丝印 共用一个时间节点 (老板 2026-10-05 定的; 当天先是 打磨·喷漆·丝印

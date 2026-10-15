@@ -19,9 +19,9 @@
 //
 // When adding a new mutation: prefer adding a `kind` to the dispatcher.
 
-import { getSpraySteps, setSpraySteps, stepKey } from '@/lib/spray-steps'
+import { setSpraySteps } from '@/lib/spray-steps'
 import { revalidatePath } from 'next/cache'
-import { OPTIONAL_FIRST_STEP_STAGES, stepsOf, type Stage, type JobStatus } from '@/lib/data'
+import { stepsOf, type Stage, type JobStatus } from '@/lib/data'
 import { BRAND } from '@/lib/brand'
 import type { Customer, Vendor } from '@/lib/data'
 import {
@@ -120,11 +120,8 @@ async function syncShipments(jobId: string, stage: Stage, actor: string): Promis
     try {
       const job = await getJob(jobId)
       if (!job) return
-      // 操机没点过正面的是一次成型, 不补两小步。
-      const cur = OPTIONAL_FIRST_STEP_STAGES.includes(stage) ? await getSpraySteps([jobId]) : undefined
       const doneItems = job.components
         .filter((c) => c.stages[stage]?.status === 'done')
-        .filter((c) => !cur || cur[stepKey(jobId, c.id)]?.[pair[0]])
         .flatMap((c) => pair.map((step) => ({ jobId, componentId: c.id, step })))
       const undoItems = job.components
         .filter((c) => c.stages[stage] && c.stages[stage]?.status !== 'done')

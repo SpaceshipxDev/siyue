@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import type { Stage, StageState } from '@/lib/data'
-import { OPTIONAL_FIRST_STEP_STAGES, PICK_WORKER_STAGES, STAGES, finishStepOf, stepsOf } from '@/lib/data'
+import { PICK_WORKER_STAGES, STAGES, finishStepOf, stepsOf } from '@/lib/data'
 import { Pause, stageTimeHint } from './_ui'
 import { mutate } from '@/lib/mutate'
 import { RowTimer } from './_row_timer'
@@ -53,14 +53,12 @@ export function StageCellButton({
   const [splitOpen, setSplitOpen] = useState(false)
   // 操机、喷漆按 ✓ 先问"谁做的" (app/_who_did)。
   const [whoOpen, setWhoOpen] = useState(false)
-  // 喷漆拆成底漆、面漆两小步, 操机拆成正面、反面 (lib/data STAGE_STEPS): 先点
-  // 前一步, 再点后一步 = 这一道完成。操机的正面是可选的: 没点过正面就是一次
-  // 成型, 格子跟别的工序一样一下点完, 底下只多一个小小的「正面」。
+  // 喷漆拆成底漆、面漆两小步 (lib/data STAGE_STEPS): 先点
+  // 前一步, 再点后一步 = 这一道完成。
   const pair = stepsOf(stage)
+  const hasSteps = !!pair
   const [first, last] = pair ?? (['底漆', '面漆'] as const)
-  const steps = useSpraySteps(jobId, componentId, !!pair)
-  const optionalFirst = OPTIONAL_FIRST_STEP_STAGES.includes(stage)
-  const hasSteps = !!pair && (!optionalFirst || !!steps[first])
+  const steps = useSpraySteps(jobId, componentId, hasSteps)
   const [baseWhoOpen, setBaseWhoOpen] = useState(false)
   // 报工范围 guard — out-of-scope taps open the denial dialog instead of
   // writing. The server re-checks, so a stale client only ever costs a
@@ -218,7 +216,7 @@ export function StageCellButton({
     )
   }
 
-  // 前一步 (底漆 / 正面): 点一下先问是谁做的 (两步常是两个人, 个人报工分开
+  // 前一步 (底漆): 点一下先问是谁做的 (两步常是两个人, 个人报工分开
   // 记), 记上; 记过的再点一下就撤掉。不碰这一格本身。
   const saveBase = (done: boolean, people: { name: string; qty: number }[] = []) => {
     setBaseWhoOpen(false)
@@ -292,17 +290,6 @@ export function StageCellButton({
           )}
         </button>
         )}
-        {pair && optionalFirst && !hasSteps && !error ? (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={toggleBase}
-            title={`有${first}${last}的件: ${first}做完了先点这里`}
-            className="w-full pb-1 text-[10px] leading-tight text-[var(--color-warning)]/70 hover:text-[var(--color-warning)] hover:underline underline-offset-[3px] decoration-dotted disabled:cursor-not-allowed"
-          >
-            {first}
-          </button>
-        ) : null}
         {supportsPartial && !error ? (
           <button
             type="button"
@@ -619,7 +606,7 @@ export function JobStageActionButton({
 
   const whoSheet = whoOpen ? (
     <WhoDidSheet
-      stage={finishStepOf(stage, false)}
+      stage={finishStepOf(stage)}
       onConfirm={({ names }) => finish({ workers: names })}
       onSkip={() => finish()}
       onCancel={() => setWhoOpen(false)}

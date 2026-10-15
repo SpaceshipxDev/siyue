@@ -1,5 +1,5 @@
 import { currentUser, canSeeReport, canSeeMoney } from '@/lib/auth'
-import { PICK_WORKER_STAGES, STAGES, stageOfStep, type Stage } from '@/lib/data'
+import { PICK_WORKER_STAGES, STAGES, stageOfRecordedStep, type Stage } from '@/lib/data'
 import { getPersonSplits, workSplitKey } from '@/lib/work-split'
 import { shanghaiRangeWindow } from '@/lib/today'
 import {
@@ -211,8 +211,8 @@ async function personOutput(
   showMoney: boolean,
 ): Promise<PersonRow[]> {
   const entries = await getPersonSplits()
-  // 每件多少钱 —— 底漆、面漆是喷漆里的小步, 正面、反面是操机里的, 价钱按那一道拿。
-  const eventStage = (st: string) => stageOfStep(st) ?? st
+  // 每件多少钱 —— 底漆、面漆是喷漆里的小步 (还有操机试过的正面、反面), 价钱按那一道拿。
+  const eventStage = (st: string) => stageOfRecordedStep(st) ?? st
   const inWindow = (at?: string) => !!at && at >= window.from && at < window.to
   const shown = entries.filter(
     (e) => (!stage || eventStage(e.stage) === stage) && e.shares.some((sh) => inWindow(sh.at)),
@@ -233,7 +233,7 @@ async function personOutput(
       p.finishes += 1
       p.pieces = Math.round((p.pieces + sh.qty) * 100) / 100
       // 两小步是那一道 (5%) 的两半 —— 平分, 各拿一半, 合起来还是一道。
-      const share = stageOfStep(e.stage) ? 0.5 : 1
+      const share = stageOfRecordedStep(e.stage) ? 0.5 : 1
       const value = Math.round(sh.qty * (per.get(workSplitKey(e.partId, eventStage(e.stage))) ?? 0) * share * 100) / 100
       p.valueCny = Math.round((p.valueCny + value) * 100) / 100
       if (sh.at > p.lastTs) p.lastTs = sh.at
