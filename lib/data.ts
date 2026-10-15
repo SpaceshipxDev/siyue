@@ -3,6 +3,7 @@ export const STAGES = [
   '采购',
   '编程',
   '操机',
+  '车铣',
   '检验',
   '手工',
   '打磨',
@@ -13,7 +14,7 @@ export const STAGES = [
   '出货',
 ] as const
 
-export const SCHEMA_VERSION = 10
+export const SCHEMA_VERSION = 11
 
 export type Stage = (typeof STAGES)[number]
 
@@ -25,7 +26,9 @@ export type Stage = (typeof STAGES)[number]
 // analyzed the part (material lead time is the long pole, so it runs first
 // and in parallel with 编程), and 表处 sits between 打磨 and 喷漆 (the part
 // leaves the building after polishing and must be back before paint).
-export const OPT_IN_STAGES: Stage[] = ['采购', '表处']
+// 车铣 (老板 2026-10-15 加的) 也是点开才有: 大多数件不过车铣, 走车铣的件工程
+// 在工序里点上它, 排在操机后面。
+export const OPT_IN_STAGES: Stage[] = ['采购', '车铣', '表处']
 
 // The route every new part is born with — everything except the opt-ins.
 // Single source of truth for server seeding (lib/db DEFAULT_NEW_PART_STAGES)
@@ -83,12 +86,13 @@ export const PLANNABLE_STAGES: Stage[] = PRODUCTION_STAGES.filter(
 // board's 外协 badge read it.
 export type PlanKey = Stage | '外协'
 
-// 报工时问一句「谁做的」的那几道 (老板 2026-10-05): 操机、喷漆。
+// 报工时问一句「谁做的」的那几道 (老板 2026-10-05): 操机、喷漆; 10-15 加了车铣,
+// 跟操机一个算法。
 //
 // 这两道常常是一个账号几个人轮着用、一张单几个人一起做 —— 按下 ✓ 那一刻选
 // 人 (一个人就记给他, 几个人就分工), 报工统计里每个人的产出才分得开。别的工
 // 序照旧一按就完成, 不多问。
-export const PICK_WORKER_STAGES: Stage[] = ['操机', '喷漆']
+export const PICK_WORKER_STAGES: Stage[] = ['操机', '车铣', '喷漆']
 
 // 喷漆 · 丝印 共用一个时间节点 (老板 2026-10-05 定的; 当天先是 打磨·喷漆·丝印
 // 三道, 再往前 9-30 是连操机、手工五道, 最后落在这两道)。
@@ -2098,7 +2102,7 @@ export function isFullStageCoverage(stages: Stage[]): boolean {
   // Match the current default (OUTSOURCEABLE_STAGES — excludes 工程/采购/出货)
   // plus every older "all of it" shape still in legacy data: 7 (pre-检验
   // OUTSOURCEABLE), 8 (pre-采购/表处 OUTSOURCEABLE), 9/10 (the old
-  // PRODUCTION/STAGES lengths). Blocks are per-part stage subsets, so any of
+  // PRODUCTION/STAGES lengths), 9/11 (pre-车铣 OUTSOURCEABLE/PRODUCTION). Blocks are per-part stage subsets, so any of
   // these lengths only ever occurs on a genuinely whole-process dispatch.
   return (
     stages.length === OUTSOURCEABLE_STAGES.length ||
@@ -2106,7 +2110,9 @@ export function isFullStageCoverage(stages: Stage[]): boolean {
     stages.length === STAGES.length ||
     stages.length === 7 ||
     stages.length === 8 ||
-    stages.length === 10
+    stages.length === 9 ||
+    stages.length === 10 ||
+    stages.length === 11
   )
 }
 

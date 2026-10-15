@@ -22,20 +22,23 @@ export const dynamic = 'force-dynamic'
 //
 // 谁来排: 商务、工程, 加上编程的程江华 (lib/auth canEditPlan)。
 
-// 计划的表 → 报工里的工序。车铣在路线上走的是操机那一道。
+// 计划的表 → 报工里的工序。车铣以前没有单独一道, 走的是操机 —— 老单子上没
+// 有车铣那一格的, 还是看操机 (FALLBACK_OF)。
 const STAGE_OF: Record<PlanStage, Stage> = {
   编程: '编程',
   操机: '操机',
-  车铣: '操机',
+  车铣: '车铣',
   手工: '手工',
   打磨: '打磨',
 }
 
-// 工程在工单上给哪一道排了计划交期, 计划里那一张表就自动带出这一行。车铣在
-// 工单上没有单独的一道 (走的是操机), 不往车铣里带。
+const FALLBACK_OF: Partial<Record<PlanStage, Stage>> = { 车铣: '操机' }
+
+// 工程在工单上给哪一道排了计划交期, 计划里那一张表就自动带出这一行。
 const ENG_STAGE: Partial<Record<PlanStage, Stage>> = {
   编程: '编程',
   操机: '操机',
+  车铣: '车铣',
   手工: '手工',
   打磨: '打磨',
 }
@@ -138,7 +141,7 @@ export default async function PlanPage({
   for (const r of rows) {
     const m = byJobNo.get(norm(r.jobNo))
     if (!m) continue
-    const st = STAGE_OF[stage]
+    const st = m.cells[STAGE_OF[stage]] ? STAGE_OF[stage] : (FALLBACK_OF[stage] ?? STAGE_OF[stage])
     const job = r.seq ? jobs.get(m.id) : undefined
     if (job) {
       const idx = job.components.findIndex(

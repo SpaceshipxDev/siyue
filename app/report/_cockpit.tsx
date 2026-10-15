@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { formatCny, STAGES, type Stage } from '@/lib/data'
+import { formatCny, PICK_WORKER_STAGES, STAGES, type Stage } from '@/lib/data'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { withBase } from '@/lib/base-path'
 import { PersonSearch, type RosterPerson } from './_person_search'
@@ -515,7 +515,7 @@ function PersonOutputList({
     <section>
       <div className="mb-3 flex items-baseline gap-2">
         <h2 className="text-[13px] font-medium tracking-tight text-[var(--color-ink-2)]">个人报工</h2>
-        <span className="label text-[var(--color-ink-3)]">{stage ?? '操机 · 喷漆'} · 报工时选的人</span>
+        <span className="label text-[var(--color-ink-3)]">{stage ?? PICK_WORKER_STAGES.join(' · ')} · 报工时选的人</span>
         <span className="ml-auto">
           <PersonExportButton persons={persons} showMoney={showMoney} name={exportName} />
         </span>

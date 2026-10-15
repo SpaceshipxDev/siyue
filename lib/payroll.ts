@@ -66,7 +66,9 @@ export const DEPARTMENTS: readonly string[] = [
   ...STAGES.flatMap((s) =>
     s === LEGACY_OPERATOR_DEPT
       ? [s, ...OPERATOR_DEPTS, ...EXTRA_DEPTS]
-      : [s],
+      : s === '车铣'
+        ? [] // 车铣是零件走的一道工序, 不是一个发工资的部门 (人还在操机/车件部)
+        : [s],
   ),
 ]
 

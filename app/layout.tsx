@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 })
 
 // bump when public/i18n/en.js or en.json changes (cache-bust for browsers)
-const EN_V = "1";
+const EN_V = "2";
 
 export const metadata: Metadata = {
   title: APP_TITLE,
