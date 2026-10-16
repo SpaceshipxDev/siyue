@@ -602,9 +602,7 @@ function Row({
             }`}
           >
             {closed
-              ? receipts.length > 0
-                ? '已回 · 有确认单'
-                : '已回'
+              ? '已回'
               : block.vendorShippedAt
                 ? '厂商已发货'
                 : line.overdue
@@ -635,6 +633,22 @@ function Row({
             >
               {settle === 'paid' ? '已付款' : '已对账'}
             </span>
+          )}
+          {/* 收货确认单的入口 —— 已回的单一直摆着, 不用先猜要点开哪里。 */}
+          {closed && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!open) onToggle()
+              }}
+              className={`block w-full text-right text-[11.5px] underline-offset-2 hover:underline ${
+                receipts.length > 0
+                  ? 'text-[var(--color-success)]'
+                  : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+              }`}
+            >
+              {receipts.length > 0 ? `确认单 ${receipts.length}` : '传确认单'}
+            </button>
           )}
           {!closed && line.remainingQty > 0 && (
             <button
@@ -794,6 +808,18 @@ function Panel({
       <div className="flex flex-wrap gap-x-10 gap-y-6">
         {/* 零件 + 收件 — the reason this panel exists. */}
         <div className="min-w-[420px] flex-1">
+          {/* 收货确认单 —— 有零件回厂了才有得签。挂在订单上, 这张单的每一张
+              外协单看到的是同一组。全回了就放最上面 (这时候来就是为了它);
+              回了一部分的放在收件下面。 */}
+          {closed && (
+            <ReceiptStrip
+              jobId={jobId}
+              caption={[line.customer, line.jobNo].filter(Boolean).join(' · ')}
+              photos={receipts}
+              onChange={onReceipts}
+              top
+            />
+          )}
           <div className="grid grid-cols-[1fr_60px_92px_88px] items-baseline gap-x-3 border-b border-[var(--color-border)] pb-1">
             <span className="label">零件</span>
             <span className="label text-right">数量</span>
@@ -901,9 +927,7 @@ function Panel({
             </div>
           )}
 
-          {/* 收货确认单 —— 有零件回厂了才有得签。挂在订单上, 这张单的每一张
-              外协单看到的是同一组。 */}
-          {block.members.some((m) => memberReturnedQty(m) > 0) && (
+          {!closed && block.members.some((m) => memberReturnedQty(m) > 0) && (
             <ReceiptStrip
               jobId={jobId}
               caption={[line.customer, line.jobNo].filter(Boolean).join(' · ')}
@@ -1045,11 +1069,14 @@ function ReceiptStrip({
   caption,
   photos,
   onChange,
+  top,
 }: {
   jobId: string
   caption: string
   photos: VoucherFile[]
   onChange: (next: VoucherFile[]) => void
+  /** 放在面板最上面 (分隔线画在下面)。 */
+  top?: boolean
 }) {
   const zoneRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -1104,7 +1131,14 @@ function ReceiptStrip({
   }
 
   return (
-    <div ref={zoneRef} className="mt-5 border-t border-[var(--color-border)] pt-3">
+    <div
+      ref={zoneRef}
+      className={
+        top
+          ? 'mb-5 border-b border-[var(--color-border)] pb-4'
+          : 'mt-5 border-t border-[var(--color-border)] pt-3'
+      }
+    >
       <div className="mb-2 flex items-baseline gap-3">
         <span className="label">收货确认单</span>
         <span className="truncate text-[12px] text-[var(--color-ink-3)]">{caption}</span>
