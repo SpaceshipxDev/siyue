@@ -3831,6 +3831,7 @@ export async function getOrderLedgerRows(): Promise<
     poLinesRaw,
     moneyEventsRaw,
     freeRaw,
+    financeRaw,
   ] = await Promise.all([
       fetchCols(
         'jobs',
@@ -3848,11 +3849,12 @@ export async function getOrderLedgerRows(): Promise<
       fetchCols('parts', 'id, job_id, qty'),
       getVendors(),
       getProcurements(),
-      fetchCols('shipments', 'job_id, created_at'),
+      fetchCols('shipments', 'id, job_id, created_at'),
       selectAllOptional('po_lines'),
       selectAllOptional('money_events'),
       // 免收的单 —— 老库没有这一列就当全都收费。
       fetchCols('jobs', 'id', ['billable', 'false']).catch(() => [] as AnyRow[]),
+      selectAllOptional('shipment_finance'),
     ])
   const freeJobs = new Set(freeRaw.map((r) => r.id as string))
 
@@ -3879,6 +3881,45 @@ export async function getOrderLedgerRows(): Promise<
       today(),
     ))
       fenqiByJob.set(r.job.jobId, r)
+  }
+
+  // 记账上线以前, 开票 / 回款是记在出货单上的 (shipment_finance)。那些单没
+  // 有订单号行, 就按出货单把老记录挂回订单 —— 跟看板收款格同一个分法: 记账
+  // 上有这张单就以记账为准, 没有才看老记录。
+  const legacyByJob = new Map<
+    string,
+    { invoiced: number; paid: number; money: import('./data').OrderLedgerMoney[] }
+  >()
+  {
+    const jobOfShipment = new Map<string, string>()
+    for (const sr of shipmentsRaw)
+      jobOfShipment.set(sr.id as string, sr.job_id as string)
+    for (const r of financeRaw) {
+      const f = fromShipmentFinance(r)
+      const jobId = jobOfShipment.get(f.shipmentId)
+      if (!jobId || fenqiByJob.has(jobId)) continue
+      const agg = legacyByJob.get(jobId) ?? { invoiced: 0, paid: 0, money: [] }
+      if (f.invoiceDate) {
+        agg.invoiced += f.invoiceAmountCny ?? 0
+        agg.money.push({
+          id: `${f.shipmentId}-inv`,
+          kind: 'invoice',
+          date: f.invoiceDate,
+          amountCny: f.invoiceAmountCny ?? 0,
+          invoiceNo: f.invoiceNo,
+        })
+      }
+      if (f.paymentDate || f.paymentAmountCny) {
+        agg.paid += f.paymentAmountCny ?? 0
+        agg.money.push({
+          id: `${f.shipmentId}-pay`,
+          kind: 'payment',
+          date: f.paymentDate ?? '',
+          amountCny: f.paymentAmountCny ?? 0,
+        })
+      }
+      if (agg.money.length > 0) legacyByJob.set(jobId, agg)
+    }
   }
 
   const vendorName = new Map<string, string>()
@@ -3987,11 +4028,11 @@ export async function getOrderLedgerRows(): Promise<
       procurementCny,
       settle: settleByJob.get(jobId)?.settle,
       receivableNos: settleByJob.get(jobId)?.nos ?? [],
-      invoicedCny: fq?.invoiced ?? 0,
-      paidCny: fq?.paid ?? 0,
+      invoicedCny: fq?.invoiced ?? legacyByJob.get(jobId)?.invoiced ?? 0,
+      paidCny: fq?.paid ?? legacyByJob.get(jobId)?.paid ?? 0,
       free: freeJobs.has(jobId) || undefined,
-      money: (fq?.lines ?? [])
-        .flatMap((l) =>
+      money: (fq
+        ? fq.lines.flatMap((l) =>
           l.ledger
             .filter((e) => !e.voided)
             .map((e) => ({
@@ -4002,8 +4043,9 @@ export async function getOrderLedgerRows(): Promise<
               invoiceNo: e.ev.invoiceNo,
               poNo: l.line.poNo || undefined,
             })),
-        )
-        .sort((a, b) => a.date.localeCompare(b.date)),
+          )
+        : (legacyByJob.get(jobId)?.money ?? [])
+      ).sort((a, b) => a.date.localeCompare(b.date)),
     })
   }
   // Newest order first — the ledger reads top-down like the 外协台. Ties on
