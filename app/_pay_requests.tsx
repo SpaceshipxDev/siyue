@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useId, useMemo, useRef, useState, useTransition } from 'react'
+import { Fragment, useEffect, useId, useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
@@ -474,7 +474,8 @@ function NewRequest({
   )
 }
 
-// 填申请时先选好的附件 —— 申请落下拿到单号再传上去。
+// 填申请时先选好的附件 —— 申请落下拿到单号再传上去。选了就排出缩略图, 图点
+// 一下放大看清楚, 选错的点 × 拿掉。
 function StagedFiles({
   label,
   files,
@@ -485,8 +486,21 @@ function StagedFiles({
   onChange: (fs: File[]) => void
 }) {
   const ref = useRef<HTMLInputElement>(null)
+  const [viewing, setViewing] = useState<number | null>(null)
+  // 本地预览地址 —— 在 effect 里建、在 effect 里收, 文件换了就重建。
+  const [urls, setUrls] = useState<string[]>([])
+  useEffect(() => {
+    const u = files.map((f) => URL.createObjectURL(f))
+    setUrls(u)
+    return () => u.forEach((x) => URL.revokeObjectURL(x))
+  }, [files])
+  const zoomable = (f: File) => f.type.startsWith('image/') && !/heic/i.test(f.type + f.name)
+  const images = files
+    .map((f, i) => ({ f, url: urls[i] }))
+    .filter((x) => zoomable(x.f) && x.url)
+
   return (
-    <>
+    <span className="inline-flex flex-wrap items-center gap-1.5">
       <input
         ref={ref}
         type="file"
@@ -499,35 +513,51 @@ function StagedFiles({
           if (fs.length > 0) onChange([...files, ...fs])
         }}
       />
-      {files.length > 0 ? (
-        <span className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[2px] border border-[var(--color-border)] px-2.5 text-[12.5px] text-[var(--color-ink-2)]">
-          {label} {files.length} 个
+      {files.length > 0 && <span className="label mr-0.5">{label}</span>}
+      {files.map((f, i) => (
+        <span key={`${f.name}-${i}`} className="group/ph relative">
+          {zoomable(f) && urls[i] ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={urls[i]}
+              alt={f.name}
+              title={`${f.name} — 点开放大`}
+              onClick={() => setViewing(images.findIndex((x) => x.f === f))}
+              className="h-9 w-9 cursor-zoom-in rounded-[2px] border border-[var(--color-border)] object-cover"
+            />
+          ) : (
+            <span
+              title={f.name}
+              className="flex h-9 w-9 items-center justify-center rounded-[2px] border border-[var(--color-border)] text-[10px] text-[var(--color-ink-3)]"
+            >
+              {/\.pdf$/i.test(f.name) ? 'PDF' : '图'}
+            </span>
+          )}
           <button
             type="button"
-            onClick={() => ref.current?.click()}
-            className="text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
+            onClick={() => onChange(files.filter((_, x) => x !== i))}
+            aria-label="拿掉这一个"
+            className="absolute -right-1 -top-1 hidden h-[15px] w-[15px] items-center justify-center rounded-full bg-[var(--color-ink)] text-[9px] leading-none text-[var(--color-surface)] group-hover/ph:flex"
           >
-            ＋
-          </button>
-          <button
-            type="button"
-            onClick={() => onChange([])}
-            aria-label={`不带${label}了`}
-            className="text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
-          >
-            ×
+            ✕
           </button>
         </span>
-      ) : (
-        <button
-          type="button"
-          onClick={() => ref.current?.click()}
-          className="h-9 shrink-0 rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-3 text-[12.5px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]"
-        >
-          ＋ {label}
-        </button>
+      ))}
+      <button
+        type="button"
+        onClick={() => ref.current?.click()}
+        className="h-9 shrink-0 rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-3 text-[12.5px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]"
+      >
+        {files.length > 0 ? '＋' : `＋ ${label}`}
+      </button>
+      {viewing !== null && viewing >= 0 && (
+        <PhotoViewer
+          items={images.map((x) => ({ url: x.url, filename: x.f.name }))}
+          start={viewing}
+          onClose={() => setViewing(null)}
+        />
       )}
-    </>
+    </span>
   )
 }
 
@@ -767,7 +797,9 @@ function Detail({
   )
 }
 
+// 浏览器能直接显示的图 —— heic (苹果原图) 显示不了, 跟 PDF 一样点开新页下载。
 function isImage(f: { contentType?: string; filename: string }): boolean {
+  if (/heic/i.test(`${f.contentType ?? ''} ${f.filename}`)) return false
   if (f.contentType?.startsWith('image/')) return true
   return /\.(png|jpe?g|webp)$/i.test(f.filename)
 }
@@ -850,7 +882,7 @@ function FileStrip({
               title={f.filename}
               className="flex h-[48px] w-[48px] items-center justify-center rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] text-[10.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
             >
-              PDF
+              {/\.pdf$/i.test(f.filename) ? 'PDF' : '图'}
             </a>
           )}
           {canDelete && (

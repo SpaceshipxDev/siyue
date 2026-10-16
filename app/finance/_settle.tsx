@@ -10,6 +10,7 @@ import { formatCny } from '@/lib/data'
 import { DatePop } from '@/app/_datepop'
 import { usePasteImage } from '@/app/_paste_image'
 import { proxiedStorageUrl } from '@/lib/storage-url'
+import { PhotoViewer } from '@/app/_photo_viewer'
 import {
   settleOutstanding,
   settleOverdueDays,
@@ -383,6 +384,47 @@ function isImage(p: PaymentProof): boolean {
   return /\.(png|jpe?g|webp|heic)$/i.test(p.filename)
 }
 
+// 凭证的那个链接 —— 是图就当场铺满屏幕放大 (左上「‹ 返回」/ Esc 关), PDF
+// 和浏览器打不开的 heic 照旧新开一页。
+function ProofLink({
+  proof,
+  className,
+  title,
+  children,
+}: {
+  proof: PaymentProof
+  className?: string
+  title?: string
+  children: React.ReactNode
+}) {
+  const [viewing, setViewing] = useState(false)
+  const zoom = isImage(proof) && !/\.heic$/i.test(proof.filename)
+  return (
+    <>
+      <a
+        href={proxiedStorageUrl(proof.url)}
+        target="_blank"
+        rel="noreferrer"
+        title={title}
+        className={`${className ?? ''} ${zoom ? 'cursor-zoom-in' : ''}`}
+        onClick={(e) => {
+          if (!zoom) return
+          e.preventDefault()
+          setViewing(true)
+        }}
+      >
+        {children}
+      </a>
+      {viewing && (
+        <PhotoViewer
+          items={[{ url: proof.url, filename: proof.filename }]}
+          onClose={() => setViewing(false)}
+        />
+      )}
+    </>
+  )
+}
+
 // 两个名字是不是说的同一家 —— 回单上的户名常常是全称 ("杭州某某表面处理有限
 // 公司"), 系统里是简称 ("某某表处")。去掉空白后一边包含另一边就算对得上;
 // 对不上只是提醒一句, 不拦。
@@ -565,10 +607,8 @@ function Detail({
               </span>
               {kind === 'payable' &&
                 (p.proof ? (
-                  <a
-                    href={proxiedStorageUrl(p.proof.url)}
-                    target="_blank"
-                    rel="noreferrer"
+                  <ProofLink
+                    proof={p.proof}
                     title={`付款凭证 · ${p.proof.filename}`}
                     className="shrink-0"
                   >
@@ -584,7 +624,7 @@ function Detail({
                         PDF
                       </span>
                     )}
-                  </a>
+                  </ProofLink>
                 ) : (
                   <span
                     className="flex h-8 w-8 shrink-0 items-center justify-center text-[10.5px] text-[var(--color-ink-4)]"
@@ -641,12 +681,7 @@ function Detail({
                 />
                 {proof ? (
                   <span className="relative inline-flex shrink-0">
-                    <a
-                      href={proxiedStorageUrl(proof.url)}
-                      target="_blank"
-                      rel="noreferrer"
-                      title={proof.filename}
-                    >
+                    <ProofLink proof={proof} title={proof.filename}>
                       {isImage(proof) ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -659,7 +694,7 @@ function Detail({
                           PDF
                         </span>
                       )}
-                    </a>
+                    </ProofLink>
                     <button
                       type="button"
                       onClick={() => {
@@ -751,14 +786,12 @@ function Detail({
         ) : r.manual ? (
           <>
             {r.manual.proof && (
-              <a
-                href={proxiedStorageUrl(r.manual.proof.url)}
-                target="_blank"
-                rel="noreferrer"
+              <ProofLink
+                proof={r.manual.proof}
                 className="text-[12.5px] font-medium text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
               >
                 看凭证 →
-              </a>
+              </ProofLink>
             )}
             <span className="text-[12px] text-[var(--color-ink-3)]">
               补录{r.manual.note ? ` · ${r.manual.note}` : ''}
@@ -972,14 +1005,12 @@ function ManualForm({
         />
         {proof ? (
           <span className="inline-flex items-center gap-2">
-            <a
-              href={proxiedStorageUrl(proof.url)}
-              target="_blank"
-              rel="noreferrer"
+            <ProofLink
+              proof={proof}
               className="text-[12.5px] text-[var(--color-ink-2)] underline-offset-2 hover:underline"
             >
               {proof.filename}
-            </a>
+            </ProofLink>
             <button
               type="button"
               onClick={() => setProof(null)}
