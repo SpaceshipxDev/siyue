@@ -7537,6 +7537,53 @@ export async function getProgrammingQueue(): Promise<ProgrammingQueue> {
   }
 }
 
+// 一道工序在每张单上的进度, 直接从零件的工序里数, 不走看板汇总 —— 车铣是
+// 10-15 才加的一道, 看板那份汇总还不认它, 计划 (app/plan) 靠这里知道哪张单
+// 走车铣、做完没有。只数厂里自己做的, 不管外协。
+export async function getStageCellsByJob(stage: Stage): Promise<Map<string, MasterCell>> {
+  const stageRows = await selectAllIn('part_stages', 'stage', [stage])
+  const out = new Map<string, MasterCell>()
+  if (stageRows.length === 0) return out
+  const parts = await selectAllIn(
+    'parts',
+    'id',
+    [...new Set(stageRows.map((r) => r.part_id as string))],
+  )
+  const jobOf = new Map(parts.map((p) => [p.id as string, p.job_id as string]))
+  for (const r of stageRows) {
+    const jobId = jobOf.get(r.part_id as string)
+    if (!jobId) continue
+    let c = out.get(jobId)
+    if (!c) {
+      c = {
+        total: 0,
+        inHouseDone: 0,
+        outsourcedClosed: 0,
+        outsourcedOpen: 0,
+        inProgress: 0,
+        pending: 0,
+        inProgressDoneQtySum: 0,
+        hasMinePending: false,
+        hasUpstreamActive: false,
+      }
+      out.set(jobId, c)
+    }
+    c.total++
+    if (r.status === 'done') {
+      c.inHouseDone++
+      const at = (r.finished_at as string | null) ?? (r.completed_at as string | null) ?? undefined
+      if (at && (!c.latestFinishedAt || at > c.latestFinishedAt)) {
+        c.latestFinishedAt = at
+        c.latestBy = (r.by_actor as string | null) ?? undefined
+      }
+    } else if (r.status === 'in_progress') {
+      c.inProgress++
+      c.inProgressDoneQtySum += Number(r.done_qty ?? 0)
+    } else c.pending++
+  }
+  return out
+}
+
 export type StationJob = {
   jobId: string
   jobNo: string

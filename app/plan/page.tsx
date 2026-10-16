@@ -7,7 +7,7 @@ import {
   landingPathFor,
   requireUser,
 } from '@/lib/auth'
-import { getActiveUsers, getJob, getMasterRows } from '@/lib/db'
+import { getActiveUsers, getJob, getMasterRows, getStageCellsByJob } from '@/lib/db'
 import { getHrRoster } from '@/lib/hr'
 import { getPlanRows, isPlanStage, PLAN_STAGES, type PlanRow, type PlanStage } from '@/lib/plan'
 import { OPT_IN_STAGES, type Stage } from '@/lib/data'
@@ -89,12 +89,21 @@ export default async function PlanPage({
   const stage: PlanStage = isPlanStage(sp?.s) ? sp.s : '编程'
   const todayStr = today()
 
-  const [all, masterRows, users, extraNames] = await Promise.all([
+  const engSt = ENG_STAGE[stage]
+  const [all, boardRows, users, extraNames, ownCells] = await Promise.all([
     getPlanRows(),
     getMasterRows(),
     getActiveUsers(),
     getHrRoster(),
+    // 车铣这种点了才有的一道, 看板汇总里还没有它那一格 —— 从零件的工序里数。
+    engSt && OPT_IN_STAGES.includes(engSt) ? getStageCellsByJob(engSt) : undefined,
   ])
+  const masterRows = ownCells
+    ? boardRows.map((m) => {
+        const c = ownCells.get(m.id)
+        return c && !m.cells[engSt!] ? { ...m, cells: { ...m.cells, [engSt!]: c } } : m
+      })
+    : boardRows
   const stored = all.filter((r) => r.stage === stage)
   const rows: PlanRow[] = stored.filter((r) => !r.dismissed)
 
@@ -104,7 +113,6 @@ export default async function PlanPage({
   // 工程排的 —— 在产的单, 这一道排了计划交期的, 每张单一行。已经存过 (有人改
   // 过一格) 的用存下来的那一行, 日期没被手改过就跟着工程排的日子走。
   const engPlan: Record<string, string> = {}
-  const engSt = ENG_STAGE[stage]
   if (engSt) {
     const byKey = new Map(stored.filter((r) => r.engKey).map((r) => [r.engKey!, r]))
     for (const m of masterRows) {
