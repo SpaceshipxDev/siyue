@@ -43,11 +43,14 @@ function isoLocalToday(): string {
 
 export function ProcurementExportButton({
   rows,
+  categoryOf,
   filename,
   compact,
 }: {
   /** The rows currently on screen, in display order. */
   rows: Procurement[]
+  /** 类别 —— 跟着物料走, 板子上算好了传进来。 */
+  categoryOf?: (p: Procurement) => string | undefined
   /** Without the .xlsx suffix; defaults to 采购_<今天>. */
   filename?: string
   /** Sits inside the 已到货 month bar rather than the top control row. */
@@ -64,6 +67,7 @@ export function ProcurementExportButton({
 
       const header = [
         '状态',
+        '类别',
         '品名',
         '供应商',
         '数量',
@@ -83,6 +87,7 @@ export function ProcurementExportButton({
       ]
       const body = rows.map((p) => [
         statusText(p),
+        categoryOf?.(p) ?? '',
         p.item,
         p.supplier ?? '',
         p.qty ?? '',

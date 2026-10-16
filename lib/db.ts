@@ -9633,6 +9633,7 @@ export type NewProcurementInput = {
 
 export type ProcurementPatch = {
   item?: string
+  productId?: string | null // 编辑里换了物料 —— 类别跟着物料走
   link?: string | null
   qty?: number | null
   unitPriceCny?: number | null
@@ -9873,6 +9874,7 @@ export async function updateProcurement(
     return
   const update: AnyRow = {}
   if (patch.item !== undefined) update.item = patch.item.trim()
+  if (patch.productId !== undefined) update.product_id = patch.productId || null
   if (patch.qty !== undefined) update.qty = patch.qty
   if (patch.unitPriceCny !== undefined) update.unit_price_cny = patch.unitPriceCny
   if (patch.supplier !== undefined)

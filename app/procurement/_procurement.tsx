@@ -120,6 +120,26 @@ export function ProcurementBoard({
   const [tab, setTab] = useState<Tab>('buying')
   const [openId, setOpenId] = useState<string | null>(null)
   const [modal, setModal] = useState<ModalMode>(null)
+  // 类别 —— '' = 全部。筛的是整块板子: 六个框的数、下面的单子、钱、导出。
+  const [cat, setCat] = useState('')
+
+  // 一条采购的类别跟着它的物料走; 从需求开的 (挂工号、没挑物料) 买的是零件
+  // 的料, 算原材料。
+  const catById = useMemo(
+    () => new Map(products.map((x) => [x.id, x.category])),
+    [products],
+  )
+  const catOf = (p: Procurement): string | undefined =>
+    p.productId
+      ? catById.get(p.productId)
+      : p.jobId
+        ? '原材料'
+        : undefined
+  const board = useMemo(
+    () => (cat ? procurements.filter((p) => catOf(p) === cat) : procurements),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [procurements, cat, catById],
+  )
 
   const query = q.trim().toLowerCase()
   const matches = (p: Procurement) =>
@@ -133,14 +153,14 @@ export function ProcurementBoard({
     p.buyer.toLowerCase().includes(query)
 
   const counts = useMemo(() => {
-    const n = (t: Tab) => procurements.filter(TAB_DEF[t].match).length
-    const overdue = procurements.filter(
+    const n = (t: Tab) => board.filter(TAB_DEF[t].match).length
+    const overdue = board.filter(
       (p) =>
         p.status === 'ordered' &&
         p.expectedDate &&
         dueState(p.expectedDate, today) === 'overdue',
     ).length
-    const done = procurements.filter((p) => p.status === 'done').length
+    const done = board.filter((p) => p.status === 'done').length
     return {
       requested: n('requested'),
       purchase: n('purchase'),
@@ -149,7 +169,7 @@ export function ProcurementBoard({
       done,
       overdue,
     }
-  }, [procurements, today])
+  }, [board, today])
 
   // A 需求 is "已请购" once a live 请购 on the same 工号 names that part —
   // either as the 物料 bought or in the 备注 the 需求 seeds. Those stay
@@ -199,11 +219,12 @@ export function ProcurementBoard({
   // parts all share it) and 工号. Inside a block the server's 零件进度 order
   // holds, 待确认 above 已请购.
   const needMatch = (n: ProcurementNeed) =>
-    !query ||
+    (!cat || cat === '原材料') &&
+    (!query ||
     n.part.toLowerCase().includes(query) ||
     n.jobNo.toLowerCase().includes(query) ||
     n.product.toLowerCase().includes(query) ||
-    (n.material ?? '').toLowerCase().includes(query)
+    (n.material ?? '').toLowerCase().includes(query))
 
   const needGroups = useMemo(() => {
     const byJob = new Map<string, typeof needAll>()
@@ -229,15 +250,16 @@ export function ProcurementBoard({
     })
     return groups
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needAll, query])
+  }, [needAll, query, cat])
 
-  const needOpen = needAll.filter((n) => !n.asked).length
+  const needOpen =
+    !cat || cat === '原材料' ? needAll.filter((n) => !n.asked).length : 0
   const needOpenShown = needGroups.reduce((s, g) => s + g.open, 0)
 
   // The active tab's rows, queue-sorted. 待到货 reads soonest-expected first;
   // the waiting queues read oldest-first; the ledger reads newest-first.
   const rows = useMemo(() => {
-    const list = procurements.filter(TAB_DEF[tab].match).filter(matches)
+    const list = board.filter(TAB_DEF[tab].match).filter(matches)
     if (tab === 'buying') {
       list.sort((a, b) => {
         const ae = a.expectedDate ?? '9999-99-99'
@@ -265,7 +287,7 @@ export function ProcurementBoard({
     }
     return list
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [procurements, tab, query])
+  }, [board, tab, query])
 
   // 待审批 reads by 订单, not by line — the same shape 需求 already has above.
   // 请购 is filed a whole order at a time (one 工号, several 物料 on one form),
@@ -316,11 +338,11 @@ export function ProcurementBoard({
   // 已领料 months (by 领料 date), newest first — browsed one month at a time.
   const ledgerMonths = useMemo(() => {
     const s = new Set<string>()
-    for (const p of procurements) {
+    for (const p of board) {
       if (TAB_DEF.ledger.match(p)) s.add(ledgerDate(p).slice(0, 7))
     }
     return [...s].sort().reverse()
-  }, [procurements])
+  }, [board])
 
   // Split-off picks grouped under the row they were taken from, oldest first
   // — the remainder's panel lists them so the whole 领料 story reads in place.
@@ -440,6 +462,26 @@ export function ProcurementBoard({
         </div>
       </div>
 
+      <div className="mb-3 flex flex-wrap items-center gap-1.5">
+        {['', ...PROCUREMENT_CATEGORIES].map((c) => (
+          <button
+            key={c || 'all'}
+            type="button"
+            onClick={() => {
+              setCat(c)
+              setOpenId(null)
+            }}
+            className={`rounded-[2px] border px-2.5 py-1 text-[12px] ${
+              cat === c
+                ? 'border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-surface)]'
+                : 'border-[var(--color-border)] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]'
+            }`}
+          >
+            {c || '全部'}
+          </button>
+        ))}
+      </div>
+
       <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
         {tab === 'need' ? (
           /* 需求 — its own table: parts, not purchases, so no money strip. */
@@ -451,7 +493,7 @@ export function ProcurementBoard({
             </div>
             {needGroups.length === 0 ? (
               <p className="px-5 py-10 text-center text-[13px] text-[var(--color-ink-3)]">
-                {query ? '没有匹配的记录' : TAB_EMPTY.need}
+                {query || cat ? '没有匹配的记录' : TAB_EMPTY.need}
               </p>
             ) : (
               needGroups.map((g) => (
@@ -494,7 +536,8 @@ export function ProcurementBoard({
                 <div className="ml-auto">
                   <ProcurementExportButton
                     rows={ledgerRows}
-                    filename={`采购台账_${ledgerMonth ?? today.slice(0, 7)}`}
+                    categoryOf={catOf}
+                    filename={`采购台账_${ledgerMonth ?? today.slice(0, 7)}${cat ? `_${cat}` : ''}`}
                     compact
                   />
                 </div>
@@ -518,7 +561,7 @@ export function ProcurementBoard({
 
             {shown.length === 0 ? (
               <p className="px-5 py-10 text-center text-[13px] text-[var(--color-ink-3)]">
-                {query ? '没有匹配的记录' : TAB_EMPTY[tab]}
+                {query || cat ? '没有匹配的记录' : TAB_EMPTY[tab]}
               </p>
             ) : tab === 'requested' ? (
               /* 待审批 — 一个工号一张单, 单头能一次批完整单。 */
@@ -532,6 +575,7 @@ export function ProcurementBoard({
                     <Row
                       key={p.id}
                       p={p}
+                      category={catOf(p)}
                       today={today}
                       dim={false}
                       open={openId === p.id}
@@ -553,6 +597,7 @@ export function ProcurementBoard({
                 <Row
                   key={p.id}
                   p={p}
+                  category={catOf(p)}
                   today={today}
                   dim={tab === 'ledger'}
                   open={openId === p.id}
@@ -928,6 +973,7 @@ function NeedRow({
 
 function Row({
   p,
+  category,
   today,
   dim,
   open,
@@ -940,6 +986,7 @@ function Row({
   onEdit,
 }: {
   p: Procurement
+  category?: string
   today: string
   dim: boolean
   open: boolean
@@ -964,14 +1011,17 @@ function Row({
           <StatusDot p={p} today={today} />
         </span>
         <div className="min-w-0">
-          <div
-            className={`truncate tracking-tight ${
-              dim
-                ? 'text-[14px] font-medium text-[var(--color-ink-2)]'
-                : 'text-[15px] font-semibold text-[var(--color-ink)]'
-            }`}
-          >
-            {p.item}
+          <div className="flex items-center gap-1.5">
+            {category && <CategoryChip category={category} />}
+            <span
+              className={`truncate tracking-tight ${
+                dim
+                  ? 'text-[14px] font-medium text-[var(--color-ink-2)]'
+                  : 'text-[15px] font-semibold text-[var(--color-ink)]'
+              }`}
+            >
+              {p.item}
+            </span>
           </div>
           <div className="mt-0.5 truncate text-[12px] text-[var(--color-ink-3)]">
             {p.jobNo && (
@@ -1921,6 +1971,9 @@ function ProcurementModal({
         key: 'l0',
         productId: initial.productId,
         name: s.name,
+        category: initial.productId
+          ? products.find((x) => x.id === initial.productId)?.category
+          : undefined,
         supplier: initial.supplier ?? '',
         link: initial.link ?? '',
         l: s.l,
@@ -2051,6 +2104,7 @@ function ProcurementModal({
             procurementId: initial.id,
             patch: {
               item: joinSpec(l.name, l),
+              productId: l.productId || null,
               supplier: l.supplier.trim() || null,
               link: l.link.trim() || null,
               qty: parseNum(l.qty) ?? null,
@@ -3051,6 +3105,10 @@ function ProductForm({
       setError('请填写品名')
       return
     }
+    if (!(PROCUREMENT_CATEGORIES as readonly string[]).includes(category)) {
+      setError('请选一个类别')
+      return
+    }
     if (link.trim() && !isHttp(link.trim())) {
       setError('链接需以 http(s):// 开头')
       return
@@ -3129,7 +3187,9 @@ function ProductForm({
         </Field>
 
         <div className="mt-4">
-          <p className="label mb-1.5">类别</p>
+          <p className="label mb-1.5">
+            类别<span className="text-[var(--color-overdue)]"> ·</span>
+          </p>
           <div className="flex flex-wrap gap-1.5">
             {PROCUREMENT_CATEGORIES.map((c) => (
               <button

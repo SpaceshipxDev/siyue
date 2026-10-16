@@ -661,6 +661,7 @@ function isValidProcurementPatch(x: unknown): x is ProcurementPatch {
   )
     return false
   for (const f of [
+    'productId',
     'supplier',
     'expectedDate',
     'arrivedDate',
