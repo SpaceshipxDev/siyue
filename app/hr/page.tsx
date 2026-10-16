@@ -13,8 +13,13 @@ import {
   canSeeOrderLedger,
   canApplyLoan,
   canSettleAccounts,
+  canFilePayRequest,
+  canSeeAllPayRequests,
+  isPayReviewer,
   hrDeptOf,
 } from '@/lib/auth'
+import { getPayRequests } from '@/lib/pay-request'
+import { PayRequestBoard } from '@/app/_pay_requests'
 import { getLoans } from '@/lib/loan'
 import { HrLoanBoard } from './_loans'
 import { getActiveUsers, isAdminUser } from '@/lib/db'
@@ -47,7 +52,7 @@ export const dynamic = 'force-dynamic'
 export default async function HrPage({
   searchParams,
 }: {
-  searchParams: Promise<{ p?: string; v?: string }>
+  searchParams: Promise<{ p?: string; v?: string; open?: string }>
 }) {
   const user = await requireHrUser()
   const sp = await searchParams
@@ -61,6 +66,9 @@ export default async function HrPage({
   // 借款 —— 员工来借钱, 人事在这里填申请、等人批 (批下来转到财务)。收申请的
   // 是人事, 所以跟「看全部人事」同一档。
   const seeLoan = canApplyLoan(user)
+  // 付款 —— 人事这头的付款申请 (商务那头在 /pay)。填的是人事, 审批的人也要
+  // 看得到。
+  const seePay = canFilePayRequest(user, '人事') || canSeeAllPayRequests(user)
   // 考勤表只给人事、财务、老板和于海伟看 (canSeeAttendance)。
   const seeSheet = canSeeAttendance(user)
   const view =
@@ -68,6 +76,8 @@ export default async function HrPage({
       ? 'dorm'
       : sp.v === 'loan' && seeLoan
         ? 'loan'
+        : sp.v === 'pay' && seePay
+          ? 'pay'
         : sp.v === 'sheet' && seeSheet
           ? 'sheet'
           : 'hr'
@@ -80,7 +90,7 @@ export default async function HrPage({
       : now.slice(0, 7)
   const isYear = period.length === 4
 
-  const [allRecords, notes, months, users, extraNames, dormEntries, loans, sheetReport] =
+  const [allRecords, notes, months, users, extraNames, dormEntries, loans, sheetReport, payRequests] =
     await Promise.all([
       isYear ? getHrYear(period) : getHrMonth(period),
       // 请假条 — 跟记录同一个分片口径, 所以跟着同一趟读: 月度一个文件, 年度
@@ -93,6 +103,7 @@ export default async function HrPage({
       view === 'loan' ? getLoans() : Promise.resolve([]),
       // 考勤表要的名单、部门、工时制度、打卡机汇总 (app/hr/_sheet_data)。
       view === 'sheet' ? loadAttendanceReport(period) : Promise.resolve(null),
+      view === 'pay' ? getPayRequests() : Promise.resolve([]),
     ])
 
   // 看全部 vs 看本部门. Scoped here, on the server, so a 工段长's page never
@@ -150,6 +161,9 @@ export default async function HrPage({
             {seeLoan && (
               <ViewTab href="/hr?v=loan" label="借款" active={view === 'loan'} />
             )}
+            {seePay && (
+              <ViewTab href="/hr?v=pay" label="付款" active={view === 'pay'} />
+            )}
         </div>
         {view === 'sheet' ? (
           <SheetView
@@ -157,6 +171,17 @@ export default async function HrPage({
             report={sheetReport!}
             scope={seeAll ? '全厂' : `${myDept}部门`}
             canImport={canEditAttendance(user)}
+          />
+        ) : view === 'pay' ? (
+          <PayRequestBoard
+            requests={payRequests.filter((r) => r.dept === '人事')}
+            dept="人事"
+            canFile={canFilePayRequest(user, '人事')}
+            userName={user.name}
+            isReviewer={isPayReviewer(user)}
+            isBoss={isAdminUser(user.id)}
+            showDept={false}
+            openId={sp.open}
           />
         ) : view === 'loan' ? (
           <HrLoanBoard

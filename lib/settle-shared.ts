@@ -96,8 +96,19 @@ export type Payable = {
   blockIds?: string[]
   /** 补录的老账 (不是对账单确认出来的)。 */
   manual?: SettleManual
+  /** 付款申请老板批下来落的那一张 (lib/pay-request) —— 不认任何外协单。 */
+  request?: PayableRequestRef
   voidedAt?: string
   voidedBy?: string
+}
+
+/** 应付单上记着它是哪张付款申请来的 —— 财务点开能回去看清单、凭证、发票。 */
+export type PayableRequestRef = {
+  id: string
+  no: string
+  dept: string
+  category: string
+  subject: string
 }
 
 export type SettleStatus = 'open' | 'partial' | 'overdue' | 'paid' | 'void'

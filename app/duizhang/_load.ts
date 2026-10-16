@@ -219,7 +219,8 @@ export async function loadDuizhang(params: {
         only,
       )
       vendorRecords = payables.filter(
-        (p) => !p.voidedAt && !p.manual && p.vendor === party && p.period === month,
+        (p) =>
+          !p.voidedAt && !p.manual && !p.request && p.vendor === party && p.period === month,
       )
     }
   }

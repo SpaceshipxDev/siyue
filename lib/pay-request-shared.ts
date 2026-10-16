@@ -1,0 +1,100 @@
+// 付款申请 —— 人事、商务要往外付一笔钱, 从申请到落进财务应付。
+//
+//   人事 / 商务 填申请 → 商务审核 (黄优兰香 或 于海伟) → 老板批 → 自动落一张
+//   应付单到 财务 · 应付 → 财务照常付款、挂回单
+//
+// 一张申请上要有的: 收款方 (名称 + 账户), 付款类别 (跟采购同一套类别), 付款
+// 事项和说明, 付款清单 (一项一行, 合计就是这张申请的金额), 付款凭证和发票
+// (照片 / PDF)。审批的人点开一张就看得到全部, 不用再去问。
+//
+// 纯类型 + 纯函数 —— 服务端和客户端共用。存取在 lib/pay-request.ts。
+
+import type { VoucherFile } from './data'
+
+export type PayDept = '人事' | '商务'
+export const PAY_DEPTS: readonly PayDept[] = ['人事', '商务']
+
+export type PayItem = {
+  name: string
+  qty?: number
+  unitPriceCny?: number
+  amountCny: number
+}
+
+export type PayFileKind = 'voucher' | 'invoice'
+export const PAY_FILE_LABEL: Record<PayFileKind, string> = {
+  voucher: '付款凭证',
+  invoice: '发票',
+}
+
+export type PayRequest = {
+  id: string
+  no: string // 付款单号 FK-2610-001 —— 申请年月 + 当月第几张
+  dept: PayDept
+  payee: string // 收款方
+  payeeAccount?: string // 开户行 / 账号 / 联系人
+  category: string // 付款类别 (采购类别那一套)
+  subject: string // 付款事项
+  note?: string // 说明
+  items: PayItem[] // 需要付款清单
+  amountCny: number // 清单合计
+  vouchers: VoucherFile[] // 付款凭证
+  invoices: VoucherFile[] // 发票
+  appliedBy: string
+  appliedAt: string // ISO
+  // 一审 —— 商务 (黄优兰香 / 于海伟)
+  reviewedBy?: string
+  reviewedAt?: string
+  // 终审 —— 老板。批了就落应付单。
+  approvedBy?: string
+  approvedAt?: string
+  rejectedBy?: string
+  rejectedAt?: string
+  rejectNote?: string
+  payableId?: string
+  payableNo?: string
+}
+
+export type PayStage =
+  | 'review' // 待商务审核
+  | 'boss' // 待老板批
+  | 'done' // 已批, 转财务应付
+  | 'rejected' // 已驳回
+
+export const PAY_STAGE_LABEL: Record<PayStage, string> = {
+  review: '待审核',
+  boss: '待老板批',
+  done: '已转财务',
+  rejected: '已驳回',
+}
+
+export function payStage(r: PayRequest): PayStage {
+  if (r.rejectedAt) return 'rejected'
+  if (r.approvedAt) return 'done'
+  if (r.reviewedAt) return 'boss'
+  return 'review'
+}
+
+/** 一行清单的金额: 数量 × 单价都填了就按它算, 不然用手填的金额。 */
+export function payItemAmount(i: {
+  qty?: number
+  unitPriceCny?: number
+  amountCny?: number
+}): number {
+  if (typeof i.qty === 'number' && typeof i.unitPriceCny === 'number')
+    return Math.round(i.qty * i.unitPriceCny * 100) / 100
+  return typeof i.amountCny === 'number' ? i.amountCny : 0
+}
+
+export function payTotal(items: PayItem[]): number {
+  return Math.round(items.reduce((s, i) => s + i.amountCny, 0) * 100) / 100
+}
+
+export function nextPayNo(nowYmd: string, existing: { no: string }[]): string {
+  const head = `FK-${nowYmd.slice(2, 4)}${nowYmd.slice(5, 7)}-`
+  const seq =
+    existing
+      .filter((r) => r.no.startsWith(head))
+      .reduce((m, r) => Math.max(m, Number(r.no.slice(head.length)) || 0), 0) + 1
+  return `${head}${String(seq).padStart(3, '0')}`
+}

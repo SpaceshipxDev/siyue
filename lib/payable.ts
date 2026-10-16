@@ -10,6 +10,7 @@ import {
   type Payable,
   type PayablePayment,
   type PaymentProof,
+  type PayableRequestRef,
   type SettleManual,
 } from './settle-shared'
 import type { VendorSettled } from './duizhang'
@@ -55,6 +56,19 @@ function readProof(v: unknown): PaymentProof | undefined {
   }
 }
 
+function readRequestRef(v: unknown): PayableRequestRef | undefined {
+  if (typeof v !== 'object' || v === null) return undefined
+  const o = v as Record<string, unknown>
+  if (typeof o.id !== 'string' || !o.id) return undefined
+  return {
+    id: o.id,
+    no: str(o.no),
+    dept: str(o.dept),
+    category: str(o.category),
+    subject: str(o.subject),
+  }
+}
+
 function normalize(raw: unknown): Payable[] {
   if (!Array.isArray(raw)) return []
   const out: Payable[] = []
@@ -88,6 +102,7 @@ function normalize(raw: unknown): Payable[] {
       dueDate: str(r.dueDate),
       payments,
       ...(r.manual ? { manual: readSettleManual(r.manual) } : null),
+      ...(readRequestRef(r.request) ? { request: readRequestRef(r.request) } : null),
       blockIds: Array.isArray(r.blockIds)
         ? (r.blockIds as unknown[]).filter((x): x is string => typeof x === 'string')
         : undefined,
@@ -136,8 +151,8 @@ export function vendorSettledFrom(payables: Payable[], vendor: string): VendorSe
   const blockIds = new Set<string>()
   const legacyMonths = new Set<string>()
   for (const p of payables) {
-    // 补录的老账不认任何外协单。
-    if (p.voidedAt || p.manual || p.vendor !== vendor) continue
+    // 补录的老账、付款申请落的单不认任何外协单。
+    if (p.voidedAt || p.manual || p.request || p.vendor !== vendor) continue
     if (p.blockIds) for (const id of p.blockIds) blockIds.add(id)
     else legacyMonths.add(p.period)
   }
@@ -217,6 +232,41 @@ export async function createManualPayable(input: {
       approvedBy: input.by,
       approvedAt: input.nowIso,
       dueDate: input.dueDate,
+      payments: [],
+    }
+    rows.push(row)
+    await write(rows)
+    return row
+  })
+}
+
+/**
+ * 付款申请老板批了 —— 落一张应付单。收款方当对方, 金额是申请清单的合计, 约
+ * 定付款日就是批下来那天 (批了就该付)。不认任何外协单。
+ */
+export async function createRequestPayable(input: {
+  payee: string
+  amountCny: number
+  request: PayableRequestRef
+  approvedBy: string
+  nowIso: string
+  todayYmd: string
+}): Promise<Payable> {
+  return withLock(async () => {
+    const rows = await read()
+    const period = input.todayYmd.slice(0, 7)
+    const row: Payable = {
+      id: crypto.randomUUID(),
+      no: nextSettleNo('YF', period, rows),
+      vendor: input.payee,
+      period,
+      amountCny: money(input.amountCny),
+      lineCount: 0,
+      totalQty: 0,
+      request: input.request,
+      approvedBy: input.approvedBy,
+      approvedAt: input.nowIso,
+      dueDate: input.todayYmd,
       payments: [],
     }
     rows.push(row)

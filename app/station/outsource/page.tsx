@@ -29,7 +29,7 @@ export default async function OutsourcePage() {
   const settled: Record<string, 'reconciled' | 'paid'> = {}
   const settledBlocks: Record<string, 'reconciled' | 'paid'> = {}
   for (const p of payables) {
-    if (p.voidedAt || p.manual) continue // 补录的老账不标任何外协单
+    if (p.voidedAt || p.manual || p.request) continue // 补录的老账、付款申请不标任何外协单
     const st = settleOutstanding(p) <= 0 ? 'paid' : 'reconciled'
     if (p.blockIds) for (const id of p.blockIds) settledBlocks[id] = st
     else settled[`${p.vendor}|${p.period}`] = st

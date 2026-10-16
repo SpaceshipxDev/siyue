@@ -20,6 +20,7 @@ export type TabKey =
   | '仓库'
   | '报工'
   | '财务'
+  | '付款'
   | '报价'
   | '人事'
   | '工单'
@@ -162,6 +163,8 @@ function tabsForRole(
     { key: '报工', label: '报工', href: '/report' },
     // 报价 — 接单之前, 排在财务前面: 报价 → 接单 → 记账。
     { key: '报价', label: '报价', href: '/quote' },
+    // 付款 —— 商务的付款申请, 批下来流到财务应付, 所以挨着财务。
+    { key: '付款', label: '付款', href: '/pay' },
     { key: '财务', label: '财务', href: '/finance' },
     // 人事 — everyone files, but only 商务 + 采购站 read the whole factory;
     // every other account is scoped to its own 部门 (canSeeAllHr / hrDeptOf).

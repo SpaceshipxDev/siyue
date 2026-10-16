@@ -17,6 +17,7 @@ import {
   settleStatus,
   type PayablePayment,
   type PaymentProof,
+  type PayableRequestRef,
   type SettleManual,
   type SettleStatus,
 } from '@/lib/settle-shared'
@@ -52,6 +53,8 @@ export type SettleRow = {
   blockIds?: string[]
   /** 补录的老账 —— 备注 + 凭证, 不挂对账单。 */
   manual?: SettleManual
+  /** 付款申请老板批下来落的 (只有应付) —— 清单、凭证、发票在申请上。 */
+  request?: PayableRequestRef
   voidedAt?: string
   voidedBy?: string
 }
@@ -184,7 +187,7 @@ export function SettleBoard({
       const st = settleStatus(r, todayStr)
       if (filter === 'open' && (st === 'paid' || st === 'void')) return false
       if (!needle) return true
-      return [r.no, r.party, r.period].join(' ').toLowerCase().includes(needle)
+      return [r.no, r.party, r.period, r.request?.no, r.request?.subject, r.request?.category].join(' ').toLowerCase().includes(needle)
     })
   }, [rows, filter, q, todayStr])
 
@@ -309,6 +312,11 @@ export function SettleBoard({
                     {r.party}
                     {r.manual && (
                       <span className="ml-2 text-[11px] font-normal text-[var(--color-ink-4)]">补录</span>
+                    )}
+                    {r.request && (
+                      <span className="ml-2 text-[11.5px] font-normal text-[var(--color-ink-3)]">
+                        付款申请 · {r.request.category} · {r.request.subject}
+                      </span>
                     )}
                     <span className="mono ml-2 text-[11.5px] font-normal text-[var(--color-ink-4)] md:hidden">
                       {r.no}
@@ -724,7 +732,23 @@ function Detail({
       )}
 
       <div className="mt-4 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-[11.5px] text-[var(--color-ink-4)]">
-        {r.manual ? (
+        {r.request ? (
+          <>
+            <Link
+              href={
+                r.request.dept === '人事'
+                  ? `/hr?v=pay&open=${encodeURIComponent(r.request.id)}`
+                  : `/pay?open=${encodeURIComponent(r.request.id)}`
+              }
+              className="text-[12.5px] font-medium text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
+            >
+              看付款申请 →
+            </Link>
+            <span className="text-[12px] text-[var(--color-ink-3)]">
+              {r.request.no} · {r.request.dept} · {r.request.category} · {r.request.subject}
+            </span>
+          </>
+        ) : r.manual ? (
           <>
             {r.manual.proof && (
               <a
@@ -757,13 +781,13 @@ function Detail({
             看对账单 →
           </Link>
         )}
-        {!r.manual && (
+        {!r.manual && !r.request && (
           <span>
             {r.lineCount} 行 · {r.totalQty} 件
           </span>
         )}
         <span>
-          {r.approvedBy} {r.manual ? '补录' : c.by}于 {r.approvedAt.slice(0, 10)}
+          {r.approvedBy} {r.manual ? '补录' : r.request ? '批准' : c.by}于 {r.approvedAt.slice(0, 10)}
         </span>
         <span>约定 {r.dueDate}</span>
         {r.voidedAt && (

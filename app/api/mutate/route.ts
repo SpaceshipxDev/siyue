@@ -140,6 +140,10 @@ import {
   canDeleteProcurement,
   canApplyLoan,
   canApproveLoan,
+  canFilePayRequest,
+  canReviewPayRequest,
+  canFinalApprovePayRequest,
+  isPayReviewer,
   canSettleAccounts,
   canClickStage,
   canCreatePartRow,
@@ -317,6 +321,15 @@ import {
   undoPayOutLoan,
   withdrawLoan,
 } from '@/lib/loan'
+import {
+  approvePayRequest,
+  createPayRequest,
+  deletePayRequest,
+  getPayRequest,
+  rejectPayRequest,
+  reviewPayRequest,
+} from '@/lib/pay-request'
+import { payItemAmount, payStage, PAY_DEPTS, type PayDept } from '@/lib/pay-request-shared'
 import {
   addPayablePayment,
   getPayables,
@@ -3180,6 +3193,120 @@ async function dispatch(
       )
       revalidatePath('/hr')
       return Response.json(ok({ id: loan.id, no: loan.no }))
+    }
+
+    // 付款申请 —— 人事 / 商务填, 商务审核, 老板批, 批了落应付 (lib/pay-request)。
+    case 'createPayRequest': {
+      const input = body.input as Record<string, unknown> | undefined
+      if (typeof input !== 'object' || input === null) return err('bad createPayRequest args')
+      const dept = input.dept as PayDept
+      if (!(PAY_DEPTS as readonly string[]).includes(dept)) return err('bad createPayRequest args')
+      if (!isString(input.payee) || !input.payee.trim()) return err('先填收款方')
+      if (!isString(input.category) || !input.category.trim()) return err('选一个付款类别')
+      if (!isString(input.subject) || !input.subject.trim()) return err('写一句付款事项')
+      if (input.payeeAccount !== undefined && !isString(input.payeeAccount))
+        return err('bad createPayRequest args')
+      if (input.note !== undefined && !isString(input.note)) return err('bad createPayRequest args')
+      const rawItems = Array.isArray(input.items) ? (input.items as Record<string, unknown>[]) : []
+      const num = (v: unknown) =>
+        typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100_000_000 ? v : undefined
+      const items = rawItems
+        .filter((i) => i && isString(i.name) && i.name.trim())
+        .map((i) => {
+          const qty = num(i.qty)
+          const unitPriceCny = num(i.unitPriceCny)
+          return {
+            name: (i.name as string).trim(),
+            qty,
+            unitPriceCny,
+            amountCny: payItemAmount({ qty, unitPriceCny, amountCny: num(i.amountCny) }),
+          }
+        })
+      if (items.length === 0) return err('付款清单至少填一项')
+      if (!items.some((i) => i.amountCny > 0)) return err('付款清单要有金额')
+      const u = await requireUser()
+      if (!canFilePayRequest(u, dept))
+        return err(dept === '人事' ? '人事的付款申请由人事来填' : '商务的付款申请由商务来填', 403)
+      const row = await createPayRequest(
+        {
+          dept,
+          payee: input.payee,
+          payeeAccount: isString(input.payeeAccount) ? input.payeeAccount : undefined,
+          category: input.category,
+          subject: input.subject,
+          note: isString(input.note) ? input.note : undefined,
+          items,
+        },
+        u.name,
+        new Date().toISOString(),
+        today(),
+      )
+      revalidatePath('/pay')
+      revalidatePath('/hr')
+      return Response.json(ok({ id: row.id, no: row.no }))
+    }
+
+    case 'decidePayRequest': {
+      const id = body.payRequestId
+      const decision = body.decision
+      const note = body.note
+      if (!isString(id) || (decision !== 'approve' && decision !== 'reject'))
+        return err('bad decidePayRequest args')
+      if (note !== undefined && note !== null && !isString(note))
+        return err('bad decidePayRequest args')
+      const u = await requireUser()
+      const r = await getPayRequest(id)
+      if (!r) return err('找不到这张付款申请', 404)
+      const st = payStage(r)
+      const boss = canFinalApprovePayRequest(u)
+      const reviewer = canReviewPayRequest(u, r.appliedBy)
+      let result: { payableNo?: string } = {}
+      try {
+        if (st === 'review') {
+          if (!reviewer)
+            return err(
+              isPayReviewer(u) ? '自己填的申请要让另一个人来审' : '审核付款要找黄优兰香或于海伟',
+              403,
+            )
+          if (decision === 'reject')
+            await rejectPayRequest(id, u.name, isString(note) ? note : undefined, new Date().toISOString())
+          else if (boss)
+            result = await approvePayRequest(id, u.name, new Date().toISOString(), today())
+          else await reviewPayRequest(id, u.name, new Date().toISOString())
+        } else if (st === 'boss') {
+          if (!boss) return err('这一步等老板批', 403)
+          if (decision === 'reject')
+            await rejectPayRequest(id, u.name, isString(note) ? note : undefined, new Date().toISOString())
+          else result = await approvePayRequest(id, u.name, new Date().toISOString(), today())
+        } else {
+          return err('这张申请已经有结果了')
+        }
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '审批不上')
+      }
+      revalidatePath('/pay')
+      revalidatePath('/hr')
+      revalidatePath('/finance')
+      return Response.json(ok(result))
+    }
+
+    // 删一张还没批下来的 —— 填的人自己、或者审批的人。
+    case 'deletePayRequest': {
+      const id = body.payRequestId
+      if (!isString(id)) return err('bad deletePayRequest args')
+      const u = await requireUser()
+      const r = await getPayRequest(id)
+      if (!r) return Response.json(ok())
+      if (r.appliedBy !== u.name && !isPayReviewer(u))
+        return err('只有填的人或审批的人能删', 403)
+      try {
+        await deletePayRequest(id)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '删不了')
+      }
+      revalidatePath('/pay')
+      revalidatePath('/hr')
+      return Response.json(ok())
     }
 
     case 'decideLoan': {
