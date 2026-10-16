@@ -825,8 +825,14 @@ function fallbackStageScope(u: AuthUser): StageScope {
 }
 
 // 按人名定的 —— 一个人换了 / 多开了账号也认得出。程江华只报编程、操机 (于海伟
-// 2026-10-15), 不管他登的是哪个号。
-const STAGE_SCOPE_BY_NAME: [string, StageScope][] = [['程江华', ['编程', '操机']]]
+// 2026-10-15), 不管他登的是哪个号。彭春琴、杨正海、左爽跟质检的人同一份
+// (于海伟 2026-10-16)。
+const STAGE_SCOPE_BY_NAME: [string, StageScope][] = [
+  ['程江华', ['编程', '操机']],
+  ['彭春琴', QUALITY_STAGE_SCOPE],
+  ['杨正海', QUALITY_STAGE_SCOPE],
+  ['左爽', QUALITY_STAGE_SCOPE],
+]
 
 export function stageScopeFor(u: AuthUser): StageScope {
   if (isAdminUser(u.id)) return 'all'
