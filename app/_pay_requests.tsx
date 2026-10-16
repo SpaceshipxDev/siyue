@@ -9,8 +9,9 @@ import { showToast } from '@/app/_toast'
 import { usePasteImage } from '@/app/_paste_image'
 import { PhotoViewer } from '@/app/_photo_viewer'
 import { proxiedStorageUrl } from '@/lib/storage-url'
-import { formatCny, PROCUREMENT_CATEGORIES, type VoucherFile } from '@/lib/data'
+import { formatCny, type VoucherFile } from '@/lib/data'
 import {
+  PAY_CATEGORIES,
   PAY_FILE_LABEL,
   PAY_STAGE_LABEL,
   payItemAmount,
@@ -192,7 +193,7 @@ export function PayRequestBoard({
       </div>
 
       <p className="mt-4 text-[12px] leading-relaxed text-[var(--color-ink-3)]">
-        填好的申请先由黄优兰香或于海伟审核（自己填的要让另一个人审），再由老板批。老板批了就自动转到「财务 · 应付」，财务在那里付款、挂回单。发票后补也行，点开这一张传上去。
+        谁填的谁看得到，别人填的只有老板、财务、于海伟和审核人看得到。填好的申请先由黄优兰香或于海伟审核（自己填的要让另一个人审），再由老板批。老板批了就自动转到「财务 · 应付」，财务在那里付款、挂回单。发票后补也行，点开这一张传上去。
       </p>
     </div>
   )
@@ -336,7 +337,7 @@ function NewRequest({
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
         <span className="label mr-1">付款类别</span>
-        {PROCUREMENT_CATEGORIES.map((c) => (
+        {PAY_CATEGORIES.map((c) => (
           <button
             key={c}
             type="button"

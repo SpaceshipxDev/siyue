@@ -9,7 +9,14 @@
 //
 // 纯类型 + 纯函数 —— 服务端和客户端共用。存取在 lib/pay-request.ts。
 
-import type { VoucherFile } from './data'
+import { PROCUREMENT_CATEGORIES, type VoucherFile } from './data'
+
+// 付款类别 —— 采购那一套, 再加两样只有付款才有的 (于海伟 2026-10-16)。
+export const PAY_CATEGORIES: readonly string[] = [
+  ...PROCUREMENT_CATEGORIES,
+  '供应商货款',
+  '外协加工费用',
+]
 
 export type PayDept = '人事' | '商务'
 export const PAY_DEPTS: readonly PayDept[] = ['人事', '商务']

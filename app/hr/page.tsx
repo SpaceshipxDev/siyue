@@ -14,7 +14,8 @@ import {
   canApplyLoan,
   canSettleAccounts,
   canFilePayRequest,
-  canSeeAllPayRequests,
+  canSeeOthersPayRequests,
+  canSeePayRequest,
   isPayReviewer,
   hrDeptOf,
 } from '@/lib/auth'
@@ -68,7 +69,7 @@ export default async function HrPage({
   const seeLoan = canApplyLoan(user)
   // 付款 —— 人事这头的付款申请 (商务那头在 /pay)。填的是人事, 审批的人也要
   // 看得到。
-  const seePay = canFilePayRequest(user, '人事') || canSeeAllPayRequests(user)
+  const seePay = canFilePayRequest(user, '人事') || canSeeOthersPayRequests(user)
   // 考勤表只给人事、财务、老板和于海伟看 (canSeeAttendance)。
   const seeSheet = canSeeAttendance(user)
   const view =
@@ -174,7 +175,9 @@ export default async function HrPage({
           />
         ) : view === 'pay' ? (
           <PayRequestBoard
-            requests={payRequests.filter((r) => r.dept === '人事')}
+            requests={payRequests.filter(
+              (r) => r.dept === '人事' && canSeePayRequest(user, r),
+            )}
             dept="人事"
             canFile={canFilePayRequest(user, '人事')}
             userName={user.name}

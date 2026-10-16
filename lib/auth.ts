@@ -124,8 +124,9 @@ export function canApproveLoan(u: AuthUser, appliedBy: string): boolean {
 //   审核: 商务 黄优兰香 / 商务于海伟, 两个人里一个点了就行; 自己填的要让另一
 //     个来审。
 //   终审: 老板。批了就落一张应付单到 财务 · 应付。老板在审核那一步也能直接批。
-//   看: 填的那一头看自己部门的; 审批的人和管钱的人 (canSettleAccounts) 两头
-//     都看。
+//   看: 谁填的谁看。别人填的只有老板、财务、商务于海伟 (canSettleAccounts)
+//     看得到 —— 于海伟 2026-10-16。黄优兰香是审核人, 要审就得看得到, 也算在
+//     里面。
 const PAY_REVIEWER_USER_IDS = new Set<string>([
   'u-mosdsv5z-pzalzv', // 黄优兰香
   'u-ms45yjq9-2kbdi1', // 商务于海伟
@@ -148,9 +149,13 @@ export function canFinalApprovePayRequest(u: AuthUser): boolean {
   return isAdminUser(u.id)
 }
 
-/** 两头 (人事 + 商务) 的申请都看得到。 */
-export function canSeeAllPayRequests(u: AuthUser): boolean {
+/** 别人填的申请也看得到 (两头都看)。 */
+export function canSeeOthersPayRequests(u: AuthUser): boolean {
   return isPayReviewer(u) || canSettleAccounts(u)
+}
+
+export function canSeePayRequest(u: AuthUser, r: { appliedBy: string }): boolean {
+  return r.appliedBy === u.name || canSeeOthersPayRequests(u)
 }
 
 // 改一下 — the self-serve mirror + 上线. Granted by the boss per person in 管理员工;

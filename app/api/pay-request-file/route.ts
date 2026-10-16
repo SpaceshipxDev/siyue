@@ -1,8 +1,7 @@
 import { NextRequest } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import {
-  canFilePayRequest,
-  canSeeAllPayRequests,
+  canSeePayRequest,
   currentUser,
   type AuthUser,
 } from '@/lib/auth'
@@ -20,11 +19,12 @@ export const dynamic = 'force-dynamic'
 const MAX_BYTES = 16 * 1024 * 1024
 
 // 付款申请的附件 —— 付款凭证 / 发票, 一张一张挂在申请上 (lib/pay-request)。
-// 看得到这张申请的人就能传、能删 (批下来以后不能删)。回包带着新的那一行,
+// 看得到这张申请的人 (填的人、老板、财务、于海伟、审核人) 就能传、能删 (批
+// 下来以后不能删)。回包带着新的那一行,
 // 页面直接接上。
 
 function canTouch(u: AuthUser, r: PayRequest): boolean {
-  return canFilePayRequest(u, r.dept) || canSeeAllPayRequests(u)
+  return canSeePayRequest(u, r)
 }
 
 function kindOf(v: unknown): PayFileKind | null {
