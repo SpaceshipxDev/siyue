@@ -947,7 +947,7 @@ export type ProcurementProduct = {
   createdAt: string
 }
 
-// 采购的六个类别 (于海伟 2026-10-16)。类别记在物料上 —— 每条请购都是从物料库
+// 采购的类别 (于海伟 2026-10-16)。类别记在物料上 —— 每条请购都是从物料库
 // 里挑的, 挑了谁就是谁的类别; 从需求开的单子买的是零件的料, 算原材料。DB 里
 // 是自由文本, 早先存的老类别 (量具 / 夹具…) 照样显示, 只在「全部」里。
 export const PROCUREMENT_CATEGORIES = [
@@ -957,6 +957,9 @@ export const PROCUREMENT_CATEGORIES = [
   '刀具',
   '原材料',
   '维修',
+  '办公用品',
+  '工具',
+  '固定资产',
 ] as const
 
 // === 订单账 (/finance 订单 tab) ===
