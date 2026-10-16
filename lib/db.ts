@@ -3899,13 +3899,15 @@ export async function getOrderLedgerRows(): Promise<
       const jobId = jobOfShipment.get(f.shipmentId)
       if (!jobId || fenqiByJob.has(jobId)) continue
       const agg = legacyByJob.get(jobId) ?? { invoiced: 0, paid: 0, money: [] }
+      // 开票没填金额的, 按这车货的金额算 (跟对账单、应收余额一个口径)。
+      const billed = f.invoiceAmountCny ?? f.saleAmountCny ?? 0
       if (f.invoiceDate) {
-        agg.invoiced += f.invoiceAmountCny ?? 0
+        agg.invoiced += billed
         agg.money.push({
           id: `${f.shipmentId}-inv`,
           kind: 'invoice',
           date: f.invoiceDate,
-          amountCny: f.invoiceAmountCny ?? 0,
+          amountCny: billed,
           invoiceNo: f.invoiceNo,
         })
       }

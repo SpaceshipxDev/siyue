@@ -386,10 +386,10 @@ function OrderRow({
           <SettleText row={row} />
         </Td>
         <Td className="text-right whitespace-nowrap">
-          <MoneyCell row={row} amount={row.invoicedCny} />
+          <MoneyCell row={row} kind="invoice" amount={row.invoicedCny} />
         </Td>
         <Td className="text-right pr-4 whitespace-nowrap">
-          <MoneyCell row={row} amount={row.paidCny} />
+          <MoneyCell row={row} kind="payment" amount={row.paidCny} />
         </Td>
       </tr>
       {open && (
@@ -412,12 +412,27 @@ function SettleText({ row }: { row: OrderLedgerRow }) {
   return <span className="text-[12px] text-[var(--color-ink-4)]">—</span>
 }
 
-// 开票 / 收款 格 —— 免收的单两格都写免收, 没有数就是一横。
-function MoneyCell({ row, amount }: { row: OrderLedgerRow; amount: number }) {
+// 开票 / 收款 格 —— 免收的单两格都写免收, 没有记录就是一横; 记了但没填金
+// 额的 (看板上一点「已回款」, 订单额还没定) 写已开票 / 已收款。
+function MoneyCell({
+  row,
+  kind,
+  amount,
+}: {
+  row: OrderLedgerRow
+  kind: 'invoice' | 'payment'
+  amount: number
+}) {
   if (row.free)
     return <span className="text-[12px] text-[var(--color-ink-4)]">免收</span>
   if (amount === 0)
-    return <span className="text-[12px] text-[var(--color-ink-4)]">—</span>
+    return row.money.some((m) => m.kind === kind) ? (
+      <span className="text-[12px] text-[var(--color-ink-2)]">
+        {kind === 'invoice' ? '已开票' : '已收款'}
+      </span>
+    ) : (
+      <span className="text-[12px] text-[var(--color-ink-4)]">—</span>
+    )
   return (
     <span className="text-[13px] tabular-nums text-[var(--color-ink-2)]">
       {formatCny(amount)}
@@ -625,7 +640,11 @@ function MoneyTrail({ row }: { row: OrderLedgerRow }) {
                   .join(' · ')}
               </span>
               <span className="ml-auto tabular-nums text-[var(--color-ink-2)]">
-                {formatCny(m.amountCny)}
+                {m.amountCny ? (
+                  formatCny(m.amountCny)
+                ) : (
+                  <span className="text-[12px] text-[var(--color-ink-4)]">金额未填</span>
+                )}
               </span>
             </li>
           ))}
