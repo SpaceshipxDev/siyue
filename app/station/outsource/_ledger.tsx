@@ -16,6 +16,7 @@ import {
   type OpenBlockRow,
   type OutsourceBlock,
   type Vendor,
+  type VoucherFile,
 } from '@/lib/data'
 import { shiftDate, windowDateBounds, type Granularity } from '@/lib/today'
 import { mutate } from '@/lib/mutate'
@@ -31,6 +32,9 @@ import { BlockStagesEditor } from '@/app/_routing'
 import { BlockThreadStrip } from '@/app/_vendor_share'
 import { OutsourceExportButton } from './_export'
 import { withBase } from '@/lib/base-path'
+import { proxiedStorageUrl } from '@/lib/storage-url'
+import { PhotoViewer } from '@/app/_photo_viewer'
+import { usePasteImage } from '@/app/_paste_image'
 
 // 外协台 — one ledger, read top-down like the Excel sheet it replaces.
 //
@@ -90,6 +94,7 @@ export function OutsourceLedger({
   today,
   settled = {},
   settledBlocks = {},
+  receipts: serverReceipts = {},
 }: {
   rows: OpenBlockRow[]
   vendors: Vendor[]
@@ -101,6 +106,8 @@ export function OutsourceLedger({
   settled?: Record<string, 'reconciled' | 'paid'>
   /** 按外协单 id 认的 (勾着对账之后的应付单) —— 优先看这个。 */
   settledBlocks?: Record<string, 'reconciled' | 'paid'>
+  /** 收货确认单 —— 按订单 (jobId) 挂的图 (lib/outsource-receipt)。 */
+  receipts?: Record<string, VoucherFile[]>
 }) {
   // Local echo of server rows. Receiving parts, stamping 微信 and 撤销外协 all
   // repaint from here instead of a full RSC refresh — the mainland↔HK link is
@@ -115,6 +122,13 @@ export function OutsourceLedger({
     setPrevRows(rows)
     setPatched({})
     setDeleted(new Set())
+  }
+  // 收货确认单同理: 传了、删了就地改, 服务端新给一份就以它为准。
+  const [receipts, setReceipts] = useState(serverReceipts)
+  const [prevReceipts, setPrevReceipts] = useState(serverReceipts)
+  if (serverReceipts !== prevReceipts) {
+    setPrevReceipts(serverReceipts)
+    setReceipts(serverReceipts)
   }
 
   const [tab, setTab] = useState<Tab>('open')
@@ -378,6 +392,10 @@ export function OutsourceLedger({
                         : undefined
                     }
                     vendors={vendors}
+                    receipts={receipts[l.jobId] ?? []}
+                    onReceipts={(next) =>
+                      setReceipts((r) => ({ ...r, [l.jobId]: next }))
+                    }
                     open={openId === l.block.id}
                     onToggle={() =>
                       setOpenId((cur) => (cur === l.block.id ? null : l.block.id))
@@ -417,6 +435,8 @@ function Row({
   line,
   settle,
   vendors,
+  receipts,
+  onReceipts,
   open,
   onToggle,
   onPatch,
@@ -426,6 +446,9 @@ function Row({
   /** 已对账 / 已付款 —— 回厂之后, 这张单所在的外协对账单认过了没有、付了没有。 */
   settle?: 'reconciled' | 'paid'
   vendors: Vendor[]
+  /** 这张单所属订单的收货确认单。 */
+  receipts: VoucherFile[]
+  onReceipts: (next: VoucherFile[]) => void
   open: boolean
   onToggle: () => void
   onPatch: (next: OutsourceBlock) => void
@@ -579,7 +602,9 @@ function Row({
             }`}
           >
             {closed
-              ? '已回'
+              ? receipts.length > 0
+                ? '已回 · 有确认单'
+                : '已回'
               : block.vendorShippedAt
                 ? '厂商已发货'
                 : line.overdue
@@ -631,6 +656,8 @@ function Row({
         <Panel
           line={line}
           vendors={vendors}
+          receipts={receipts}
+          onReceipts={onReceipts}
           onPatch={onPatch}
           onDeleted={onDeleted}
           onClose={onToggle}
@@ -694,12 +721,16 @@ function Caret({ open }: { open: boolean }) {
 function Panel({
   line,
   vendors,
+  receipts,
+  onReceipts,
   onPatch,
   onDeleted,
   onClose,
 }: {
   line: Line
   vendors: Vendor[]
+  receipts: VoucherFile[]
+  onReceipts: (next: VoucherFile[]) => void
   onPatch: (next: OutsourceBlock) => void
   onDeleted: () => void
   onClose: () => void
@@ -869,6 +900,17 @@ function Panel({
               </button>
             </div>
           )}
+
+          {/* 收货确认单 —— 有零件回厂了才有得签。挂在订单上, 这张单的每一张
+              外协单看到的是同一组。 */}
+          {block.members.some((m) => memberReturnedQty(m) > 0) && (
+            <ReceiptStrip
+              jobId={jobId}
+              caption={[line.customer, line.jobNo].filter(Boolean).join(' · ')}
+              photos={receipts}
+              onChange={onReceipts}
+            />
+          )}
         </div>
 
         {/* the dispatch itself — every cell editable, none of it in the scan path */}
@@ -992,6 +1034,137 @@ function Panel({
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// 收货确认单 —— 缩略图一排, 点开放大 (左右翻), 末尾「＋ 传图」; 鼠标停在这
+// 一块上 Ctrl+V 直接贴截图。传、删都就地改, 不整页刷新。
+function ReceiptStrip({
+  jobId,
+  caption,
+  photos,
+  onChange,
+}: {
+  jobId: string
+  caption: string
+  photos: VoucherFile[]
+  onChange: (next: VoucherFile[]) => void
+}) {
+  const zoneRef = useRef<HTMLDivElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [viewing, setViewing] = useState<number | null>(null)
+  const [armDelete, setArmDelete] = useState<string | null>(null)
+
+  const upload = async (files: File[]) => {
+    if (files.length === 0) return
+    setBusy(true)
+    setError(null)
+    let list = photos
+    try {
+      for (const f of files) {
+        const fd = new FormData()
+        fd.append('file', f)
+        fd.append('jobId', jobId)
+        const res = await fetch(withBase('/api/outsource-receipt'), { method: 'POST', body: fd })
+        const d = (await res.json().catch(() => ({}))) as {
+          ok?: boolean
+          photo?: VoucherFile
+          error?: string
+        }
+        if (!d.ok || !d.photo) throw new Error(d.error ?? '传不上')
+        list = [...list, d.photo]
+        onChange(list)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '传不上')
+    } finally {
+      setBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  usePasteImage(zoneRef, (f) => void upload([f]))
+
+  const remove = async (id: string) => {
+    setArmDelete(null)
+    const res = await fetch(
+      withBase(
+        `/api/outsource-receipt?jobId=${encodeURIComponent(jobId)}&id=${encodeURIComponent(id)}`,
+      ),
+      { method: 'DELETE' },
+    ).catch(() => null)
+    if (!res?.ok) {
+      setError('删不掉')
+      return
+    }
+    onChange(photos.filter((p) => p.id !== id))
+  }
+
+  return (
+    <div ref={zoneRef} className="mt-5 border-t border-[var(--color-border)] pt-3">
+      <div className="mb-2 flex items-baseline gap-3">
+        <span className="label">收货确认单</span>
+        <span className="truncate text-[12px] text-[var(--color-ink-3)]">{caption}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => void upload(Array.from(e.target.files ?? []))}
+        />
+        {photos.map((p, i) => (
+          <span key={p.id} className="group/ph relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={proxiedStorageUrl(p.url)}
+              alt={p.filename}
+              title={`${p.filename}${p.uploadedBy ? ` · ${p.uploadedBy}` : ''} — 点开放大`}
+              onClick={() => setViewing(i)}
+              className="h-[56px] w-[56px] cursor-zoom-in rounded-[2px] border border-[var(--color-border)] object-cover"
+            />
+            {armDelete === p.id ? (
+              <button
+                type="button"
+                onClick={() => void remove(p.id)}
+                className="absolute inset-x-0 bottom-0 bg-[var(--color-overdue)] py-[1px] text-[10px] text-[var(--color-surface)]"
+              >
+                确认删
+              </button>
+            ) : (
+              <button
+                type="button"
+                title="删掉这张"
+                onClick={() => setArmDelete(p.id)}
+                className="absolute -right-1 -top-1 hidden h-[15px] w-[15px] items-center justify-center rounded-full bg-[var(--color-ink)] text-[9px] leading-none text-[var(--color-surface)] group-hover/ph:flex"
+              >
+                ✕
+              </button>
+            )}
+          </span>
+        ))}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => fileRef.current?.click()}
+          className="inline-flex h-[56px] w-[56px] items-center justify-center rounded-[2px] border border-dashed border-[var(--color-border-strong)] text-[11.5px] text-[var(--color-ink-3)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] disabled:opacity-50"
+        >
+          {busy ? '上传中' : '＋ 传图'}
+        </button>
+        {error && <span className="text-[11.5px] text-[var(--color-overdue)]">{error}</span>}
+      </div>
+      {viewing !== null && (
+        <PhotoViewer
+          items={photos.map((p) => ({ url: p.url, filename: p.filename }))}
+          start={viewing}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
   )
 }
