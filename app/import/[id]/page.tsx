@@ -263,7 +263,9 @@ export default async function ImportReview(props: PageProps<'/import/[id]'>) {
             jobId={job.id}
             stagePlan={job.stagePlan ?? {}}
             stages={PLANNABLE_STAGES.filter(
-              (s) => !OPT_IN_STAGES.includes(s),
+              (s) =>
+                !OPT_IN_STAGES.includes(s) ||
+                job.components.some((c) => c.stages[s]),
             ).map((s) => ({ stage: s, kind: 'pending' as const }))}
             canEdit
           />

@@ -10,7 +10,7 @@ import {
 import { getActiveUsers, getJob, getMasterRows } from '@/lib/db'
 import { getHrRoster } from '@/lib/hr'
 import { getPlanRows, isPlanStage, PLAN_STAGES, type PlanRow, type PlanStage } from '@/lib/plan'
-import type { Stage } from '@/lib/data'
+import { OPT_IN_STAGES, type Stage } from '@/lib/data'
 import type { MasterRow } from '@/lib/master'
 import { today } from '@/lib/today'
 import { PlanBoard, type PlanAuto } from './_plan'
@@ -110,23 +110,29 @@ export default async function PlanPage({
     for (const m of masterRows) {
       if (m.isShipped || m.status === 'draft' || m.status === 'failed' || m.status === 'parsing') continue
       if (!m.cells[engSt]) continue
-      const v = m.stagePlan?.[engSt]
-      const d = v?.slice(0, 10)
-      if (!v || !d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) continue
+      let v = m.stagePlan?.[engSt]
+      let d = v?.slice(0, 10)
+      if (!v || !d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+        // 车铣是工程点了才有的一道 —— 点上了就进车铣计划, 不用再排日子; 还没排
+        // 日子、也还没做完的, 先挂在今天, 排了日子就跟着走 (于海伟 2026-10-16)。
+        if (!OPT_IN_STAGES.includes(engSt) || cellAuto(m, engSt)?.state === 'done') continue
+        v = undefined
+        d = todayStr
+      }
       const key = `${m.id}:${engSt}`
       // 工程排了钟点的, 那个钟点就是计划完成。
-      const engDue = v.length > 10 ? v.slice(11, 16) : undefined
+      const engDue = v && v.length > 10 ? v.slice(11, 16) : undefined
       const ex = byKey.get(key)
       if (ex) {
         if (ex.dismissed) continue
         if (ex.engDate) ex.date = d
         if (!ex.due && engDue) ex.due = engDue
-        engPlan[ex.id] = v
+        if (v) engPlan[ex.id] = v
         continue
       }
       const id = `eng:${key}`
       rows.push({ id, stage, date: d, jobNo: m.jobNo, workers: [], due: engDue, by: '工程', createdAt: '', engKey: key, engDate: true, virtual: true })
-      engPlan[id] = v
+      if (v) engPlan[id] = v
     }
     rows.sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : a.createdAt < b.createdAt ? -1 : 1))
   }
