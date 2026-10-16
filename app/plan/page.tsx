@@ -108,8 +108,11 @@ export default async function PlanPage({
   if (engSt) {
     const byKey = new Map(stored.filter((r) => r.engKey).map((r) => [r.engKey!, r]))
     for (const m of masterRows) {
-      if (m.isShipped || m.status === 'draft' || m.status === 'failed' || m.status === 'parsing') continue
+      if (m.status === 'draft' || m.status === 'failed' || m.status === 'parsing') continue
       if (!m.cells[engSt]) continue
+      // 出货走完了的单照理不该还有活; 可这一道还没做完 (后来补点的车铣、返工
+      // 的件), 照样带进来, 不然就从计划里漏掉了。
+      if (m.isShipped && cellAuto(m, engSt)?.state === 'done') continue
       let v = m.stagePlan?.[engSt]
       let d = v?.slice(0, 10)
       if (!v || !d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
