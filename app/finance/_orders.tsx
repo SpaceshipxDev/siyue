@@ -15,6 +15,8 @@ import { DatePop } from '@/app/_datepop'
 //   − 采购   every 关联工号 buy — what was bought, from whom, how much
 //   = 毛利
 //
+// 后面跟着这张单的钱收到哪一步: 对账 (应收单认过没有) → 开票 → 收款 (记账
+// 那本上的数)。
 // One payload from getOrderLedgerRows(); everything here — the period, the
 // search, the export — is client-side, like the 分期账 next tab over. The
 // period is ONE from→to range: 日/周/月 are presets that fill it, the two
@@ -73,6 +75,8 @@ export function OrderLedger({
           r.product,
           ...r.outsource.map((o) => `${o.vendorName} ${o.activity ?? ''} ${o.docNo ?? ''}`),
           ...r.buys.map((b) => `${b.item} ${b.supplier ?? ''}`),
+          ...r.receivableNos,
+          ...r.money.map((m) => `${m.invoiceNo ?? ''} ${m.poNo ?? ''}`),
         ]
           .join(' ')
           .toLowerCase(),
@@ -253,7 +257,10 @@ export function OrderLedger({
               <Th className="text-right">订单额</Th>
               <Th className="text-right">外协</Th>
               <Th className="text-right">采购</Th>
-              <Th className="text-right pr-4">毛利</Th>
+              <Th className="text-right">毛利</Th>
+              <Th>对账</Th>
+              <Th className="text-right">开票</Th>
+              <Th className="text-right pr-4">收款</Th>
             </tr>
           </thead>
           <tbody>
@@ -275,7 +282,7 @@ export function OrderLedger({
             {display.length === 0 && (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={11}
                   className="py-20 text-center text-[13px] text-[var(--color-ink-3)]"
                 >
                   {query ? '没有匹配的订单' : '这个时间段没有订单'}
@@ -362,7 +369,7 @@ function OrderRow({
         <Td className="text-right whitespace-nowrap">
           <CostCell amount={row.procurementCny} count={row.buys.length} />
         </Td>
-        <Td className="text-right pr-4 whitespace-nowrap">
+        <Td className="text-right whitespace-nowrap">
           {margin == null ? (
             <span className="text-[12px] text-[var(--color-ink-4)]">—</span>
           ) : (
@@ -375,15 +382,46 @@ function OrderRow({
             </span>
           )}
         </Td>
+        <Td className="whitespace-nowrap">
+          <SettleText row={row} />
+        </Td>
+        <Td className="text-right whitespace-nowrap">
+          <MoneyCell row={row} amount={row.invoicedCny} />
+        </Td>
+        <Td className="text-right pr-4 whitespace-nowrap">
+          <MoneyCell row={row} amount={row.paidCny} />
+        </Td>
       </tr>
       {open && (
         <tr className="border-b border-[var(--color-border)]">
-          <td colSpan={8} className="px-3 pb-5 pt-1">
+          <td colSpan={11} className="px-3 pb-5 pt-1">
             <ReceiptsPanel row={row} margin={margin} />
           </td>
         </tr>
       )}
     </>
+  )
+}
+
+// 对账 —— 已回款 (认下这张单的应收单都收清了) / 已对账 / 还没对。
+function SettleText({ row }: { row: OrderLedgerRow }) {
+  if (row.settle === 'paid')
+    return <span className="text-[12px] text-[var(--color-success)]">已回款</span>
+  if (row.settle === 'reconciled')
+    return <span className="text-[12px] text-[var(--color-info)]">已对账</span>
+  return <span className="text-[12px] text-[var(--color-ink-4)]">—</span>
+}
+
+// 开票 / 收款 格 —— 免收的单两格都写免收, 没有数就是一横。
+function MoneyCell({ row, amount }: { row: OrderLedgerRow; amount: number }) {
+  if (row.free)
+    return <span className="text-[12px] text-[var(--color-ink-4)]">免收</span>
+  if (amount === 0)
+    return <span className="text-[12px] text-[var(--color-ink-4)]">—</span>
+  return (
+    <span className="text-[13px] tabular-nums text-[var(--color-ink-2)]">
+      {formatCny(amount)}
+    </span>
   )
 }
 
@@ -516,6 +554,7 @@ function ReceiptsPanel({
           )}
         </section>
       </div>
+      <MoneyTrail row={row} />
       <div className="mt-4 flex items-baseline gap-5 text-[12px] text-[var(--color-ink-3)]">
         <span className="tabular-nums">
           订单额 {row.amountCny == null ? '未定' : formatCny(row.amountCny)} − 外协{' '}
@@ -539,6 +578,60 @@ function ReceiptsPanel({
         </Link>
       </div>
     </div>
+  )
+}
+
+// 对账 → 开票 → 收款 —— 这张单的钱一笔一笔走到哪了。开票、收款是记账那本
+// 上记的 (红冲掉的不列), 对账是应收那边审批过的应收单。
+function MoneyTrail({ row }: { row: OrderLedgerRow }) {
+  const unpaid = row.invoicedCny - row.paidCny
+  return (
+    <section className="mt-6 pt-4 border-t border-[var(--color-border)]">
+      <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 mb-2">
+        <p className="label">对账 · 开票 · 收款</p>
+        <span className="text-[12px] text-[var(--color-ink-3)]">
+          {row.settle
+            ? `${row.settle === 'paid' ? '已回款' : '已对账'} · ${row.receivableNos.join('、')}`
+            : '还没对账'}
+        </span>
+        {row.free ? (
+          <span className="ml-auto text-[12px] text-[var(--color-ink-3)]">免收</span>
+        ) : (
+          <span className="ml-auto text-[12px] text-[var(--color-ink-3)] tabular-nums">
+            开票 {formatCny(row.invoicedCny)} · 收款 {formatCny(row.paidCny)}
+            {unpaid > 0 && (
+              <span className="text-[var(--color-ink)] font-medium">
+                {' '}· 未收 {formatCny(unpaid)}
+              </span>
+            )}
+          </span>
+        )}
+      </div>
+      {row.money.length === 0 ? (
+        <p className="text-[12px] text-[var(--color-ink-4)]">记账上还没有开票、收款</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {row.money.map((m) => (
+            <li key={m.id} className="flex items-baseline gap-3 text-[13px]">
+              <span className="w-[44px] shrink-0 text-[12px] text-[var(--color-ink-4)] tabular-nums">
+                {mmdd(m.date)}
+              </span>
+              <span className="text-[var(--color-ink)]">
+                {m.kind === 'invoice' ? '开票' : '收款'}
+              </span>
+              <span className="text-[12px] text-[var(--color-ink-3)] truncate">
+                {[m.invoiceNo && `发票 ${m.invoiceNo}`, m.poNo && `订单号 ${m.poNo}`]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+              <span className="ml-auto tabular-nums text-[var(--color-ink-2)]">
+                {formatCny(m.amountCny)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 
@@ -578,6 +671,10 @@ function ExportButton({
         '毛利',
         '外协分厂', // per-厂 money, e.g. 科恒 ¥700、旺发 ¥1,200
         '交期',
+        '对账',
+        '应收单号',
+        '开票',
+        '收款',
       ]
       const orderBody = rows.map((r) => [
         r.createdDate,
@@ -593,6 +690,10 @@ function ExportButton({
           : r.amountCny - r.outsourceCny - r.procurementCny,
         vendorSlices(r).map(sliceText).join('、'),
         r.dueDate,
+        r.settle === 'paid' ? '已回款' : r.settle === 'reconciled' ? '已对账' : '',
+        r.receivableNos.join('、'),
+        r.free ? '免收' : num(r.invoicedCny || undefined),
+        r.free ? '免收' : num(r.paidCny || undefined),
       ])
 
       // Sheet 2 — 外协 receipts, one row per block.
@@ -635,7 +736,7 @@ function ExportButton({
       }
       XLSX.utils.book_append_sheet(
         wb,
-        sheet(orderHead, orderBody, [11, 16, 20, 22, 10, 10, 10, 10, 10, 32, 11]),
+        sheet(orderHead, orderBody, [11, 16, 20, 22, 10, 10, 10, 10, 10, 32, 11, 8, 16, 10, 10]),
         '订单',
       )
       XLSX.utils.book_append_sheet(

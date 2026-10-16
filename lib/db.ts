@@ -3613,13 +3613,34 @@ async function applyReceivableSettle(
   shipmentsRaw: AnyRow[],
   jobsRaw: AnyRow[],
 ): Promise<void> {
-  let receivables: Awaited<ReturnType<typeof getReceivables>>
+  let byJob: Map<string, JobSettle>
   try {
-    receivables = await getReceivables()
+    byJob = await receivableSettleByJob(shipmentsRaw, jobsRaw)
   } catch {
     return // 应收单读不到, 看板照旧 —— 不能因为这两个字让整张看板出不来。
   }
-  if (receivables.length === 0) return
+  for (const [jobId, s] of byJob) {
+    const cur = out.get(jobId)
+    if (!cur) continue
+    if (s.settle === 'paid') {
+      out.set(jobId, { status: 'settled', outstandingCny: 0, settle: 'paid' })
+    } else {
+      out.set(jobId, { ...cur, settle: 'reconciled' })
+    }
+  }
+}
+
+type JobSettle = { settle: 'reconciled' | 'paid'; nos: string[] }
+
+// 每张单对到哪了 —— 看板的收款格和财务·订单共用这一份口径。只有对过账的单
+// 在里面; shipmentsRaw 要 job_id + created_at, jobsRaw 要 id + customer + job_no。
+async function receivableSettleByJob(
+  shipmentsRaw: AnyRow[],
+  jobsRaw: AnyRow[],
+): Promise<Map<string, JobSettle>> {
+  const out = new Map<string, JobSettle>()
+  const receivables = await getReceivables()
+  if (receivables.length === 0) return out
   // 客户|月 → 那个月审过的应收单。整月审的那张认这个月所有单; 按单号勾着
   // 审的只认它勾的那几个单号。
   const activeByKey = new Map<string, (typeof receivables)[number][]>()
@@ -3652,14 +3673,12 @@ async function applyReceivableSettle(
     const recs = [...keys].map((k) => recFor(jobId, k))
     if (recs.length === 0 || recs.some((r) => !r)) continue
     const paid = recs.every((r) => settleOutstanding(r!) <= 0)
-    const cur = out.get(jobId)
-    if (!cur) continue
-    if (paid) {
-      out.set(jobId, { status: 'settled', outstandingCny: 0, settle: 'paid' })
-    } else {
-      out.set(jobId, { ...cur, settle: 'reconciled' })
-    }
+    out.set(jobId, {
+      settle: paid ? 'paid' : 'reconciled',
+      nos: [...new Set(recs.map((r) => r!.no))],
+    })
   }
+  return out
 }
 
 // === 分期账 (installment ledger, migration 0075) ===
@@ -3801,8 +3820,18 @@ export async function getOrderLedgerRows(): Promise<
     return out
   }
 
-  const [jobsRaw, blocksRaw, blockPartsRaw, partsRaw, vendors, procurements] =
-    await Promise.all([
+  const [
+    jobsRaw,
+    blocksRaw,
+    blockPartsRaw,
+    partsRaw,
+    vendors,
+    procurements,
+    shipmentsRaw,
+    poLinesRaw,
+    moneyEventsRaw,
+    freeRaw,
+  ] = await Promise.all([
       fetchCols(
         'jobs',
         'id, job_no, customer, product, amount_cny, due_date, created_at',
@@ -3819,7 +3848,38 @@ export async function getOrderLedgerRows(): Promise<
       fetchCols('parts', 'id, job_id, qty'),
       getVendors(),
       getProcurements(),
+      fetchCols('shipments', 'job_id, created_at'),
+      selectAllOptional('po_lines'),
+      selectAllOptional('money_events'),
+      // 免收的单 —— 老库没有这一列就当全都收费。
+      fetchCols('jobs', 'id', ['billable', 'false']).catch(() => [] as AnyRow[]),
     ])
+  const freeJobs = new Set(freeRaw.map((r) => r.id as string))
+
+  // 对账 —— 跟看板收款格同一份口径。应收单读不到就当都没对过, 订单账照出。
+  const settleByJob = await receivableSettleByJob(shipmentsRaw, jobsRaw).catch(
+    () => new Map<string, JobSettle>(),
+  )
+
+  // 开票 / 收款 —— 记账那本上的数, 走它自己的推导 (红冲掉的不算)。
+  const fenqiLines = poLinesRaw.map(fromPoLine)
+  const fenqiByJob = new Map<string, ReturnType<typeof buildRows>[number]>()
+  {
+    const lineJobs = new Set(fenqiLines.map((l) => l.jobId))
+    const fenqiJobs: FenqiJob[] = jobsRaw
+      .filter((j) => lineJobs.has(j.id as string))
+      .map((j) => ({
+        jobId: j.id as string,
+        jobNo: '',
+        customer: '',
+        billable: !freeJobs.has(j.id as string),
+      }))
+    for (const r of buildRows(
+      { jobs: fenqiJobs, lines: fenqiLines, events: moneyEventsRaw.map(fromMoneyEvent) },
+      today(),
+    ))
+      fenqiByJob.set(r.job.jobId, r)
+  }
 
   const vendorName = new Map<string, string>()
   for (const v of vendors) vendorName.set(v.id, v.name)
@@ -3905,6 +3965,7 @@ export async function getOrderLedgerRows(): Promise<
     const jobId = j.id as string
     const outsource = outsourceByJob.get(jobId) ?? []
     const buys = buysByJob.get(jobId) ?? []
+    const fq = fenqiByJob.get(jobId)
     let outsourceCny = 0
     for (const o of outsource) if (o.amountCny != null) outsourceCny += o.amountCny
     let procurementCny = 0
@@ -3924,6 +3985,25 @@ export async function getOrderLedgerRows(): Promise<
       buys,
       outsourceCny,
       procurementCny,
+      settle: settleByJob.get(jobId)?.settle,
+      receivableNos: settleByJob.get(jobId)?.nos ?? [],
+      invoicedCny: fq?.invoiced ?? 0,
+      paidCny: fq?.paid ?? 0,
+      free: freeJobs.has(jobId) || undefined,
+      money: (fq?.lines ?? [])
+        .flatMap((l) =>
+          l.ledger
+            .filter((e) => !e.voided)
+            .map((e) => ({
+              id: e.ev.id,
+              kind: e.ev.kind,
+              date: e.ev.eventDate,
+              amountCny: e.ev.amountCny,
+              invoiceNo: e.ev.invoiceNo,
+              poNo: l.line.poNo || undefined,
+            })),
+        )
+        .sort((a, b) => a.date.localeCompare(b.date)),
     })
   }
   // Newest order first — the ledger reads top-down like the 外协台. Ties on

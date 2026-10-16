@@ -1003,6 +1003,27 @@ export type OrderLedgerRow = {
   buys: OrderLedgerBuy[]
   outsourceCny: number // Σ resolved block spend (unpriced blocks count 0)
   procurementCny: number // Σ buy totals (unpriced buys count 0)
+  // 对账 → 开票 → 收款 —— 这张单的钱收到哪一步了。
+  /** 对账 —— 每一车货都进了审批过的应收单 ('reconciled'), 那几张都收清了 ('paid')。 */
+  settle?: 'reconciled' | 'paid'
+  /** 认下这张单的应收单号 (YS-2609-001…)。 */
+  receivableNos: string[]
+  /** 开票 / 收款 —— 记账 (分期账) 那本上这张单的数, 红冲掉的不算。 */
+  invoicedCny: number
+  paidCny: number
+  /** 免收 —— 是否收费 = 否。 */
+  free?: boolean
+  money: OrderLedgerMoney[]
+}
+
+// 记账上这张单的一笔开票或收款。
+export type OrderLedgerMoney = {
+  id: string
+  kind: 'invoice' | 'payment'
+  date: string // YYYY-MM-DD
+  amountCny: number
+  invoiceNo?: string
+  poNo?: string
 }
 
 // 重点 — one row on a day's hand-curated focus list. The platform version of
