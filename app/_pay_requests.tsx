@@ -218,6 +218,85 @@ function num(s: string): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
+// ── 付款清单导入 —— Excel / CSV 文件, 或者从 Excel 里复制几行粘进来 ──────────
+//
+// 认表头: 名称 (品名 / 项目 / 内容 / 明细…)、数量、单价、金额 (合计 / 小计 /
+// 总价)。没有表头就按位置猜: 第一个不是数的格子当名称, 后面的数一个当金额,
+// 两个当数量 + 单价, 三个当数量 + 单价 + 金额。合计 / 总计那一行跳过。
+
+type ImportedItem = { name: string; qty: string; price: string; amount: string }
+
+const NAME_HEAD = /名称|品名|项目|内容|明细|摘要|物品|事项|货物|规格/
+const QTY_HEAD = /数量/
+const PRICE_HEAD = /单价|价格/
+const AMOUNT_HEAD = /金额|合计|小计|总价|总额/
+const TOTAL_ROW = /^(合\s*计|总\s*计|小\s*计|总额)/
+
+function cellText(v: unknown): string {
+  if (v == null) return ''
+  return String(v).trim()
+}
+
+function cellNum(v: unknown): string {
+  const t = cellText(v).replace(/[¥,，元\s]/g, '')
+  return t && Number.isFinite(Number(t)) ? t : ''
+}
+
+function gridToItems(grid: unknown[][]): ImportedItem[] {
+  const rows = grid.filter((r) => Array.isArray(r) && r.some((c) => cellText(c)))
+  let head = -1
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    const texts = rows[i].map(cellText)
+    if (texts.some((t) => NAME_HEAD.test(t)) && texts.some((t) => AMOUNT_HEAD.test(t) || PRICE_HEAD.test(t) || QTY_HEAD.test(t))) {
+      head = i
+      break
+    }
+  }
+  const out: ImportedItem[] = []
+  if (head >= 0) {
+    const h = rows[head].map(cellText)
+    const find = (re: RegExp, not?: RegExp) => h.findIndex((t) => re.test(t) && !(not && not.test(t)))
+    const nameCol = find(NAME_HEAD)
+    const qtyCol = find(QTY_HEAD)
+    const priceCol = find(PRICE_HEAD)
+    const amountCol = find(AMOUNT_HEAD, PRICE_HEAD)
+    for (const r of rows.slice(head + 1)) {
+      const name = cellText(r[nameCol])
+      if (!name || TOTAL_ROW.test(name)) continue
+      out.push({
+        name,
+        qty: qtyCol >= 0 ? cellNum(r[qtyCol]) : '',
+        price: priceCol >= 0 ? cellNum(r[priceCol]) : '',
+        amount: amountCol >= 0 ? cellNum(r[amountCol]) : '',
+      })
+    }
+    return out
+  }
+  for (const r of rows) {
+    const nameAt = r.findIndex((c) => cellText(c) && !cellNum(c))
+    if (nameAt < 0) continue
+    const name = cellText(r[nameAt])
+    if (TOTAL_ROW.test(name)) continue
+    const nums = r.slice(nameAt + 1).map(cellNum).filter(Boolean)
+    out.push(
+      nums.length >= 3
+        ? { name, qty: nums[0], price: nums[1], amount: nums[2] }
+        : nums.length === 2
+          ? { name, qty: nums[0], price: nums[1], amount: '' }
+          : { name, qty: '', price: '', amount: nums[0] ?? '' },
+    )
+  }
+  return out
+}
+
+async function readItemsFile(file: File): Promise<ImportedItem[]> {
+  const XLSX = await import('xlsx')
+  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  if (!ws) return []
+  return gridToItems(XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: '' }))
+}
+
 function NewRequest({
   dept,
   past,
@@ -257,6 +336,21 @@ function NewRequest({
 
   const patch = (key: number, p: Partial<DraftItem>) =>
     setItems((xs) => xs.map((x) => (x.key === key ? { ...x, ...p } : x)))
+
+  // 导进来的接在已经填了的后面, 空行顶掉。
+  const importRef = useRef<HTMLInputElement>(null)
+  const addImported = (got: ImportedItem[]) => {
+    if (got.length === 0) {
+      setError('表格里没认出清单 —— 要有「名称」一列，或者一行一项：名称、数量、单价、金额')
+      return
+    }
+    setError(null)
+    setItems((xs) => [
+      ...xs.filter((x) => x.name.trim() || x.amount.trim() || x.qty.trim() || x.price.trim()),
+      ...got.map((g) => ({ key: seq.current++, ...g })),
+    ])
+    showToast(`导入了 ${got.length} 项`, 'success')
+  }
 
   function submit() {
     if (!payee.trim()) return setError('先填收款方')
@@ -388,6 +482,15 @@ function NewRequest({
               <input
                 value={i.name}
                 onChange={(e) => patch(i.key, { name: e.target.value })}
+                onPaste={(e) => {
+                  // 从 Excel 复制了好几格 —— 当成一张小表导进来。
+                  const t = e.clipboardData.getData('text')
+                  if (!/[\t\n]/.test(t.trim())) return
+                  e.preventDefault()
+                  addImported(
+                    gridToItems(t.replace(/\r/g, '').split('\n').map((l) => l.split('\t'))),
+                  )
+                }}
                 placeholder="名称"
                 className={`${inp} w-full`}
               />
@@ -434,6 +537,30 @@ function NewRequest({
             className="text-[12.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
           >
             ＋ 加一行
+          </button>
+          <input
+            ref={importRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={async (e) => {
+              const f = e.target.files?.[0]
+              e.target.value = ''
+              if (!f) return
+              try {
+                addImported(await readItemsFile(f))
+              } catch {
+                setError('这个表格读不出来 —— 换成 Excel（.xlsx）再试')
+              }
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => importRef.current?.click()}
+            title="选一个 Excel 表格，按名称、数量、单价、金额把清单填进来；也可以从 Excel 复制几行直接粘到名称框里"
+            className="text-[12.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+          >
+            导入表格
           </button>
           <span className="ml-auto text-[12px] text-[var(--color-ink-3)]">合计</span>
           <span className="mono w-[96px] text-right text-[14px] font-semibold text-[var(--color-ink)]">
