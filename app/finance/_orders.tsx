@@ -251,9 +251,9 @@ export function OrderLedger({
           <thead>
             <tr className="border-b border-[var(--color-border)]">
               <Th>下单</Th>
-              <Th className="min-w-[130px]">工号</Th>
-              <Th className="min-w-[150px]">客户</Th>
-              <Th className="min-w-[150px]">产品</Th>
+              <Th>工号</Th>
+              <Th>客户</Th>
+              <Th>产品</Th>
               <Th className="text-right">订单额</Th>
               <Th className="text-right">外协</Th>
               <Th className="text-right">采购</Th>
@@ -345,14 +345,31 @@ function OrderRow({
         <Td className="whitespace-nowrap text-[12px] text-[var(--color-ink-3)] tabular-nums">
           {mmdd(row.createdDate)}
         </Td>
-        <Td className="whitespace-nowrap">
-          <span className="mono text-[13px] text-[var(--color-ink)]">{row.jobNo || '—'}</span>
+        {/* 工号 · 客户 · 产品 各收在一个宽度里, 长的打省略号 (移上去看全) ——
+            不然一个长工号就把右边的对账 / 开票 / 收款挤出页面。 */}
+        <Td>
+          <div
+            title={row.jobNo}
+            className="mono max-w-[140px] truncate text-[13px] text-[var(--color-ink)]"
+          >
+            {row.jobNo || '—'}
+          </div>
         </Td>
-        <Td className="text-[13px] text-[var(--color-ink-2)] max-w-[240px] truncate">
-          {row.customer}
+        <Td>
+          <div
+            title={row.customer}
+            className="max-w-[130px] truncate text-[13px] text-[var(--color-ink-2)]"
+          >
+            {row.customer}
+          </div>
         </Td>
-        <Td className="text-[13px] text-[var(--color-ink-2)] max-w-[240px] truncate">
-          {row.product}
+        <Td>
+          <div
+            title={row.product}
+            className="max-w-[120px] truncate text-[13px] text-[var(--color-ink-2)]"
+          >
+            {row.product}
+          </div>
         </Td>
         <Td className="text-right whitespace-nowrap">
           {row.amountCny == null ? (
