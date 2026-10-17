@@ -59,6 +59,9 @@ const CN = new Intl.NumberFormat('zh-CN')
 // half of the 外协单号 in column one).
 const COLS =
   'grid-cols-[196px_minmax(220px,1.4fr)_146px_minmax(150px,1fr)_96px_104px_136px_78px]'
+// 看不到价钱的 (商务、财务以外) —— 没有金额那一列。
+const COLS_NO_MONEY =
+  'grid-cols-[196px_minmax(220px,1.4fr)_146px_minmax(150px,1fr)_96px_136px_78px]'
 const MINW = 'min-w-[1140px]'
 
 type Tab = 'open' | 'done' | 'all'
@@ -95,6 +98,7 @@ export function OutsourceLedger({
   settled = {},
   settledBlocks = {},
   receipts: serverReceipts = {},
+  showMoney = true,
 }: {
   rows: OpenBlockRow[]
   vendors: Vendor[]
@@ -108,7 +112,10 @@ export function OutsourceLedger({
   settledBlocks?: Record<string, 'reconciled' | 'paid'>
   /** 收货确认单 —— 按订单 (jobId) 挂的图 (lib/outsource-receipt)。 */
   receipts?: Record<string, VoucherFile[]>
+  /** 单价、金额 —— 只给商务和财务 (lib/auth canSeeOutsourceMoney)。 */
+  showMoney?: boolean
 }) {
+  const cols = showMoney ? COLS : COLS_NO_MONEY
   // Local echo of server rows. Receiving parts, stamping 微信 and 撤销外协 all
   // repaint from here instead of a full RSC refresh — the mainland↔HK link is
   // slow enough that a refresh reads as a hang (and scrolls the sheet away).
@@ -252,7 +259,7 @@ export function OutsourceLedger({
               sub={`${CN.format(tab === 'open' ? stats.remaining : stats.qty)} 件`}
               label={tab === 'done' ? '已回外协单' : '外协单'}
             />
-            <Stat value={formatCny(stats.amount)} label="外发金额" />
+            {showMoney && <Stat value={formatCny(stats.amount)} label="外发金额" />}
           </div>
         </div>
         <PeriodBar
@@ -319,8 +326,12 @@ export function OutsourceLedger({
         <p className="label tabular-nums">
           {CN.format(shown.length)} 单
           {shown.length !== stats.count ? ` / ${CN.format(stats.count)}` : ''}
-          <span className="mx-1.5 text-[var(--color-ink-4)]">·</span>
-          {formatCny(shown.reduce((s, l) => s + (blockAmountCny(l.block) ?? 0), 0))}
+          {showMoney && (
+            <>
+              <span className="mx-1.5 text-[var(--color-ink-4)]">·</span>
+              {formatCny(shown.reduce((s, l) => s + (blockAmountCny(l.block) ?? 0), 0))}
+            </>
+          )}
         </p>
         <div className="flex items-center gap-2">
           {/* 对账 —— 月底跟这家厂算钱的那张纸。选了供应商就直接是他的对账单,
@@ -335,6 +346,7 @@ export function OutsourceLedger({
           </Link>
           <OutsourceExportButton
             lines={shown}
+            showMoney={showMoney}
             filename={`外协_${tab === 'done' ? '已回' : tab === 'open' ? '在外' : '全部'}_${gran === 'all' ? today : readout(anchor, gran).replace(/[月日 ]/g, '')}`}
           />
         </div>
@@ -343,14 +355,14 @@ export function OutsourceLedger({
       <div className="mt-2 overflow-x-auto">
         <div className={MINW}>
           <div
-            className={`grid ${COLS} items-baseline gap-x-4 border-y border-[var(--color-border)] px-3 py-2`}
+            className={`grid ${cols} items-baseline gap-x-4 border-y border-[var(--color-border)] px-3 py-2`}
           >
             <span className="label pl-5">外协单号</span>
             <span className="label">零件</span>
             <span className="label">供应商</span>
             <span className="label">客户</span>
             <span className="label text-right">数量</span>
-            <span className="label text-right">金额</span>
+            {showMoney && <span className="label text-right">金额</span>}
             <span className="label">回厂</span>
             <span />
           </div>
@@ -376,8 +388,9 @@ export function OutsourceLedger({
                     </span>
                     <span className="h-px flex-1 translate-y-[-3px] bg-[var(--color-border)]" />
                     <span className="text-[11px] tabular-nums text-[var(--color-ink-4)]">
-                      {g.lines.length} 单 ·{' '}
-                      {formatCny(g.lines.reduce((s, l) => s + (blockAmountCny(l.block) ?? 0), 0))}
+                      {g.lines.length} 单
+                      {showMoney &&
+                        ` · ${formatCny(g.lines.reduce((s, l) => s + (blockAmountCny(l.block) ?? 0), 0))}`}
                     </span>
                   </div>
                 )}
@@ -385,6 +398,8 @@ export function OutsourceLedger({
                   <Row
                     key={l.key}
                     line={l}
+                    cols={cols}
+                    showMoney={showMoney}
                     settle={
                       l.closed && l.closedAt
                         ? (settledBlocks[l.block.id] ??
@@ -433,6 +448,8 @@ export function OutsourceLedger({
 
 function Row({
   line,
+  cols,
+  showMoney,
   settle,
   vendors,
   receipts,
@@ -443,6 +460,8 @@ function Row({
   onDeleted,
 }: {
   line: Line
+  cols: string
+  showMoney: boolean
   /** 已对账 / 已付款 —— 回厂之后, 这张单所在的外协对账单认过了没有、付了没有。 */
   settle?: 'reconciled' | 'paid'
   vendors: Vendor[]
@@ -481,7 +500,7 @@ function Row({
             onToggle()
           }
         }}
-        className={`grid ${COLS} cursor-pointer items-baseline gap-x-5 px-3 py-[10px] transition-colors ${
+        className={`grid ${cols} cursor-pointer items-baseline gap-x-5 px-3 py-[10px] transition-colors ${
           open ? '' : 'hover:bg-[var(--color-active-bg)]'
         }`}
       >
@@ -564,6 +583,7 @@ function Row({
         {/* 金额 — 单头总价, 没填就按每件单价合计。真的没定价才是一个「—」;
             a missing price is a blank, not an alarm. Painting 30 rows amber
             only taught the eye to ignore amber. */}
+        {showMoney && (
         <span className="text-right tabular-nums text-[13.5px]">
           {amount == null ? (
             <span className="text-[var(--color-ink-4)]">—</span>
@@ -578,6 +598,7 @@ function Row({
             </span>
           )}
         </span>
+        )}
 
         {/* 回厂 — the date, and how it stands. */}
         <span className="tabular-nums">
@@ -669,6 +690,7 @@ function Row({
       {open && (
         <Panel
           line={line}
+          showMoney={showMoney}
           vendors={vendors}
           receipts={receipts}
           onReceipts={onReceipts}
@@ -734,6 +756,7 @@ function Caret({ open }: { open: boolean }) {
 
 function Panel({
   line,
+  showMoney,
   vendors,
   receipts,
   onReceipts,
@@ -742,6 +765,7 @@ function Panel({
   onClose,
 }: {
   line: Line
+  showMoney: boolean
   vendors: Vendor[]
   receipts: VoucherFile[]
   onReceipts: (next: VoucherFile[]) => void
@@ -949,6 +973,7 @@ function Panel({
                 className="text-[13px] text-[var(--color-ink)]"
               />
             </Field>
+            {showMoney && (
             <Field label="金额">
               <span className="flex items-baseline gap-0.5">
                 <span className="font-mono text-[12px] text-[var(--color-ink-3)]">¥</span>
@@ -961,6 +986,7 @@ function Panel({
                 />
               </span>
             </Field>
+            )}
             <Field label="寄出">
               <OutsourceBlockDate
                 blockId={block.id}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState, useTransition } from 'react'
+import { createContext, useContext, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ACTIVITY_DEFAULT_STAGES,
@@ -164,14 +164,20 @@ function PartImg({ src, size = 'h-10 w-10' }: { src?: string; size?: string }) {
   )
 }
 
+// 单价、金额 —— 只给商务和财务 (lib/auth canSeeOutsourceMoney)。工程在这里照样
+// 送单、收件, 只是没有价钱那几格。
+const MoneyCtx = createContext(true)
+
 export function WaixieTable({
   jobId,
   components,
   vendors,
+  showMoney = true,
 }: {
   jobId: string
   components: WaixieComponent[]
   vendors: Vendor[]
+  showMoney?: boolean
 }) {
   const router = useRouter()
   const [drafting, setDrafting] = useState(false)
@@ -379,6 +385,7 @@ export function WaixieTable({
   }
 
   return (
+    <MoneyCtx.Provider value={showMoney}>
     <div>
       {/* Post-送出 handoff — the WeChat share panel, the point of the flow. */}
       {sent ? (
@@ -457,6 +464,7 @@ export function WaixieTable({
                   disabled={pending}
                 />
               </label>
+              {showMoney && (
               <label className="flex items-center gap-1 text-[13px]">
                 <span className="text-[var(--color-ink-3)]">总价¥</span>
                 <input
@@ -468,6 +476,7 @@ export function WaixieTable({
                   className="mono min-h-[34px] w-[80px] rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-right text-[13px]"
                 />
               </label>
+              )}
               <button
                 type="button"
                 disabled={!canSend || pending}
@@ -529,7 +538,7 @@ export function WaixieTable({
                     </span>
                   </th>
                   <th className={`${th} text-right`}>数</th>
-                  <th className={`${th} text-right`}>单价</th>
+                  {showMoney && <th className={`${th} text-right`}>单价</th>}
                   <th className={th}>外协状态</th>
                 </tr>
               </thead>
@@ -572,7 +581,7 @@ export function WaixieTable({
                 <th className={`${th} w-[56px]`}>图</th>
                 <th className={th}>零件</th>
                 <th className={`${th} w-[60px] text-right`}>数</th>
-                <th className={`${th} w-[72px] text-right`}>单价</th>
+                {showMoney && <th className={`${th} w-[72px] text-right`}>单价</th>}
                 <th className={`${thStatus} w-[288px] pr-3 text-right`}>外协进度</th>
                 <th className={`${thStatus} w-[104px]`}>收</th>
               </tr>
@@ -592,6 +601,7 @@ export function WaixieTable({
         </div>
       ) : null}
     </div>
+    </MoneyCtx.Provider>
   )
 }
 
@@ -612,6 +622,7 @@ function BlockGroup({
   components: WaixieComponent[]
   onChanged: () => void
 }) {
+  const showMoney = useContext(MoneyCtx)
   const [busy, start] = useTransition()
   const closed = isBlockClosed(block)
   const vendor = vendors.find((v) => v.id === block.vendorId)
@@ -655,7 +666,7 @@ function BlockGroup({
       {/* 单 header — metadata on the left (all editable in place), supplier
           status cells on the right, exactly like a master-board row. */}
       <tr className="bg-[var(--color-bg)]">
-        <td colSpan={4} className="px-3 py-2">
+        <td colSpan={showMoney ? 4 : 3} className="px-3 py-2">
           {/* The 外协单 in master-board grammar: labeled columns, one value per
               cell, every cell editable in place. Same fields as before — now
               they read like a spreadsheet row instead of a run-on line. */}
@@ -731,6 +742,7 @@ function BlockGroup({
                   ) : null}
                 </span>
               </span>
+              {showMoney && (
               <span className="block">
                 <span className={hcellLabel}>金额</span>
                 <span className="flex items-baseline gap-0.5 text-[13px] leading-[20px]">
@@ -744,6 +756,7 @@ function BlockGroup({
                   />
                 </span>
               </span>
+              )}
               {block.docNo ? (
                 <span className="block" title="外协单号">
                   <span className={hcellLabel}>单号</span>
@@ -802,7 +815,7 @@ function BlockGroup({
 
       {/* 备注 + 加零件 — one quiet line under the parts. */}
       <tr>
-        <td colSpan={6} className="pb-2.5 pl-[68px] pr-3">
+        <td colSpan={showMoney ? 6 : 5} className="pb-2.5 pl-[68px] pr-3">
           <div className="flex items-start gap-4">
             <OutsourceBlockNotes
               blockId={block.id}
@@ -841,6 +854,7 @@ function MemberRow({
   comp?: WaixieComponent
   onChanged: () => void
 }) {
+  const showMoney = useContext(MoneyCtx)
   const [receiving, setReceiving] = useState(false)
   const [rQty, setRQty] = useState('')
   const [rDate, setRDate] = useState(today())
@@ -924,6 +938,7 @@ function MemberRow({
           />
         )}
       </td>
+      {showMoney && (
       <td className={`${td} text-right`}>
         <BlockMemberUnitPrice
           blockId={block.id}
@@ -933,6 +948,7 @@ function MemberRow({
           className="mono w-[60px] text-right text-[13px]"
         />
       </td>
+      )}
       {/* 外协进度 strip is 单-level — parts only carry their own 收 cell. */}
       <td className={tdStatus} />
       <td className={tdStatus}>
@@ -1070,6 +1086,7 @@ function PickRow({
   setPrice: (v: string) => void
   pending: boolean
 }) {
+  const showMoney = useContext(MoneyCtx)
   const block = state.kind === 'none' ? undefined : state.block
   const member = state.kind === 'none' ? undefined : state.member
   const out = state.kind === 'out'
@@ -1120,6 +1137,7 @@ function PickRow({
           <span className="mono text-[13px]">{c.qty}</span>
         )}
       </td>
+      {showMoney && (
       <td className={`${td} text-right`}>
         {ticked ? (
           <input
@@ -1137,6 +1155,7 @@ function PickRow({
           <span className={dim}>—</span>
         )}
       </td>
+      )}
       <td className={td}>
         {out && block ? (
           <span className="text-[13px]">

@@ -1,7 +1,13 @@
 import { Suspense } from 'react'
 import Link from 'next/link'
 import { STAGES, formatCny, type Stage } from '@/lib/data'
-import { canSeeMoney, requirePulseViewer, canSeeReport } from '@/lib/auth'
+import {
+  canSeeCustomerData,
+  canSeeMoney,
+  canSeeReport,
+  requirePulseViewer,
+  stageScopeFor,
+} from '@/lib/auth'
 import {
   formatEventTs,
   getStationEvents,
@@ -42,6 +48,10 @@ export default async function PulsePage({
   // boolean drives both the page-level KPI and per-tile renderings, so the
   // two surfaces stay consistent.
   const showMoney = canSeeMoney(user)
+  // 客户名 —— 操机、编程、手工、打磨喷漆这些车间账号多半挂在工程名下, 也进得
+  // 了这一页, 但客户不该给他们看 (于海伟 2026-10-17)。工程那几个真管路线的
+  // (能报全部工段) 照旧看得到。
+  const showCustomer = canSeeCustomerData(user) || stageScopeFor(user) === 'all'
   const sp = await searchParams
   const rawStage = typeof sp?.stage === 'string' ? sp.stage : undefined
   const stageFilter: Stage | undefined =
@@ -108,15 +118,22 @@ export default async function PulsePage({
             once it has rendered once. The fallback only shows on the very
             first paint of /pulse, never on chip clicks. */}
         <Suspense fallback={<FeedFallback />}>
-          <FeedAsync stage={stageFilter} />
+          <FeedAsync stage={stageFilter} showCustomer={showCustomer} />
         </Suspense>
       </main>
     </div>
   )
 }
 
-async function FeedAsync({ stage }: { stage: Stage | undefined }) {
-  const events = await getStationEvents({ stage, limit: FEED_LIMIT })
+async function FeedAsync({
+  stage,
+  showCustomer,
+}: {
+  stage: Stage | undefined
+  showCustomer: boolean
+}) {
+  const all = await getStationEvents({ stage, limit: FEED_LIMIT })
+  const events = showCustomer ? all : all.map((e) => ({ ...e, customer: '' }))
   return (
     <ActivityFeed
       events={events}
@@ -242,8 +259,12 @@ function EventRow({ ev, now }: { ev: StationEvent; now: Date }) {
               ? ` · 已 ${ev.doneQty}/${ev.partQty}`
               : ''}
         </span>
-        <span className="mx-2 text-[var(--color-ink-4)]">·</span>
-        <span className="text-[var(--color-ink-3)]">{ev.customer}</span>
+        {ev.customer && (
+          <>
+            <span className="mx-2 text-[var(--color-ink-4)]">·</span>
+            <span className="text-[var(--color-ink-3)]">{ev.customer}</span>
+          </>
+        )}
       </Link>
     </li>
   )

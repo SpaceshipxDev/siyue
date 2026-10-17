@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import * as XLSX from 'xlsx'
 import {
   canSeeAllHr,
+  canSeeHrRecord,
   canSeeAttendance,
   canSeeDorm,
   requireHrUser,
@@ -51,9 +52,9 @@ export async function GET(request: NextRequest): Promise<Response> {
     // 同一条部门边界: 看本部门的人, 导出来的也只有本部门。
     const seeAll = canSeeAllHr(user)
     const myDept = await filerDeptOf(user)
-    const records = seeAll
-      ? all
-      : all.filter((r) => (r.dept ?? '商务') === myDept)
+    const records = (
+      seeAll ? all : all.filter((r) => (r.dept ?? '商务') === myDept)
+    ).filter((r) => canSeeHrRecord(user, r))
 
     // 汇总 — 一人一行, 跟屏幕上那张表同样的口径。
     const by = new Map<string, typeof records>()

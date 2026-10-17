@@ -170,6 +170,7 @@ import {
   canSeeFactoryPulse,
   canEditPlan,
   canSeeMoney,
+  canSeeOutsourceMoney,
   canUseNotes,
   currentUser,
   canSeeAllHr,
@@ -1965,7 +1966,10 @@ async function dispatch(
       if (!isString(blockId) || typeof patch !== 'object' || patch === null)
         return err('bad updateOutsourceBlock args')
       if (jobId !== undefined && !isString(jobId)) return err('bad jobId')
-      await requireOutsourceManager()
+      const outsourceUser = await requireOutsourceManager()
+      // 外协价钱只有商务、财务能改 (lib/auth canSeeOutsourceMoney)。
+      if ('amountCny' in patch && !canSeeOutsourceMoney(outsourceUser))
+        return err('外协价钱只有商务、财务能改', 403)
       await updateOutsourceBlock(blockId, patch as BlockPatch)
       revalidateExternal(jobId as string | undefined)
       revalidatePath(`/print/outsource/${blockId}`)
@@ -2090,7 +2094,8 @@ async function dispatch(
       if (unitPriceCny !== null && typeof unitPriceCny !== 'number')
         return err('bad unitPriceCny')
       if (jobId !== undefined && !isString(jobId)) return err('bad jobId')
-      await requireOutsourceManager()
+      if (!canSeeOutsourceMoney(await requireOutsourceManager()))
+        return err('外协价钱只有商务、财务能改', 403)
       await setBlockMemberUnitPrice(
         blockId,
         componentId,

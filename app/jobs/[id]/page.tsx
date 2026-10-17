@@ -1208,6 +1208,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 <WaixieTable
                   jobId={job.id}
                   vendors={vendors}
+                  showMoney={showMoney}
                   components={job.components.map((c) => ({
                     id: c.id,
                     name: c.name,

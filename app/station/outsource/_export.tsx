@@ -18,12 +18,17 @@ import type { LedgerLine } from './_ledger'
 // Money goes in as raw numbers, never formatted strings — the whole point of
 // handing someone a sheet is that they can sum the 金额 column.
 
+// 看不到价钱的人导出来的表里没有这几列。
+const MONEY_HEADS = new Set(['金额', '单价'])
+
 export function OutsourceExportButton({
   lines,
   filename,
+  showMoney = true,
 }: {
   lines: LedgerLine[]
   filename: string
+  showMoney?: boolean
 }) {
   const [busy, setBusy] = useState(false)
   const disabled = busy || lines.length === 0
@@ -34,6 +39,13 @@ export function OutsourceExportButton({
     try {
       const XLSX = await import('xlsx')
       const wb = XLSX.utils.book_new()
+      const keepHead = (h: string) => showMoney || !MONEY_HEADS.has(h)
+      const noMoney = (h: string[], rows: (string | number)[][]) => {
+        const all = [h, ...rows]
+        if (showMoney) return all
+        const keep = h.map(keepHead)
+        return all.map((r) => r.filter((_, i) => keep[i]))
+      }
 
       // ── 外协明细 ─────────────────────────────────────────────────────────
       const head = [
@@ -102,8 +114,8 @@ export function OutsourceExportButton({
         '',
         '',
       ])
-      const ws = XLSX.utils.aoa_to_sheet([head, ...body])
-      ws['!cols'] = head.map((h) =>
+      const ws = XLSX.utils.aoa_to_sheet(noMoney(head, body))
+      ws['!cols'] = head.filter(keepHead).map((h) =>
         h === '零件' ? { wch: 34 } : h === '客户' || h === '产品' || h === '备注' ? { wch: 20 } : h === '工号' || h === '外协单号' ? { wch: 18 } : h.includes('日期') || h.includes('回厂') || h === '厂商诺期' || h === '厂商发货' ? { wch: 12 } : { wch: 10 },
       )
       XLSX.utils.book_append_sheet(wb, ws, '外协明细')
@@ -146,8 +158,8 @@ export function OutsourceExportButton({
           ])
         }
       }
-      const pWs = XLSX.utils.aoa_to_sheet([pHead, ...pBody])
-      pWs['!cols'] = pHead.map((h) =>
+      const pWs = XLSX.utils.aoa_to_sheet(noMoney(pHead, pBody))
+      pWs['!cols'] = pHead.filter(keepHead).map((h) =>
         h === '零件' ? { wch: 28 } : h === '客户' ? { wch: 20 } : h === '工号' || h === '外协单号' ? { wch: 18 } : h.includes('日期') ? { wch: 12 } : { wch: 10 },
       )
       XLSX.utils.book_append_sheet(wb, pWs, '零件明细')
@@ -174,8 +186,8 @@ export function OutsourceExportButton({
         .sort((a, b) => b[1].amount - a[1].amount || b[1].blocks - a[1].blocks)
         .map(([name, v]) => [name, v.blocks, v.qty, v.out, Math.round(v.amount), v.overdue])
       vBody.push(['合计', lines.length, totalQty, totalOut, Math.round(total), lines.filter((l) => l.overdue).length])
-      const vWs = XLSX.utils.aoa_to_sheet([vHead, ...vBody])
-      vWs['!cols'] = vHead.map((h) => ({ wch: h === '供应商' ? 20 : 10 }))
+      const vWs = XLSX.utils.aoa_to_sheet(noMoney(vHead, vBody))
+      vWs['!cols'] = vHead.filter(keepHead).map((h) => ({ wch: h === '供应商' ? 20 : 10 }))
       XLSX.utils.book_append_sheet(wb, vWs, '供应商汇总')
 
       XLSX.writeFile(wb, `${filename}.xlsx`)

@@ -3,7 +3,12 @@ import {
   getOutsourceBlockRows,
   getVendors,
 } from '@/lib/db'
-import { requireOutsourceManager, canSeeReport, canSeeOrderLedger } from '@/lib/auth'
+import {
+  canSeeOrderLedger,
+  canSeeOutsourceMoney,
+  canSeeReport,
+  requireOutsourceManager,
+} from '@/lib/auth'
 import { getPayables } from '@/lib/payable'
 import { getOutsourceReceipts } from '@/lib/outsource-receipt'
 import { settleOutstanding } from '@/lib/settle-shared'
@@ -15,7 +20,8 @@ export const dynamic = 'force-dynamic'
 
 export default async function OutsourcePage() {
   const user = await requireOutsourceManager()
-  const [rows, rawVendors, payables, receipts] = await Promise.all([
+  const showMoney = canSeeOutsourceMoney(user)
+  const [allRows, rawVendors, payables, receipts] = await Promise.all([
     getOutsourceBlockRows(),
     getVendors(),
     // 应付单 —— 外协对账单确认过的 (供应商 × 月份)。外协单后面那两个字
@@ -24,6 +30,17 @@ export default async function OutsourcePage() {
     // 收货确认单 —— 按订单挂的图, 读不到就当都还没传。
     getOutsourceReceipts().catch(() => ({})),
   ])
+  // 不该看价钱的, 价钱压根不往浏览器里发。
+  const rows = showMoney
+    ? allRows
+    : allRows.map((r) => ({
+        ...r,
+        block: {
+          ...r.block,
+          amountCny: null,
+          members: r.block.members.map((m) => ({ ...m, unitPriceCny: undefined })),
+        },
+      }))
   // 外协是勾着对的: 应付单上记着认了哪几张外协单 (blockIds), 就标那几张。
   // 早先整月认的应付单没记单号, 退回按「供应商|月份」标那一整个月。
   const settled: Record<string, 'reconciled' | 'paid'> = {}
@@ -61,6 +78,7 @@ export default async function OutsourcePage() {
         settled={settled}
         settledBlocks={settledBlocks}
         receipts={receipts}
+        showMoney={showMoney}
       />
     </div>
   )

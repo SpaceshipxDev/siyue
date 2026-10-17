@@ -9,6 +9,7 @@ import {
   canSeeAttendance,
   canEditHrRecord,
   canSeeAllHr,
+  canSeeHrRecord,
   canSeeReport,
   canSeeOrderLedger,
   canApplyLoan,
@@ -115,9 +116,9 @@ export default async function HrPage({
   const seeAll = canSeeAllHr(user)
   // 录入的人自己选的部门 (lib/hr-dept); 没选过就是账号的工段。
   const myDept = await filerDeptOf(user)
-  const records = seeAll
-    ? allRecords
-    : allRecords.filter((r) => (r.dept ?? '商务') === myDept)
+  const records = (
+    seeAll ? allRecords : allRecords.filter((r) => (r.dept ?? '商务') === myDept)
+  ).filter((r) => canSeeHrRecord(user, r))
 
   // Who the picker offers: system accounts plus everybody 人事 has been asked
   // to remember. Shared station accounts and people with no login at all still
@@ -206,7 +207,10 @@ export default async function HrPage({
         ) : (
           <HrBoard
             records={records}
-            notes={notes}
+            // 假条照片跟着记录走 —— 看不到的那条, 它的假条也不发过去。
+            notes={Object.fromEntries(
+              records.flatMap((r) => (notes[r.id] ? [[r.id, notes[r.id]]] : [])),
+            )}
             period={period}
             months={months}
             roster={roster}

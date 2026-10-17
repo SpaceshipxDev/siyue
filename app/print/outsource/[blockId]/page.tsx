@@ -9,7 +9,7 @@ import {
   vendorById,
 } from '@/lib/data'
 import { ensureOutsourceDocNo, getOutsourceBlock, getVendors } from '@/lib/db'
-import { requireOutsourceManager } from '@/lib/auth'
+import { canSeeOutsourceMoney, requireOutsourceManager } from '@/lib/auth'
 import { BRAND } from '@/lib/brand'
 import { proxiedStorageUrl } from '@/lib/storage-url'
 import { PrintToolbar } from '@/app/_print'
@@ -30,7 +30,9 @@ export const dynamic = 'force-dynamic'
 export default async function OutsourceDocPage(
   props: PageProps<'/print/outsource/[blockId]'>,
 ) {
-  await requireOutsourceManager()
+  const user = await requireOutsourceManager()
+  // 单价、金额只给商务和财务 —— 工程打出来的外协单上没有价钱这几格。
+  const showMoney = canSeeOutsourceMoney(user)
   const { blockId } = await props.params
   const [info, vendors] = await Promise.all([
     getOutsourceBlock(blockId),
@@ -207,6 +209,7 @@ export default async function OutsourceDocPage(
               />
             }
           />
+          {showMoney && (
           <Field
             label="订单金额（含税）"
             value={
@@ -222,6 +225,7 @@ export default async function OutsourceDocPage(
               </span>
             }
           />
+          )}
           <Field
             label="备注"
             colSpan={2}
@@ -246,8 +250,12 @@ export default async function OutsourceDocPage(
                 <th style={{ width: 90 }}>料号</th>
                 <th style={{ width: 90 }}>材料</th>
                 <th style={{ width: 64, textAlign: 'right' }}>采购数量</th>
-                <th style={{ width: 72, textAlign: 'right' }}>单价</th>
-                <th style={{ width: 84, textAlign: 'right' }}>总价</th>
+                {showMoney && (
+                  <>
+                    <th style={{ width: 72, textAlign: 'right' }}>单价</th>
+                    <th style={{ width: 84, textAlign: 'right' }}>总价</th>
+                  </>
+                )}
                 <th style={{ width: 84 }}>备注</th>
               </tr>
             </thead>
@@ -306,6 +314,8 @@ export default async function OutsourceDocPage(
                         />
                       )}
                     </td>
+                    {showMoney && (
+                    <>
                     <td className="mono" style={{ textAlign: 'right' }}>
                       <span className="inline-flex items-baseline gap-0.5">
                         <span className="text-[var(--color-ink-3)]">¥</span>
@@ -325,6 +335,8 @@ export default async function OutsourceDocPage(
                     <td className="mono font-medium" style={{ textAlign: 'right' }}>
                       {lt != null ? formatCny(lt) : '—'}
                     </td>
+                    </>
+                    )}
                     {/* 零件那一行的备注格留空 —— 单头备注 (优惠、交代给厂商
                         的话) 已经写在上面「备注」那一栏了, 抄进第一行只会像
                         是这一个零件的事。空格子留给纸上手写。 */}
@@ -339,14 +351,18 @@ export default async function OutsourceDocPage(
                 <td className="mono font-semibold" style={{ textAlign: 'right' }}>
                   {info.block.members.reduce((s, m) => s + m.qty, 0)}
                 </td>
-                <td />
-                <td className="mono font-semibold" style={{ textAlign: 'right' }}>
-                  {(() => {
-                    const sum = blockLineTotalsSum(info.block)
-                    const grand = sum ?? info.block.amountCny
-                    return grand != null ? formatCny(grand) : '—'
-                  })()}
-                </td>
+                {showMoney && (
+                  <>
+                    <td />
+                    <td className="mono font-semibold" style={{ textAlign: 'right' }}>
+                      {(() => {
+                        const sum = blockLineTotalsSum(info.block)
+                        const grand = sum ?? info.block.amountCny
+                        return grand != null ? formatCny(grand) : '—'
+                      })()}
+                    </td>
+                  </>
+                )}
                 <td />
               </tr>
             </tbody>

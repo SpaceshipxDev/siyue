@@ -1,7 +1,7 @@
 import 'server-only'
 import { cache } from 'react'
 import { redirect } from 'next/navigation'
-import type { Stage } from './data'
+import { HR_LEAVE_TYPES, type HrRecord, type Stage } from './data'
 import { getUserById, isAdminUser } from './db'
 import { readSession } from './session'
 
@@ -239,6 +239,23 @@ export function canEditAttendance(u: AuthUser): boolean {
   return canEditHrRecord(u) || ATTENDANCE_EDITOR_USER_IDS.has(u.id)
 }
 
+// 请假 (事假 / 病假 / 工伤) —— 于海伟 2026-10-17: 谁填的谁看; 人事、老板看全部。
+// 能改 / 删人事记录的 (于海伟) 也算一个, 看不到就没法改。别的几样 (加班、迟到
+// ……) 照旧按部门看。
+export function canSeeAllLeave(u: AuthUser): boolean {
+  return (
+    isAdminUser(u.id) || ATTENDANCE_EDITOR_USER_IDS.has(u.id) || canEditHrRecord(u)
+  )
+}
+
+export function canSeeHrRecord(
+  u: AuthUser,
+  r: Pick<HrRecord, 'type' | 'by'>,
+): boolean {
+  if (!HR_LEAVE_TYPES.includes(r.type)) return true
+  return canSeeAllLeave(u) || r.by === u.name
+}
+
 // 看考勤表 —— 于海伟 2026-10-07 定: 只有人事、财务、老板和他。每个人每天上
 // 了几小时是记在人头上的, 跟工资一个性质, 所以是 能改考勤表的 + 工资那一档。
 export function canSeeAttendance(u: AuthUser): boolean {
@@ -419,6 +436,12 @@ export function canEditShipment(s: Scope): boolean {
 // pricing unless the rest of the system grants it.
 export function canManageOutsource(s: Scope): boolean {
   return s.role === 'commerce' || s.defaultStage === '工程'
+}
+
+// 外协的单价、金额 —— 只给商务和财务 (于海伟 2026-10-17)。工程管外协照样收发、
+// 打单, 但看不到价钱; 车间挂在工程名下的账号也一样。
+export function canSeeOutsourceMoney(u: AuthUser): boolean {
+  return canSeeMoney(u) || canSeeExpenses(u)
 }
 
 // Vendor info, outsource block details — commerce + 工程 (the outsource

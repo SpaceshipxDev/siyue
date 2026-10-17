@@ -621,6 +621,10 @@ export const HR_TYPES = [
 
 export type HrType = (typeof HR_TYPES)[number]
 
+// 请假 —— 事假 / 病假 / 工伤 (原来一个「请假」拆成的三样)。谁能看这几样另有
+// 一档, 见 lib/auth canSeeHrRecord。
+export const HR_LEAVE_TYPES: readonly HrType[] = ['事假', '病假', '工伤']
+
 // The kinds measured in hours away from the bench, not in times it happened:
 // "李四 病假 3 次" says nothing, "病假 24 小时" is what payroll deducts from.
 // The rest are counted — a 迟到 is a 迟到 whether it was five minutes or
