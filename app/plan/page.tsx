@@ -182,6 +182,13 @@ export default async function PlanPage({
     if (a) auto[r.id] = a
   }
 
+  // 工单号 → 工单, 表里那一格点得进去。
+  const jobIdOf: Record<string, string> = {}
+  for (const r of rows) {
+    const m = byJobNo.get(norm(r.jobNo))
+    if (m) jobIdOf[norm(r.jobNo)] = m.id
+  }
+
   const names = [...new Set([...users.map((u) => u.name), ...extraNames])]
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, 'zh'))
@@ -210,6 +217,7 @@ export default async function PlanPage({
           rows={rows}
           auto={auto}
           engPlan={engPlan}
+          jobIds={jobIdOf}
           names={names}
           jobNos={jobNos}
           todayStr={todayStr}

@@ -47,6 +47,7 @@ export function PlanBoard({
   rows,
   auto,
   engPlan,
+  jobIds,
   names,
   jobNos,
   todayStr,
@@ -57,6 +58,8 @@ export function PlanBoard({
   auto: Record<string, PlanAuto>
   /** 工程在工单上排的那一道的计划交期 (行 id → 'YYYY-MM-DD' 或带时间)。 */
   engPlan: Record<string, string>
+  /** 工单号 (去空格、小写) → 工单 id —— 认得出的工单号点得进去。 */
+  jobIds: Record<string, string>
   names: string[]
   jobNos: string[]
   todayStr: string
@@ -395,12 +398,22 @@ export function PlanBoard({
                   className="mono -ml-1 w-full bg-transparent text-[12.5px] tabular-nums text-[var(--color-ink-2)] outline-none"
                 />
                 <div className="flex min-w-0 flex-col gap-0.5">
-                  <EditableText
-                    mono
-                    value={r.jobNo}
-                    className="text-[12.5px] font-medium text-[var(--color-ink)]"
-                    onSave={(v) => patch(r.id, { jobNo: v })}
-                  />
+                  {/* 认得出的工单号点进工单; 认不出的 (打错了) 还是能改的一格。 */}
+                  {jobIds[r.jobNo.trim().toLowerCase()] ? (
+                    <Link
+                      href={`/jobs/${jobIds[r.jobNo.trim().toLowerCase()]}`}
+                      className="mono truncate py-0.5 text-[12.5px] font-medium text-[var(--color-ink)] underline-offset-4 hover:underline"
+                    >
+                      {r.jobNo}
+                    </Link>
+                  ) : (
+                    <EditableText
+                      mono
+                      value={r.jobNo}
+                      className="text-[12.5px] font-medium text-[var(--color-ink)]"
+                      onSave={(v) => patch(r.id, { jobNo: v })}
+                    />
+                  )}
                   {engPlan[r.id] && (
                     <span
                       className="text-[11px] text-[var(--color-ink-3)]"
