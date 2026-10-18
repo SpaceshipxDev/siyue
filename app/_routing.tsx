@@ -761,8 +761,8 @@ export function NewBlockForm({
           <input
             type="number"
             min={0}
-            step={1}
-            inputMode="numeric"
+            step="any"
+            inputMode="decimal"
             className={`${fieldStyles()} mono text-right`}
             value={amount}
             onChange={(e) => setAmount(e.target.value)}

@@ -367,7 +367,7 @@ function ExpenseMoney({ expenseId, value }: { expenseId: string; value: number }
       type="number"
       inputMode="decimal"
       min={0}
-      step={1}
+      step="any"
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => commit(draft)}

@@ -2,7 +2,7 @@ import 'server-only'
 
 import Link from 'next/link'
 import { getStationOutput } from '@/lib/pulse'
-import type { Stage } from '@/lib/data'
+import { formatCny, type Stage } from '@/lib/data'
 
 // Boss-only. Today's 报工 scoreboard for a single station — one row per worker,
 // ranked by 完成, counting only their work *at this stage*. Replaces the old
@@ -14,9 +14,6 @@ import type { Stage } from '@/lib/data'
 
 const NUM = new Intl.NumberFormat('zh-CN')
 
-function fmtCny(n: number): string {
-  return `¥${NUM.format(Math.round(n))}`
-}
 
 export async function StationReportAsync({
   stage,
@@ -88,7 +85,7 @@ export async function StationReportAsync({
               </span>
               {showMoney && (
                 <span className="text-right text-[14px] tabular-nums text-[var(--color-ink-2)]">
-                  {fmtCny(r.valueCny)}
+                  {formatCny(r.valueCny)}
                 </span>
               )}
             </li>

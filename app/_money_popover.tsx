@@ -64,7 +64,7 @@ function ShipmentFinanceEditor({
   const defaultAmt = (): number | undefined => {
     if (typeof amountCny !== 'number' || !(amountCny > 0)) return undefined
     const n = ships.length || 1
-    return n <= 1 ? amountCny : Math.round(amountCny / n)
+    return n <= 1 ? amountCny : Math.round((amountCny / n) * 100) / 100
   }
 
   const write = (

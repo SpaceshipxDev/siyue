@@ -6,6 +6,7 @@ import {
   effectiveMemberLineTotal,
   effectiveUnitPriceCny,
   formatCny,
+  formatYuan,
   vendorById,
 } from '@/lib/data'
 import { ensureOutsourceDocNo, getOutsourceBlock, getVendors } from '@/lib/db'
@@ -320,7 +321,7 @@ export default async function OutsourceDocPage(
                       <span className="inline-flex items-baseline gap-0.5">
                         <span className="text-[var(--color-ink-3)]">¥</span>
                         {isOrphan ? (
-                          <span>{up != null ? Math.round(up) : '—'}</span>
+                          <span>{up != null ? formatYuan(up) : '—'}</span>
                         ) : (
                           <BlockMemberUnitPrice
                             blockId={info.block.id}

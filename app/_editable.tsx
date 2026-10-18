@@ -489,7 +489,7 @@ export function JobAmount({
       type="number"
       inputMode="decimal"
       min={0}
-      step={1}
+      step="any"
       value={draft}
       placeholder="—"
       onChange={(e) => setDraft(e.target.value)}
@@ -993,6 +993,7 @@ export function JobMoneyPosition({
   // that carried money moves the sum without an edit count.
   const auto =
     settle.value === null ||
+    settle.value === roundMoney(settle.partsTotalAtCommit) ||
     settle.value === Math.round(settle.partsTotalAtCommit)
   const touched =
     editCount > settle.editCountAtCommit ||
@@ -1000,7 +1001,7 @@ export function JobMoneyPosition({
   const displayAmount =
     auto && touched
       ? partsTotal > 0
-        ? Math.round(partsTotal)
+        ? roundMoney(partsTotal)
         : undefined
       : (settle.value ?? undefined)
   const margin =
@@ -1060,12 +1061,12 @@ export function JobMoneyPosition({
             零件合计是单价×数量加出来的, 系统不猜谁对, 只把差摆出来。 */}
         {typeof displayAmount === 'number' &&
           partsTotal > 0 &&
-          Math.round(partsTotal) !== displayAmount && (
+          roundMoney(partsTotal) !== displayAmount && (
             <span
               title="金额和零件单价加出来的数对不上 — 核一下哪个是对的"
               className="mono text-[12px] font-medium text-[var(--color-warning)]"
             >
-              差 {formatCny(Math.abs(Math.round(partsTotal) - displayAmount))}
+              差 {formatCny(Math.abs(roundMoney(partsTotal) - displayAmount))}
             </span>
           )}
       </MoneyStat>
@@ -1371,7 +1372,7 @@ function ComponentMoney({
       type="number"
       inputMode="decimal"
       min={0}
-      step={1}
+      step="any"
       value={draft}
       placeholder="—"
       onPaste={onPaste}
@@ -1891,7 +1892,7 @@ export function BlockMemberUnitPrice({
       type="number"
       inputMode="decimal"
       min={0}
-      step={1}
+      step="any"
       value={draft}
       placeholder={isPending ? '单价' : undefined}
       onChange={(e) => setDraft(e.target.value)}
@@ -2083,7 +2084,7 @@ export function OutsourceBlockAmount({
       type="number"
       inputMode="decimal"
       min={0}
-      step={1}
+      step="any"
       value={draft}
       placeholder={
         isPending ? (derived != null ? String(derived) : '待定') : undefined

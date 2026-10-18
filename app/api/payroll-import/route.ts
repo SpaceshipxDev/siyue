@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
 
     const money = (v: unknown): number | undefined =>
       typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 200000
-        ? Math.round(v)
+        ? Math.round(v * 100) / 100
         : undefined
     // 工时按小时, 留一位小数 —— 249.5 这种是常态。
     const hours = (v: unknown): number | undefined =>

@@ -1713,10 +1713,18 @@ export function stagePlanState(
 
 export function formatCny(amount?: number | null): string {
   if (typeof amount !== 'number' || !Number.isFinite(amount)) return '—'
-  return `¥${new Intl.NumberFormat('zh-CN', {
-    maximumFractionDigits: 0,
-    minimumFractionDigits: 0,
-  }).format(amount)}`
+  return `¥${formatYuan(amount)}`
+}
+
+// Money is shown exactly as booked, to the 分 — never rounded to whole yuan.
+// Whole amounts stay clean (¥1,200); anything with 角/分 shows both (¥1,200.50).
+export function formatYuan(amount: number): string {
+  const cents = Math.round(amount * 100)
+  const whole = cents % 100 === 0
+  return new Intl.NumberFormat('zh-CN', {
+    maximumFractionDigits: whole ? 0 : 2,
+    minimumFractionDigits: whole ? 0 : 2,
+  }).format(cents / 100)
 }
 
 

@@ -270,8 +270,8 @@ export function buildRows(data: FenqiData, todayYmd: string): RowVM[] {
       lines.length > 0 &&
       typeof jobAmount === 'number' &&
       jobAmount > 0 &&
-      Math.round(amountCny) !== Math.round(jobAmount)
-        ? Math.round(amountCny - jobAmount)
+      Math.round(amountCny * 100) !== Math.round(jobAmount * 100)
+        ? Math.round((amountCny - jobAmount) * 100) / 100
         : undefined
 
     let status: FenqiStatus

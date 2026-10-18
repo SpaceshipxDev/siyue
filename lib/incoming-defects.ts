@@ -86,7 +86,7 @@ function count(v: unknown): number {
 
 function money(v: unknown): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return 0
-  return Math.max(0, Math.min(100_000_000, Math.round(v)))
+  return Math.max(0, Math.min(100_000_000, Math.round(v * 100) / 100))
 }
 
 function str(v: unknown): string {

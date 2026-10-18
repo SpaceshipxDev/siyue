@@ -861,7 +861,7 @@ function AddPerson({
     }
     start(async () => {
       try {
-        await onAdd(n, Math.round(v), dept)
+        await onAdd(n, Math.round(v * 100) / 100, dept)
         setName('')
         setPay('')
         setDept(NO_DEPARTMENT)

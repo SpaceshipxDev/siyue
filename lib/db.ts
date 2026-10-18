@@ -3191,7 +3191,7 @@ export async function getCustomerStatementLines(
       imageUrl: part?.imageUrl,
       qty,
       unitPriceCny: unit,
-      amountCny: unit === undefined ? undefined : Math.round(unit * qty),
+      amountCny: unit === undefined ? undefined : roundMoney(unit * qty),
     })
   }
   return out
@@ -3363,7 +3363,7 @@ export async function getFinanceRows(): Promise<FinanceRow[]> {
     }
     let computedAmountCny: number | undefined
     if (pricedAny) {
-      computedAmountCny = Math.round(priced)
+      computedAmountCny = roundMoney(priced)
     } else if (
       (shipmentCountByJob.get(s.jobId) ?? 0) === 1 &&
       typeof job?.amountCny === 'number'
@@ -6038,6 +6038,10 @@ export type ComponentPatch = {
 // 数量 × 单价 → 小计, to 2 decimals (¥0.01 is the smallest thing anyone quotes;
 // plain float multiplication otherwise leaves 1.0000000000000002 in the sheet).
 const roundMoney = (n: number) => Math.round(n * 100) / 100
+// 金额 still follows the parts while it equals what they summed to. Older
+// rollups were cut to whole yuan, so that value counts as "still auto" too.
+const isRolledUpAmount = (amount: number, partsTotal: number) =>
+  amount === roundMoney(partsTotal) || amount === Math.round(partsTotal)
 
 // The one rule for keeping 小计 true, given a part's current row and the patch
 // about to land on it. Returns the 小计 correction to fold into that patch, or
@@ -6150,9 +6154,8 @@ export async function updateComponent(
         }
       }
       const currentAmount = snap.idx.jobById.get(jobId)?.amountCny
-      const rollupValue = newTotal > 0 ? Math.round(newTotal) : null
-      const isAuto =
-        currentAmount == null || currentAmount === Math.round(prevTotal)
+      const rollupValue = newTotal > 0 ? roundMoney(newTotal) : null
+      const isAuto = currentAmount == null || isRolledUpAmount(currentAmount, prevTotal)
       if (isAuto && rollupValue !== (currentAmount ?? null)) {
         const { error: jobErr } = await supabase
           .from('jobs')
@@ -6497,9 +6500,8 @@ export async function deleteComponent(
     if (jobQ.error) throw jobQ.error
     const currentAmount =
       jobQ.data?.amount_cny == null ? null : Number(jobQ.data.amount_cny)
-    const rollupValue = newTotal > 0 ? Math.round(newTotal) : null
-    const isAuto =
-      currentAmount == null || currentAmount === Math.round(prevTotal)
+    const rollupValue = newTotal > 0 ? roundMoney(newTotal) : null
+    const isAuto = currentAmount == null || isRolledUpAmount(currentAmount, prevTotal)
     if (isAuto && rollupValue !== currentAmount) {
       const { error: jobErr } = await supabase
         .from('jobs')
@@ -6792,7 +6794,7 @@ export async function fillParsedJob(jobId: string, input: NewJobInput): Promise<
       product: input.product,
       amount_cny:
         input.amountCny ??
-        (importedLineSum > 0 ? Math.round(importedLineSum) : null),
+        (importedLineSum > 0 ? roundMoney(importedLineSum) : null),
       due_date: input.dueDate,
       notes: input.notes ?? null,
       engineer: input.engineer ?? null,

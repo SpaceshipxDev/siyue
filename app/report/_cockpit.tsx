@@ -21,6 +21,8 @@ import { showToast } from '../_toast'
 // Excel file.
 
 const NUM = new Intl.NumberFormat('zh-CN')
+// Money cells carry the exact amount, to the 分 — float noise trimmed, nothing rounded away.
+const toCents = (n: number) => Math.round(n * 100) / 100
 type Gran = 'day' | 'week' | 'month'
 
 type Person = {
@@ -990,7 +992,7 @@ function ExportButton({
       const stageHead = ['工段', '完成工序', '经手件数', '工单数', '人数', ...(showMoney ? ['经手金额（按5%）', '其中摊分'] : [])]
       const stageRows: (string | number)[][] = STAGES.filter((s) => byStage.has(s)).map((s) => {
         const v = byStage.get(s)!
-        return [s, v.finishes, v.pieces, v.jobs.size, v.workers.size, ...(showMoney ? [Math.round(v.valueCny), Math.round(v.allocCny)] : [])]
+        return [s, v.finishes, v.pieces, v.jobs.size, v.workers.size, ...(showMoney ? [toCents(v.valueCny), toCents(v.allocCny)] : [])]
       })
       const stageTot = stageRows.reduce(
         (a, r) => ({
@@ -1013,13 +1015,13 @@ function ExportButton({
         name,
         v.finishes,
         v.pieces,
-        ...(showMoney ? [Math.round(v.valueCny), Math.round(v.allocCny)] : []),
+        ...(showMoney ? [toCents(v.valueCny), toCents(v.allocCny)] : []),
       ])
       const wTot = workerRows.reduce(
         (a, [, v]) => ({ f: a.f + v.finishes, p: a.p + v.pieces, v: a.v + v.valueCny, al: a.al + v.allocCny }),
         { f: 0, p: 0, v: 0, al: 0 },
       )
-      wBody.push(['合计', wTot.f, wTot.p, ...(showMoney ? [Math.round(wTot.v), Math.round(wTot.al)] : [])])
+      wBody.push(['合计', wTot.f, wTot.p, ...(showMoney ? [toCents(wTot.v), toCents(wTot.al)] : [])])
       const wsWorker = XLSX.utils.aoa_to_sheet([wHead, ...wBody])
       wsWorker['!cols'] = wHead.map((h) => ({ wch: h === '姓名' ? 16 : 10 }))
       XLSX.utils.book_append_sheet(wb, wsWorker, '人员汇总')
@@ -1036,10 +1038,10 @@ function ExportButton({
       const ojBody: (string | number)[][] = orders.map((o) => [
         o.jobNo,
         o.customer,
-        ...(showMoney ? [Math.round(o.amountCny)] : []),
+        ...(showMoney ? [toCents(o.amountCny)] : []),
         o.finishes,
         o.pieces,
-        ...(showMoney ? [Math.round(o.valueCny), groupSource(o.components)] : []),
+        ...(showMoney ? [toCents(o.valueCny), groupSource(o.components)] : []),
       ])
       const ojTot = orders.reduce(
         (a, o) => ({ amt: a.amt + o.amountCny, f: a.f + o.finishes, p: a.p + o.pieces, v: a.v + o.valueCny }),
@@ -1048,10 +1050,10 @@ function ExportButton({
       ojBody.push([
         '合计',
         '',
-        ...(showMoney ? [Math.round(ojTot.amt)] : []),
+        ...(showMoney ? [toCents(ojTot.amt)] : []),
         ojTot.f,
         ojTot.p,
-        ...(showMoney ? [Math.round(ojTot.v), ''] : []),
+        ...(showMoney ? [toCents(ojTot.v), ''] : []),
       ])
       // 说明 — this is the sheet people open and ask "the order has money, why is
       // 经手金额 zero". Answer it right here, in the same two columns as the
@@ -1091,7 +1093,7 @@ function ExportButton({
             fmtTs(c.ts),
             // Always a number — the old '未定价' string sat in the money column
             // and broke SUM over the sheet. 金额来源 carries the caveat instead.
-            ...(showMoney ? [Math.round(c.valueCny), rowSource(c)] : []),
+            ...(showMoney ? [toCents(c.valueCny), rowSource(c)] : []),
           ])
         })
       })

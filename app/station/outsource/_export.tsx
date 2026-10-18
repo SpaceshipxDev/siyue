@@ -20,6 +20,8 @@ import type { LedgerLine } from './_ledger'
 
 // 看不到价钱的人导出来的表里没有这几列。
 const MONEY_HEADS = new Set(['金额', '单价'])
+// Money cells carry the exact amount, to the 分 — float noise trimmed, nothing rounded away.
+const toCents = (n: number) => Math.round(n * 100) / 100
 
 export function OutsourceExportButton({
   lines,
@@ -105,7 +107,7 @@ export function OutsourceExportButton({
         totalQty,
         totalOut,
         lines.reduce((s, l) => s + l.returnedQty, 0),
-        Math.round(total),
+        toCents(total),
         '',
         '',
         '',
@@ -184,8 +186,8 @@ export function OutsourceExportButton({
       const vHead = ['供应商', '外协单', '件数', '在外件数', '金额', '逾期单']
       const vBody: (string | number)[][] = [...byVendor.entries()]
         .sort((a, b) => b[1].amount - a[1].amount || b[1].blocks - a[1].blocks)
-        .map(([name, v]) => [name, v.blocks, v.qty, v.out, Math.round(v.amount), v.overdue])
-      vBody.push(['合计', lines.length, totalQty, totalOut, Math.round(total), lines.filter((l) => l.overdue).length])
+        .map(([name, v]) => [name, v.blocks, v.qty, v.out, toCents(v.amount), v.overdue])
+      vBody.push(['合计', lines.length, totalQty, totalOut, toCents(total), lines.filter((l) => l.overdue).length])
       const vWs = XLSX.utils.aoa_to_sheet(noMoney(vHead, vBody))
       vWs['!cols'] = vHead.filter(keepHead).map((h) => ({ wch: h === '供应商' ? 20 : 10 }))
       XLSX.utils.book_append_sheet(wb, vWs, '供应商汇总')
