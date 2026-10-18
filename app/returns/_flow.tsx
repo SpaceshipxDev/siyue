@@ -105,7 +105,7 @@ export function ReturnFlowPanel({
           onSave={(text) => save({ kind: 'cause', text })}
         />
 
-        {/* ④ 下发返工 —— 方案和调查都有了才轮到这一步, 车间要的是那张纸。 */}
+        {/* ④ 下发返工 —— 不等方案和调查, 那两格可以后补; 车间要的是那张纸。 */}
         <Section
           n="4"
           title="下发返工"
@@ -115,10 +115,6 @@ export function ReturnFlowPanel({
         >
           {flow?.releasedAt ? (
             <PrintLink id={row.ret.id}>重新打印返工工单</PrintLink>
-          ) : !flow?.plan || !flow?.cause ? (
-            <p className="text-[13px] text-[var(--color-ink-3)]">
-              等{!flow?.plan ? '工程填处理方案' : '质量填原因调查'}
-            </p>
           ) : perms.rework ? (
             <ActionButton
               label="下发返工工单"

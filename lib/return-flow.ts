@@ -6,7 +6,7 @@
  *
  *   处理方案   工程   — 这批件怎么救 (返修哪几道 / 报废重做 / 让步接收)
  *   原因调查   质量   — 为什么会出这个不良, 以后怎么不再犯
- *   下发返工   工程   — 方案和调查都有了, 打一张返工工单交到车间
+ *   下发返工   工程   — 打一张返工工单交到车间 (不等方案和调查, 那两格可以后补)
  *   返工入库   生产   — 做完了, 几件回到成品
  *   制作出货单 商务   — 再发一次货
  *
@@ -42,12 +42,15 @@ export type ReturnFlow = {
 // === 走到哪一步 ===
 //
 // 派生, 不存 —— 存一个 step 字段就一定会有跟那几格字对不上的一天。
+//
+// 主线是 下发 → 入库 → 出货, 不等方案和调查: 客户等着要货, 那两格字可以
+// 后补。主线走完了还缺那两格, 才轮到它们 —— 补齐了才算可结案。
 
 export type ReturnStep = 'plan' | 'cause' | 'release' | 'rework' | 'ship' | 'done'
 
 export const RETURN_STEP_LABEL: Record<ReturnStep, string> = {
-  plan: '待工程方案',
-  cause: '待质量调查',
+  plan: '待补处理方案',
+  cause: '待补原因调查',
   release: '待下发返工',
   rework: '返工中',
   ship: '待出货',
@@ -56,8 +59,8 @@ export const RETURN_STEP_LABEL: Record<ReturnStep, string> = {
 
 /** 挤在看板一个小标记里的短名 —— 那里只放得下三四个字。 */
 export const RETURN_STEP_SHORT: Record<ReturnStep, string> = {
-  plan: '待方案',
-  cause: '待调查',
+  plan: '待补方案',
+  cause: '待补调查',
   release: '待下发',
   rework: '返工中',
   ship: '待出货',
@@ -75,11 +78,11 @@ export const RETURN_STEP_OWNER: Record<ReturnStep, string> = {
 }
 
 export function returnStep(f: ReturnFlow | undefined): ReturnStep {
-  if (!f?.plan) return 'plan'
-  if (!f.cause) return 'cause'
-  if (!f.releasedAt) return 'release'
+  if (!f?.releasedAt) return 'release'
   if (!f.stockedAt) return 'rework'
   if (!f.shippedAt) return 'ship'
+  if (!f.plan) return 'plan'
+  if (!f.cause) return 'cause'
   return 'done'
 }
 

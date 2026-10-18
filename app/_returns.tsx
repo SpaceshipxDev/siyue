@@ -337,13 +337,13 @@ export function ReturnChip({
 }: {
   ret: Pick<JobReturn, 'reason' | 'dueDate'> & {
     reasonText?: string
-    /** 退货台那张流转单走到哪一格了。缺省 = 刚开的单, 读作"待方案"。 */
+    /** 退货台那张流转单走到哪一格了。缺省 = 刚开的单, 读作"待下发"。 */
     step?: ReturnStep
   }
 }) {
   // 标记上带一句"卡在哪一步" —— 看板和退货台从此说的是同一件事, 不用切页面
-  // 去对。空间只够三四个字, 所以用短名 (待方案 / 待调查 / 返工中 / 待出货)。
-  const step = ret.step ?? 'plan'
+  // 去对。空间只够三四个字, 所以用短名 (待下发 / 返工中 / 待出货 / 待补方案)。
+  const step = ret.step ?? 'release'
   return (
     <span
       className="row-badge"
