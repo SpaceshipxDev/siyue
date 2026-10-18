@@ -223,7 +223,7 @@ export function ReportClient({
     (a, p) => {
       a.finishes += p.finishes
       a.pieces += p.pieces
-      a.valueCny += p.valueCny
+      a.valueCny = toCents(a.valueCny + toCents(p.valueCny))
       a.pending += p.pendingPieces ?? 0
       return a
     },
@@ -618,7 +618,7 @@ function PersonExportButton({
       const sHead = ['姓名', '报工次数', '件数', ...(showMoney ? ['经手金额（按5%）'] : [])]
       const sBody = persons.map((p) => [p.name, p.finishes, p.pieces, ...money(p.valueCny)])
       const sum = persons.reduce(
-        (a, p) => ({ f: a.f + p.finishes, q: a.q + p.pieces, v: a.v + p.valueCny }),
+        (a, p) => ({ f: a.f + p.finishes, q: a.q + p.pieces, v: toCents(a.v + toCents(p.valueCny)) }),
         { f: 0, q: 0, v: 0 },
       )
       sBody.push([], ['合计', sum.f, Math.round(sum.q * 100) / 100, ...money(sum.v)])
@@ -977,13 +977,15 @@ function ExportButton({
       const byWorker = new Map<string, { finishes: number; pieces: number; valueCny: number; allocCny: number }>()
       for (const o of orders) {
         for (const c of o.components) {
-          const alloc = c.allocated ? c.valueCny : 0
+          // 每一行先落到分, 汇总、合计都是这些行加起来 —— 跟明细一分不差。
+          const value = toCents(c.valueCny)
+          const alloc = c.allocated ? value : 0
           let s = byStage.get(c.stage)
           if (!s) { s = { finishes: 0, pieces: 0, jobs: new Set(), workers: new Set(), valueCny: 0, allocCny: 0 }; byStage.set(c.stage, s) }
-          s.finishes += c.pending ? 0 : 1; s.pieces += c.qty; s.jobs.add(o.jobId); s.workers.add(c.actorName); s.valueCny += c.valueCny; s.allocCny += alloc
+          s.finishes += c.pending ? 0 : 1; s.pieces += c.qty; s.jobs.add(o.jobId); s.workers.add(c.actorName); s.valueCny = toCents(s.valueCny + value); s.allocCny = toCents(s.allocCny + alloc)
           let w = byWorker.get(c.actorName)
           if (!w) { w = { finishes: 0, pieces: 0, valueCny: 0, allocCny: 0 }; byWorker.set(c.actorName, w) }
-          w.finishes += c.pending ? 0 : 1; w.pieces += c.qty; w.valueCny += c.valueCny; w.allocCny += alloc
+          w.finishes += c.pending ? 0 : 1; w.pieces += c.qty; w.valueCny = toCents(w.valueCny + value); w.allocCny = toCents(w.allocCny + alloc)
         }
       }
 
@@ -998,8 +1000,8 @@ function ExportButton({
         (a, r) => ({
           f: a.f + Number(r[1]),
           p: a.p + Number(r[2]),
-          v: a.v + (showMoney ? Number(r[5]) : 0),
-          al: a.al + (showMoney ? Number(r[6]) : 0),
+          v: toCents(a.v + (showMoney ? Number(r[5]) : 0)),
+          al: toCents(a.al + (showMoney ? Number(r[6]) : 0)),
         }),
         { f: 0, p: 0, v: 0, al: 0 },
       )
@@ -1018,7 +1020,7 @@ function ExportButton({
         ...(showMoney ? [toCents(v.valueCny), toCents(v.allocCny)] : []),
       ])
       const wTot = workerRows.reduce(
-        (a, [, v]) => ({ f: a.f + v.finishes, p: a.p + v.pieces, v: a.v + v.valueCny, al: a.al + v.allocCny }),
+        (a, [, v]) => ({ f: a.f + v.finishes, p: a.p + v.pieces, v: toCents(a.v + v.valueCny), al: toCents(a.al + v.allocCny) }),
         { f: 0, p: 0, v: 0, al: 0 },
       )
       wBody.push(['合计', wTot.f, wTot.p, ...(showMoney ? [toCents(wTot.v), toCents(wTot.al)] : [])])
@@ -1044,7 +1046,7 @@ function ExportButton({
         ...(showMoney ? [toCents(o.valueCny), groupSource(o.components)] : []),
       ])
       const ojTot = orders.reduce(
-        (a, o) => ({ amt: a.amt + o.amountCny, f: a.f + o.finishes, p: a.p + o.pieces, v: a.v + o.valueCny }),
+        (a, o) => ({ amt: toCents(a.amt + toCents(o.amountCny)), f: a.f + o.finishes, p: a.p + o.pieces, v: toCents(a.v + toCents(o.valueCny)) }),
         { amt: 0, f: 0, p: 0, v: 0 },
       )
       ojBody.push([
