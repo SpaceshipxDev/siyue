@@ -547,13 +547,14 @@ function splitNames(t: string): string[] {
 
 // 操作人员 —— 多选; 操机那几张表每个人后面能标 正面 / 反面 / 别的。
 //
-// 直接打字: 一个名字回车, 或者逗号 / 空格隔开一次打几个; 下拉里有厂里的人名
-// 可以点, 点一个加一个 (以前点了不算数, 再点第二个就把第一个顶掉, 一行只剩一
-// 个人); 名单上没有的照样能打 (临时工、外来帮忙的)。
+// 直接打字: 一个名字回车, 或者逗号 / 空格隔开一次打几个; 下面提示厂里的人名,
+// 点一个加一个; 名单上没有的照样能打 (临时工、外来帮忙的), 提示里第一行就是
+// 「＋加 某某」。
 // 录入那一行的输入框是外面管着的 (draft / onDraft), 点「记下」时还没回车的
 // 那几个名字也一起带上。
-// 拼音输入法还在打 (候选框开着) 的时候, 回车、空格是输入法的, 不当成「加上」
-// —— 不然名字没打完就被截走, 或者加进去一串拼音 (于海伟 2026-10-19)。
+// 提示是自己画的, 不用浏览器自带的下拉 (datalist) —— 那个一弹出来就打断拼音
+// 输入法, 用起来像只能挑不能打。拼音还在打 (候选框开着) 的时候, 回车、空格
+// 也是输入法的, 不当成「加上」(于海伟 2026-10-19)。
 function Workers({
   value,
   names,
@@ -574,8 +575,30 @@ function Workers({
   const setDraft = onDraft ?? setInnerDraft
   const [open, setOpen] = useState<string | null>(null)
   const [other, setOther] = useState('')
-  const listId = `plan-names-${useId()}`
   const composing = useRef(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  // 提示框贴着输入框, 用 fixed 定位 —— 表格外面一层 overflow-hidden, 底下几行
+  // 往下弹会被裁掉。
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null)
+  const place = () => {
+    const r = inputRef.current?.getBoundingClientRect()
+    if (r) setAt({ left: r.left, top: r.bottom + 4 })
+  }
+  useEffect(() => {
+    if (!at) return
+    const close = () => setAt(null)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [at])
+  const q = draft.trim()
+  const hints = names
+    .filter((n) => !value.some((w) => w.name === n) && (!q || n.includes(q)))
+    .slice(0, 8)
+  const fresh = q && !names.includes(q) && !value.some((w) => w.name === q) ? q : ''
 
   const save = (next: PlanWorker[]) =>
     onChange(next).catch((e) => showToast(e instanceof Error ? e.message : '改不了', 'warning'))
@@ -584,6 +607,11 @@ function Workers({
     setDraft('')
     const add = splitNames(text).filter((n) => !value.some((w) => w.name === n))
     if (add.length > 0) void save([...value, ...add.map((name) => ({ name }))])
+  }
+  // 从提示里点的 —— 整个名字原样加, 「编程004 毛伟超」中间有空格也不拆开。
+  const pick = (name: string) => {
+    setDraft('')
+    if (!value.some((w) => w.name === name)) void save([...value, { name }])
   }
   const setSide = (name: string, side: string) => {
     setOpen(null)
@@ -654,9 +682,10 @@ function Workers({
         </span>
       ))}
       <input
-        list={listId}
+        ref={inputRef}
         value={draft}
         placeholder={value.length === 0 ? '选或打姓名 · 可多人' : '＋加人'}
+        onFocus={place}
         onCompositionStart={() => (composing.current = true)}
         onCompositionEnd={(e) => {
           composing.current = false
@@ -665,13 +694,10 @@ function Workers({
         }}
         onChange={(e) => {
           const v = e.target.value
+          if (!at) place()
           if (composing.current) return setDraft(v)
           // 打了分隔符 (逗号、空格…) 就把前面的名字加上。
           if (/[,，、;；\s]$/.test(v)) return commit(v)
-          // 从下拉里点的名字 —— 不是一个字一个字打出来的, 点了就加上。
-          const how = (e.nativeEvent as InputEvent).inputType ?? ''
-          const typed = how.startsWith('insertText') || how.startsWith('insertComposition') || how.startsWith('delete')
-          if (!typed && names.includes(v.trim())) return commit(v)
           setDraft(v)
         }}
         onKeyDown={(e) => {
@@ -680,20 +706,52 @@ function Workers({
             e.preventDefault()
             commit(draft)
           }
+          if (e.key === 'Escape') setAt(null)
           // 录入那一行里退格能删掉最后一个人; 表里已经存下的不这么删, 免得手滑。
           if (e.key === 'Backspace' && onDraft && !draft && value.length > 0)
             removeName(value[value.length - 1].name)
         }}
-        onBlur={() => !composing.current && draft.trim() && commit(draft)}
+        onBlur={() => {
+          setAt(null)
+          if (!composing.current && draft.trim()) commit(draft)
+        }}
         className={`h-6 min-w-[64px] flex-1 bg-transparent px-1 text-[12px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] ${
           value.length === 0 ? 'w-[120px]' : 'w-[64px]'
         }`}
       />
-      <datalist id={listId}>
-        {names.map((n) => (
-          <option key={n} value={n} />
-        ))}
-      </datalist>
+      {at && (fresh || hints.length > 0) && (
+        <span
+          style={{ left: at.left, top: at.top }}
+          className="fixed z-40 flex max-h-[260px] w-[200px] flex-col overflow-y-auto rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] py-1 shadow-[0_6px_20px_rgba(0,0,0,0.12)]"
+        >
+          {fresh && (
+            <button
+              type="button"
+              // 按下就加 —— 等到 click, 输入框已经失焦把字先存走了。
+              onMouseDown={(e) => {
+                e.preventDefault()
+                pick(fresh)
+              }}
+              className="px-2.5 py-1.5 text-left text-[12.5px] text-[var(--color-ink)] hover:bg-[#f5f3ed]"
+            >
+              ＋加「{fresh}」
+            </button>
+          )}
+          {hints.map((n) => (
+            <button
+              key={n}
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                pick(n)
+              }}
+              className="px-2.5 py-1.5 text-left text-[12.5px] text-[var(--color-ink-2)] hover:bg-[#f5f3ed] hover:text-[var(--color-ink)]"
+            >
+              {n}
+            </button>
+          ))}
+        </span>
+      )}
     </span>
   )
 }
