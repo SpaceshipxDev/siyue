@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useId, useMemo, useState, useTransition } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
@@ -71,6 +71,8 @@ export function PlanBoard({
   // 筛选
   const [day, setDay] = useState<string>(todayStr) // '' = 全部日期
   const [person, setPerson] = useState('')
+  const who = person.trim()
+  const peopleListId = `plan-people-${useId()}`
   // 默认只看没做完的 —— 做完的 (手填了完成时间, 或者报工报完了) 自己收进「已完成」。
   const [status, setStatus] = useState<StatusFilter>('open')
   const [armDelete, setArmDelete] = useState<string | null>(null)
@@ -110,9 +112,10 @@ export function PlanBoard({
   const base = useMemo(
     () =>
       rows.filter(
-        (r) => (!day || r.date === day) && (!person || r.workers.some((w) => w.name === person)),
+        // 人员能手打 —— 打半个名字也筛得出来。
+        (r) => (!day || r.date === day) && (!who || r.workers.some((w) => w.name.includes(who))),
       ),
-    [rows, day, person],
+    [rows, day, who],
   )
   const doneCount = base.filter(isDone).length
   const openCount = base.length - doneCount
@@ -192,7 +195,7 @@ export function PlanBoard({
 
   const inp =
     'h-9 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]'
-  const COLS = 'grid-cols-[104px_120px_76px_minmax(0,1.3fr)_76px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_28px]'
+  const COLS = 'grid-cols-[104px_160px_76px_minmax(0,1.3fr)_76px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_28px]'
   const extraLabel = isProg ? '序列号' : '机台号'
 
   return (
@@ -319,18 +322,31 @@ export function PlanBoard({
             </button>
           )}
         </div>
-        <select
-          value={person}
-          onChange={(e) => setPerson(e.target.value)}
-          className="h-8 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-[12.5px] text-[var(--color-ink-2)] outline-none"
-        >
-          <option value="">全部人员</option>
-          {people.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
+        <span className="relative flex items-center">
+          <input
+            list={peopleListId}
+            value={person}
+            onChange={(e) => setPerson(e.target.value)}
+            onKeyDown={(e) => e.key === 'Escape' && setPerson('')}
+            placeholder="全部人员"
+            className="h-8 w-[120px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] pl-2 pr-6 text-[12.5px] text-[var(--color-ink-2)] outline-none placeholder:text-[var(--color-ink-3)] focus:border-[var(--color-border-strong)]"
+          />
+          {person && (
+            <button
+              type="button"
+              onClick={() => setPerson('')}
+              title="看全部人员"
+              className="absolute right-1.5 text-[13px] leading-none text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
+            >
+              ×
+            </button>
+          )}
+          <datalist id={peopleListId}>
+            {people.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
+        </span>
         <div className="flex overflow-hidden rounded-[2px] border border-[var(--color-border)]">
           {(
             [
@@ -402,7 +418,7 @@ export function PlanBoard({
                   {jobIds[r.jobNo.trim().toLowerCase()] ? (
                     <Link
                       href={`/jobs/${jobIds[r.jobNo.trim().toLowerCase()]}`}
-                      className="mono truncate py-0.5 text-[12.5px] font-medium text-[var(--color-ink)] underline-offset-4 hover:underline"
+                      className="mono break-all py-0.5 text-[12.5px] font-medium text-[var(--color-ink)] underline-offset-4 hover:underline"
                     >
                       {r.jobNo}
                     </Link>
@@ -536,6 +552,8 @@ function splitNames(t: string): string[] {
 // 个人); 名单上没有的照样能打 (临时工、外来帮忙的)。
 // 录入那一行的输入框是外面管着的 (draft / onDraft), 点「记下」时还没回车的
 // 那几个名字也一起带上。
+// 拼音输入法还在打 (候选框开着) 的时候, 回车、空格是输入法的, 不当成「加上」
+// —— 不然名字没打完就被截走, 或者加进去一串拼音 (于海伟 2026-10-19)。
 function Workers({
   value,
   names,
@@ -557,6 +575,7 @@ function Workers({
   const [open, setOpen] = useState<string | null>(null)
   const [other, setOther] = useState('')
   const listId = `plan-names-${useId()}`
+  const composing = useRef(false)
 
   const save = (next: PlanWorker[]) =>
     onChange(next).catch((e) => showToast(e instanceof Error ? e.message : '改不了', 'warning'))
@@ -637,9 +656,16 @@ function Workers({
       <input
         list={listId}
         value={draft}
-        placeholder={value.length === 0 ? '打姓名 · 可多人' : '＋'}
+        placeholder={value.length === 0 ? '选或打姓名 · 可多人' : '＋加人'}
+        onCompositionStart={() => (composing.current = true)}
+        onCompositionEnd={(e) => {
+          composing.current = false
+          const v = e.currentTarget.value
+          if (/[,，、;；\s]$/.test(v)) commit(v)
+        }}
         onChange={(e) => {
           const v = e.target.value
+          if (composing.current) return setDraft(v)
           // 打了分隔符 (逗号、空格…) 就把前面的名字加上。
           if (/[,，、;；\s]$/.test(v)) return commit(v)
           // 从下拉里点的名字 —— 不是一个字一个字打出来的, 点了就加上。
@@ -649,6 +675,7 @@ function Workers({
           setDraft(v)
         }}
         onKeyDown={(e) => {
+          if (composing.current || e.nativeEvent.isComposing || e.keyCode === 229) return
           if (e.key === 'Enter') {
             e.preventDefault()
             commit(draft)
@@ -657,9 +684,9 @@ function Workers({
           if (e.key === 'Backspace' && onDraft && !draft && value.length > 0)
             removeName(value[value.length - 1].name)
         }}
-        onBlur={() => draft.trim() && commit(draft)}
+        onBlur={() => !composing.current && draft.trim() && commit(draft)}
         className={`h-6 min-w-[64px] flex-1 bg-transparent px-1 text-[12px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] ${
-          value.length === 0 ? 'w-[96px]' : 'w-[48px]'
+          value.length === 0 ? 'w-[120px]' : 'w-[64px]'
         }`}
       />
       <datalist id={listId}>

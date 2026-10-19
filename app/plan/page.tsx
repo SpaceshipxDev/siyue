@@ -113,6 +113,9 @@ export default async function PlanPage({
   // 工程排的 —— 在产的单, 这一道排了计划交期的, 每张单一行。已经存过 (有人改
   // 过一格) 的用存下来的那一行, 日期没被手改过就跟着工程排的日子走。
   const engPlan: Record<string, string> = {}
+  // 工程排进来的行按看板上的先后排, 不看哪天存的 —— 不然填一格原因、第一次
+  // 存下来, 它就跳到当天最后去了 (于海伟 2026-10-19)。
+  const engOrder = new Map<string, number>()
   if (engSt) {
     const byKey = new Map(stored.filter((r) => r.engKey).map((r) => [r.engKey!, r]))
     for (const m of masterRows) {
@@ -131,6 +134,7 @@ export default async function PlanPage({
         d = todayStr
       }
       const key = `${m.id}:${engSt}`
+      engOrder.set(key, engOrder.size)
       // 工程排了钟点的, 那个钟点就是计划完成。
       const engDue = v && v.length > 10 ? v.slice(11, 16) : undefined
       const ex = byKey.get(key)
@@ -145,7 +149,14 @@ export default async function PlanPage({
       rows.push({ id, stage, date: d, jobNo: m.jobNo, workers: [], due: engDue, by: '工程', createdAt: '', engKey: key, engDate: true, virtual: true })
       if (v) engPlan[id] = v
     }
-    rows.sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : a.createdAt < b.createdAt ? -1 : 1))
+    const rank = (r: PlanRow) => (r.engKey ? engOrder.get(r.engKey) : undefined) ?? Infinity
+    rows.sort((a, b) => {
+      if (a.date !== b.date) return a.date < b.date ? 1 : -1
+      const ra = rank(a)
+      const rb = rank(b)
+      if (ra !== rb) return ra - rb
+      return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0
+    })
   }
 
   // 报工 → 完成情况。编程填了序列号的看那一个零件, 其余看整张单在那一道上。
