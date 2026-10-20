@@ -6,6 +6,7 @@ import { mutate } from '@/lib/mutate'
 import { formatCny } from '@/lib/data'
 import { DatePop } from '@/app/_datepop'
 import { LoanSlips } from '@/app/_loan_slips'
+import { EditableTextArea } from '@/app/_editable'
 import {
   LOAN_STAGE_LABEL,
   loanOutstanding,
@@ -258,6 +259,22 @@ function Detail({ l, todayStr, canSettle }: { l: Loan; todayStr: string; canSett
             <span className="text-[var(--color-ink-4)]">放款</span> {l.paidOutBy} · {l.paidOutAt}
           </p>
         )}
+        <div className="flex items-baseline gap-1">
+          <span className="shrink-0 text-[var(--color-ink-4)]">备注</span>
+          {canSettle ? (
+            <EditableTextArea
+              value={l.note}
+              placeholder="点这里写…"
+              className="text-[12.5px] text-[var(--color-ink-2)]"
+              onSave={async (v) => {
+                await mutate({ kind: 'setLoanNote', loanId: l.id, note: v })
+                router.refresh()
+              }}
+            />
+          ) : (
+            <span className="whitespace-pre-wrap">{l.note || '—'}</span>
+          )}
+        </div>
       </div>
 
       {/* 点错了往回退: 待放款 → 退回重审 (回到人事那边重新批); 放了款还没还

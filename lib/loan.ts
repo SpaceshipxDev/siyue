@@ -71,6 +71,7 @@ function normalize(raw: unknown): Loan[] {
       name: str(r.name),
       amountCny: money(r.amountCny),
       reason: str(r.reason),
+      note: str(r.note) || undefined,
       monthlyCny: typeof r.monthlyCny === 'number' && r.monthlyCny > 0 ? money(r.monthlyCny) : undefined,
       appliedBy: str(r.appliedBy),
       appliedAt: str(r.appliedAt),
@@ -166,6 +167,12 @@ export async function createLoan(
     rows.push(loan)
     await write(rows)
     return loan
+  })
+}
+
+export async function setLoanNote(id: string, note: string): Promise<void> {
+  await mutateLoan(id, (l) => {
+    l.note = note.trim().slice(0, 500) || undefined
   })
 }
 

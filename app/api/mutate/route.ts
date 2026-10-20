@@ -314,6 +314,7 @@ import {
   revertPayrollLoanDeductions,
   createLoan,
   decideLoan,
+  setLoanNote,
   deleteLoanRepayment,
   deleteLoanSlip,
   getLoan,
@@ -3310,6 +3311,22 @@ async function dispatch(
         return err(e instanceof Error ? e.message : '删不了')
       }
       revalidatePath('/pay')
+      revalidatePath('/hr')
+      return Response.json(ok())
+    }
+
+    case 'setLoanNote': {
+      const id = body.loanId
+      const note = body.note
+      if (!isString(id) || !isString(note)) return err('bad setLoanNote args')
+      const u = await requireUser()
+      if (!canApplyLoan(u) && !canSettleAccounts(u)) return err('无权改借款备注', 403)
+      try {
+        await setLoanNote(id, note)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '存不上')
+      }
+      revalidatePath('/finance')
       revalidatePath('/hr')
       return Response.json(ok())
     }

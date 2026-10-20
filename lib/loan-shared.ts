@@ -51,6 +51,8 @@ export type Loan = {
   name: string // 借款人 (人事名单上的名字)
   amountCny: number
   reason: string // 事由
+  /** 备注 —— 事由之外要交代的, 申请以后谁都能补 (于海伟 2026-10-20)。 */
+  note?: string
   /** 约定每月从工资扣回多少 —— 空 = 没约定, 还款时再说。 */
   monthlyCny?: number
   appliedBy: string // 录申请的人

@@ -7,6 +7,7 @@ import { showToast } from '@/app/_toast'
 import { formatCny } from '@/lib/data'
 import { LOAN_STAGE_LABEL, loanStage, type Loan, type LoanStage } from '@/lib/loan-shared'
 import { LoanSlips, uploadLoanSlip } from '@/app/_loan_slips'
+import { EditableTextArea } from '@/app/_editable'
 
 // 人事 · 借款 — 员工来借钱, 人事在这里把申请填下来, 等人批。
 //
@@ -352,6 +353,18 @@ function Detail({
             <span className="text-[var(--color-ink-4)]">放款</span> {l.paidOutBy} · {l.paidOutAt}
           </p>
         )}
+        <div className="flex items-baseline gap-1">
+          <span className="shrink-0 text-[var(--color-ink-4)]">备注</span>
+          <EditableTextArea
+            value={l.note}
+            placeholder="点这里写…"
+            className="text-[12.5px] text-[var(--color-ink-2)]"
+            onSave={async (v) => {
+              await mutate({ kind: 'setLoanNote', loanId: l.id, note: v })
+              router.refresh()
+            }}
+          />
+        </div>
       </div>
 
       <div className="mt-3">
