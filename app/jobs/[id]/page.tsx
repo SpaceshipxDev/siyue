@@ -159,11 +159,10 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   if (!rawJob) notFound()
   // Portal tokens power the 微信 share button on each 委外 row. No-op once
   // every vendor has one (the common case) — see ensureVendorPortalTokens.
-  // 沟通确认单 (按工号) —— 只有工程、商务看得到那一栏, 别人不多等这一次。
-  const seeComm = canWriteCommSheet(user)
+  // 沟通确认单 (按工号) —— 全厂都看得到, 工程、商务能改 (于海伟 2026-10-20)。
   const [rawVendors, commOrder] = await Promise.all([
     ensureVendorPortalTokens(fetchedVendors),
-    seeComm ? getCommOrder(rawJob.jobNo).catch(() => undefined) : Promise.resolve(undefined),
+    getCommOrder(rawJob.jobNo).catch(() => undefined),
   ])
   // Only `ready` jobs live on the production board. A draft/parsing/failed job
   // reached here via a stale link or a 工号-conflict button — send it to the
@@ -352,9 +351,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   const jobTabs = [
     ...(isProgrammer ? [programmingTab] : []),
     { key: 'parts', label: '零件' },
-    ...(seeComm
-      ? [{ key: 'comm', label: '沟通', badge: commRounds > 0 ? String(commRounds) : undefined }]
-      : []),
+    { key: 'comm', label: '沟通', badge: commRounds > 0 ? String(commRounds) : undefined },
     ...(isProgrammer ? [] : [programmingTab]),
     ...(canManageOutsource(user)
       ? [
@@ -1171,18 +1168,17 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           </div>
           {/* /零件 tab */}
 
-          {seeComm && (
-            <div data-jobtab="comm" hidden>
-              <CommOrderSheet
-                key={commOrder?.updatedAt ?? job.jobNo}
-                embedded
-                jobNo={commOrder?.jobNo ?? job.jobNo}
-                initial={commOrder?.rows ?? []}
-                initialDue={commOrder?.dueDate ?? ''}
-                jobDue={job.dueDate ?? ''}
-              />
-            </div>
-          )}
+          <div data-jobtab="comm" hidden>
+            <CommOrderSheet
+              key={commOrder?.updatedAt ?? job.jobNo}
+              embedded
+              canWrite={canWriteCommSheet(user)}
+              jobNo={commOrder?.jobNo ?? job.jobNo}
+              initial={commOrder?.rows ?? []}
+              initialDue={commOrder?.dueDate ?? ''}
+              jobDue={job.dueDate ?? ''}
+            />
+          </div>
 
           {/* 编程 — 图纸 (三维/二维) 和程序单。编程员在这一栏里读齐做程序要
               的东西, 出完程序给操机看。 */}

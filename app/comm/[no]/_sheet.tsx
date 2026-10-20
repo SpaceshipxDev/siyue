@@ -23,6 +23,8 @@ import { ImportButton } from '../_list'
 //
 // 长在工单页「零件」后面那一栏里 (embedded, 于海伟 2026-10-20): 工号和交期工
 // 单页头上都有了, 这里只留表、导入、导出。
+// 全厂都看得到 (于海伟 2026-10-20); 只有工程、商务能改 —— 别人看到的是一张
+// 只读的表, 没有导入、加行、删、传图。
 
 type Col =
   | { kind: 'text'; field: CommOrderTextField; head: string; sub?: string; w: number }
@@ -55,8 +57,10 @@ export function CommOrderSheet({
   initialDue,
   jobDue,
   embedded,
+  canWrite = true,
 }: {
   embedded?: boolean
+  canWrite?: boolean
   jobNo: string
   initial: CommOrderRow[]
   /** 手填的交期 */
@@ -90,7 +94,7 @@ export function CommOrderSheet({
   }
 
   // 导入 / 导出 —— 两种摆法都放在右上角。
-  const tools = (
+  const tools = canWrite && (
     <span className="ml-auto flex items-center gap-3">
       <ImportButton jobNo={jobNo} onDone={() => router.refresh()} />
       {rows.length > 0 && (
@@ -179,6 +183,7 @@ export function CommOrderSheet({
                   c.kind === 'image' ? (
                     <td key={c.field} className={td}>
                       <ImageCell
+                        canWrite={canWrite}
                         jobNo={jobNo}
                         rowId={r.id}
                         field={c.field}
@@ -188,7 +193,10 @@ export function CommOrderSheet({
                           call({ kind: 'commOrderDeleteImage', rowId: r.id, field: c.field, imageId })
                         }
                       />
-                      {c.text && (
+                      {c.text && !canWrite && r[c.text] && (
+                        <p className="mt-1 whitespace-pre-wrap text-[12.5px]">{r[c.text]}</p>
+                      )}
+                      {c.text && canWrite && (
                         <EditableTextArea
                           value={r[c.text]}
                           placeholder="补充说明"
@@ -201,6 +209,9 @@ export function CommOrderSheet({
                     </td>
                   ) : (
                     <td key={c.field} className={td}>
+                      {!canWrite ? (
+                        <p className="min-h-[44px] whitespace-pre-wrap text-[13px] leading-snug">{r[c.field]}</p>
+                      ) : (
                       <EditableTextArea
                         value={r[c.field]}
                         placeholder=""
@@ -209,6 +220,7 @@ export function CommOrderSheet({
                           call({ kind: 'commOrderUpdateRow', rowId: r.id, field: c.field, text })
                         }
                       />
+                      )}
                     </td>
                   ),
                 )}
@@ -217,6 +229,7 @@ export function CommOrderSheet({
                   {r.at && <span className="mono block text-[11px]">{r.at.slice(5, 10)}</span>}
                 </td>
                 <td className="px-1 align-middle">
+                  {canWrite && (
                   <button
                     type="button"
                     onClick={() => {
@@ -229,6 +242,7 @@ export function CommOrderSheet({
                   >
                     删
                   </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -236,6 +250,11 @@ export function CommOrderSheet({
         </table>
       </div>
 
+      {!canWrite ? (
+        rows.length === 0 && (
+          <p className="mt-4 text-[13px] text-[var(--color-ink-3)]">还没有沟通记录</p>
+        )
+      ) : (
       <div className={`mt-4 flex ${embedded ? '' : 'justify-center'}`}>
         <button
           type="button"
@@ -246,12 +265,14 @@ export function CommOrderSheet({
           {adding ? '加一行…' : `+ 记${roundLabel(rows.length)}`}
         </button>
       </div>
+      )}
     </div>
   )
 }
 
 // 一格图 —— 点缩略图看大图; 「+ 图」选文件, 或者点一下这一格直接粘贴截图。
 function ImageCell({
+  canWrite,
   jobNo,
   rowId,
   field,
@@ -259,6 +280,7 @@ function ImageCell({
   onSheet,
   onDelete,
 }: {
+  canWrite: boolean
   jobNo: string
   rowId: string
   field: CommOrderImageField
@@ -291,6 +313,23 @@ function ImageCell({
       setBusy(false)
     }
   }
+
+  // 只看的人: 只有缩略图, 点开看大图。
+  if (!canWrite)
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {list.map((im) => (
+          <a key={im.id} href={proxiedStorageUrl(im.url)} target="_blank" rel="noopener">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={proxiedStorageUrl(im.url)}
+              alt={im.name}
+              className="h-20 max-w-[150px] rounded-[2px] border border-[var(--color-border)] object-contain"
+            />
+          </a>
+        ))}
+      </div>
+    )
 
   return (
     <div
