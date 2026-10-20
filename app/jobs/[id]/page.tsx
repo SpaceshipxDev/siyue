@@ -46,6 +46,7 @@ import {
   canWriteNcProgram,
   canSeeCustomerData,
   canSeeMoney,
+  canWriteCommSheet,
   canSeeReport,
   canSeeOrderLedger,
   requireUser,
@@ -88,6 +89,8 @@ import { StagePlanDate } from '@/app/_stage_plan'
 import { PART_STAGE_CODE } from '@/lib/part-status'
 import { ComponentAnchorScroller } from '@/app/_component_anchor'
 import { JobTabs } from './_job_tabs'
+import { CommOrderSheet } from '@/app/comm/[no]/_sheet'
+import { getCommOrder } from '@/lib/comm-order'
 import { SourceFileRow } from '@/app/_source_file'
 import { ProductionOrderRow } from '@/app/_production_order'
 import { ContractFiles } from '@/app/_contract_files'
@@ -156,7 +159,12 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   if (!rawJob) notFound()
   // Portal tokens power the 微信 share button on each 委外 row. No-op once
   // every vendor has one (the common case) — see ensureVendorPortalTokens.
-  const rawVendors = await ensureVendorPortalTokens(fetchedVendors)
+  // 沟通确认单 (按工号) —— 只有工程、商务看得到那一栏, 别人不多等这一次。
+  const seeComm = canWriteCommSheet(user)
+  const [rawVendors, commOrder] = await Promise.all([
+    ensureVendorPortalTokens(fetchedVendors),
+    seeComm ? getCommOrder(rawJob.jobNo).catch(() => undefined) : Promise.resolve(undefined),
+  ])
   // Only `ready` jobs live on the production board. A draft/parsing/failed job
   // reached here via a stale link or a 工号-conflict button — send it to the
   // import review screen, the mirror of /import/[id]'s `ready → /jobs` bounce.
@@ -336,11 +344,17 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
     badge: partsMissingDrawing > 0 ? String(partsMissingDrawing) : undefined,
     alarm: partsMissingDrawing > 0,
   }
-  // 沟通单 2026-10-15 取消了 (于海伟)。填过的还存着 (lib/comm-sheet-store),
-  // 只是工单页上不再挂这一栏。
+  // 七项那张沟通单 2026-10-15 取消了 (于海伟)。填过的还存着 (lib/comm-sheet-store)。
+  // 现在挂在「零件」后面的是工单分析沟通确认单 (lib/comm-order) —— 原来顶上单
+  // 独一个「沟通单」页, 2026-10-20 于海伟要挪进每张工单: 表格手填、导入 Excel
+  // 两种都在这一栏里。
+  const commRounds = commOrder?.rows.length ?? 0
   const jobTabs = [
     ...(isProgrammer ? [programmingTab] : []),
     { key: 'parts', label: '零件' },
+    ...(seeComm
+      ? [{ key: 'comm', label: '沟通', badge: commRounds > 0 ? String(commRounds) : undefined }]
+      : []),
     ...(isProgrammer ? [] : [programmingTab]),
     ...(canManageOutsource(user)
       ? [
@@ -1156,6 +1170,19 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
         </JobPartFilterProvider>
           </div>
           {/* /零件 tab */}
+
+          {seeComm && (
+            <div data-jobtab="comm" hidden>
+              <CommOrderSheet
+                key={commOrder?.updatedAt ?? job.jobNo}
+                embedded
+                jobNo={commOrder?.jobNo ?? job.jobNo}
+                initial={commOrder?.rows ?? []}
+                initialDue={commOrder?.dueDate ?? ''}
+                jobDue={job.dueDate ?? ''}
+              />
+            </div>
+          )}
 
           {/* 编程 — 图纸 (三维/二维) 和程序单。编程员在这一栏里读齐做程序要
               的东西, 出完程序给操机看。 */}

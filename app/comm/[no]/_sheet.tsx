@@ -20,6 +20,9 @@ import { ImportButton } from '../_list'
 
 // 工单分析沟通确认单 —— 照厂里那张 Excel 摆: 每次沟通一行, 每一格点了就改,
 // 图片那两列点「+ 图」或者直接粘贴截图。记录人自动记 (最后改这一行的人)。
+//
+// 长在工单页「零件」后面那一栏里 (embedded, 于海伟 2026-10-20): 工号和交期工
+// 单页头上都有了, 这里只留表、导入、导出。
 
 type Col =
   | { kind: 'text'; field: CommOrderTextField; head: string; sub?: string; w: number }
@@ -51,7 +54,9 @@ export function CommOrderSheet({
   initial,
   initialDue,
   jobDue,
+  embedded,
 }: {
+  embedded?: boolean
   jobNo: string
   initial: CommOrderRow[]
   /** 手填的交期 */
@@ -84,53 +89,69 @@ export function CommOrderSheet({
     }
   }
 
+  // 导入 / 导出 —— 两种摆法都放在右上角。
+  const tools = (
+    <span className="ml-auto flex items-center gap-3">
+      <ImportButton jobNo={jobNo} onDone={() => router.refresh()} />
+      {rows.length > 0 && (
+        <a
+          href={withBase(`/comm/${encodeURIComponent(jobNo)}/export`)}
+          className="flex h-10 items-center rounded-[2px] bg-[var(--color-ink)] px-4 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85"
+        >
+          导出 Excel
+        </a>
+      )}
+    </span>
+  )
+
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-3">
-        <Link href="/comm" className="text-[12px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]">
-          ← 全部沟通单
-        </Link>
-        <span className="ml-auto flex items-center gap-3">
-          <ImportButton jobNo={jobNo} onDone={() => router.refresh()} />
-          {rows.length > 0 && (
-            <a
-              href={withBase(`/comm/${encodeURIComponent(jobNo)}/export`)}
-              className="flex h-10 items-center rounded-[2px] bg-[var(--color-ink)] px-4 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85"
-            >
-              导出 Excel
-            </a>
-          )}
-        </span>
-      </div>
+      {embedded ? (
+        <div className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-3">
+          <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
+            工单分析沟通确认单
+          </h2>
+          {tools}
+        </div>
+      ) : (
+        <>
+        <div className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-3">
+          <Link href="/comm" className="text-[12px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]">
+            ← 全部沟通单
+          </Link>
+          {tools}
+        </div>
 
-      <h2 className="text-center text-[24px] font-semibold tracking-tight text-[var(--color-ink)]">
-        <span className="mono">{jobNo}</span>工单分析沟通确认单
-      </h2>
+        <h2 className="text-center text-[24px] font-semibold tracking-tight text-[var(--color-ink)]">
+          <span className="mono">{jobNo}</span>工单分析沟通确认单
+        </h2>
 
-      {/* 交期 —— 没手填就是系统里这张工单的交期; 改了就按改的。 */}
-      <label className="mb-5 mt-2 flex items-baseline justify-center gap-2 text-[13px] text-[var(--color-ink-2)]">
-        交期
-        <input
-          type="date"
-          value={due || jobDue}
-          onChange={(e) => {
-            const v = e.target.value
-            if (v && v < '2000-01-01') return
-            if (v === (due || jobDue)) return
-            const prev = due
-            setDue(v)
-            call({ kind: 'commOrderSetDue', dueDate: v }).catch((err) => {
-              setDue(prev)
-              showToast(err instanceof Error ? err.message : '改不了', 'warning')
-            })
-          }}
-          className="mono border-b border-dashed border-[var(--color-border-strong)] bg-transparent text-[14px] text-[var(--color-ink)] outline-none hover:border-[var(--color-ink)] focus:border-[var(--color-ink)]"
-        />
-        {!due && jobDue && <span className="text-[11.5px] text-[var(--color-ink-4)]">按工单</span>}
-      </label>
+        {/* 交期 —— 没手填就是系统里这张工单的交期; 改了就按改的。 */}
+        <label className="mb-5 mt-2 flex items-baseline justify-center gap-2 text-[13px] text-[var(--color-ink-2)]">
+          交期
+          <input
+            type="date"
+            value={due || jobDue}
+            onChange={(e) => {
+              const v = e.target.value
+              if (v && v < '2000-01-01') return
+              if (v === (due || jobDue)) return
+              const prev = due
+              setDue(v)
+              call({ kind: 'commOrderSetDue', dueDate: v }).catch((err) => {
+                setDue(prev)
+                showToast(err instanceof Error ? err.message : '改不了', 'warning')
+              })
+            }}
+            className="mono border-b border-dashed border-[var(--color-border-strong)] bg-transparent text-[14px] text-[var(--color-ink)] outline-none hover:border-[var(--color-ink)] focus:border-[var(--color-ink)]"
+          />
+          {!due && jobDue && <span className="text-[11.5px] text-[var(--color-ink-4)]">按工单</span>}
+        </label>
+        </>
+      )}
 
       <div className="overflow-x-auto">
-        <table className="mx-auto border-collapse bg-[var(--color-surface)]">
+        <table className={`${embedded ? '' : 'mx-auto '}border-collapse bg-[var(--color-surface)]`}>
           <thead>
             <tr>
               <th className={th} style={{ width: 84 }}>序号</th>
@@ -215,7 +236,7 @@ export function CommOrderSheet({
         </table>
       </div>
 
-      <div className="mt-4 flex justify-center">
+      <div className={`mt-4 flex ${embedded ? '' : 'justify-center'}`}>
         <button
           type="button"
           disabled={adding}
