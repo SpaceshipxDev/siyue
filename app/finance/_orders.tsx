@@ -334,12 +334,21 @@ function OrderRow({
     row.amountCny == null
       ? undefined
       : row.amountCny - row.outsourceCny - row.procurementCny
+  // 毛利亏了整行标红, 毛利率不到 30% 整行标橙 —— 扫一眼就知道哪几单要看
+  // (于海伟 2026-10-22)。订单额没定或者是 0 的算不出毛利率, 不标。
+  const rate = margin != null && row.amountCny ? margin / row.amountCny : undefined
+  const tone =
+    margin != null && margin < 0 ? 'loss' : rate != null && rate < 0.3 ? 'thin' : undefined
   return (
     <>
       <tr
         onClick={onToggle}
-        className={`border-b border-[var(--color-border)] cursor-pointer transition-colors hover:bg-[var(--color-active-bg)] ${
-          open ? 'bg-[var(--color-active-bg)]' : ''
+        className={`border-b border-[var(--color-border)] cursor-pointer transition-colors ${
+          tone === 'loss'
+            ? 'bg-[color-mix(in_srgb,var(--color-overdue)_14%,transparent)] hover:bg-[color-mix(in_srgb,var(--color-overdue)_20%,transparent)]'
+            : tone === 'thin'
+              ? 'bg-[color-mix(in_srgb,#e07a1f_16%,transparent)] hover:bg-[color-mix(in_srgb,#e07a1f_22%,transparent)]'
+              : `hover:bg-[var(--color-active-bg)] ${open ? 'bg-[var(--color-active-bg)]' : ''}`
         }`}
       >
         <Td className="whitespace-nowrap text-[12px] text-[var(--color-ink-3)] tabular-nums">
@@ -391,8 +400,13 @@ function OrderRow({
             <span className="text-[12px] text-[var(--color-ink-4)]">—</span>
           ) : (
             <span
+              title={rate != null ? `毛利率 ${Math.round(rate * 100)}%` : undefined}
               className={`text-[13px] font-medium tabular-nums ${
-                margin < 0 ? 'text-[var(--color-overdue)]' : 'text-[var(--color-ink)]'
+                tone === 'loss'
+                  ? 'text-[var(--color-overdue)]'
+                  : tone === 'thin'
+                    ? 'text-[#b85c0a]'
+                    : 'text-[var(--color-ink)]'
               }`}
             >
               {formatCny(margin)}
