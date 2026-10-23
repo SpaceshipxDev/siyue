@@ -109,6 +109,8 @@ export default async function PlanPage({
 
   const byJobNo = new Map<string, MasterRow>()
   for (const m of masterRows) if (m.jobNo) byJobNo.set(norm(m.jobNo), m)
+  // 已出货 (退货返工中的不算) —— 计划里这张单没做完的行自动取消。
+  const shippedOut = (m: MasterRow | undefined) => !!m?.isShipped && !m.activeReturn
 
   // 工程排的 —— 在产的单, 这一道排了计划交期的, 每张单一行。已经存过 (有人改
   // 过一格) 的用存下来的那一行, 日期没被手改过就跟着工程排的日子走。
@@ -121,9 +123,8 @@ export default async function PlanPage({
     for (const m of masterRows) {
       if (m.status === 'draft' || m.status === 'failed' || m.status === 'parsing') continue
       if (!m.cells[engSt]) continue
-      // 出货走完了的单照理不该还有活; 可这一道还没做完 (后来补点的车铣、返工
-      // 的件), 照样带进来, 不然就从计划里漏掉了。
-      if (m.isShipped && cellAuto(m, engSt)?.state === 'done') continue
+      // 出货走完了的单不再进计划 (于海伟 2026-10-23); 退货返工中的照样排。
+      if (shippedOut(m)) continue
       let v = m.stagePlan?.[engSt]
       let d = v?.slice(0, 10)
       if (!v || !d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
@@ -193,9 +194,15 @@ export default async function PlanPage({
     if (a) auto[r.id] = a
   }
 
+  // 已出货的单: 没做完的行不再挂在计划里 (做完的留在「已完成」当记录)。只是
+  // 不显示, 存下的那一行不删 —— 退货回来又能排。
+  const live = rows.filter(
+    (r) => !shippedOut(byJobNo.get(norm(r.jobNo))) || !!r.doneAt || auto[r.id]?.state === 'done',
+  )
+
   // 工单号 → 工单, 表里那一格点得进去。
   const jobIdOf: Record<string, string> = {}
-  for (const r of rows) {
+  for (const r of live) {
     const m = byJobNo.get(norm(r.jobNo))
     if (m) jobIdOf[norm(r.jobNo)] = m.id
   }
@@ -225,7 +232,7 @@ export default async function PlanPage({
           key={stage}
           stage={stage}
           stages={[...PLAN_STAGES]}
-          rows={rows}
+          rows={live}
           auto={auto}
           engPlan={engPlan}
           jobIds={jobIdOf}
