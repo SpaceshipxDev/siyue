@@ -662,6 +662,11 @@ export type Payslip = {
    * 止, 不会把人扣成倒欠。发放时记成借款的一笔还款。
    */
   loanCny: number
+  /**
+   * 工具扣款 —— 系统算的: 离职归还确认时没还的工具, 按采购价扣在这个月
+   * (lib/tool-shared toolDueByName)。发放以前的老条子上没有这一格, 读成 0。
+   */
+  toolCny: number
   /** 应发工资 = 出勤工资 + 夜班/节假日/奖金/奖罚, 不含房补 (加班费已在出勤工资内) */
   grossCny: number
   /** 扣款合计 */
@@ -753,6 +758,8 @@ export function computePayslip(
   summary?: PayrollAttendanceSummary,
   /** 这个月该扣回的借款 (没有就是 0) —— 见 Payslip.loanCny。 */
   loanDueCny = 0,
+  /** 这个月该扣的工具款 (没有就是 0) —— 见 Payslip.toolCny。 */
+  toolDueCny = 0,
 ): Payslip {
   const hoursPerDay = hoursForDept(rules, dept)
   const satHours = saturdayHoursForDept(rules, dept)
@@ -957,6 +964,7 @@ export function computePayslip(
   const safetyDeductCny = money(line.safetyDeductCny)
   const socialInsuranceCny = money(line.socialInsuranceCny)
   const taxCny = money(line.taxCny)
+  const toolCny = Math.round(Math.max(0, toolDueCny) * 100) / 100
 
   // 缺勤不在扣款栏里扣 —— 它已经在出勤工资那一步按小时折掉了 (少干几小时
   // 就少几小时的钱), 再扣一道就是扣两遍。attendanceCutCny 留着只作参考。
@@ -966,7 +974,8 @@ export function computePayslip(
     perfDeductCny +
     safetyDeductCny +
     socialInsuranceCny +
-    taxCny
+    taxCny +
+    toolCny
   // 借款扣回排在所有扣款的最后, 只扣到实发为 0 —— 这个月不够扣的, 留着下个
   // 月接着扣 (借款那边没记还款, 未还还在)。
   const loanCny = Math.max(
@@ -1033,6 +1042,7 @@ export function computePayslip(
     socialInsuranceCny,
     taxCny,
     loanCny,
+    toolCny,
     grossCny,
     deductCny,
     netCny: grossCny - deductCny + housingAllowanceCny,
@@ -1113,6 +1123,8 @@ export function buildPayslips(
   summaries: Record<string, PayrollAttendanceSummary> = {},
   /** 每个人这个月该扣回的借款 —— lib/loan-shared loanDueByName。 */
   loanDue: Record<string, number> = {},
+  /** 每个人这个月该扣的工具款 —— lib/tool-shared toolDueByName。 */
+  toolDue: Record<string, number> = {},
 ): Payslip[] {
   return Object.entries(base)
     .filter(([, p]) => p.monthlyCny > 0)
@@ -1133,6 +1145,7 @@ export function buildPayslips(
         month,
         summaries[name],
         loanDue[name] ?? 0,
+        toolDue[name] ?? 0,
       )
     })
 }
@@ -1216,6 +1229,7 @@ export const PAYROLL_EXPORT_HEADERS = [
   '其他扣款',
   '社保',
   '个税',
+  '工具扣款',
   '借款扣回',
   '扣款合计',
   '实发',
@@ -1283,6 +1297,7 @@ export function buildPayrollExportAoa(
       p.otherDeductCny,
       p.socialInsuranceCny,
       p.taxCny,
+      p.toolCny,
       p.loanCny,
       p.deductCny,
       p.netCny,

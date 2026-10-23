@@ -131,6 +131,7 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
           {PAYROLL_CUT_FIELDS.map(([k, label]) => (
             <Row key={k} label={label} v={s[k]} />
           ))}
+          {s.toolCny > 0 && <Row label="工具扣款" v={s.toolCny} />}
           {s.loanCny > 0 && <Row label="借款扣回" v={s.loanCny} />}
           <Row label="扣款合计" v={s.deductCny} strong />
         </div>

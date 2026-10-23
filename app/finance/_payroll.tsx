@@ -1260,6 +1260,8 @@ function Slip({
             ))}
             {/* 借款扣回 —— 系统从借款单上带过来的, 不在这里改: 要改去财务 →
                 借款改那一笔的每月扣回。 */}
+            {/* 工具扣款 —— 人事 · 工具里离职没还的那几件, 不在这里改。 */}
+            {s.toolCny > 0 && <Ln label="工具扣款" v={-s.toolCny} />}
             {s.loanCny > 0 && <Ln label="借款扣回" v={-s.loanCny} />}
             <Ln label="扣款合计" v={-s.deductCny} strong divider />
             <p className="mt-3 text-[11px] text-[var(--color-ink-4)]">

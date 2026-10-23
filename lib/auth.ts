@@ -109,6 +109,12 @@ export function canApplyLoan(u: AuthUser): boolean {
   return canSeeAllHr(u)
 }
 
+// 工具领用 (人事 · 工具) —— 记领用、归还、离职扣款。跟借款申请同一档: 管全厂
+// 人事的那批人 (商务 + 采购人事)。于海伟 2026-10-23。
+export function canManageTools(u: AuthUser): boolean {
+  return canSeeAllHr(u)
+}
+
 export function canSeeLoans(u: AuthUser): boolean {
   return canSeeExpenses(u)
 }

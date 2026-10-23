@@ -5,6 +5,8 @@ import { getActiveUsers } from './db'
 import { getAttendanceSummary, getHrMonth, getHrRoster } from './hr'
 import { getLoans } from './loan'
 import { loanDueByName } from './loan-shared'
+import { getToolIssues } from './tool'
+import { toolDueByName } from './tool-shared'
 import {
   allDepartments,
   buildPayslips,
@@ -636,6 +638,8 @@ function normalizeSheet(raw: unknown): PayrollSheet {
         typeof s.baseSalaryCny === 'number' ? s.baseSalaryCny : 0,
       // 借款扣回之前发放的条子上没有这一格 —— 那个月本来就没扣。
       loanCny: typeof s.loanCny === 'number' ? s.loanCny : 0,
+      // 工具扣款之前发放的条子上没有这一格。
+      toolCny: typeof s.toolCny === 'number' ? s.toolCny : 0,
     })),
   }
   return { lines, paid }
@@ -728,7 +732,7 @@ export type PayrollView = {
 }
 
 export async function loadPayroll(month: string): Promise<PayrollView> {
-  const [rules, base, sheet, hrRecords, users, extraNames, summaries, loans] =
+  const [rules, base, sheet, hrRecords, users, extraNames, summaries, loans, tools] =
     await Promise.all([
       getPayrollRules(),
       getPayrollBase(),
@@ -740,6 +744,8 @@ export async function loadPayroll(month: string): Promise<PayrollView> {
       getAttendanceSummary(month),
       // 员工借款 —— 放了款还没还清的, 这个月从工资里扣回 (lib/loan-shared)。
       getLoans(),
+      // 工具领用 —— 离职没还、扣在这个月的工具款 (lib/tool-shared)。
+      getToolIssues().catch(() => []),
     ])
 
   const guessDept = (name: string): string => {
@@ -766,6 +772,7 @@ export async function loadPayroll(month: string): Promise<PayrollView> {
         month,
         summaries,
         loanDueByName(loans, month),
+        toolDueByName(tools, month),
       )
 
   const onPayroll = new Set(slips.map((s) => s.name))

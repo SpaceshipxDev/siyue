@@ -13,6 +13,7 @@ import {
   canSeeReport,
   canSeeOrderLedger,
   canApplyLoan,
+  canManageTools,
   canSettleAccounts,
   canFilePayRequest,
   canSeeOthersPayRequests,
@@ -24,7 +25,9 @@ import { getPayRequests } from '@/lib/pay-request'
 import { PayRequestBoard } from '@/app/_pay_requests'
 import { getLoans } from '@/lib/loan'
 import { HrLoanBoard } from './_loans'
-import { getActiveUsers, isAdminUser } from '@/lib/db'
+import { getActiveUsers, getProcurementProducts, getProcurements, isAdminUser } from '@/lib/db'
+import { getToolIssues } from '@/lib/tool'
+import { ToolBoard, type ToolCatalogItem } from './_tools'
 import { loadAttendanceReport } from './_sheet_data'
 import {
   getHrMonth,
@@ -73,9 +76,13 @@ export default async function HrPage({
   const seePay = canFilePayRequest(user, '人事') || canSeeOthersPayRequests(user)
   // 考勤表只给人事、财务、老板和于海伟看 (canSeeAttendance)。
   const seeSheet = canSeeAttendance(user)
+  // 工具 —— 工具领用登记, 离职归还确认, 没还的扣工资 (于海伟 2026-10-23)。
+  const seeTool = canManageTools(user)
   const view =
     sp.v === 'dorm' && seeDorm
       ? 'dorm'
+      : sp.v === 'tool' && seeTool
+        ? 'tool'
       : sp.v === 'loan' && seeLoan
         ? 'loan'
         : sp.v === 'pay' && seePay
@@ -92,7 +99,7 @@ export default async function HrPage({
       : now.slice(0, 7)
   const isYear = period.length === 4
 
-  const [allRecords, notes, months, users, extraNames, dormEntries, loans, sheetReport, payRequests] =
+  const [allRecords, notes, months, users, extraNames, dormEntries, loans, sheetReport, payRequests, toolIssues, toolCatalog] =
     await Promise.all([
       isYear ? getHrYear(period) : getHrMonth(period),
       // 请假条 — 跟记录同一个分片口径, 所以跟着同一趟读: 月度一个文件, 年度
@@ -106,6 +113,8 @@ export default async function HrPage({
       // 考勤表要的名单、部门、工时制度、打卡机汇总 (app/hr/_sheet_data)。
       view === 'sheet' ? loadAttendanceReport(period) : Promise.resolve(null),
       view === 'pay' ? getPayRequests() : Promise.resolve([]),
+      view === 'tool' ? getToolIssues() : Promise.resolve([]),
+      view === 'tool' ? loadToolCatalog() : Promise.resolve([]),
     ])
 
   // 看全部 vs 看本部门. Scoped here, on the server, so a 工段长's page never
@@ -166,6 +175,9 @@ export default async function HrPage({
             {seePay && (
               <ViewTab href="/hr?v=pay" label="付款" active={view === 'pay'} />
             )}
+            {seeTool && (
+              <ViewTab href="/hr?v=tool" label="工具" active={view === 'tool'} />
+            )}
         </div>
         {view === 'sheet' ? (
           <SheetView
@@ -187,6 +199,8 @@ export default async function HrPage({
             showDept={false}
             openId={sp.open}
           />
+        ) : view === 'tool' ? (
+          <ToolBoard issues={toolIssues} roster={roster} catalog={toolCatalog} todayStr={now} />
         ) : view === 'loan' ? (
           <HrLoanBoard
             loans={loans}
@@ -231,6 +245,44 @@ export default async function HrPage({
       </main>
     </div>
   )
+}
+
+// 工具登记按采购价 —— 采购过的每样东西取最近一次的实际采购单价; 采购里没买
+// 过、物料库里有参考价的也带上。工具、刀具那几类排在前面。
+const TOOL_CATS = new Set(['工具', '刀具', '量具', '夹具'])
+async function loadToolCatalog(): Promise<ToolCatalogItem[]> {
+  const [buys, products] = await Promise.all([
+    getProcurements().catch(() => []),
+    getProcurementProducts().catch(() => []),
+  ])
+  const catOf = new Map(products.map((p) => [p.id, p.category ?? '']))
+  const catByName = new Map(products.map((p) => [p.name.trim(), p.category ?? '']))
+  const best = new Map<string, ToolCatalogItem & { cat: string }>()
+  for (const b of buys) {
+    const name = b.item?.trim()
+    if (!name || typeof b.unitPriceCny !== 'number' || !(b.unitPriceCny > 0)) continue
+    const prev = best.get(name)
+    if (prev && (prev.date ?? '') >= b.orderDate) continue
+    best.set(name, {
+      name,
+      priceCny: b.unitPriceCny,
+      date: b.orderDate,
+      cat: (b.productId && catOf.get(b.productId)) || catByName.get(name) || '',
+    })
+  }
+  for (const p of products) {
+    const name = p.name.trim()
+    if (!name || best.has(name) || typeof p.unitPriceCny !== 'number' || !(p.unitPriceCny > 0)) continue
+    best.set(name, { name, priceCny: p.unitPriceCny, cat: p.category ?? '' })
+  }
+  return [...best.values()]
+    .sort(
+      (a, b) =>
+        Number(TOOL_CATS.has(b.cat)) - Number(TOOL_CATS.has(a.cat)) ||
+        (b.date ?? '').localeCompare(a.date ?? '') ||
+        a.name.localeCompare(b.name, 'zh'),
+    )
+    .map(({ name, priceCny, date }) => ({ name, priceCny, date }))
 }
 
 // 考勤 / 住宿 — same underline-active idiom the 财务 sub-tabs use. Server-

@@ -139,6 +139,7 @@ import {
   canApproveProcurement,
   canDeleteProcurement,
   canApplyLoan,
+  canManageTools,
   canApproveLoan,
   canFilePayRequest,
   canReviewPayRequest,
@@ -191,6 +192,7 @@ import {
 } from '@/lib/complaints'
 import { setDefectAction } from '@/lib/defect-actions'
 import { writeReturnFlow } from '@/lib/return-flow-store'
+import { addToolIssue, deleteToolIssue, settleToolIssues } from '@/lib/tool'
 import {
   addNcProgram,
   deleteNcProgram,
@@ -3368,6 +3370,82 @@ async function dispatch(
       }
       revalidatePath('/pay')
       revalidatePath('/hr')
+      return Response.json(ok())
+    }
+
+    // 工具领用 (人事 · 工具) —— 记一笔、删一笔、归还 / 扣款 / 撤回。
+    case 'addToolIssue': {
+      const i = body.input as Record<string, unknown> | undefined
+      if (typeof i !== 'object' || i === null) return err('bad addToolIssue args')
+      if (!isString(i.name) || !i.name.trim()) return err('先填领用人')
+      if (!isString(i.tool) || !i.tool.trim()) return err('先填工具名称')
+      const qty = typeof i.qty === 'number' && Number.isFinite(i.qty) && i.qty > 0 ? i.qty : undefined
+      if (!qty) return err('件数要填一个正数')
+      if (i.priceCny !== undefined && (typeof i.priceCny !== 'number' || !Number.isFinite(i.priceCny) || i.priceCny < 0))
+        return err('单价要填数字')
+      const u = await requireUser()
+      if (!canManageTools(u)) return err('工具领用由人事来记', 403)
+      const row = await addToolIssue(
+        {
+          name: i.name,
+          date: isString(i.date) ? i.date : '',
+          tool: i.tool,
+          qty,
+          priceCny: typeof i.priceCny === 'number' ? i.priceCny : undefined,
+          note: isString(i.note) ? i.note : undefined,
+        },
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath('/hr')
+      return Response.json(ok({ id: row.id }))
+    }
+
+    case 'deleteToolIssue': {
+      const id = body.id
+      if (!isString(id)) return err('bad deleteToolIssue args')
+      const u = await requireUser()
+      if (!canManageTools(u)) return err('工具领用由人事来记', 403)
+      try {
+        await deleteToolIssue(id)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '删不了')
+      }
+      revalidatePath('/hr')
+      return Response.json(ok())
+    }
+
+    case 'settleToolIssues': {
+      const items = body.items
+      if (
+        !Array.isArray(items) ||
+        items.length === 0 ||
+        !items.every(
+          (x) =>
+            typeof x === 'object' &&
+            x !== null &&
+            isString((x as Record<string, unknown>).id) &&
+            ['return', 'deduct', 'reopen'].includes((x as Record<string, unknown>).action as string),
+        )
+      )
+        return err('bad settleToolIssues args')
+      const u = await requireUser()
+      if (!canManageTools(u)) return err('工具领用由人事来记', 403)
+      try {
+        await settleToolIssues(
+          (items as Record<string, unknown>[]).map((x) => ({
+            id: x.id as string,
+            action: x.action as 'return' | 'deduct' | 'reopen',
+            priceCny: typeof x.priceCny === 'number' && Number.isFinite(x.priceCny) ? x.priceCny : undefined,
+          })),
+          u.name,
+          today(),
+        )
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '办不了')
+      }
+      revalidatePath('/hr')
+      revalidatePath('/finance')
       return Response.json(ok())
     }
 
