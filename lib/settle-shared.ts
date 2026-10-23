@@ -96,7 +96,7 @@ export type Payable = {
   blockIds?: string[]
   /** 补录的老账 (不是对账单确认出来的)。 */
   manual?: SettleManual
-  /** 付款申请老板批下来落的那一张 (lib/pay-request) —— 不认任何外协单。 */
+  /** 付款申请老板批下来落的那一张 (lib/pay-request)。外协对账来的那种带着 blockIds, 认那几张外协单; 别的不认。 */
   request?: PayableRequestRef
   voidedAt?: string
   voidedBy?: string

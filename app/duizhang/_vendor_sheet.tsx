@@ -21,6 +21,7 @@ import {
   type DuizhangLine,
 } from '@/lib/duizhang'
 import { settleOutstanding, settlePaid, type Payable } from '@/lib/settle-shared'
+import { PAY_STAGE_LABEL, payStage, type PayRequest } from '@/lib/pay-request-shared'
 import { ExportButton } from './_bar'
 
 // 外协对账单 —— 跟客户对账单一个样子 (一个零件一行: 图、料号、零件名、数量、
@@ -31,8 +32,12 @@ import { ExportButton } from './_bar'
 // 他对的: 合计跟着勾走, 打印 / 导出也只出勾上的那几张。点「确认所选」, 这几张
 // 落成一张应付单, 下一回打开就不在纸上了; 没勾的留着, 下回接着对。
 //
-// 没定价的单也能勾 (于海伟 2026-10-23) —— 认下来按 0 计进应付, 勾的时候会
-// 提一句「其中几张没定价」。勾了才出确认; 确认完, 那一笔的明细直接摊开。
+// 没定价的单也能勾 (于海伟 2026-10-23), 金额在填付款时补。勾了才出确认;
+// 确认完, 那一笔的明细直接摊开。
+//
+// 确认不直接落应付单: 生成一张待填付款的付款申请 → 填好提交 → 审核 → 老板
+// 批 → 进财务应付 (于海伟 2026-10-23)。这一路上的那几笔挂在纸的上面, 写着
+// 走到哪一步。
 
 const K = 'vendor' as const
 
@@ -43,6 +48,7 @@ export function VendorSheet({
   todayStr,
   records,
   recordLines,
+  requests,
   canApprove,
   canOpenLedger,
 }: {
@@ -54,6 +60,8 @@ export function VendorSheet({
   records: Payable[]
   /** 每张确认过的应付单认下的那几行 (应付单 id → 行)。 */
   recordLines: Record<string, DuizhangLine[]>
+  /** 确认了、还在付款路上的付款申请。 */
+  requests: PayRequest[]
   canApprove: boolean
   canOpenLedger: boolean
 }) {
@@ -151,8 +159,64 @@ export function VendorSheet({
   return (
     <>
       {/* 这一家这个月已经对过的几回 —— 认过的单已经不在下面的纸上了。 */}
-      {records.length > 0 && (
+      {(records.length > 0 || requests.length > 0) && (
         <div className="no-print mt-5 space-y-1.5 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 md:px-5">
+          {requests.map((q) => {
+            const st = payStage(q)
+            return (
+              <div key={q.id} className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+                <span className="text-[13px] font-semibold text-[var(--color-success)]">
+                  ✓ 已确认
+                </span>
+                <span className="mono text-[13px] text-[var(--color-ink)]">{q.no}</span>
+                <span className="text-[13px] text-[var(--color-ink-2)]">
+                  {q.recon?.blockIds.length ?? q.items.length} 张单 · 付款{' '}
+                  <b className="mono font-medium text-[var(--color-ink)]">{formatCny(q.amountCny)}</b>
+                </span>
+                <span
+                  className={`text-[13px] font-medium ${
+                    st === 'fill' ? 'text-[var(--color-overdue)]' : 'text-[var(--color-warning)]'
+                  }`}
+                >
+                  {PAY_STAGE_LABEL[st]}
+                </span>
+                <span className="text-[11.5px] text-[var(--color-ink-4)]">
+                  {q.appliedBy} 确认于 {q.appliedAt.slice(0, 10)}
+                </span>
+                <span className="ml-auto flex items-baseline gap-4">
+                  {recordLines[q.id] && (
+                    <button
+                      type="button"
+                      onClick={() => setOpenRec(openRec === q.id ? null : q.id)}
+                      className="text-[13px] font-medium text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
+                    >
+                      {openRec === q.id ? '收起明细' : '明细'}
+                    </button>
+                  )}
+                  <Link
+                    href={`/pay?open=${q.id}`}
+                    className={`text-[13px] font-medium ${
+                      st === 'fill'
+                        ? 'text-[var(--color-ink)] underline underline-offset-2'
+                        : 'text-[var(--color-ink-2)] hover:text-[var(--color-ink)]'
+                    }`}
+                  >
+                    {st === 'fill' ? '去填付款 →' : '看付款申请 →'}
+                  </Link>
+                </span>
+                {openRec === q.id && recordLines[q.id] && (
+                  <RecordDetail
+                    lines={recordLines[q.id]}
+                    pdfHref={withBase(
+                      `/duizhang/pdf?kind=vendor&name=${encodeURIComponent(sheet.party)}&m=${month}&sel=${encodeURIComponent(
+                        (q.recon?.blockIds ?? []).join(','),
+                      )}`,
+                    )}
+                  />
+                )}
+              </div>
+            )
+          })}
           {records.map((r) => {
             const paid = settlePaid(r)
             const left = settleOutstanding(r)
@@ -237,7 +301,7 @@ export function VendorSheet({
             </span>
             {chosenUnpriced > 0 && (
               <span className="text-[12px] text-[var(--color-warning)]">
-                其中 {chosenUnpriced} 张没定价，按 0 计
+                其中 {chosenUnpriced} 张没定价，填付款时补金额
               </span>
             )}
             <span className="ml-auto flex items-center gap-2">
@@ -269,7 +333,7 @@ export function VendorSheet({
           </div>
           {error && <p className="mt-2 text-[12px] text-[var(--color-overdue)]">{error}</p>}
           <p className="mt-2 text-[11.5px] text-[var(--color-ink-4)]">
-            确认过的单下一回对账不再出现；没勾的留着，下回接着对。
+            确认后去填付款，审核、老板批了才进财务应付。确认过的单下一回对账不再出现；没勾的留着，下回接着对。
           </p>
         </div>
       )}

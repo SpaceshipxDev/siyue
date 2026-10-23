@@ -11,6 +11,8 @@ import {
 import { getReceivables } from '@/lib/receivable'
 import { getNoReconcile, LINE_MARK } from '@/lib/no-reconcile'
 import { getPayables, vendorSettledFrom } from '@/lib/payable'
+import { getPayRequests, reconBlockIds } from '@/lib/pay-request'
+import { payStage, type PayRequest } from '@/lib/pay-request-shared'
 import { customerSettledFrom, type Payable, type Receivable } from '@/lib/settle-shared'
 import {
   getUndocumentedShipments,
@@ -84,6 +86,8 @@ export type DuizhangLoad = {
   vendorRecords: Payable[]
   /** 每张确认过的外协应付单认下的那几行 —— 点开「明细」看当时对的是什么。 */
   vendorRecordLines: Record<string, DuizhangLine[]>
+  /** 这一家这个月对账确认了、还在付款路上 (待填付款 / 审核 / 老板批) 的申请。 */
+  vendorRequests: PayRequest[]
   /** 审批 / 确认 / 记收付款 —— 管钱那一档。 */
   canApprove: boolean
   /** 能进财务的应收/应付 (每个商务)。 */
@@ -118,6 +122,7 @@ export async function loadDuizhang(params: {
   let record: Receivable | Payable | null = null
   let vendorRecords: Payable[] = []
   const vendorRecordLines: Record<string, DuizhangLine[]> = {}
+  let vendorRequests: PayRequest[] = []
   let customerRecords: Receivable[] = []
   let undocumented: UndocumentedShipment[] = []
   let skipped: string[] = []
@@ -203,13 +208,15 @@ export async function loadDuizhang(params: {
     }
   } else {
     const { from, to } = monthBounds(month)
-    const [rows, vendors, payables] = await Promise.all([
+    const [rows, vendors, payables, requests] = await Promise.all([
       getOutsourceBlockRows(),
       getVendors(),
       getPayables(),
+      getPayRequests(),
     ])
-    // 对过账的单不再上对账单 —— 名单上的数和纸上的行都只算还没对的。
-    const settledOf = (v: string) => vendorSettledFrom(payables, v)
+    // 对过账的单不再上对账单 —— 名单上的数和纸上的行都只算还没对的。确认了
+    // 还在付款申请上走的也算对过。
+    const settledOf = (v: string) => vendorSettledFrom(payables, v, reconBlockIds(requests, v))
     parties = vendorOptions(rows, vendors, from, to, settledOf)
     if (party) {
       // 指名要这几张 (打印勾选的、从应付单重印当时那张) 就照给, 不管对没对过。
@@ -224,8 +231,20 @@ export async function loadDuizhang(params: {
       )
       vendorRecords = payables.filter(
         (p) =>
-          !p.voidedAt && !p.manual && !p.request && p.vendor === party && p.period === month,
+          !p.voidedAt &&
+          !p.manual &&
+          (!p.request || !!p.blockIds) &&
+          p.vendor === party &&
+          p.period === month,
       )
+      vendorRequests = requests.filter((r) => {
+        const st = payStage(r)
+        return r.recon?.vendor === party && r.recon.period === month && st !== 'done' && st !== 'rejected'
+      })
+      for (const r of vendorRequests)
+        vendorRecordLines[r.id] = buildVendorDuizhang(
+          rows, vendors, party, from, to, undefined, new Set(r.recon!.blockIds),
+        ).lines
       for (const p of vendorRecords) {
         if (p.blockIds?.length)
           vendorRecordLines[p.id] = buildVendorDuizhang(
@@ -248,6 +267,7 @@ export async function loadDuizhang(params: {
     record,
     vendorRecords,
     vendorRecordLines,
+    vendorRequests,
     customerRecords,
     jobQuery,
     jobMatches,

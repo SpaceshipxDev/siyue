@@ -326,17 +326,21 @@ import {
 import {
   approvePayRequest,
   createPayRequest,
+  createReconPayRequest,
   deletePayRequest,
+  fillPayRequest,
   getPayRequest,
+  getPayRequests,
+  reconBlockIds,
   rejectPayRequest,
   reviewPayRequest,
+  submitPayRequest,
 } from '@/lib/pay-request'
 import { payItemAmount, payStage, PAY_DEPTS, type PayDept } from '@/lib/pay-request-shared'
 import {
   addPayablePayment,
   getPayables,
   vendorSettledFrom,
-  createPayable,
   createManualPayable,
   deletePayablePayment,
   voidPayable,
@@ -2998,10 +3002,11 @@ async function dispatch(
       if (!canSettleAccounts(u)) return err('确认外协对账单要找于海伟或财务', 403)
       const party = vendor.trim()
       const { from, to } = monthBounds(period)
-      const [blocks, vendors, payables] = await Promise.all([
+      const [blocks, vendors, payables, requests] = await Promise.all([
         getOutsourceBlockRows(),
         getVendors(),
         getPayables(),
+        getPayRequests(),
       ])
       const want = new Set(ids as string[])
       const sheet = buildVendorDuizhang(
@@ -3010,31 +3015,81 @@ async function dispatch(
         party,
         from,
         to,
-        vendorSettledFrom(payables, party),
+        vendorSettledFrom(payables, party, reconBlockIds(requests, party)),
         want,
       )
       const got = new Set(sheet.lines.map((l) => l.groupId))
       if (sheet.count !== want.size || [...want].some((id) => !got.has(id)))
         return err('勾的单里有已经对过账、或者还没回厂的 —— 刷新再选')
-      // 没定价的单也能勾着认下 (于海伟 2026-10-23) —— 应付金额只算定了价的。
-      try {
-        const r = await createPayable({
-          vendor: party,
-          period,
-          amountCny: sheet.totalAmountCny,
-          lineCount: sheet.lines.length,
-          totalQty: sheet.totalQty,
-          blockIds: [...want],
-          approvedBy: u.name,
-          nowIso: new Date().toISOString(),
-          todayYmd: today(),
+      // 没定价的单也能勾着认下 (于海伟 2026-10-23) —— 金额在填付款那一步补。
+      // 确认不再直接落应付单: 生成一张待填付款的申请, 填好提交 → 审核 → 老板
+      // 批, 才落进财务应付 (于海伟 2026-10-23)。清单一张外协单一行。
+      const items: { name: string; qty?: number; amountCny: number }[] = []
+      const seen = new Set<string>()
+      for (const l of sheet.lines) {
+        const g = l.groupId ?? l.key
+        if (seen.has(g)) continue
+        seen.add(g)
+        const mine = sheet.lines.filter((x) => (x.groupId ?? x.key) === g)
+        const names = [...new Set(mine.map((x) => x.title))].join('、')
+        items.push({
+          name: [l.docNo, l.detail, names].filter(Boolean).join(' · '),
+          qty: mine.reduce((t, x) => t + x.qty, 0),
+          amountCny: l.groupAmountCny ?? 0,
         })
+      }
+      try {
+        const r = await createReconPayRequest(
+          {
+            recon: {
+              vendor: party,
+              period,
+              blockIds: [...want],
+              lineCount: sheet.lines.length,
+              totalQty: sheet.totalQty,
+            },
+            items,
+          },
+          u.name,
+          new Date().toISOString(),
+          today(),
+        )
         revalidatePath('/duizhang')
-        revalidatePath('/finance')
+        revalidatePath('/pay')
         return Response.json(ok({ id: r.id, no: r.no }))
       } catch (e) {
         return err(e instanceof Error ? e.message : '确认不上')
       }
+    }
+
+    // 对账来的付款申请 —— 待填付款那一步: 收款账户、说明、补金额; 填好提交审核。
+    case 'fillPayRequest':
+    case 'submitPayRequest': {
+      const id = body.payRequestId
+      if (!isString(id)) return err(`bad ${body.kind} args`)
+      const u = await requireUser()
+      const r = await getPayRequest(id)
+      if (!r) return err('找不到这张付款申请', 404)
+      if (r.appliedBy !== u.name && !isPayReviewer(u) && !canSettleAccounts(u))
+        return err('只有确认对账的人、审批的人或财务能填', 403)
+      try {
+        if (body.kind === 'submitPayRequest') await submitPayRequest(id, new Date().toISOString())
+        else {
+          const amounts = body.amounts
+          if (amounts !== undefined && (!Array.isArray(amounts) || !amounts.every((n) => typeof n === 'number' && Number.isFinite(n))))
+            return err('金额要填数字')
+          await fillPayRequest(id, {
+            payeeAccount: isString(body.payeeAccount) ? body.payeeAccount : undefined,
+            note: isString(body.note) ? body.note : undefined,
+            amounts: amounts as number[] | undefined,
+          })
+        }
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '存不上')
+      }
+      revalidatePath('/pay')
+      revalidatePath('/duizhang')
+      return Response.json(ok())
     }
 
     // 补录 —— 系统上线以前的老账, 没有对账单可审, 财务手动落一张应收 / 应付。
@@ -3283,6 +3338,8 @@ async function dispatch(
           if (decision === 'reject')
             await rejectPayRequest(id, u.name, isString(note) ? note : undefined, new Date().toISOString())
           else result = await approvePayRequest(id, u.name, new Date().toISOString(), today())
+        } else if (st === 'fill') {
+          return err('这张还没填好付款、提交审核')
         } else {
           return err('这张申请已经有结果了')
         }

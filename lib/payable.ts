@@ -147,12 +147,19 @@ export async function getPayable(id: string): Promise<Payable | undefined> {
  * 这一家已经对过账的外协单 —— 还算数 (没作废) 的应付单上记着的那些。早先整
  * 月认的应付单没记单号, 那一整个月回厂的都算对过 (legacyMonths)。
  */
-export function vendorSettledFrom(payables: Payable[], vendor: string): VendorSettled {
-  const blockIds = new Set<string>()
+export function vendorSettledFrom(
+  payables: Payable[],
+  vendor: string,
+  /** 还挂在付款申请上、没落成应付单的 (lib/pay-request reconBlockIds)。 */
+  pending: Iterable<string> = [],
+): VendorSettled {
+  const blockIds = new Set<string>(pending)
   const legacyMonths = new Set<string>()
   for (const p of payables) {
-    // 补录的老账、付款申请落的单不认任何外协单。
-    if (p.voidedAt || p.manual || p.request || p.vendor !== vendor) continue
+    // 补录的老账、普通付款申请落的单不认任何外协单; 外协对账走付款申请落的
+    // 那张认它记着的外协单。
+    if (p.voidedAt || p.manual || p.vendor !== vendor) continue
+    if (p.request && !p.blockIds) continue
     if (p.blockIds) for (const id of p.blockIds) blockIds.add(id)
     else legacyMonths.add(p.period)
   }
@@ -247,6 +254,8 @@ export async function createManualPayable(input: {
 export async function createRequestPayable(input: {
   payee: string
   amountCny: number
+  /** 外协对账来的申请 —— 应付单记成这家、这个对账月, 认下那几张外协单。 */
+  recon?: { vendor: string; period: string; blockIds: string[]; lineCount: number; totalQty: number }
   request: PayableRequestRef
   approvedBy: string
   nowIso: string
@@ -254,15 +263,16 @@ export async function createRequestPayable(input: {
 }): Promise<Payable> {
   return withLock(async () => {
     const rows = await read()
-    const period = input.todayYmd.slice(0, 7)
+    const period = input.recon?.period || input.todayYmd.slice(0, 7)
     const row: Payable = {
       id: crypto.randomUUID(),
       no: nextSettleNo('YF', period, rows),
-      vendor: input.payee,
+      vendor: input.recon?.vendor ?? input.payee,
       period,
       amountCny: money(input.amountCny),
-      lineCount: 0,
-      totalQty: 0,
+      lineCount: input.recon?.lineCount ?? 0,
+      totalQty: input.recon?.totalQty ?? 0,
+      ...(input.recon ? { blockIds: input.recon.blockIds } : null),
       request: input.request,
       approvedBy: input.approvedBy,
       approvedAt: input.nowIso,

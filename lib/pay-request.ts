@@ -11,6 +11,7 @@ import {
   type PayDept,
   type PayFileKind,
   type PayItem,
+  type PayRecon,
   type PayRequest,
 } from './pay-request-shared'
 
@@ -61,6 +62,22 @@ function files(v: unknown): VoucherFile[] {
     }))
 }
 
+function recon(v: unknown): PayRecon | undefined {
+  if (typeof v !== 'object' || v === null) return undefined
+  const o = v as Record<string, unknown>
+  const blockIds = Array.isArray(o.blockIds)
+    ? (o.blockIds as unknown[]).filter((x): x is string => typeof x === 'string')
+    : []
+  if (!str(o.vendor) || blockIds.length === 0) return undefined
+  return {
+    vendor: str(o.vendor),
+    period: str(o.period),
+    blockIds,
+    lineCount: typeof o.lineCount === 'number' ? o.lineCount : 0,
+    totalQty: typeof o.totalQty === 'number' ? o.totalQty : 0,
+  }
+}
+
 function normalize(raw: unknown): PayRequest[] {
   if (!Array.isArray(raw)) return []
   const out: PayRequest[] = []
@@ -104,6 +121,8 @@ function normalize(raw: unknown): PayRequest[] {
       rejectNote: opt(r.rejectNote),
       payableId: opt(r.payableId),
       payableNo: opt(r.payableNo),
+      ...(recon(r.recon) ? { recon: recon(r.recon) } : null),
+      submittedAt: opt(r.submittedAt),
     })
   }
   return out
@@ -177,6 +196,91 @@ export async function createPayRequest(
   })
 }
 
+/**
+ * 这一家正挂在付款申请上的外协单 —— 对账确认了、还没被驳回的。它们跟应付单
+ * 上的一样算「对过账了」, 不再上对账单。
+ */
+export function reconBlockIds(requests: PayRequest[], vendor: string): string[] {
+  const out: string[] = []
+  for (const r of requests)
+    if (r.recon && r.recon.vendor === vendor && payStage(r) !== 'rejected') out.push(...r.recon.blockIds)
+  return out
+}
+
+/** 外协对账确认 —— 认下的那几张外协单生成一张待填付款的申请。 */
+export async function createReconPayRequest(
+  input: { recon: PayRecon; items: PayItem[] },
+  by: string,
+  nowIso: string,
+  todayYmd: string,
+): Promise<PayRequest> {
+  return withLock(async () => {
+    const rows = await read()
+    const taken = new Set(reconBlockIds(rows, input.recon.vendor))
+    const dup = input.recon.blockIds.find((id) => taken.has(id))
+    if (dup) {
+      const on = rows.find((r) => payStage(r) !== 'rejected' && r.recon?.blockIds.includes(dup))
+      throw new Error(`有的单已经确认过了${on ? ` —— 在付款申请 ${on.no} 上` : ''}，刷新再选`)
+    }
+    const items = input.items.map((i) => ({ ...i, amountCny: money(i.amountCny) }))
+    const row: PayRequest = {
+      id: crypto.randomUUID(),
+      no: nextPayNo(todayYmd, rows),
+      dept: '商务',
+      payee: input.recon.vendor,
+      category: '外协加工费用',
+      subject: `${input.recon.period.slice(0, 4)}年${Number(input.recon.period.slice(5, 7))}月外协对账`,
+      items,
+      amountCny: payTotal(items),
+      vouchers: [],
+      invoices: [],
+      appliedBy: by,
+      appliedAt: nowIso,
+      recon: input.recon,
+    }
+    rows.push(row)
+    await write(rows)
+    return row
+  })
+}
+
+/** 待填付款那一步能改的: 收款账户、说明、清单上每一项的金额 (没定价的在这里补)。 */
+export async function fillPayRequest(
+  id: string,
+  patch: { payeeAccount?: string; note?: string; amounts?: number[] },
+): Promise<void> {
+  await withLock(async () => {
+    const rows = await read()
+    const r = rows.find((x) => x.id === id)
+    if (!r) throw new Error('找不到这张付款申请')
+    if (payStage(r) !== 'fill') throw new Error('已经提交审核了，改不了')
+    if (patch.payeeAccount !== undefined) r.payeeAccount = patch.payeeAccount.trim() || undefined
+    if (patch.note !== undefined) r.note = patch.note.trim() || undefined
+    if (patch.amounts) {
+      r.items = r.items.map((i, x) =>
+        typeof patch.amounts![x] === 'number' && patch.amounts![x] >= 0
+          ? { ...i, amountCny: money(patch.amounts![x]) }
+          : i,
+      )
+      r.amountCny = payTotal(r.items)
+    }
+    await write(rows)
+  })
+}
+
+/** 填好了, 交去审核。 */
+export async function submitPayRequest(id: string, nowIso: string): Promise<void> {
+  await withLock(async () => {
+    const rows = await read()
+    const r = rows.find((x) => x.id === id)
+    if (!r) throw new Error('找不到这张付款申请')
+    if (payStage(r) !== 'fill') throw new Error('这张已经提交过了')
+    if (!(r.amountCny > 0)) throw new Error('付款金额是 0 —— 先把没定价的金额补上')
+    r.submittedAt = nowIso
+    await write(rows)
+  })
+}
+
 /** 商务审核通过 —— 转到老板那一步。 */
 export async function reviewPayRequest(id: string, by: string, nowIso: string): Promise<void> {
   await withLock(async () => {
@@ -207,10 +311,12 @@ export async function approvePayRequest(
     const st = payStage(r)
     if (st === 'done') throw new Error('这张申请已经批过了')
     if (st === 'rejected') throw new Error('这张申请已经驳回了')
+    if (st === 'fill') throw new Error('这张还没填好提交')
     if (!(r.amountCny > 0)) throw new Error('付款清单合计是 0，批不了')
     const payable = await createRequestPayable({
       payee: r.payee,
       amountCny: r.amountCny,
+      recon: r.recon,
       request: { id: r.id, no: r.no, dept: r.dept, category: r.category, subject: r.subject },
       approvedBy: by,
       nowIso,

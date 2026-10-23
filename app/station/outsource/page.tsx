@@ -10,6 +10,8 @@ import {
   requireOutsourceManager,
 } from '@/lib/auth'
 import { getPayables } from '@/lib/payable'
+import { getPayRequests } from '@/lib/pay-request'
+import { payStage } from '@/lib/pay-request-shared'
 import { getOutsourceReceipts } from '@/lib/outsource-receipt'
 import { settleOutstanding } from '@/lib/settle-shared'
 import { TopBar } from '@/app/_ui'
@@ -21,7 +23,7 @@ export const dynamic = 'force-dynamic'
 export default async function OutsourcePage() {
   const user = await requireOutsourceManager()
   const showMoney = canSeeOutsourceMoney(user)
-  const [allRows, rawVendors, payables, receipts] = await Promise.all([
+  const [allRows, rawVendors, payables, receipts, payRequests] = await Promise.all([
     getOutsourceBlockRows(),
     getVendors(),
     // 应付单 —— 外协对账单确认过的 (供应商 × 月份)。外协单后面那两个字
@@ -29,6 +31,8 @@ export default async function OutsourcePage() {
     getPayables().catch(() => []),
     // 收货确认单 —— 按订单挂的图, 读不到就当都还没传。
     getOutsourceReceipts().catch(() => ({})),
+    // 对账确认了、还在付款申请上走的 —— 也算已对账。
+    getPayRequests().catch(() => []),
   ])
   // 不该看价钱的, 价钱压根不往浏览器里发。
   const rows = showMoney
@@ -45,8 +49,15 @@ export default async function OutsourcePage() {
   // 早先整月认的应付单没记单号, 退回按「供应商|月份」标那一整个月。
   const settled: Record<string, 'reconciled' | 'paid'> = {}
   const settledBlocks: Record<string, 'reconciled' | 'paid'> = {}
+  for (const r of payRequests) {
+    if (!r.recon) continue
+    const st = payStage(r)
+    if (st === 'rejected' || st === 'done') continue // 批下来的看应付单
+    for (const id of r.recon.blockIds) settledBlocks[id] = 'reconciled'
+  }
   for (const p of payables) {
-    if (p.voidedAt || p.manual || p.request) continue // 补录的老账、付款申请不标任何外协单
+    // 补录的老账、普通付款申请不标任何外协单; 外协对账走付款申请落的那张照标。
+    if (p.voidedAt || p.manual || (p.request && !p.blockIds)) continue
     const st = settleOutstanding(p) <= 0 ? 'paid' : 'reconciled'
     if (p.blockIds) for (const id of p.blockIds) settledBlocks[id] = st
     else settled[`${p.vendor}|${p.period}`] = st

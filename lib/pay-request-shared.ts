@@ -3,6 +3,11 @@
 //   人事 / 商务 填申请 → 商务审核 (黄优兰香 或 于海伟) → 老板批 → 自动落一张
 //   应付单到 财务 · 应付 → 财务照常付款、挂回单
 //
+// 外协的钱也走这一条 (于海伟 2026-10-23): 外协对账单上勾着点「确认」, 就生成
+// 一张待填付款的申请 (清单是认下的那几张外协单) → 填好收款账户、补上没定价
+// 的金额, 点「提交审核」→ 审核 → 老板批 → 落进财务应付, 那张应付单认下那几
+// 张外协单。
+//
 // 一张申请上要有的: 收款方 (名称 + 账户), 付款类别 (跟采购同一套类别), 付款
 // 事项和说明, 付款清单 (一项一行, 合计就是这张申请的金额), 付款凭证和发票
 // (照片 / PDF)。审批的人点开一张就看得到全部, 不用再去问。
@@ -60,15 +65,29 @@ export type PayRequest = {
   rejectNote?: string
   payableId?: string
   payableNo?: string
+  /** 外协对账确认生成的 —— 认的是这家哪几张外协单。 */
+  recon?: PayRecon
+  /** 对账来的申请: 填好付款点「提交审核」那一刻。没提交之前是「待填付款」。 */
+  submittedAt?: string
+}
+
+export type PayRecon = {
+  vendor: string
+  period: string // 对账月份 YYYY-MM
+  blockIds: string[]
+  lineCount: number
+  totalQty: number
 }
 
 export type PayStage =
+  | 'fill' // 对账来的, 待填付款
   | 'review' // 待商务审核
   | 'boss' // 待老板批
   | 'done' // 已批, 转财务应付
   | 'rejected' // 已驳回
 
 export const PAY_STAGE_LABEL: Record<PayStage, string> = {
+  fill: '待填付款',
   review: '待审核',
   boss: '待老板批',
   done: '已转财务',
@@ -78,6 +97,7 @@ export const PAY_STAGE_LABEL: Record<PayStage, string> = {
 export function payStage(r: PayRequest): PayStage {
   if (r.rejectedAt) return 'rejected'
   if (r.approvedAt) return 'done'
+  if (r.recon && !r.submittedAt) return 'fill'
   if (r.reviewedAt) return 'boss'
   return 'review'
 }

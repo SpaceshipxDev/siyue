@@ -34,6 +34,7 @@ import {
 type Filter = 'pending' | 'all'
 
 const STAGE_TONE: Record<PayStage, string> = {
+  fill: 'text-[var(--color-overdue)] font-medium',
   review: 'text-[var(--color-overdue)] font-medium',
   boss: 'text-[var(--color-warning)] font-medium',
   done: 'text-[var(--color-success)]',
@@ -70,7 +71,7 @@ export function PayRequestBoard({
 }) {
   const waiting = (r: PayRequest) => {
     const st = payStage(r)
-    return st === 'review' || st === 'boss'
+    return st === 'fill' || st === 'review' || st === 'boss'
   }
   const pendingCount = requests.filter(waiting).length
   const [filter, setFilter] = useState<Filter>(pendingCount > 0 ? 'pending' : 'all')
@@ -193,7 +194,7 @@ export function PayRequestBoard({
       </div>
 
       <p className="mt-4 text-[12px] leading-relaxed text-[var(--color-ink-3)]">
-        谁填的谁看得到，别人填的只有老板、财务、于海伟和审核人看得到。填好的申请先由黄优兰香或于海伟审核（自己填的要让另一个人审），再由老板批。老板批了就自动转到「财务 · 应付」，财务在那里付款、挂回单。发票后补也行，点开这一张传上去。
+        外协对账单上点「确认」会自动生成一张「待填付款」的申请，点开填好收款账户、补上没定价的金额，再点「提交审核」。谁填的谁看得到，别人填的只有老板、财务、于海伟和审核人看得到。填好的申请先由黄优兰香或于海伟审核（自己填的要让另一个人审），再由老板批。老板批了就自动转到「财务 · 应付」，财务在那里付款、挂回单。发票后补也行，点开这一张传上去。
       </p>
     </div>
   )
@@ -724,6 +725,8 @@ function Detail({
   const canAct =
     st === 'review' ? isBoss || (isReviewer && r.appliedBy !== userName) : st === 'boss' ? isBoss : false
   const canDelete = st !== 'done' && (r.appliedBy === userName || isReviewer)
+  // 对账来的那张, 填付款的是确认对账的人 (或者审批的人)。
+  const canFill = st === 'fill' && (r.appliedBy === userName || isReviewer || isBoss)
 
   function run(body: Record<string, unknown> & { kind: string }, ok: string) {
     setError(null)
@@ -763,6 +766,9 @@ function Detail({
         )}
       </div>
 
+      {canFill ? (
+        <FillForm r={r} />
+      ) : (
       <div className="mt-3 max-w-[560px]">
         <div className="grid grid-cols-[minmax(0,1fr)_56px_80px_96px] gap-2 border-b border-[var(--color-border)] pb-1">
           <span className="label">付款清单</span>
@@ -790,6 +796,7 @@ function Detail({
           </span>
         </div>
       </div>
+      )}
 
       <div className="mt-3 flex flex-col gap-2.5">
         <FileStrip r={r} kind="voucher" canDelete={st !== 'done'} />
@@ -877,6 +884,9 @@ function Detail({
               </button>
             </>
           ))}
+        {st === 'fill' && !canFill && (
+          <span className="text-[12.5px] text-[var(--color-ink-3)]">等{r.appliedBy}填付款</span>
+        )}
         {!canAct && (st === 'review' || st === 'boss') && (
           <span className="text-[12.5px] text-[var(--color-ink-3)]">
             {st === 'boss'
@@ -919,6 +929,110 @@ function Detail({
             )}
           </span>
         )}
+      </div>
+    </div>
+  )
+}
+
+// 待填付款 —— 外协对账确认生成的那张: 收款账户、说明、每一项的金额 (没定价
+// 的在这里补), 填好点「提交审核」。凭证、发票在下面照常传。
+function FillForm({ r }: { r: PayRequest }) {
+  const router = useRouter()
+  const [pending, start] = useTransition()
+  const [account, setAccount] = useState(r.payeeAccount ?? '')
+  const [note, setNote] = useState(r.note ?? '')
+  const [amounts, setAmounts] = useState(() => r.items.map((i) => (i.amountCny ? String(i.amountCny) : '')))
+  const [error, setError] = useState<string | null>(null)
+  const nums = amounts.map((a) => num(a) ?? 0)
+  const total = Math.round(nums.reduce((t, n) => t + n, 0) * 100) / 100
+
+  function go(submit: boolean) {
+    if (amounts.some((a) => a.trim() && num(a) === undefined)) return setError('金额要填数字')
+    if (submit && !(total > 0)) return setError('付款金额是 0 —— 先把金额补上')
+    setError(null)
+    start(async () => {
+      try {
+        await mutate({
+          kind: 'fillPayRequest',
+          payRequestId: r.id,
+          payeeAccount: account,
+          note,
+          amounts: nums,
+        })
+        if (submit) await mutate({ kind: 'submitPayRequest', payRequestId: r.id })
+        showToast(submit ? '已提交审核' : '已保存', 'success')
+        router.refresh()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '存不上')
+      }
+    })
+  }
+
+  return (
+    <div className="mt-3 max-w-[640px]">
+      <div className="flex flex-wrap gap-2.5">
+        <input
+          value={account}
+          onChange={(e) => setAccount(e.target.value)}
+          placeholder="收款账户 · 开户行 / 账号 / 联系人"
+          className={`${inp} min-w-[240px] flex-1 bg-[var(--color-surface)]`}
+        />
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="说明 · 可空"
+          className={`${inp} min-w-[160px] flex-1 bg-[var(--color-surface)]`}
+        />
+      </div>
+      <div className="mt-3 grid grid-cols-[minmax(0,1fr)_56px_112px] gap-2 border-b border-[var(--color-border)] pb-1">
+        <span className="label">付款清单</span>
+        <span className="label text-right">数量</span>
+        <span className="label text-right">金额</span>
+      </div>
+      {r.items.map((i, x) => (
+        <div
+          key={x}
+          className="grid grid-cols-[minmax(0,1fr)_56px_112px] items-center gap-2 border-b border-[var(--color-border)] py-1 text-[12.5px]"
+        >
+          <span className="min-w-0 break-words text-[var(--color-ink)]">{i.name}</span>
+          <span className="mono text-right text-[var(--color-ink-3)]">{i.qty ?? ''}</span>
+          <input
+            value={amounts[x]}
+            onChange={(e) => setAmounts((cur) => cur.map((a, k) => (k === x ? e.target.value : a)))}
+            placeholder="没定价 · 补金额"
+            inputMode="decimal"
+            className={`mono h-8 rounded-[2px] border px-2 text-right text-[12.5px] outline-none ${
+              amounts[x].trim()
+                ? 'border-[var(--color-border)] bg-[var(--color-surface)]'
+                : 'border-[var(--color-overdue)] bg-[var(--color-surface)] placeholder:text-[var(--color-overdue)]'
+            }`}
+          />
+        </div>
+      ))}
+      <div className="flex justify-end gap-3 pt-1.5 text-[12.5px]">
+        <span className="text-[var(--color-ink-3)]">合计</span>
+        <span className="mono w-[112px] text-right font-semibold text-[var(--color-ink)]">
+          {formatCny(total)}
+        </span>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2.5">
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => go(true)}
+          className="h-9 shrink-0 rounded-[2px] bg-[var(--color-ink)] px-4 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
+        >
+          提交审核
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => go(false)}
+          className="h-9 shrink-0 rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-4 text-[13px] font-medium text-[var(--color-ink-2)] hover:text-[var(--color-ink)] disabled:opacity-50"
+        >
+          先存着
+        </button>
+        {error && <span className="text-[12px] text-[var(--color-overdue)]">{error}</span>}
       </div>
     </div>
   )
