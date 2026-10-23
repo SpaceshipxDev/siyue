@@ -53,6 +53,7 @@ export default async function DuizhangPage({
     canVendor,
     record,
     vendorRecords,
+    vendorRecordLines,
     customerRecords,
     jobQuery,
     jobMatches,
@@ -126,6 +127,7 @@ export default async function DuizhangPage({
             preparedBy={user.name}
             todayStr={todayStr}
             records={vendorRecords}
+            recordLines={vendorRecordLines}
             canApprove={canApprove}
             canOpenLedger={canOpenLedger}
           />

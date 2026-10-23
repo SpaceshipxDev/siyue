@@ -3016,8 +3016,7 @@ async function dispatch(
       const got = new Set(sheet.lines.map((l) => l.groupId))
       if (sheet.count !== want.size || [...want].some((id) => !got.has(id)))
         return err('勾的单里有已经对过账、或者还没回厂的 —— 刷新再选')
-      if (sheet.unpricedCount > 0)
-        return err(`勾的单里有 ${sheet.unpricedCount} 张没定价 —— 先把价钱补上再确认`)
+      // 没定价的单也能勾着认下 (于海伟 2026-10-23) —— 应付金额只算定了价的。
       try {
         const r = await createPayable({
           vendor: party,

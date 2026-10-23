@@ -34,6 +34,7 @@ import {
   vendorOptions,
   type Duizhang,
   type DuizhangKind,
+  type DuizhangLine,
   type DuizhangParty,
 } from '@/lib/duizhang'
 
@@ -81,6 +82,8 @@ export type DuizhangLoad = {
    * 它们认过的外协单已经不在对账单上了。
    */
   vendorRecords: Payable[]
+  /** 每张确认过的外协应付单认下的那几行 —— 点开「明细」看当时对的是什么。 */
+  vendorRecordLines: Record<string, DuizhangLine[]>
   /** 审批 / 确认 / 记收付款 —— 管钱那一档。 */
   canApprove: boolean
   /** 能进财务的应收/应付 (每个商务)。 */
@@ -114,6 +117,7 @@ export async function loadDuizhang(params: {
   let parties: DuizhangParty[] = []
   let record: Receivable | Payable | null = null
   let vendorRecords: Payable[] = []
+  const vendorRecordLines: Record<string, DuizhangLine[]> = {}
   let customerRecords: Receivable[] = []
   let undocumented: UndocumentedShipment[] = []
   let skipped: string[] = []
@@ -222,6 +226,12 @@ export async function loadDuizhang(params: {
         (p) =>
           !p.voidedAt && !p.manual && !p.request && p.vendor === party && p.period === month,
       )
+      for (const p of vendorRecords) {
+        if (p.blockIds?.length)
+          vendorRecordLines[p.id] = buildVendorDuizhang(
+            rows, vendors, party, from, to, undefined, new Set(p.blockIds),
+          ).lines
+      }
     }
   }
 
@@ -237,6 +247,7 @@ export async function loadDuizhang(params: {
     canVendor,
     record,
     vendorRecords,
+    vendorRecordLines,
     customerRecords,
     jobQuery,
     jobMatches,

@@ -31,7 +31,8 @@ import { ExportButton } from './_bar'
 // 他对的: 合计跟着勾走, 打印 / 导出也只出勾上的那几张。点「确认所选」, 这几张
 // 落成一张应付单, 下一回打开就不在纸上了; 没勾的留着, 下回接着对。
 //
-// 没定价的单勾不上 —— 一个没数的单认下来, 差的那部分就再也没人对了。
+// 没定价的单也能勾 (于海伟 2026-10-23) —— 认下来按 0 计进应付, 勾的时候会
+// 提一句「其中几张没定价」。勾了才出确认; 确认完, 那一笔的明细直接摊开。
 
 const K = 'vendor' as const
 
@@ -41,6 +42,7 @@ export function VendorSheet({
   preparedBy,
   todayStr,
   records,
+  recordLines,
   canApprove,
   canOpenLedger,
 }: {
@@ -50,12 +52,16 @@ export function VendorSheet({
   todayStr: string
   /** 这一家这个月已经确认过的应付单 —— 它们认过的单已经不在纸上了。 */
   records: Payable[]
+  /** 每张确认过的应付单认下的那几行 (应付单 id → 行)。 */
+  recordLines: Record<string, DuizhangLine[]>
   canApprove: boolean
   canOpenLedger: boolean
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  // 摊开明细的那一笔 —— 刚确认的那笔自动摊开。
+  const [openRec, setOpenRec] = useState<string | null>(null)
 
   // 一张外协单 = 一组行。组的顺序跟纸上一致。
   const groups = useMemo(() => {
@@ -86,10 +92,9 @@ export function VendorSheet({
   const chosenQty = chosenLines.reduce((s, l) => s + l.qty, 0)
   const chosenAmount =
     Math.round(chosen.reduce((s, g) => s + (g.amount ?? 0), 0) * 100) / 100
-  const unpricedLeft = groups.length - priced.size
+  const chosenUnpriced = chosen.filter((g) => !priced.has(g.id)).length
 
   function toggle(id: string) {
-    if (!priced.has(id)) return
     setPicked((cur) => {
       const next = new Set(cur)
       if (next.has(id)) next.delete(id)
@@ -97,9 +102,9 @@ export function VendorSheet({
       return next
     })
   }
-  const allOn = priced.size > 0 && [...priced].every((id) => picked.has(id))
+  const allOn = groups.length > 0 && groups.every((g) => picked.has(g.id))
   function toggleAll() {
-    setPicked(allOn ? new Set() : new Set(priced))
+    setPicked(allOn ? new Set() : new Set(groups.map((g) => g.id)))
   }
 
   function confirm() {
@@ -107,13 +112,14 @@ export function VendorSheet({
     setError(null)
     start(async () => {
       try {
-        await mutate({
+        const r = await mutate<{ id: string; no: string }>({
           kind: 'confirmVendorDuizhang',
           vendor: sheet.party,
           period: month,
           blockIds: chosen.map((g) => g.id),
         })
         setPicked(new Set())
+        setOpenRec(r.data.id)
         router.refresh()
       } catch (e) {
         setError(e instanceof Error ? e.message : '确认不上')
@@ -128,7 +134,7 @@ export function VendorSheet({
     count: chosen.length,
     totalQty: chosenQty,
     totalAmountCny: chosenAmount,
-    unpricedCount: 0,
+    unpricedCount: chosenUnpriced,
   }
   const pdfHref = withBase(
     `/duizhang/pdf?kind=vendor&name=${encodeURIComponent(sheet.party)}&m=${month}${
@@ -178,13 +184,34 @@ export function VendorSheet({
                 <span className="text-[11.5px] text-[var(--color-ink-4)]">
                   {r.approvedBy} 确认于 {r.approvedAt.slice(0, 10)}
                 </span>
-                {canOpenLedger && (
-                  <Link
-                    href={`/finance?tab=payable&open=${r.id}`}
-                    className="ml-auto text-[13px] font-medium text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
-                  >
-                    去应付 →
-                  </Link>
+                <span className="ml-auto flex items-baseline gap-4">
+                  {recordLines[r.id] && (
+                    <button
+                      type="button"
+                      onClick={() => setOpenRec(openRec === r.id ? null : r.id)}
+                      className="text-[13px] font-medium text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
+                    >
+                      {openRec === r.id ? '收起明细' : '明细'}
+                    </button>
+                  )}
+                  {canOpenLedger && (
+                    <Link
+                      href={`/finance?tab=payable&open=${r.id}`}
+                      className="text-[13px] font-medium text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
+                    >
+                      去应付 →
+                    </Link>
+                  )}
+                </span>
+                {openRec === r.id && recordLines[r.id] && (
+                  <RecordDetail
+                    lines={recordLines[r.id]}
+                    pdfHref={withBase(
+                      `/duizhang/pdf?kind=vendor&name=${encodeURIComponent(sheet.party)}&m=${month}&sel=${encodeURIComponent(
+                        (r.blockIds ?? []).join(','),
+                      )}`,
+                    )}
+                  />
                 )}
               </div>
             )
@@ -199,7 +226,6 @@ export function VendorSheet({
             <button
               type="button"
               onClick={toggleAll}
-              disabled={priced.size === 0}
               className="text-[13px] font-medium text-[var(--color-ink-2)] hover:text-[var(--color-ink)] disabled:opacity-40"
             >
               {allOn ? '全不选' : '全选'}
@@ -209,9 +235,9 @@ export function VendorSheet({
               {chosenQty} 件 · 应付{' '}
               <b className="mono font-medium text-[var(--color-ink)]">{formatCny(chosenAmount)}</b>
             </span>
-            {unpricedLeft > 0 && (
-              <span className="text-[12px] text-[var(--color-overdue)]">
-                {unpricedLeft} 张没定价，补上价钱才能勾
+            {chosenUnpriced > 0 && (
+              <span className="text-[12px] text-[var(--color-warning)]">
+                其中 {chosenUnpriced} 张没定价，按 0 计
               </span>
             )}
             <span className="ml-auto flex items-center gap-2">
@@ -227,14 +253,14 @@ export function VendorSheet({
               >
                 打印 / 下载 PDF
               </a>
-              {canApprove ? (
+              {chosen.length === 0 ? null : canApprove ? (
                 <button
                   type="button"
                   onClick={confirm}
-                  disabled={pending || chosen.length === 0}
+                  disabled={pending}
                   className="h-9 rounded-[2px] bg-[var(--color-ink)] px-4 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-40"
                 >
-                  {pending ? '确认中…' : '确认所选，生成应付单'}
+                  {pending ? '确认中…' : '确认'}
                 </button>
               ) : (
                 <span className="text-[12px] text-[var(--color-ink-4)]">确认由于海伟或财务来点</span>
@@ -301,7 +327,7 @@ export function VendorSheet({
               <tbody>
                 {groups.map((g) => {
                   const on = picked.has(g.id)
-                  const canPick = priced.has(g.id)
+                  const isPriced = priced.has(g.id)
                   return (
                     <Fragment key={g.id}>
                       {g.lines.map((l, i) => {
@@ -311,7 +337,7 @@ export function VendorSheet({
                             key={l.key}
                             className={on ? '' : 'print:hidden opacity-40'}
                             onClick={() => toggle(g.id)}
-                            style={{ cursor: canPick ? 'pointer' : 'default' }}
+                            style={{ cursor: 'pointer' }}
                           >
                             {i === 0 && (
                               <td
@@ -322,11 +348,10 @@ export function VendorSheet({
                                 <input
                                   type="checkbox"
                                   checked={on}
-                                  disabled={!canPick}
                                   onChange={() => toggle(g.id)}
                                   onClick={(e) => e.stopPropagation()}
-                                  title={canPick ? '这一回对这张单' : '没定价，勾不上'}
-                                  className="h-4 w-4 cursor-pointer accent-[var(--color-ink)] disabled:cursor-not-allowed"
+                                  title={isPriced ? '这一回对这张单' : '没定价，勾上按 0 计'}
+                                  className="h-4 w-4 cursor-pointer accent-[var(--color-ink)]"
                                 />
                               </td>
                             )}
@@ -361,7 +386,7 @@ export function VendorSheet({
                                 ? formatCny(l.amountCny)
                                 : i === 0 && typeof g.amount === 'number'
                                   ? formatCny(g.amount)
-                                  : i === 0 && !canPick
+                                  : i === 0 && !isPriced
                                     ? <span className="text-[var(--color-overdue)]">没定价</span>
                                     : '—'}
                             </td>
@@ -433,6 +458,76 @@ function Money({ label, value, strong }: { label: string; value: number; strong?
       <span className={`mono tabular-nums ${strong ? 'text-[17px] font-semibold' : 'text-[14px]'}`}>
         {formatCny(value)}
       </span>
+    </div>
+  )
+}
+
+// 确认过的那一笔认下了哪些 —— 外协单号、零件、数量、单价、金额。
+function RecordDetail({ lines, pdfHref }: { lines: DuizhangLine[]; pdfHref: string }) {
+  const qty = lines.reduce((t, l) => t + l.qty, 0)
+  const seen = new Set<string>()
+  let total = 0
+  for (const l of lines) {
+    const g = l.groupId ?? l.key
+    if (seen.has(g)) continue
+    seen.add(g)
+    total += l.groupAmountCny ?? 0
+  }
+  return (
+    <div className="mt-2 w-full basis-full border-t border-[var(--color-border)] pt-2">
+      <table className="w-full text-[12.5px]">
+        <thead>
+          <tr className="text-left text-[11.5px] text-[var(--color-ink-4)]">
+            <th className="py-1 font-normal">回厂</th>
+            <th className="py-1 font-normal">外协单号</th>
+            <th className="py-1 font-normal">零件</th>
+            <th className="py-1 text-right font-normal">数量</th>
+            <th className="py-1 text-right font-normal">单价</th>
+            <th className="py-1 text-right font-normal">金额</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l, i) => {
+            const first = i === 0 || lines[i - 1].groupId !== l.groupId
+            return (
+              <tr key={l.key} className={first ? 'border-t border-[var(--color-border)]' : ''}>
+                <td className="mono py-1 text-[var(--color-ink-3)]">{first ? dateLabel(l.date) : ''}</td>
+                <td className="mono py-1 text-[var(--color-ink-2)]">{first ? l.docNo : ''}</td>
+                <td className="py-1 text-[var(--color-ink)]">{l.title}</td>
+                <td className="mono py-1 text-right">{l.qty}</td>
+                <td className="mono py-1 text-right text-[var(--color-ink-2)]">
+                  {typeof l.unitPriceCny === 'number' ? formatCny(l.unitPriceCny) : '—'}
+                </td>
+                <td className="mono py-1 text-right">
+                  {typeof l.amountCny === 'number' ? (
+                    formatCny(l.amountCny)
+                  ) : first && typeof l.groupAmountCny === 'number' ? (
+                    formatCny(l.groupAmountCny)
+                  ) : first ? (
+                    <span className="text-[var(--color-warning)]">没定价</span>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+              </tr>
+            )
+          })}
+          <tr className="border-t border-[var(--color-border-strong)] font-medium">
+            <td colSpan={3} className="py-1.5 text-[var(--color-ink-2)]">合计</td>
+            <td className="mono py-1.5 text-right">{qty}</td>
+            <td />
+            <td className="mono py-1.5 text-right">{formatCny(total)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <a
+        href={pdfHref}
+        target="_blank"
+        rel="noopener"
+        className="mt-2 inline-block text-[12px] text-[var(--color-ink-3)] underline underline-offset-2 hover:text-[var(--color-ink)]"
+      >
+        打印这张对账单
+      </a>
     </div>
   )
 }
