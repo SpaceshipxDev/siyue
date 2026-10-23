@@ -358,6 +358,7 @@ export function ChangesBoard({
         <div
           role="dialog"
           aria-label="查看大图"
+          data-no-zoom
           className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-black/85 p-4"
           onClick={() => setLightbox(null)}
         >

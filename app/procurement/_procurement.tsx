@@ -2633,7 +2633,7 @@ function PhotoViewer({
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-black/85">
+    <div data-no-zoom className="fixed inset-0 z-[60] flex flex-col bg-black/85">
       <div className="flex shrink-0 items-center gap-3 px-4 py-3">
         <button
           type="button"

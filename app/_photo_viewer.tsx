@@ -46,7 +46,7 @@ export function PhotoViewer({
     'absolute top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full border border-white/30 text-[22px] text-white/80 hover:bg-white/10'
 
   return createPortal(
-    <div className="fixed inset-0 z-[70] flex flex-col bg-black/85">
+    <div data-no-zoom className="fixed inset-0 z-[70] flex flex-col bg-black/85">
       <div className="flex shrink-0 items-center gap-3 px-4 py-3">
         <button
           type="button"

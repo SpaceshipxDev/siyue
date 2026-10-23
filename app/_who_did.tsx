@@ -15,6 +15,10 @@ import { getReporterName } from './_reporter'
 // 回就那几个人, 一般点一下就完。不想选也行: 「跳过」就只记在账号上。
 //
 // 选的人记在个人报工里 (报工统计账号表下面那一张), 账号统计照旧。
+//
+// 名单里没有的人: 打完名字直接点「完成」就记给他, 不用非得先按回车 (以前打
+// 了名字没按回车, 按钮是灰的, 看着像点不了 —— 于海伟 2026-10-23)。名单下面
+// 也有一个「＋加 某某」可以点。拼音还在选字时的回车是输入法的, 不算。
 
 type Picked = { names: string[]; shares?: { name: string; qty: number }[] }
 
@@ -104,30 +108,37 @@ export function WhoDidSheet({
 
   function toggle(name: string) {
     setPicked((cur) => (cur.includes(name) ? cur.filter((n) => n !== name) : [...cur, name]))
+    setQ('')
   }
 
+  // 框里打了、还没加上的名字 —— 点「完成」时一起算上, 跟按了回车一样; 按钮
+  // 上写着「记给 某某」, 打的是谁一眼看得到。点名单里的人会把框清掉。
+  const typed = needle && !picked.includes(needle) ? needle : ''
+  const fresh = typed && !all.includes(typed) ? typed : ''
+  const names = typed ? [...picked, typed] : picked
+
   // 几个人一起做、又知道件数: 每人几件, 默认平分 (最后一个人兜零头)。
-  const many = picked.length > 1
+  const many = names.length > 1
   const shareOf = (name: string, i: number): string => {
     if (qtys[name] !== undefined) return qtys[name]
     if (!totalQty) return ''
-    const base = Math.floor((totalQty / picked.length) * 100) / 100
-    if (i < picked.length - 1) return String(base)
-    return String(Math.round((totalQty - base * (picked.length - 1)) * 100) / 100)
+    const base = Math.floor((totalQty / names.length) * 100) / 100
+    if (i < names.length - 1) return String(base)
+    return String(Math.round((totalQty - base * (names.length - 1)) * 100) / 100)
   }
-  const shares = picked.map((name, i) => ({
+  const shares = names.map((name, i) => ({
     name,
     qty: Number(shareOf(name, i)) || 0,
   }))
   const sum = Math.round(shares.reduce((s, x) => s + x.qty, 0) * 100) / 100
 
   function confirm() {
-    if (picked.length === 0) return
-    saveRecent(stage, picked)
+    if (names.length === 0) return
+    saveRecent(stage, names)
     onConfirm(
       many && totalQty
-        ? { names: picked, shares: shares.filter((s) => s.qty > 0) }
-        : { names: picked },
+        ? { names, shares: shares.filter((s) => s.qty > 0) }
+        : { names },
     )
   }
 
@@ -179,6 +190,7 @@ export function WhoDidSheet({
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
             // 名单里没有的人 —— 打完名字按回车就加上。
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return
             if (e.key === 'Enter' && needle && !picked.includes(needle)) {
               setPicked((cur) => [...cur, needle])
               setQ('')
@@ -192,9 +204,21 @@ export function WhoDidSheet({
           {/* 名单之外临时加的人也显示在最前面 */}
           <div className="flex flex-wrap gap-2">
             {picked.filter((n) => !list.includes(n) && !all.includes(n)).map(chip)}
+            {fresh && (
+              <button
+                type="button"
+                onClick={() => {
+                  setPicked((cur) => [...cur, fresh])
+                  setQ('')
+                }}
+                className="rounded-[2px] border border-dashed border-[var(--color-ink)] px-3 py-1.5 text-[13.5px] text-[var(--color-ink)]"
+              >
+                ＋加「{fresh}」
+              </button>
+            )}
             {list.map(chip)}
           </div>
-          {list.length === 0 && all.length === 0 && (
+          {list.length === 0 && all.length === 0 && !fresh && (
             <p className="py-4 text-center text-[12.5px] text-[var(--color-ink-4)]">名单读取中…</p>
           )}
         </div>
@@ -204,7 +228,7 @@ export function WhoDidSheet({
             {totalQty ? (
               <>
                 <p className="label mb-2">
-                  {picked.length} 人一起做 · 每人几件{' '}
+                  {names.length} 人一起做 · 每人几件{' '}
                   <span
                     className={
                       sum === totalQty ? 'text-[var(--color-ink-3)]' : 'text-[var(--color-warning)]'
@@ -214,7 +238,7 @@ export function WhoDidSheet({
                   </span>
                 </p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                  {picked.map((name, i) => (
+                  {names.map((name, i) => (
                     <label key={name} className="flex items-center gap-2">
                       <span className="w-[72px] shrink-0 truncate text-[13px] text-[var(--color-ink)]">
                         {name}
@@ -232,7 +256,7 @@ export function WhoDidSheet({
               </>
             ) : (
               <p className="text-[12.5px] text-[var(--color-ink-2)]">
-                {picked.join('、')} {picked.length} 人一起做 —— 这一单每个零件平分给这几个人。
+                {names.join('、')} {names.length} 人一起做 —— 这一单每个零件平分给这几个人。
               </p>
             )}
           </div>
@@ -257,13 +281,13 @@ export function WhoDidSheet({
             </button>
             <button
               type="button"
-              disabled={picked.length === 0}
+              disabled={names.length === 0}
               onClick={confirm}
               className="rounded-[2px] bg-[var(--color-ink)] px-4 py-1.5 text-[12.5px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-40"
             >
-              {picked.length <= 1
-                ? `完成 · 记给${picked[0] ?? '…'}`
-                : `完成 · ${picked.length} 人分`}
+              {names.length <= 1
+                ? `完成 · 记给${names[0] ?? '…'}`
+                : `完成 · ${names.length} 人分`}
             </button>
           </span>
         </div>

@@ -1300,6 +1300,7 @@ export function Sheet({ mode, me: bootMe, boot }: { mode: Mode; me: string | nul
 
       {lightbox && (
         <div
+          data-no-zoom
           className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-black/85 p-4"
           onClick={() => setLightbox(null)}
         >

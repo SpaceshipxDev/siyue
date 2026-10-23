@@ -7,6 +7,7 @@ import { ToastHost } from './_toast'
 import { APP_TITLE } from '@/lib/brand'
 import { GaiHook } from './_gai'
 import { AutoRefresh } from './_auto_refresh'
+import { ImageZoom } from './_image_zoom'
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -55,6 +56,7 @@ export default function RootLayout({
         {children}
         <ToastHost />
         <AutoRefresh />
+        <ImageZoom />
         <EnBoot />
         <GaiHook />
       </body>

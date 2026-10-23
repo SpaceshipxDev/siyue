@@ -146,11 +146,11 @@ export function ComponentImageUploader({
         ref={boxRef}
         title={
           effectiveUrl
-            ? '点击更换 · 拖拽 · 或鼠标停在这里按 Ctrl+V 粘贴'
+            ? '点图看大图 · 点「换」更换 · 拖拽 · 或鼠标停在这里按 Ctrl+V 粘贴'
             : '点击上传 · 拖拽 · 或鼠标停在这里按 Ctrl+V 粘贴'
         }
         style={{ width: px, height: px }}
-        className={`relative cursor-pointer overflow-hidden rounded-[2px] border transition-colors ${
+        className={`group/up relative cursor-pointer overflow-hidden rounded-[2px] border transition-colors ${
           drag
             ? 'border-[var(--color-ink)] bg-[var(--color-active-bg)]'
             : effectiveUrl
@@ -178,12 +178,26 @@ export function ComponentImageUploader({
             alt="零件图"
             loading="lazy"
             decoding="async"
-            className="h-full w-full object-contain"
+            className="h-full w-full cursor-zoom-in object-contain"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-[10px] tracking-wider text-[var(--color-ink-3)]">
             {busy ? '…' : '+ 图'}
           </div>
+        )}
+        {/* 有图时点图是看大图 (全站的点图放大), 换图点角上这个「换」—— 有鼠标的
+            停上去才出来, 触屏一直露着。 */}
+        {effectiveUrl && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              inputRef.current?.click()
+            }}
+            className="absolute right-0 top-0 rounded-bl-[2px] bg-black/60 px-1 text-[10px] leading-[16px] text-white [@media(hover:hover)]:hidden [@media(hover:hover)]:group-hover/up:block"
+          >
+            {busy ? '…' : '换'}
+          </button>
         )}
       </div>
       {error ? (
