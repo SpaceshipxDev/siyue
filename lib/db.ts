@@ -14,6 +14,7 @@ import {
 } from './data'
 import { shanghaiDay, shanghaiWindow, today, todayMMDD } from './today'
 import { getReceivables } from './receivable'
+import { getReworkJobIds } from './rework-job'
 import { settleOutstanding } from './settle-shared'
 import type {
   CaiwuRow,
@@ -3595,6 +3596,8 @@ async function loadOrderMoneyLightByJob(): Promise<
   }
 
   await applyReceivableSettle(out, shipmentsRaw, jobsRaw)
+  // 不良返工单不是卖给客户的, 没有收款这回事 (lib/rework-job)。
+  for (const id of await getReworkJobIds().catch(() => new Set<string>())) out.delete(id)
   return out
 }
 
@@ -4004,8 +4007,11 @@ export async function getOrderLedgerRows(): Promise<
   }
 
   const rows: import('./data').OrderLedgerRow[] = []
+  // 不良返工单只为报工存在, 不进订单账 (lib/rework-job)。
+  const reworkIds = await getReworkJobIds().catch(() => new Set<string>())
   for (const j of jobsRaw) {
     const jobId = j.id as string
+    if (reworkIds.has(jobId)) continue
     const outsource = outsourceByJob.get(jobId) ?? []
     const buys = buysByJob.get(jobId) ?? []
     const fq = fenqiByJob.get(jobId)

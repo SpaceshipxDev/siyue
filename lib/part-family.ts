@@ -1,6 +1,8 @@
 import 'server-only'
 import { supabase } from './supabase'
 import { workSplitKey } from './work-split'
+import { getReworkJobs } from './rework-job'
+import { STAGES } from './data'
 
 /*
  * 拆件 · 加刀 —— 一个零件下面挂的 1.1、1.2 那几行。
@@ -17,6 +19,9 @@ import { workSplitKey } from './work-split'
  * 下面没挂子行的零件一分不动, 照原来的算。
  *
  * 只改报工统计读出来的金额, 不动任何数据。
+ *
+ * 不良返工单 (lib/rework-job) 也在这里换金额: 那张单的零件没有售价, 每一道
+ * 完成一次 = 返工报工单价 × 件数 (于海伟 2026-10-24)。
  */
 
 export type FamilyValue = {
@@ -32,10 +37,10 @@ const TTL_MS = 30_000
 let jobsCache: { at: number; ids: Set<string> } | null = null
 const valuesCache = new Map<string, { at: number; map: Map<string, FamilyValue> }>()
 
-/** 挂了子行 (1.1 这种序号) 的工单。半分钟读一次。 */
+/** 挂了子行 (1.1 这种序号) 的工单, 加上不良返工单。半分钟读一次。 */
 export async function getFamilyJobIds(): Promise<Set<string>> {
   if (jobsCache && Date.now() - jobsCache.at < TTL_MS) return jobsCache.ids
-  const ids = new Set<string>()
+  const ids = new Set<string>(Object.keys(await getReworkJobs().catch(() => ({}))))
   for (let from = 0; from < 50_000; from += 1000) {
     const r = await supabase
       .from('parts')
@@ -92,11 +97,28 @@ export async function getFamilyValues(jobIds: string[]): Promise<Map<string, Fam
     return (r.data ?? []) as AnyRow[]
   })
 
+  // 不良返工单 —— 每件按返工报工单价, 哪一道都一样; 不参与下面拆件 · 加刀。
+  const rework = await getReworkJobs().catch(() => ({}) as Awaited<ReturnType<typeof getReworkJobs>>)
+  for (const p of parts) {
+    const rec = rework[p.job_id as string]
+    if (!rec) continue
+    const rate = rec.rates[p.id as string]
+    const qty = Number(p.qty ?? 0)
+    const value = typeof rate === 'number' ? Math.round(rate * qty * 100) / 100 : 0
+    for (const st of STAGES)
+      out.set(workSplitKey(p.id as string, st), {
+        valueCny: value,
+        allocated: false,
+        unpriced: typeof rate !== 'number',
+      })
+  }
+
   type Fam = { parent: AnyRow; chai: AnyRow[]; jia: AnyRow[] }
   const fams: Fam[] = []
   const byJob = new Map<string, AnyRow[]>()
   for (const p of parts) {
     const j = p.job_id as string
+    if (rework[j]) continue
     if (!byJob.has(j)) byJob.set(j, [])
     byJob.get(j)!.push(p)
   }
