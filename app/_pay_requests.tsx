@@ -20,6 +20,8 @@ import {
   type PayFileKind,
   type PayRequest,
   type PayStage,
+  type PayStatement,
+  cleanStatement,
 } from '@/lib/pay-request-shared'
 
 // 付款申请 —— 人事、商务两头共用这一块 (人事 /hr?v=pay, 商务 /pay)。
@@ -290,6 +292,35 @@ function gridToItems(grid: unknown[][]): ImportedItem[] {
   return out
 }
 
+/** 对账单明细 —— 整张表原样读进来 (第一张工作表, 格子按表里显示的样子)。 */
+async function readStatementFile(file: File): Promise<PayStatement | undefined> {
+  const XLSX = await import('xlsx')
+  const buf = await file.arrayBuffer()
+  // CSV 是纯文字 —— 先认编码 (UTF-8 不对就是 GBK, 国内导出来的多半是它), 格
+  // 子原样不转; Excel 里的日期按 年-月-日 写。
+  let wb
+  if (/\.csv$/i.test(file.name)) {
+    let text: string
+    try {
+      text = new TextDecoder('utf-8', { fatal: true }).decode(buf)
+    } catch {
+      text = new TextDecoder('gbk').decode(buf)
+    }
+    wb = XLSX.read(text.replace(/^\uFEFF/, ''), { type: 'string', raw: true })
+  } else {
+    wb = XLSX.read(buf, { type: 'array', cellDates: true })
+  }
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  if (!ws) return undefined
+  const grid = XLSX.utils.sheet_to_json<unknown[]>(ws, {
+    header: 1,
+    raw: false,
+    defval: '',
+    dateNF: 'yyyy-mm-dd',
+  })
+  return cleanStatement(grid, file.name.replace(/\.(xlsx|xls|csv)$/i, ''))
+}
+
 async function readItemsFile(file: File): Promise<ImportedItem[]> {
   const XLSX = await import('xlsx')
   const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
@@ -322,6 +353,7 @@ function NewRequest({
     { key: 0, name: '', qty: '', price: '', amount: '' },
   ])
   const [staged, setStaged] = useState<Record<PayFileKind, File[]>>({ voucher: [], invoice: [] })
+  const [statement, setStatement] = useState<PayStatement | undefined>()
   const [error, setError] = useState<string | null>(null)
 
   // 以前付过的收款方 —— 选中就把上回的账户带上, 不用再打一遍。
@@ -378,6 +410,7 @@ function NewRequest({
               unitPriceCny: num(i.price),
               amountCny: lineAmount(i),
             })),
+            statement,
           },
         })
         let failed = 0
@@ -573,12 +606,17 @@ function NewRequest({
 
       <div className="mt-4 flex flex-wrap items-center gap-2.5">
         {(['voucher', 'invoice'] as PayFileKind[]).map((kind) => (
-          <StagedFiles
-            key={kind}
-            label={PAY_FILE_LABEL[kind]}
-            files={staged[kind]}
-            onChange={(fs) => setStaged((s) => ({ ...s, [kind]: fs }))}
-          />
+          <Fragment key={kind}>
+            <StagedFiles
+              label={PAY_FILE_LABEL[kind]}
+              files={staged[kind]}
+              onChange={(fs) => setStaged((s) => ({ ...s, [kind]: fs }))}
+            />
+            {/* 对账单明细 —— 跟在付款凭证后面 (于海伟 2026-10-24)。 */}
+            {kind === 'voucher' && (
+              <StatementPick value={statement} onChange={setStatement} onError={setError} />
+            )}
+          </Fragment>
         ))}
         <span className="flex-1" />
         <button
@@ -598,6 +636,174 @@ function NewRequest({
         </button>
       </div>
       {error && <p className="mt-2 text-[12px] text-[var(--color-overdue)]">{error}</p>}
+      {statement && (
+        <div className="mt-3">
+          <StatementTable s={statement} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 导入对账单明细的那个按钮 —— 选了 Excel / CSV 就读成一张表; 有了就显示几行,
+// 点 × 去掉。
+function StatementPick({
+  value,
+  onChange,
+  onError,
+  busy: outerBusy,
+  noChip,
+}: {
+  value?: PayStatement
+  onChange: (s: PayStatement | undefined) => void
+  onError: (e: string | null) => void
+  busy?: boolean
+  /** 外面自己写着是哪张 —— 这里只要那个按钮。 */
+  noChip?: boolean
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <input
+        ref={ref}
+        type="file"
+        accept=".xlsx,.xls,.csv"
+        className="hidden"
+        onChange={async (e) => {
+          const f = e.target.files?.[0]
+          e.target.value = ''
+          if (!f) return
+          setBusy(true)
+          try {
+            const got = await readStatementFile(f)
+            if (!got) onError('这张表是空的')
+            else {
+              onError(null)
+              onChange(got)
+            }
+          } catch {
+            onError('这个表格读不出来 —— 换成 Excel（.xlsx）再试')
+          } finally {
+            setBusy(false)
+          }
+        }}
+      />
+      {value && !noChip && (
+        <span className="inline-flex h-9 items-center gap-1.5 rounded-[2px] border border-[var(--color-border)] px-2.5 text-[12.5px] text-[var(--color-ink-2)]">
+          对账单明细 {Math.max(0, value.rows.length - 1)} 行
+          <button
+            type="button"
+            onClick={() => onChange(undefined)}
+            aria-label="去掉对账单明细"
+            className="text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+          >
+            ×
+          </button>
+        </span>
+      )}
+      <button
+        type="button"
+        disabled={busy || outerBusy}
+        onClick={() => ref.current?.click()}
+        title="选供应商的对账单 Excel，整张表原样导进来"
+        className="h-9 shrink-0 rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-3 text-[12.5px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] disabled:opacity-50"
+      >
+        {busy || outerBusy ? '读取中…' : value ? '换一张' : '＋ 对账单明细'}
+      </button>
+    </span>
+  )
+}
+
+// 对账单明细那张表 —— 第一行是表头; 长的在框里滚。
+function StatementTable({ s }: { s: PayStatement }) {
+  const [head, ...body] = s.rows
+  return (
+    <div className="max-h-[320px] overflow-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <table className="w-full border-collapse text-[12px]">
+        <thead className="sticky top-0 bg-[#f5f3ed]">
+          <tr>
+            {head.map((h, i) => (
+              <th
+                key={i}
+                className="whitespace-nowrap border-b border-[var(--color-border)] px-2 py-1.5 text-left font-medium text-[var(--color-ink-2)]"
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {body.map((r, x) => (
+            <tr key={x} className="border-b border-[var(--color-border)] last:border-b-0">
+              {r.map((c, i) => (
+                <td
+                  key={i}
+                  className={`px-2 py-1 text-[var(--color-ink)] ${
+                    /^-?[\d,.]+$/.test(c) ? 'mono whitespace-nowrap text-right' : ''
+                  }`}
+                >
+                  {c}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// 点开一张申请时的对账单明细 —— 有就摆着, 没批之前能导、能换、能去掉。
+function StatementStrip({ r, canEdit }: { r: PayRequest; canEdit: boolean }) {
+  const router = useRouter()
+  const [pending, start] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+  const save = (s: PayStatement | undefined) =>
+    start(async () => {
+      try {
+        await mutate({ kind: 'setPayStatement', payRequestId: r.id, statement: s ?? null })
+        router.refresh()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '存不上')
+      }
+    })
+  if (!r.statement && !canEdit) return null
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="label w-[56px] shrink-0">对账单</span>
+        {r.statement && (
+          <span className="text-[12.5px] text-[var(--color-ink-2)]">
+            {r.statement.filename} · {Math.max(0, r.statement.rows.length - 1)} 行
+          </span>
+        )}
+        {canEdit && (
+          <StatementPick
+            value={r.statement}
+            noChip
+            onChange={(s) => s && save(s)}
+            onError={setError}
+            busy={pending}
+          />
+        )}
+        {canEdit && r.statement && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => confirm('去掉这张对账单明细？') && save(undefined)}
+            className="text-[12px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+          >
+            去掉
+          </button>
+        )}
+        {error && <span className="text-[12px] text-[var(--color-overdue)]">{error}</span>}
+      </div>
+      {r.statement && (
+        <div className="mt-2">
+          <StatementTable s={r.statement} />
+        </div>
+      )}
     </div>
   )
 }
@@ -800,6 +1006,10 @@ function Detail({
 
       <div className="mt-3 flex flex-col gap-2.5">
         <FileStrip r={r} kind="voucher" canDelete={st !== 'done'} />
+        <StatementStrip
+          r={r}
+          canEdit={st !== 'done' && st !== 'rejected' && (r.appliedBy === userName || isReviewer || isBoss)}
+        />
         <FileStrip r={r} kind="invoice" canDelete={st !== 'done'} />
       </div>
 

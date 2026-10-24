@@ -13,6 +13,8 @@ import {
   type PayItem,
   type PayRecon,
   type PayRequest,
+  type PayStatement,
+  cleanStatement,
 } from './pay-request-shared'
 
 /*
@@ -110,6 +112,13 @@ function normalize(raw: unknown): PayRequest[] {
       amountCny: money(r.amountCny),
       vouchers: files(r.vouchers),
       invoices: files(r.invoices),
+      ...(r.statement && typeof r.statement === 'object'
+        ? (() => {
+            const st = r.statement as Record<string, unknown>
+            const c = cleanStatement(st.rows, st.filename)
+            return c ? { statement: c } : null
+          })()
+        : null),
       appliedBy: str(r.appliedBy),
       appliedAt: str(r.appliedAt),
       reviewedBy: opt(r.reviewedBy),
@@ -166,6 +175,7 @@ export async function createPayRequest(
     subject: string
     note?: string
     items: PayItem[]
+    statement?: PayStatement
   },
   by: string,
   nowIso: string,
@@ -187,6 +197,7 @@ export async function createPayRequest(
       amountCny: payTotal(items),
       vouchers: [],
       invoices: [],
+      ...(input.statement ? { statement: input.statement } : null),
       appliedBy: by,
       appliedAt: nowIso,
     }
@@ -209,7 +220,7 @@ export function reconBlockIds(requests: PayRequest[], vendor: string): string[] 
 
 /** 外协对账确认 —— 认下的那几张外协单生成一张待填付款的申请。 */
 export async function createReconPayRequest(
-  input: { recon: PayRecon; items: PayItem[] },
+  input: { recon: PayRecon; items: PayItem[]; statement?: PayStatement },
   by: string,
   nowIso: string,
   todayYmd: string,
@@ -234,6 +245,7 @@ export async function createReconPayRequest(
       amountCny: payTotal(items),
       vouchers: [],
       invoices: [],
+      ...(input.statement ? { statement: input.statement } : null),
       appliedBy: by,
       appliedAt: nowIso,
       recon: input.recon,
@@ -264,6 +276,19 @@ export async function fillPayRequest(
       )
       r.amountCny = payTotal(r.items)
     }
+    await write(rows)
+  })
+}
+
+/** 对账单明细 —— 导进来 / 换一张 / 去掉。批下来以后就定了。 */
+export async function setPayStatement(id: string, statement: PayStatement | undefined): Promise<void> {
+  await withLock(async () => {
+    const rows = await read()
+    const r = rows.find((x) => x.id === id)
+    if (!r) throw new Error('找不到这张付款申请')
+    if (payStage(r) === 'done') throw new Error('已经转到财务了，对账单明细不能再改')
+    if (statement) r.statement = statement
+    else delete r.statement
     await write(rows)
   })
 }

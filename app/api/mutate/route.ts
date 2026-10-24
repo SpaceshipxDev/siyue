@@ -336,9 +336,10 @@ import {
   reconBlockIds,
   rejectPayRequest,
   reviewPayRequest,
+  setPayStatement,
   submitPayRequest,
 } from '@/lib/pay-request'
-import { payItemAmount, payStage, PAY_DEPTS, type PayDept } from '@/lib/pay-request-shared'
+import { cleanStatement, payItemAmount, payStage, PAY_DEPTS, type PayDept } from '@/lib/pay-request-shared'
 import {
   addPayablePayment,
   getPayables,
@@ -3040,9 +3041,36 @@ async function dispatch(
           amountCny: l.groupAmountCny ?? 0,
         })
       }
+      // 对账单明细 —— 就是这次勾着认下的那几行, 跟打印出去的对账单一样。
+      const statement = cleanStatement(
+        [
+          ['回厂日期', '外协单号', '工序', '零件', '料号', '数量', '单价', '金额'],
+          ...sheet.lines.map((l, i) => {
+            const first = i === 0 || sheet.lines[i - 1].groupId !== l.groupId
+            return [
+              l.date,
+              first ? l.docNo : '',
+              l.detail,
+              l.title,
+              l.partNo ?? '',
+              String(l.qty),
+              typeof l.unitPriceCny === 'number' ? String(l.unitPriceCny) : '',
+              typeof l.amountCny === 'number'
+                ? String(l.amountCny)
+                : first && typeof l.groupAmountCny === 'number'
+                  ? String(l.groupAmountCny)
+                  : first
+                    ? '没定价'
+                    : '',
+            ]
+          }),
+        ],
+        `${party} ${period} 外协对账单`,
+      )
       try {
         const r = await createReconPayRequest(
           {
+            statement,
             recon: {
               vendor: party,
               period,
@@ -3062,6 +3090,28 @@ async function dispatch(
       } catch (e) {
         return err(e instanceof Error ? e.message : '确认不上')
       }
+    }
+
+    // 对账单明细 —— 导进来、换一张、去掉 (statement: null)。
+    case 'setPayStatement': {
+      const id = body.payRequestId
+      if (!isString(id)) return err('bad setPayStatement args')
+      const raw = body.statement as Record<string, unknown> | null | undefined
+      const statement = raw ? cleanStatement(raw.rows, raw.filename) : undefined
+      if (raw && !statement) return err('表格里是空的')
+      const u = await requireUser()
+      const r = await getPayRequest(id)
+      if (!r) return err('找不到这张付款申请', 404)
+      if (r.appliedBy !== u.name && !isPayReviewer(u) && !canSettleAccounts(u))
+        return err('只有填的人、审批的人或财务能改', 403)
+      try {
+        await setPayStatement(id, statement)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '存不上')
+      }
+      revalidatePath('/pay')
+      revalidatePath('/hr')
+      return Response.json(ok())
     }
 
     // 对账来的付款申请 —— 待填付款那一步: 收款账户、说明、补金额; 填好提交审核。
@@ -3298,6 +3348,13 @@ async function dispatch(
           subject: input.subject,
           note: isString(input.note) ? input.note : undefined,
           items,
+          statement:
+            typeof input.statement === 'object' && input.statement !== null
+              ? cleanStatement(
+                  (input.statement as Record<string, unknown>).rows,
+                  (input.statement as Record<string, unknown>).filename,
+                )
+              : undefined,
         },
         u.name,
         new Date().toISOString(),

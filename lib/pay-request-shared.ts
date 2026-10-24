@@ -51,6 +51,8 @@ export type PayRequest = {
   items: PayItem[] // 需要付款清单
   amountCny: number // 清单合计
   vouchers: VoucherFile[] // 付款凭证
+  /** 对账单明细 —— 供应商那张对账单, 导进来原样摆着 (于海伟 2026-10-24)。 */
+  statement?: PayStatement
   invoices: VoucherFile[] // 发票
   appliedBy: string
   appliedAt: string // ISO
@@ -69,6 +71,27 @@ export type PayRequest = {
   recon?: PayRecon
   /** 对账来的申请: 填好付款点「提交审核」那一刻。没提交之前是「待填付款」。 */
   submittedAt?: string
+}
+
+/** 一张表: 第一行是表头, 后面一行一条。格子都是字。 */
+export type PayStatement = {
+  filename: string
+  rows: string[][]
+}
+
+/** 导进来的表收拾一下: 空行去掉, 右边全空的列去掉, 太大的截掉。 */
+export function cleanStatement(raw: unknown, filename: unknown): PayStatement | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const text = (v: unknown) => (v == null ? '' : String(v).trim().slice(0, 200))
+  let rows = (raw as unknown[])
+    .filter(Array.isArray)
+    .map((r) => (r as unknown[]).slice(0, 30).map(text))
+    .filter((r) => r.some(Boolean))
+    .slice(0, 1000)
+  if (rows.length === 0) return undefined
+  const width = Math.max(...rows.map((r) => r.reduce((w, c, i) => (c ? i + 1 : w), 0)))
+  rows = rows.map((r) => Array.from({ length: width }, (_, i) => r[i] ?? ''))
+  return { filename: text(filename) || '对账单', rows }
 }
 
 export type PayRecon = {
