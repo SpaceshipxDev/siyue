@@ -259,7 +259,13 @@ export function rowRollupStage(row: MasterRow, stage: Stage): RowRollup {
   if (!cell || cell.total === 0) {
     return { kind: 'na', done: 0, total: 0, outsourcedOpen: 0 }
   }
-  const doneAggregate = cell.inHouseDone + cell.outsourcedClosed + cell.outsourcedOpen
+  // 一个零件这一道开过两回外协 (一回已回、一回还在外面) 时, 已回和在外两边
+  // 都数了它一次, 加起来会比零件数还多 —— 原来要求正好相等, 多出来就当成没做
+  // 完, 滞留一直停在这一道 (于海伟 2026-10-25, YNMX-26-10-20-176)。按零件数封顶。
+  const doneAggregate = Math.min(
+    cell.total,
+    cell.inHouseDone + cell.outsourcedClosed + cell.outsourcedOpen,
+  )
   const latestDate = cell.latestCompletedAt
   const latestBy = cell.latestBy
   if (doneAggregate === cell.total) {

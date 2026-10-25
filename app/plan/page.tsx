@@ -67,7 +67,8 @@ function fmtAt(v?: string): string | undefined {
 function cellAuto(row: MasterRow, stage: Stage): PlanAuto | undefined {
   const c = row.cells[stage]
   if (!c || c.total === 0) return undefined
-  const done = c.inHouseDone + c.outsourcedClosed + c.outsourcedOpen
+  // 同一个零件开过两回外协会被数两遍 —— 按零件数封顶 (lib/master rowRollupStage)。
+  const done = Math.min(c.total, c.inHouseDone + c.outsourcedClosed + c.outsourcedOpen)
   const state = done >= c.total ? 'done' : done > 0 || c.inProgress > 0 ? 'partial' : 'none'
   return {
     state,
