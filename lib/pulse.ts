@@ -4,7 +4,7 @@ import { STAGES } from './data'
 import { supabase } from './supabase'
 import { today, shanghaiWindow, shanghaiRangeWindow, shiftDate } from './today'
 import { getWorkSplits, workSplitKey, type WorkShare } from './work-split'
-import { applyFamilyValues, getFamilyJobIds, PROGRAMMING_QTY_CAP } from './part-family'
+import { applyFamilyValues, getFamilyJobIds, getQualityNames, PROGRAMMING_QTY_CAP } from './part-family'
 
 // Read shapes for the /pulse (现场) surface. Hits the views from
 // migration 0019_pulse_views.sql — nothing here computes; the SQL does.
@@ -391,6 +391,29 @@ async function getFamilyDeltas(
       if (batch.length < 1000) break
     }
   }
+  // 出货 —— 质量的人点的不算钱 (lib/part-family), 把那几条也捞进来扣掉。
+  const quality = !stage || stage === '出货' ? [...(await getQualityNames())] : []
+  if (quality.length > 0) {
+    for (let offset = 0; offset < 20000; offset += 1000) {
+      const r = await supabase
+        .from('worker_stage_events')
+        .select('job_id, part_id, stage, actor_name, part_qty, value_cny')
+        .eq('kind', 'finished')
+        .eq('stage', '出货')
+        .in('actor_name', quality)
+        .gte('ts', window.from)
+        .lt('ts', window.to)
+        .order('ts', { ascending: true })
+        .range(offset, offset + 999)
+      if (r.error) {
+        if (isSchemaLagError(r.error)) break
+        throw r.error
+      }
+      const batch = (r.data ?? []) as AnyRow[]
+      for (const row of batch) if (!famSet.has(row.job_id as string)) rows.push(row)
+      if (batch.length < 1000) break
+    }
+  }
   const before = await applyFamilyValues(rows)
   for (const [row, old] of before) {
     const actor = ((row.actor_name as string | null) ?? '—') || '—'
@@ -664,7 +687,7 @@ export async function getWorkerTimeline(opts: {
   let q = supabase
     .from('worker_stage_events')
     .select(
-      'ts, kind, stage, part_id, part_name, part_qty, value_cny, is_unpriced, job_id, job_no, customer, part_no, material, surface_treatment, image_url',
+      'ts, kind, stage, part_id, part_name, part_qty, value_cny, is_unpriced, job_id, job_no, customer, part_no, material, surface_treatment, image_url, actor_name',
     )
     .eq('actor_name', opts.actorName)
     .gte('ts', opts.from)
@@ -1083,8 +1106,9 @@ export async function getStationFinishes(
   const all = (r.data ?? []) as AnyRow[]
   const truncated = all.length > CAP
   const events = truncated ? all.slice(0, CAP) : all
-  // 编程站: 件数超过 3 的按 3 件折 (lib/part-family), 跟报工统计说同一个数。
-  if (stage === '编程') {
+  // 编程站: 件数超过 3 的按 3 件折; 出货站: 质量的人点的不算钱 (lib/part-
+  // family), 跟报工统计说同一个数。
+  if (stage === '编程' || stage === '出货') {
     for (const e of events) e.stage = stage
     await applyFamilyValues(events)
   }

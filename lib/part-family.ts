@@ -3,6 +3,8 @@ import { supabase } from './supabase'
 import { workSplitKey } from './work-split'
 import { getReworkJobs } from './rework-job'
 import { STAGES } from './data'
+import { getActiveUsers } from './db'
+import { stageScopeFor, type AuthUser } from './auth'
 
 /*
  * 拆件 · 加刀 —— 一个零件下面挂的 1.1、1.2 那几行。
@@ -26,6 +28,10 @@ import { STAGES } from './data'
  *
  * 制程返工单 (lib/rework-job) 也在这里换金额: 那张单的零件没有售价, 每一道
  * 完成一次 = 返工报工单价 × 件数 (于海伟 2026-10-24)。
+ *
+ * 出货 (于海伟 2026-10-27): 质量的人顺手点的出货不算钱 —— 出货是发货前最后
+ * 一眼, 不是质量的活。「质量的人」= 能报 质量 这一道、又不是全权账号的那几个
+ * (lib/auth stageScopeFor: 周中华、倪伟群、刘敏敏、李佳怡、彭春琴…)。
  */
 
 export type FamilyValue = {
@@ -261,7 +267,38 @@ export async function applyFamilyValues(rows: AnyRow[]): Promise<Map<AnyRow, num
   if (rows.length === 0) return changed
   await applyFamilyOnly(rows, changed)
   capProgramming(rows, changed)
+  if (rows.some((r) => r.stage === '出货')) zeroQualityShipping(rows, changed, await getQualityNames())
   return changed
+}
+
+let qualityCache: { at: number; names: Set<string> } | null = null
+
+/** 质量的人 (账号名) —— 能报 质量、又不是全权的。一分钟读一次。 */
+export async function getQualityNames(): Promise<Set<string>> {
+  if (qualityCache && Date.now() - qualityCache.at < 60_000) return qualityCache.names
+  const names = new Set<string>()
+  try {
+    for (const u of await getActiveUsers()) {
+      const scope = stageScopeFor(u as unknown as AuthUser)
+      if (scope !== 'all' && scope.includes('质量')) names.add(u.name)
+    }
+  } catch {
+    return qualityCache?.names ?? names
+  }
+  qualityCache = { at: Date.now(), names }
+  return names
+}
+
+/** 质量的人点的出货 —— 金额记 0。行里要有 stage 和 actor_name。 */
+function zeroQualityShipping(rows: AnyRow[], changed: Map<AnyRow, number>, names: Set<string>) {
+  if (names.size === 0) return
+  for (const row of rows) {
+    if (row.stage !== '出货' || !names.has(String(row.actor_name ?? ''))) continue
+    const v = Number(row.value_cny ?? 0)
+    if (!v) continue
+    if (!changed.has(row)) changed.set(row, v)
+    row.value_cny = 0
+  }
 }
 
 async function applyFamilyOnly(rows: AnyRow[], changed: Map<AnyRow, number>): Promise<void> {
