@@ -20,7 +20,7 @@ import { STAGES } from './data'
  *
  * 只改报工统计读出来的金额, 不动任何数据。
  *
- * 不良返工单 (lib/rework-job) 也在这里换金额: 那张单的零件没有售价, 每一道
+ * 制程返工单 (lib/rework-job) 也在这里换金额: 那张单的零件没有售价, 每一道
  * 完成一次 = 返工报工单价 × 件数 (于海伟 2026-10-24)。
  */
 
@@ -37,7 +37,7 @@ const TTL_MS = 30_000
 let jobsCache: { at: number; ids: Set<string> } | null = null
 const valuesCache = new Map<string, { at: number; map: Map<string, FamilyValue> }>()
 
-/** 挂了子行 (1.1 这种序号) 的工单, 加上不良返工单。半分钟读一次。 */
+/** 挂了子行 (1.1 这种序号) 的工单, 加上制程返工单。半分钟读一次。 */
 export async function getFamilyJobIds(): Promise<Set<string>> {
   if (jobsCache && Date.now() - jobsCache.at < TTL_MS) return jobsCache.ids
   const ids = new Set<string>(Object.keys(await getReworkJobs().catch(() => ({}))))
@@ -97,7 +97,7 @@ export async function getFamilyValues(jobIds: string[]): Promise<Map<string, Fam
     return (r.data ?? []) as AnyRow[]
   })
 
-  // 不良返工单 —— 每件按返工报工单价, 哪一道都一样; 不参与下面拆件 · 加刀。
+  // 制程返工单 —— 每件按返工报工单价, 哪一道都一样; 不参与下面拆件 · 加刀。
   const rework = await getReworkJobs().catch(() => ({}) as Awaited<ReturnType<typeof getReworkJobs>>)
   for (const p of parts) {
     const rec = rework[p.job_id as string]

@@ -82,6 +82,8 @@ export type CompactMasterRow = [
   hasBigPartQty: WireValue<boolean>,
   // 已对账 / 已回款 (index 36) — 钱的事, 跟收款灯一样只给商务。
   settle: WireValue<'reconciled' | 'paid'>,
+  // 制程返工单 (index 37) — 追加在最末, 旧客户端读不到就当不是。
+  isProcessRework: WireValue<boolean>,
 ]
 
 function canSeeCustomerData(scope: Scope): boolean {
@@ -203,6 +205,7 @@ export function toMasterWireRows(rows: MasterRow[], scope: Scope): CompactMaster
       r.stagePlan ?? {},
       r.hasBigPartQty ?? null,
       r.settle ?? null,
+      r.isProcessRework ?? null,
     ]
   })
 }
@@ -252,6 +255,7 @@ export function expandMasterWireRows(rows: CompactMasterRow[]): MasterRow[] {
       stagePlan: r[34] ?? {},
       hasBigPartQty: r[35] ?? undefined,
       settle: r[36] ?? undefined,
+      isProcessRework: r[37] ?? undefined,
     }
   })
 }

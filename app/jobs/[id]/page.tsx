@@ -91,6 +91,8 @@ import { ComponentAnchorScroller } from '@/app/_component_anchor'
 import { JobTabs } from './_job_tabs'
 import { CommOrderSheet } from '@/app/comm/[no]/_sheet'
 import { getCommOrder } from '@/lib/comm-order'
+import { getReworkJobs } from '@/lib/rework-job'
+import { OpenReworkButton, ReworkBanner } from './_rework'
 import { SourceFileRow } from '@/app/_source_file'
 import { ProductionOrderRow } from '@/app/_production_order'
 import { ContractFiles } from '@/app/_contract_files'
@@ -160,10 +162,13 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // Portal tokens power the 微信 share button on each 委外 row. No-op once
   // every vendor has one (the common case) — see ensureVendorPortalTokens.
   // 沟通确认单 (按工号) —— 全厂都看得到, 工程、商务能改 (于海伟 2026-10-20)。
-  const [rawVendors, commOrder] = await Promise.all([
+  const [rawVendors, commOrder, reworkJobs] = await Promise.all([
     ensureVendorPortalTokens(fetchedVendors),
     getCommOrder(rawJob.jobNo).catch(() => undefined),
+    // 制程返工单 (lib/rework-job) —— 这张是不是, 是的话每个零件的返工报工单价。
+    getReworkJobs().catch(() => ({}) as Awaited<ReturnType<typeof getReworkJobs>>),
   ])
+  const rework = reworkJobs[rawJob.id]
   // Only `ready` jobs live on the production board. A draft/parsing/failed job
   // reached here via a stale link or a 工号-conflict button — send it to the
   // import review screen, the mirror of /import/[id]'s `ready → /jobs` bounce.
@@ -399,10 +404,39 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
               : undefined
           }
         />
+        {rework && (
+          <ReworkBanner
+            jobId={job.id}
+            sourceJobId={rework.sourceJobId}
+            sourceJobNo={rework.sourceJobNo}
+            parts={job.components.map((c) => ({ id: c.id, name: c.name, qty: c.qty }))}
+            rates={Object.fromEntries(
+              job.components.flatMap((c) => {
+                const r = rework.rates[`${job.id}:${c.id}`]
+                return r !== undefined ? [[c.id, r]] : []
+              }),
+            )}
+            canEdit={canEditPartRoute(user)}
+          />
+        )}
         <div className="mb-6 flex items-center justify-between gap-3">
           <BackButton fallback={backFallback} />
           <div className="flex items-center gap-3 flex-wrap justify-end">
-            {job.activeReturn ? (
+            {/* 制程返工 —— 做坏了的几件开成单独的返工单, 只为报工。返工单自己不再开。 */}
+            {!rework && canEditPartRoute(user) && (
+              <OpenReworkButton
+                jobId={job.id}
+                jobNo={job.jobNo}
+                dueDate={job.dueDate}
+                parts={job.components.map((c) => ({
+                  id: c.id,
+                  name: c.name,
+                  qty: c.qty,
+                  stages: STAGES.filter((s) => !!c.stages[s]),
+                }))}
+              />
+            )}
+            {rework ? null : job.activeReturn ? (
               <ActiveReturnBadge
                 ret={job.activeReturn}
                 canEdit={canEditPartRoute(user)}
@@ -417,11 +451,13 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 />
               )
             )}
-            <ShippingComposerButton
-              jobId={job.id}
-              components={job.components}
-              shipments={job.shipments}
-            />
+            {!rework && (
+              <ShippingComposerButton
+                jobId={job.id}
+                components={job.components}
+                shipments={job.shipments}
+              />
+            )}
             <ShipmentHistoryButton
               jobId={job.id}
               components={job.components}

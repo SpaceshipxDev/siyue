@@ -3596,7 +3596,7 @@ async function loadOrderMoneyLightByJob(): Promise<
   }
 
   await applyReceivableSettle(out, shipmentsRaw, jobsRaw)
-  // 不良返工单不是卖给客户的, 没有收款这回事 (lib/rework-job)。
+  // 制程返工单不是卖给客户的, 没有收款这回事 (lib/rework-job)。
   for (const id of await getReworkJobIds().catch(() => new Set<string>())) out.delete(id)
   return out
 }
@@ -4007,7 +4007,7 @@ export async function getOrderLedgerRows(): Promise<
   }
 
   const rows: import('./data').OrderLedgerRow[] = []
-  // 不良返工单只为报工存在, 不进订单账 (lib/rework-job)。
+  // 制程返工单只为报工存在, 不进订单账 (lib/rework-job)。
   const reworkIds = await getReworkJobIds().catch(() => new Set<string>())
   for (const j of jobsRaw) {
     const jobId = j.id as string

@@ -156,6 +156,11 @@ export type MasterRow = {
    * 用把全厂几万行零件拉回来求最大值。
    */
   hasBigPartQty?: boolean
+  /**
+   * 制程返工单 (lib/rework-job) —— 厂里自己做坏了开的返工单, 只为报工和个人
+   * 产值存在。看板上单独一栏「制程返工」, 不算在产。
+   */
+  isProcessRework?: boolean
   /** Lowercased haystack for substring search — built by the view. */
   searchHaystack: string
   /** Open 退货, if any. */

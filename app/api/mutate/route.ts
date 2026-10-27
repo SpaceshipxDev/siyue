@@ -51,6 +51,9 @@ import {
   finishStage,
   getCachedMutationResponse,
   getJob,
+  createJob,
+  confirmJob,
+  deleteJob,
   getMasterRowsByIds,
   insertComponentAfter,
   recordMutationResponse,
@@ -140,6 +143,7 @@ import {
   canDeleteProcurement,
   canApplyLoan,
   canManageTools,
+  canEditPartRoute,
   canApproveLoan,
   canFilePayRequest,
   canReviewPayRequest,
@@ -193,6 +197,7 @@ import {
 import { setDefectAction } from '@/lib/defect-actions'
 import { writeReturnFlow } from '@/lib/return-flow-store'
 import { addToolIssue, deleteToolIssue, settleToolIssues } from '@/lib/tool'
+import { getReworkJobs, saveReworkJob, setReworkRate } from '@/lib/rework-job'
 import {
   addNcProgram,
   deleteNcProgram,
@@ -3427,6 +3432,100 @@ async function dispatch(
       }
       revalidatePath('/pay')
       revalidatePath('/hr')
+      return Response.json(ok())
+    }
+
+    // 制程返工单 —— 从一张工单里挑出做坏的零件, 开成一张单独的工单: 只为车间
+    // 报工和个人产值, 每件按返工报工单价算; 不带金额、不走出货, 不进对账和
+    // 财务 (lib/rework-job, 于海伟 2026-10-27)。
+    case 'createReworkJob': {
+      const sourceJobId = body.sourceJobId
+      const parts = body.parts
+      if (!isString(sourceJobId) || !Array.isArray(parts) || parts.length === 0)
+        return err('先勾要返工的零件')
+      type Pick = { componentId: string; qty: number; stages: Stage[]; rate?: number }
+      const picks: Pick[] = []
+      for (const x of parts as Record<string, unknown>[]) {
+        if (!x || !isString(x.componentId)) return err('bad createReworkJob args')
+        const qty = typeof x.qty === 'number' && Number.isFinite(x.qty) && x.qty > 0 ? x.qty : 0
+        if (!qty) return err('返工件数要填一个正数')
+        const stages = Array.isArray(x.stages) ? (x.stages.filter(isStage) as Stage[]).filter((st) => st !== '出货') : []
+        if (stages.length === 0) return err('每个零件至少选一道要返工的工序')
+        const rate =
+          typeof x.rate === 'number' && Number.isFinite(x.rate) && x.rate >= 0 ? x.rate : undefined
+        picks.push({ componentId: x.componentId, qty, stages, rate })
+      }
+      const u = await requireUser()
+      if (!canEditPartRoute(u)) return err('制程返工单由商务或工程来开', 403)
+      const src = await getJob(sourceJobId)
+      if (!src) return err('找不到原工单', 404)
+      const byId = new Map(src.components.map((c) => [c.id, c]))
+      if (picks.some((p) => !byId.has(p.componentId))) return err('零件对不上，刷新再开')
+      const all = await getReworkJobs()
+      const n = Object.values(all).filter((r) => r.sourceJobId === src.id).length + 1
+      const due = isString(body.dueDate) && /^\d{4}-\d{2}-\d{2}$/.test(body.dueDate) ? body.dueDate : src.dueDate
+      const note = isString(body.note) ? body.note.trim() : ''
+      const job = await createJob({
+        jobNo: `${src.jobNo}-返${n}`,
+        customer: src.customer,
+        product: `制程返工 · ${src.product || src.jobNo}`,
+        dueDate: due,
+        notes: note || undefined,
+        engineer: src.engineer,
+        components: picks.map((p) => {
+          const c = byId.get(p.componentId)!
+          return {
+            name: c.name,
+            qty: p.qty,
+            material: c.material,
+            surfaceTreatment: c.surfaceTreatment,
+            notes: c.notes,
+            imageUrl: c.imageUrl,
+            partNo: c.partNo,
+            process: c.process,
+          }
+        }),
+      })
+      try {
+        // 只走要返工的那几道 —— 不含出货, 所以永远不会有出货单, 进不了对账。
+        for (const [i, c] of job.components.entries()) {
+          const r = await setPartRoute(job.id, c.id, picks[i].stages, { force: true })
+          if (!r.ok) throw new Error('工序设不上')
+        }
+        await saveReworkJob(job.id, {
+          sourceJobId: src.id,
+          sourceJobNo: src.jobNo,
+          rates: Object.fromEntries(
+            picks.flatMap((p, i) => (p.rate !== undefined ? [[`${job.id}:p${i + 1}`, p.rate]] : [])),
+          ),
+          note: note || undefined,
+          by: u.name,
+          at: new Date().toISOString(),
+        })
+        await confirmJob(job.id)
+      } catch (e) {
+        await deleteJob(job.id).catch(() => undefined)
+        return err(e instanceof Error ? e.message : '开不出来')
+      }
+      revalidatePath('/')
+      revalidateJob(src.id)
+      return Response.json(ok({ id: job.id, jobNo: job.jobNo }))
+    }
+
+    case 'setReworkRate': {
+      const jobId = body.jobId
+      const componentId = body.componentId
+      const rate = body.rate
+      if (!isString(jobId) || !isString(componentId) || typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0)
+        return err('单价要填数字')
+      const u = await requireUser()
+      if (!canEditPartRoute(u)) return err('返工报工单价由商务或工程来定', 403)
+      try {
+        await setReworkRate(jobId, `${jobId}:${componentId}`, rate)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '存不上')
+      }
+      revalidateJob(jobId)
       return Response.json(ok())
     }
 

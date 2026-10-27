@@ -2,7 +2,7 @@ import 'server-only'
 import { supabase, STORAGE_BUCKET } from './supabase'
 
 /*
- * 不良返工工单 —— 厂里自己做坏了、要返工的那几件, 开成一张单独的工单 (于海伟
+ * 制程返工工单 —— 厂里自己做坏了、要返工的那几件, 开成一张单独的工单 (于海伟
  * 2026-10-24)。
  *
  * 它只为两件事存在: 车间照常在上面报工, 员工的返工产值按这里定的「返工报工
@@ -83,7 +83,7 @@ async function write(all: Record<string, ReworkJob>): Promise<void> {
   cache = { at: Date.now(), all }
 }
 
-/** 全部不良返工单 (jobId → 记录)。半分钟读一次 —— 报工统计每次都要问。 */
+/** 全部制程返工单 (jobId → 记录)。半分钟读一次 —— 报工统计每次都要问。 */
 export async function getReworkJobs(): Promise<Record<string, ReworkJob>> {
   if (cache && Date.now() - cache.at < TTL_MS) return cache.all
   const all = await read()
@@ -108,7 +108,7 @@ export async function setReworkRate(jobId: string, partId: string, rate: number)
   await withLock(async () => {
     const all = await read()
     const rec = all[jobId]
-    if (!rec) throw new Error('这张不是不良返工单')
+    if (!rec) throw new Error('这张不是制程返工单')
     rec.rates[partId] = Math.round(Math.max(0, rate) * 100) / 100
     await write(all)
   })
