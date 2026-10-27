@@ -249,8 +249,14 @@ export type RowRollup = {
  *
  * 整张单都做完了 (已出货) 就没有滞留, 返回 undefined。
  */
+//
+// 采购和检验不算滞留 (于海伟 2026-10-27): 买料是另一条线, 等料不叫卡在车间;
+// 检验是过一眼, 前一道报完工就算到后一道去 —— 操机做完了, 滞留直接是手工。
+// 这两道跳过, 看的是其余工序和其余零件。
+export const STUCK_STAGES: Stage[] = STAGES.filter((s) => s !== '采购' && s !== '检验')
+
 export function rowStuckStage(row: MasterRow): Stage | undefined {
-  for (const s of STAGES) {
+  for (const s of STUCK_STAGES) {
     const r = rowRollupStage(row, s)
     if (r.kind === 'na' || r.kind === 'done') continue
     return s

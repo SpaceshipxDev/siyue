@@ -32,6 +32,7 @@ import {
   rowMostRecentFinishedAt,
   rowRollupStage,
   rowStuckStage,
+  STUCK_STAGES,
   rowStageCounts,
   rowTimerAtStage,
   type MasterRow,
@@ -1816,7 +1817,7 @@ function StuckHeaderFilter({
             }}
           />
           <div className="my-1 h-px bg-[var(--color-border)]" />
-          {STAGES.map((s) => (
+          {STUCK_STAGES.map((s) => (
             <FilterMenuRow
               key={s}
               label={s}
