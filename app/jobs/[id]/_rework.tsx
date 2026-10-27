@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
@@ -38,6 +38,10 @@ export function OpenReworkButton({
   parts: Part[]
 }) {
   const [open, setOpen] = useState(false)
+  // 从看板「制程返工」那一栏选了这张单过来的 (?rework=1) —— 直接打开。
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('rework') === '1') setOpen(true)
+  }, [])
   return (
     <>
       <button
@@ -361,6 +365,70 @@ function RateLine({
         <span className="mono text-[var(--color-ink)]">{rate !== undefined ? rate : '未定'}</span>
       )}
       / 件 × {part.qty}
+    </span>
+  )
+}
+
+// 看板「制程返工」那一栏顶上的入口 —— 输工号挑原单, 到那张单上直接弹出选零件
+// 的框 (于海伟 2026-10-27: 入口在工单页里, 看板上找不到)。
+export function ReworkStarter({ jobs }: { jobs: { id: string; jobNo: string; product: string }[] }) {
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const needle = q.trim().toLowerCase()
+  const hits = useMemo(
+    () =>
+      needle
+        ? jobs.filter((j) => j.jobNo.toLowerCase().includes(needle) || j.product.toLowerCase().includes(needle)).slice(0, 8)
+        : [],
+    [jobs, needle],
+  )
+  const go = (id: string) => router.push(`/jobs/${id}?rework=1`)
+  if (!open)
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="h-9 rounded-[2px] bg-[var(--color-ink)] px-4 text-[13px] font-medium text-[var(--color-surface)] hover:opacity-85"
+      >
+        ＋ 开制程返工单
+      </button>
+    )
+  return (
+    <span className="relative inline-flex items-center gap-2">
+      <input
+        autoFocus
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && hits[0]) go(hits[0].id)
+          if (e.key === 'Escape') setOpen(false)
+        }}
+        placeholder="输原单工号"
+        className="mono h-9 w-[240px] rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2.5 text-[13px] outline-none focus:border-[var(--color-ink)]"
+      />
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        className="text-[12.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+      >
+        取消
+      </button>
+      {hits.length > 0 && (
+        <span className="absolute left-0 top-full z-30 mt-1 flex w-[360px] flex-col rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] py-1 shadow-[0_6px_20px_rgba(0,0,0,0.12)]">
+          {hits.map((j) => (
+            <button
+              key={j.id}
+              type="button"
+              onClick={() => go(j.id)}
+              className="flex items-baseline gap-3 px-3 py-1.5 text-left hover:bg-[#f5f3ed]"
+            >
+              <span className="mono text-[13px] text-[var(--color-ink)]">{j.jobNo}</span>
+              <span className="truncate text-[12px] text-[var(--color-ink-3)]">{j.product}</span>
+            </button>
+          ))}
+        </span>
+      )}
     </span>
   )
 }

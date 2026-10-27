@@ -42,6 +42,7 @@ import { JobStageActionButton } from './_cell'
 import { JobNotesInline } from './_editable'
 import { planToneClass } from './_stage_plan'
 import { ReturnChip } from './_returns'
+import { ReworkStarter } from './jobs/[id]/_rework'
 import { TypeChip, useOptimisticJobType } from './_type_chip'
 import { SearchInput } from './_search'
 import { BRAND } from '@/lib/brand'
@@ -934,10 +935,24 @@ export function MasterSheet({
           shippedCount={shippedCount}
           reworkCount={reworkCount}
           processCount={processCount}
+          alwaysProcess={canEditType}
           shippedPending={pendingShipped}
           shippedFailed={shippedFailed}
           onRetryShipped={onRetryShipped}
         />
+      )}
+      {/* 制程返工 —— 开单的入口就在这一栏顶上 (商务 / 工程)。 */}
+      {showShipTabs && shipFilter === 'process' && canEditType && (
+        <div className="mb-5 flex flex-wrap items-center gap-3">
+          <ReworkStarter
+            jobs={rows
+              .filter((r) => !rowIsInbox(r) && !r.isProcessRework)
+              .map((r) => ({ id: r.id, jobNo: r.jobNo, product: r.product }))}
+          />
+          <span className="text-[12px] text-[var(--color-ink-3)]">
+            选原单 → 勾做坏的零件、要重做的工序、返工报工单价。只算报工和个人产值，不进对账和财务。
+          </span>
+        </div>
       )}
 
       <div className="mb-5 flex flex-wrap items-baseline gap-x-6 gap-y-3">
@@ -1356,6 +1371,7 @@ function ShipFilterToggle({
   shippedCount,
   reworkCount,
   processCount,
+  alwaysProcess,
   shippedPending,
   shippedFailed,
   onRetryShipped,
@@ -1367,6 +1383,8 @@ function ShipFilterToggle({
   shippedCount: number
   reworkCount: number
   processCount: number
+  /** 能开返工单的人 (商务 / 工程) 一直看得到这一栏 —— 入口在里面。 */
+  alwaysProcess?: boolean
   /** Shipped rows still streaming in — show … instead of a partial count. */
   shippedPending?: boolean
   /** Shipped history gave up — the count is incomplete and must not read as fact. */
@@ -1395,7 +1413,7 @@ function ShipFilterToggle({
         ]
       : []),
     // 制程返工 —— 厂里自己的返工单, 只为报工; 有才出现。
-    ...(processCount > 0
+    ...(processCount > 0 || alwaysProcess
       ? [{ key: 'process' as ShipFilter, label: '制程返工', count: processCount as number | string }]
       : []),
   ]
