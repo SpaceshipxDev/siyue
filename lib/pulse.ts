@@ -4,7 +4,7 @@ import { STAGES } from './data'
 import { supabase } from './supabase'
 import { today, shanghaiWindow, shanghaiRangeWindow, shiftDate } from './today'
 import { getWorkSplits, workSplitKey, type WorkShare } from './work-split'
-import { applyFamilyValues, getFamilyJobIds } from './part-family'
+import { applyFamilyValues, getFamilyJobIds, PROGRAMMING_QTY_CAP } from './part-family'
 
 // Read shapes for the /pulse (现场) surface. Hits the views from
 // migration 0019_pulse_views.sql — nothing here computes; the SQL does.
@@ -317,14 +317,17 @@ export async function getWorkerOutput(
   )
 }
 
-/** 拆件 · 加刀改了金额的那几条完成 —— 每个按 ✓ 的人该加减多少。 */
+/**
+ * 拆件 · 加刀 · 返工单价改了金额的那几条完成, 还有编程按 3 件折的 (lib/part-
+ * family) —— 每个按 ✓ 的人该加减多少。
+ */
 async function getFamilyDeltas(
   window: { from: string; to: string },
   stage?: Stage,
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>()
-  const jobIds = [...(await getFamilyJobIds())]
-  if (jobIds.length === 0) return out
+  const famSet = await getFamilyJobIds()
+  const jobIds = [...famSet]
   // 一个月几十张单、每张几百条 —— 一次少查几张, 再分页, 不撞 1000 行的顶。
   const chunks: string[][] = []
   for (let i = 0; i < jobIds.length; i += 20) chunks.push(jobIds.slice(i, i + 20))
@@ -339,7 +342,7 @@ async function getFamilyDeltas(
         for (let offset = 0; offset < 20000; offset += 1000) {
           let q = supabase
             .from('worker_stage_events')
-            .select('job_id, part_id, stage, actor_name, value_cny')
+            .select('job_id, part_id, stage, actor_name, part_qty, value_cny')
             .eq('kind', 'finished')
             .gte('ts', window.from)
             .lt('ts', window.to)
@@ -365,6 +368,29 @@ async function getFamilyDeltas(
     if (schemaLag) return out
   }
   const rows: AnyRow[] = perChunk.flat()
+  // 编程 —— 哪张单都可能要折 (件数超过 3), 不只是上面那几张; 上面已经捞过的
+  // 工单不再重复。
+  if (!stage || stage === '编程') {
+    for (let offset = 0; offset < 20000; offset += 1000) {
+      const r = await supabase
+        .from('worker_stage_events')
+        .select('job_id, part_id, stage, actor_name, part_qty, value_cny')
+        .eq('kind', 'finished')
+        .eq('stage', '编程')
+        .gt('part_qty', PROGRAMMING_QTY_CAP)
+        .gte('ts', window.from)
+        .lt('ts', window.to)
+        .order('ts', { ascending: true })
+        .range(offset, offset + 999)
+      if (r.error) {
+        if (isSchemaLagError(r.error)) break
+        throw r.error
+      }
+      const batch = (r.data ?? []) as AnyRow[]
+      for (const row of batch) if (!famSet.has(row.job_id as string)) rows.push(row)
+      if (batch.length < 1000) break
+    }
+  }
   const before = await applyFamilyValues(rows)
   for (const [row, old] of before) {
     const actor = ((row.actor_name as string | null) ?? '—') || '—'
@@ -1057,6 +1083,11 @@ export async function getStationFinishes(
   const all = (r.data ?? []) as AnyRow[]
   const truncated = all.length > CAP
   const events = truncated ? all.slice(0, CAP) : all
+  // 编程站: 件数超过 3 的按 3 件折 (lib/part-family), 跟报工统计说同一个数。
+  if (stage === '编程') {
+    for (const e of events) e.stage = stage
+    await applyFamilyValues(events)
+  }
 
   // Worker → job → components, plus the flat per-job flow rollup.
   const workerMap = new Map<string, StationWorker>()

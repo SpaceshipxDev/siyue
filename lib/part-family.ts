@@ -20,6 +20,10 @@ import { STAGES } from './data'
  *
  * 只改报工统计读出来的金额, 不动任何数据。
  *
+ * 编程 (于海伟 2026-10-27): 编一次程序能做好多件, 不该跟着件数涨 —— 零件超
+ * 过 3 件的, 编程那一道的经手金额 = 原来算出来的 ÷ 件数 × 3 (只算 3 件)。在
+ * 拆件 · 加刀、返工单价都换完之后再折, 所以哪种零件都一样。
+ *
  * 制程返工单 (lib/rework-job) 也在这里换金额: 那张单的零件没有售价, 每一道
  * 完成一次 = 返工报工单价 × 件数 (于海伟 2026-10-24)。
  */
@@ -231,20 +235,42 @@ export async function getFamilyValues(jobIds: string[]): Promise<Map<string, Fam
   return out
 }
 
+/** 编程只算这么多件 —— 超过的按这个件数折。 */
+export const PROGRAMMING_QTY_CAP = 3
+
+/** 编程那一道: 件数超过 3 的, 金额 ÷ 件数 × 3。行里要有 stage 和 part_qty。 */
+function capProgramming(rows: AnyRow[], changed: Map<AnyRow, number>) {
+  for (const row of rows) {
+    if (row.stage !== '编程') continue
+    const qty = Number(row.part_qty ?? 0)
+    if (!(qty > PROGRAMMING_QTY_CAP)) continue
+    const v = Number(row.value_cny ?? 0)
+    if (!v) continue
+    if (!changed.has(row)) changed.set(row, v)
+    row.value_cny = Math.round(((v / qty) * PROGRAMMING_QTY_CAP) * 100) / 100
+  }
+}
+
 /**
- * 读出来的报工记录 (worker_stage_events 的行) 就地换上拆件 · 加刀的金额。行里要
- * 有 job_id / part_id / stage; 没挂子行的工单一行都不碰。返回换过的那几行原来
- * 的金额 (统计要拿差额去调整)。
+ * 读出来的报工记录 (worker_stage_events 的行) 就地换上拆件 · 加刀 · 返工单价的
+ * 金额, 再把编程按 3 件折。行里要有 job_id / part_id / stage / part_qty。返回换过
+ * 的那几行原来的金额 (统计要拿差额去调整)。
  */
 export async function applyFamilyValues(rows: AnyRow[]): Promise<Map<AnyRow, number>> {
   const changed = new Map<AnyRow, number>()
   if (rows.length === 0) return changed
+  await applyFamilyOnly(rows, changed)
+  capProgramming(rows, changed)
+  return changed
+}
+
+async function applyFamilyOnly(rows: AnyRow[], changed: Map<AnyRow, number>): Promise<void> {
   const famJobs = await getFamilyJobIds()
-  if (famJobs.size === 0) return changed
+  if (famJobs.size === 0) return
   const jobIds = [...new Set(rows.map((r) => r.job_id as string).filter((j) => j && famJobs.has(j)))]
-  if (jobIds.length === 0) return changed
+  if (jobIds.length === 0) return
   const values = await getFamilyValues(jobIds)
-  if (values.size === 0) return changed
+  if (values.size === 0) return
   for (const row of rows) {
     const v = values.get(workSplitKey(row.part_id as string, row.stage as string))
     if (!v) continue
@@ -253,5 +279,4 @@ export async function applyFamilyValues(rows: AnyRow[]): Promise<Map<AnyRow, num
     row.is_allocated = v.allocated
     row.is_unpriced = v.unpriced
   }
-  return changed
 }
