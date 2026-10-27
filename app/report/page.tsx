@@ -7,9 +7,11 @@ import {
   canSeeOrderLedger,
   canFixReport,
 } from '@/lib/auth'
-import { getMasterRows } from '@/lib/db'
+import { getMasterRows, getOutsourceBlockRows, getStageCellsByJob } from '@/lib/db'
+import { blockClosedAt, OPT_IN_STAGES, PLANNABLE_STAGES } from '@/lib/data'
+import type { MasterRow } from '@/lib/master'
 import { today } from '@/lib/today'
-import { computePlanRates } from '@/lib/plan-rate'
+import { computePlanRates, type JobOutsource } from '@/lib/plan-rate'
 import { ReportClient } from './_cockpit'
 import { PlanRateBoard } from './_plan_board'
 import { TopBar } from '../_ui'
@@ -60,7 +62,7 @@ export default async function ReportPage({
 
   // 计划达成 —— 计划日期落在哪个月就是哪个月的账。
   const month = /^\d{4}-\d{2}$/.test(sp?.m ?? '') ? (sp.m as string) : todayStr.slice(0, 7)
-  const rates = view === 'plan' ? computePlanRates(await getMasterRows(), month) : null
+  const rates = view === 'plan' ? await loadPlanRates(month) : null
 
   return (
     <div className="flex-1 flex flex-col">
@@ -142,4 +144,33 @@ function ViewTab({ href, label, active }: { href: string; label: string; active:
       {label}
     </Link>
   )
+}
+
+// 计划达成的取数 —— 看板那一份, 再补两样看板汇总里没有的:
+//   车铣 (点了才有的一道) 那一格, 从零件的工序里数出来;
+//   每张单的外协单回齐了没有, 算外协那一行 (于海伟 2026-10-27)。
+async function loadPlanRates(month: string) {
+  const optIn = OPT_IN_STAGES.filter((s) => PLANNABLE_STAGES.includes(s))
+  const [rows, blockRows, ...cellMaps] = await Promise.all([
+    getMasterRows(),
+    getOutsourceBlockRows().catch(() => []),
+    ...optIn.map((s) => getStageCellsByJob(s).catch(() => new Map())),
+  ])
+  const filled: MasterRow[] = rows.map((m) => {
+    let cells = m.cells
+    optIn.forEach((s, i) => {
+      const c = cellMaps[i].get(m.id)
+      if (c && !cells[s]) cells = { ...cells, [s]: c }
+    })
+    return cells === m.cells ? m : { ...m, cells }
+  })
+  // 发货那一道的外协单不算 —— 看板上「在外协」也不数它。
+  const outsource = new Map<string, JobOutsource>()
+  for (const r of blockRows) {
+    if (r.block.stages.length > 0 && r.block.stages.every((s) => s === '出货')) continue
+    const list = outsource.get(r.jobId) ?? []
+    list.push({ closedAt: blockClosedAt(r.block) })
+    outsource.set(r.jobId, list)
+  }
+  return computePlanRates(filled, month, Date.now(), outsource)
 }

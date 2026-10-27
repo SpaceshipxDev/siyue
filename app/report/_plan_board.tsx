@@ -81,7 +81,7 @@ export function PlanRateBoard({ rates }: { rates: StagePlanRate[] }) {
         </div>
         {rates.map((r) => {
           const any = r.onTime + r.late + r.overdue + r.notDue > 0
-          const shared = SHARED_PLAN_STAGES.includes(r.stage)
+          const shared = (SHARED_PLAN_STAGES as string[]).includes(r.stage)
           const canOpen = r.misses.length > 0
           return (
             <Fragment key={r.stage}>

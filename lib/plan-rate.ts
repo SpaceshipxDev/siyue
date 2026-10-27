@@ -16,9 +16,16 @@
 // 喷漆 · 丝印 共用一个节点 (SHARED_PLAN_STAGES), 两道各自对着同一个日子算
 // —— 哪一道拖了后腿一眼看得出来。操机、手工、打磨各自一个节点。
 //
+// 车铣是点了才有的一道, 看板汇总里没有它那一格 —— 页面先从零件的工序里数出
+// 来补上再传进来 (跟计划页同一个办法)。
+//
+// 外协 (于海伟 2026-10-27): 工程排的「外协回厂」那一天, 这张单外发出去的
+// 都回来了没有。最后一件回来的日子不晚于那一天 = 按时; 那天过了还有没回来
+// 的 (或者根本还没发出去) = 逾期未完。
+//
 // 纯函数, 服务端页面直接用。
 
-import { PLANNABLE_STAGES, type Stage } from './data'
+import { PLANNABLE_STAGES, type PlanKey } from './data'
 import type { MasterRow } from './master'
 
 export type PlanOutcome = 'onTime' | 'late' | 'overdue' | 'notDue'
@@ -33,8 +40,11 @@ export type PlanMiss = {
   days: number // 晚了几天
 }
 
+/** 一张单的外协: 每张外协单回齐了没有、哪天回齐的 (YYYY-MM-DD)。 */
+export type JobOutsource = { closedAt?: string }[]
+
 export type StagePlanRate = {
-  stage: Stage
+  stage: PlanKey
   onTime: number
   late: number
   overdue: number
@@ -73,8 +83,11 @@ export function computePlanRates(
   rows: MasterRow[],
   month: string, // YYYY-MM —— 计划日期落在这个月的
   nowMs: number = Date.now(),
+  /** jobId → 这张单的外协单; 给了才算外协那一行。 */
+  outsource?: Map<string, JobOutsource>,
 ): StagePlanRate[] {
-  const out: StagePlanRate[] = PLANNABLE_STAGES.map((stage) => ({
+  const keys: PlanKey[] = outsource ? [...PLANNABLE_STAGES, '外协'] : [...PLANNABLE_STAGES]
+  const out: StagePlanRate[] = keys.map((stage) => ({
     stage,
     onTime: 0,
     late: 0,
@@ -110,6 +123,38 @@ export function computePlanRates(
         else {
           acc.late += 1
           miss('late', daysLate(due, fin))
+        }
+      } else if (nowMs > due) {
+        acc.overdue += 1
+        miss('overdue', daysLate(due, nowMs))
+      } else {
+        acc.notDue += 1
+      }
+    }
+
+    // 外协 —— 排了回厂日子的单, 外发出去的都回来没有。
+    const oplan = row.stagePlan?.['外协']
+    if (outsource && oplan && oplan.slice(0, 7) === month) {
+      const acc = byStage.get('外协')!
+      const blocks = outsource.get(row.id) ?? []
+      const due = deadlineMs(oplan)
+      const miss = (outcome: 'late' | 'overdue', days: number) =>
+        acc.misses.push({
+          jobId: row.id,
+          jobNo: row.jobNo,
+          product: row.product,
+          customer: row.customer,
+          plan: oplan,
+          outcome,
+          days,
+        })
+      if (blocks.length > 0 && blocks.every((b) => b.closedAt)) {
+        const last = blocks.reduce((m, b) => (b.closedAt! > m ? b.closedAt! : m), '').slice(0, 10)
+        // 回厂只记到哪一天 —— 按天比, 计划那天回来的算按时。
+        if (last <= oplan.slice(0, 10)) acc.onTime += 1
+        else {
+          acc.late += 1
+          miss('late', daysLate(deadlineMs(oplan.slice(0, 10)), deadlineMs(last)))
         }
       } else if (nowMs > due) {
         acc.overdue += 1
