@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
+import { showToast } from '@/app/_toast'
 import { withBase } from '@/lib/base-path'
 import { usePasteImage } from '@/app/_paste_image'
 import { proxiedStorageUrl } from '@/lib/storage-url'
@@ -40,7 +41,24 @@ import type { ProcurementJobOption, ProcurementNeed } from '@/lib/db'
 // having to retype it. Each row is one yes/no question — 确认 files the 请购
 // in a single tap and the board jumps to 待审批 where it landed; 删除 takes
 // 采购 back off that part's route for the ones that shouldn't be bought.
-type Tab = 'need' | 'requested' | 'purchase' | 'buying' | 'arrived' | 'ledger'
+// 回收站 (于海伟 2026-10-28) —— 采购页上删掉的单子和需求先放这儿, 删错了能
+// 恢复; 回收站里再删一次才真没了。只有能删的人看得到。
+type Tab = 'need' | 'requested' | 'purchase' | 'buying' | 'arrived' | 'ledger' | 'trash'
+
+/** 回收站里的东西 —— 采购单原样, 需求只记是哪个零件。 */
+export type ProcurementTrash = {
+  procurements: (Procurement & { trashedBy: string; trashedAt: string })[]
+  needs: {
+    partId: string
+    jobId: string
+    jobNo: string
+    part: string
+    material?: string
+    qty?: number
+    trashedBy: string
+    trashedAt: string
+  }[]
+}
 
 const TAB_DEF: Record<
   Tab,
@@ -74,6 +92,8 @@ const TAB_DEF: Record<
     col: '领料',
     match: (p) => p.status === 'done' || p.status === 'rejected',
   },
+  // 回收站自己画一张表, 这个 match 不用。
+  trash: { label: '回收站', col: '', match: () => false },
 }
 
 const TAB_EMPTY: Record<Tab, string> = {
@@ -83,6 +103,7 @@ const TAB_EMPTY: Record<Tab, string> = {
   buying: '料都到齐了',
   arrived: '到了的料都领走了',
   ledger: '本月没有记录',
+  trash: '回收站是空的',
 }
 
 type ModalMode =
@@ -100,7 +121,9 @@ export function ProcurementBoard({
   canApprove,
   canDelete,
   today,
+  trash,
 }: {
+  trash?: ProcurementTrash
   procurements: Procurement[]
   products: ProcurementProduct[]
   jobOptions: ProcurementJobOption[]
@@ -397,6 +420,9 @@ export function ProcurementBoard({
     { key: 'buying', count: counts.buying, hot: counts.overdue },
     { key: 'arrived', count: counts.arrived },
     { key: 'ledger', count: counts.done },
+    ...(canDelete && trash
+      ? [{ key: 'trash' as Tab, count: trash.procurements.length + trash.needs.length }]
+      : []),
   ]
 
   return (
@@ -520,6 +546,8 @@ export function ProcurementBoard({
               ))
             )}
           </>
+        ) : tab === 'trash' ? (
+          <TrashList trash={trash ?? { procurements: [], needs: [] }} catOf={catOf} />
         ) : (
           <>
             {/* The table's own header strip — its money lives with its list. */}
@@ -547,6 +575,9 @@ export function ProcurementBoard({
                 <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
                   {strip.count} 笔 · {formatCny(strip.sum)}
                 </span>
+                {(tab === 'purchase' || tab === 'buying') && shown.length > 0 && (
+                  <BulkConfirm tab={tab} rows={shown} today={today} />
+                )}
               </div>
             )}
 
@@ -3470,5 +3501,177 @@ function Plus() {
         strokeLinecap="round"
       />
     </svg>
+  )
+}
+
+// 一键确认 (于海伟 2026-10-28) —— 待采购: 列着的这几笔全部「已下单」(供应商、
+// 单价、到货日已经填了的照带); 待到货: 全部「到货了」。按的是眼前列着的 (搜索、
+// 类别筛过之后的), 先问一句再办。一笔一笔地写, 半路断了, 没写到的还在原来那一
+// 栏, 再点一次接着办。
+function BulkConfirm({
+  tab,
+  rows,
+  today,
+}: {
+  tab: 'purchase' | 'buying'
+  rows: Procurement[]
+  today: string
+}) {
+  const router = useRouter()
+  const [pending, start] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+  const label = tab === 'purchase' ? '一键下单' : '一键到货'
+  function run() {
+    if (!confirm(`${rows.length} 笔全部${tab === 'purchase' ? '标成已下单' : '标成到货了'}？`)) return
+    setError(null)
+    start(async () => {
+      try {
+        for (const p of rows)
+          await mutate({
+            kind: 'updateProcurement',
+            procurementId: p.id,
+            patch: tab === 'purchase' ? { status: 'ordered', orderDate: today } : { status: 'arrived' },
+          })
+        showToast(`${rows.length} 笔已${tab === 'purchase' ? '下单' : '到货'}`, 'success')
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '办不了')
+      }
+      router.refresh()
+    })
+  }
+  return (
+    <span className="ml-auto flex items-center gap-2">
+      {error && <span className="text-[12px] text-[var(--color-overdue)]">{error}</span>}
+      <button
+        type="button"
+        onClick={run}
+        disabled={pending}
+        className="rounded-[2px] bg-[var(--color-ink)] px-3.5 py-1.5 text-[12.5px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
+      >
+        {pending ? '办理中…' : `${label} · ${rows.length} 笔`}
+      </button>
+    </span>
+  )
+}
+
+const TRASH_STATUS: Record<string, string> = {
+  requested: '待审批',
+  approved: '待采购',
+  ordered: '待到货',
+  arrived: '待领料',
+  done: '已领料',
+  rejected: '已驳回',
+}
+
+// 回收站那张表 —— 删掉的采购单和需求, 新删的在上面。恢复 = 原样回到原来那一
+// 栏; 彻底删除要再点一下确认。
+function TrashList({
+  trash,
+  catOf,
+}: {
+  trash: ProcurementTrash
+  catOf: (p: Procurement) => string | undefined
+}) {
+  const router = useRouter()
+  const [pending, start] = useTransition()
+  const [armPurge, setArmPurge] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const items = [
+    ...trash.procurements.map((p) => ({
+      key: `p:${p.id}`,
+      kind: 'procurement' as const,
+      id: p.id,
+      title: p.item,
+      sub: [catOf(p), p.supplier, p.qty != null ? `${p.qty} 件` : '', p.jobNo].filter(Boolean).join(' · '),
+      from: TRASH_STATUS[p.status] ?? '',
+      by: p.trashedBy,
+      at: p.trashedAt,
+    })),
+    ...trash.needs.map((n) => ({
+      key: `n:${n.partId}`,
+      kind: 'need' as const,
+      id: n.partId,
+      title: n.part || '（零件）',
+      sub: [n.material, n.qty != null ? `${n.qty} 件` : '', n.jobNo].filter(Boolean).join(' · '),
+      from: '需求',
+      by: n.trashedBy,
+      at: n.trashedAt,
+    })),
+  ].sort((a, b) => b.at.localeCompare(a.at))
+
+  function act(kind: 'restoreProcurementTrash' | 'purgeProcurementTrash', it: (typeof items)[number]) {
+    setError(null)
+    start(async () => {
+      try {
+        await mutate({ kind, trashKind: it.kind, id: it.id })
+        showToast(kind === 'restoreProcurementTrash' ? `已恢复到「${it.from}」` : '已彻底删除', 'success')
+        setArmPurge(null)
+        router.refresh()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '办不了')
+      }
+    })
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-3 border-b border-[var(--color-border)] px-5 py-2.5">
+        <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">{items.length} 条</span>
+        <span className="text-[12px] text-[var(--color-ink-3)]">删掉的先放这儿，恢复了回到原来那一栏</span>
+        {error && <span className="ml-auto text-[12px] text-[var(--color-overdue)]">{error}</span>}
+      </div>
+      {items.length === 0 ? (
+        <p className="px-5 py-10 text-center text-[13px] text-[var(--color-ink-3)]">{TAB_EMPTY.trash}</p>
+      ) : (
+        items.map((it) => (
+          <div
+            key={it.key}
+            className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-[var(--color-border)] px-5 py-3 last:border-b-0"
+          >
+            <span className="w-[56px] shrink-0 text-[11.5px] text-[var(--color-ink-4)]">{it.from}</span>
+            <span className="min-w-0 flex-1">
+              <span className="text-[13.5px] font-medium text-[var(--color-ink)]">{it.title}</span>
+              {it.sub && <span className="ml-2 text-[12px] text-[var(--color-ink-3)]">{it.sub}</span>}
+            </span>
+            <span className="text-[11.5px] text-[var(--color-ink-4)]">
+              {it.by} 删于 {it.at.slice(5, 10)}
+            </span>
+            <span className="flex items-center gap-3 text-[12.5px]">
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => act('restoreProcurementTrash', it)}
+                className="font-medium text-[var(--color-ink-2)] hover:text-[var(--color-ink)] disabled:opacity-50"
+              >
+                恢复
+              </button>
+              {armPurge === it.key ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => act('purgeProcurementTrash', it)}
+                    className="font-medium text-[var(--color-overdue)] hover:underline disabled:opacity-50"
+                  >
+                    确认彻底删除
+                  </button>
+                  <button type="button" onClick={() => setArmPurge(null)} className="text-[var(--color-ink-3)]">
+                    取消
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setArmPurge(it.key)}
+                  className="text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+                >
+                  彻底删除
+                </button>
+              )}
+            </span>
+          </div>
+        ))
+      )}
+    </>
   )
 }

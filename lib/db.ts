@@ -15,6 +15,7 @@ import {
 import { shanghaiDay, shanghaiWindow, today, todayMMDD } from './today'
 import { getReceivables } from './receivable'
 import { getReworkJobIds } from './rework-job'
+import { getTrashedProcurementIds } from './procurement-trash'
 import { settleOutstanding } from './settle-shared'
 import type {
   CaiwuRow,
@@ -9849,7 +9850,23 @@ const PROCUREMENT_COLS_BASE =
 // overdue float to the top — that's the queue the floor reads), then arrived
 // ones (newest arrival first). Sorting is finalized in TS so a null
 // expected_date never jumps a dated row.
+// 采购 · 回收站里的不列 (lib/procurement-trash) —— 采购页、台账、订单账、查重
+// 都走这一个口子, 删掉的单子哪儿都看不见, 恢复了哪儿都回来。
 export async function getProcurements(): Promise<Procurement[]> {
+  const [all, trashed] = await Promise.all([
+    getAllProcurementRows(),
+    getTrashedProcurementIds().catch(() => new Set<string>()),
+  ])
+  return trashed.size === 0 ? all : all.filter((p) => !trashed.has(p.id))
+}
+
+/** 回收站里的那几条采购单 (原样)。 */
+export async function getTrashedProcurements(): Promise<Procurement[]> {
+  const [all, trashed] = await Promise.all([getAllProcurementRows(), getTrashedProcurementIds()])
+  return all.filter((p) => trashed.has(p.id))
+}
+
+async function getAllProcurementRows(): Promise<Procurement[]> {
   type Res = { data: AnyRow[] | null; error: { code?: string } | null }
   const run = (cols: string) =>
     supabase

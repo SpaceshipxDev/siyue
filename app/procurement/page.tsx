@@ -12,7 +12,9 @@ import {
   getProcurementJobOptions,
   getProcurementNeeds,
   getActiveUsers,
+  getTrashedProcurements,
 } from '@/lib/db'
+import { getProcurementTrash } from '@/lib/procurement-trash'
 import { today } from '@/lib/today'
 import { ProcurementBoard } from './_procurement'
 
@@ -28,13 +30,31 @@ export const dynamic = 'force-dynamic'
 // downstream of it is a real procurements row.
 export default async function ProcurementPage() {
   const user = await requireUser()
-  const [procurements, products, jobOptions, needs, users] = await Promise.all([
+  // 回收站 —— 只有能删的人看得到, 别人不多读这两份。
+  const seeTrash = canDeleteProcurement(user)
+  const [procurements, products, jobOptions, needs, users, trashEntries, trashedRows] = await Promise.all([
     getProcurements(),
     getProcurementProducts(),
     getProcurementJobOptions(),
     getProcurementNeeds(),
     getActiveUsers(),
+    seeTrash ? getProcurementTrash().catch(() => []) : Promise.resolve([]),
+    seeTrash ? getTrashedProcurements().catch(() => []) : Promise.resolve([]),
   ])
+  const trashedBy = new Map(trashEntries.filter((e) => e.kind === 'procurement').map((e) => [e.id, e]))
+  const trash = seeTrash
+    ? {
+        procurements: trashedRows.flatMap((p) => {
+          const e = trashedBy.get(p.id)
+          return e ? [{ ...p, trashedBy: e.by, trashedAt: e.at }] : []
+        }),
+        needs: trashEntries.flatMap((e) =>
+          e.kind === 'need'
+            ? [{ partId: e.id, jobId: e.jobId, jobNo: e.jobNo, part: e.part, material: e.material, qty: e.qty, trashedBy: e.by, trashedAt: e.at }]
+            : [],
+        ),
+      }
+    : undefined
 
   return (
     <div className="min-h-dvh bg-[var(--color-bg)]">
@@ -59,6 +79,7 @@ export default async function ProcurementPage() {
           canApprove={canApproveProcurement(user)}
           canDelete={canDeleteProcurement(user)}
           today={today()}
+          trash={trash}
         />
       </main>
     </div>

@@ -41,6 +41,7 @@ import {
   deleteProcurement,
   deleteProcurementProduct,
   dismissProcurementNeed,
+  getProcurementNeeds,
   getActiveUsers,
   getStageDoneBy,
   deleteComponent,
@@ -198,6 +199,7 @@ import { setDefectAction } from '@/lib/defect-actions'
 import { writeReturnFlow } from '@/lib/return-flow-store'
 import { addToolIssue, deleteToolIssue, settleToolIssues } from '@/lib/tool'
 import { getReworkJobs, saveReworkJob, setReworkRate } from '@/lib/rework-job'
+import { putInTrash, takeFromTrash } from '@/lib/procurement-trash'
 import {
   addNcProgram,
   deleteNcProgram,
@@ -2645,7 +2647,43 @@ async function dispatch(
       if (!isString(procurementId)) return err('bad deleteProcurement args')
       const u = await requireUser()
       if (!canDeleteProcurement(u)) return err('删采购要找于海伟', 403)
-      await deleteProcurement(procurementId)
+      // 不真删 —— 先进回收站, 删错了能恢复 (lib/procurement-trash)。
+      await putInTrash({ kind: 'procurement', id: procurementId, by: u.name, at: new Date().toISOString() })
+      revalidatePath('/procurement')
+      return Response.json(ok())
+    }
+
+    // 采购 · 回收站 —— 恢复 (回到原来那一栏) / 彻底删除。
+    case 'restoreProcurementTrash':
+    case 'purgeProcurementTrash': {
+      const kind = body.trashKind
+      const id = body.id
+      if ((kind !== 'procurement' && kind !== 'need') || !isString(id))
+        return err(`bad ${body.kind} args`)
+      const u = await requireUser()
+      if (!canDeleteProcurement(u)) return err('回收站找于海伟', 403)
+      const entry = await takeFromTrash(kind, id)
+      if (!entry) return err('回收站里已经没有这一条了，刷新看看')
+      try {
+        if (body.kind === 'purgeProcurementTrash') {
+          if (entry.kind === 'procurement') await deleteProcurement(entry.id)
+        } else if (entry.kind === 'need') {
+          // 把采购那一道重新点回这个零件的路线上 —— 需求自己就回来了。
+          const job = await getJob(entry.jobId)
+          const componentId = entry.id.startsWith(`${entry.jobId}:`)
+            ? entry.id.slice(entry.jobId.length + 1)
+            : entry.id
+          const c = job?.components.find((x) => x.id === componentId)
+          if (!job || !c) throw new Error('这个零件已经不在了，恢复不了')
+          const stages = STAGES.filter((st) => st === '采购' || !!c.stages[st])
+          const r = await setPartRoute(job.id, c.id, stages)
+          if (!r.ok) throw new Error('采购那一道点不回去')
+          revalidateJob(job.id)
+        }
+      } catch (e) {
+        await putInTrash(entry).catch(() => undefined)
+        return err(e instanceof Error ? e.message : '办不了')
+      }
       revalidatePath('/procurement')
       return Response.json(ok())
     }
@@ -2660,7 +2698,21 @@ async function dispatch(
         return err('bad dismissProcurementNeed args')
       const u = await requireUser()
       if (!canDeleteProcurement(u)) return err('删需求要找于海伟', 403)
+      const need = (await getProcurementNeeds().catch(() => [])).find((n) => n.partId === partId)
       const result = await dismissProcurementNeed(partId)
+      // 删掉的需求进回收站 —— 记下是哪个零件, 恢复时把采购那一道点回去。
+      if (result.ok)
+        await putInTrash({
+          kind: 'need',
+          id: partId,
+          jobId,
+          jobNo: need?.jobNo ?? '',
+          part: need?.part ?? '',
+          material: need?.material,
+          qty: need?.qty,
+          by: u.name,
+          at: new Date().toISOString(),
+        }).catch(() => undefined)
       revalidatePath('/procurement')
       if (result.ok) revalidateJob(jobId)
       return Response.json(ok(result))
