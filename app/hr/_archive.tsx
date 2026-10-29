@@ -8,6 +8,7 @@ import { showToast } from '@/app/_toast'
 import {
   ARCHIVE_KINDS,
   ARCHIVE_KIND_LABEL,
+  LEAVE_KINDS,
   archiveFileHref,
   type ArchiveFile,
   type ArchiveKind,
@@ -18,8 +19,12 @@ import {
 // 明、外宿/内宿、个人简历。照片点一下放大, PDF 点一下在新窗口打开。
 //
 //   在职 / 离职 两栏: 办了离职的挪到「离职」那一栏, 档案原样留着。
-//   人事、于海伟、老板看得到, 也都能建档、传文件、点住宿 (于海伟 2026-10-29:
-//   相关资料人事都可以上传); 删文件、删档案、办离职只有老板和于海伟。
+//   人事、于海伟、老板看得到, 也都能建档、传文件、点住宿、办离职 (于海伟
+//   2026-10-29: 相关资料人事都可以上传, 离职人事办理); 删文件、删档案只有老板
+//   和于海伟。
+//
+//   离职那一块: 离职办理、工作交接证明、领用工具归还交接证明三样材料, 旁边
+//   提一句这个人在「工具」里还有几件没还。
 
 type Filter = 'active' | 'left'
 
@@ -37,12 +42,15 @@ export function ArchiveBoard({
   canEdit,
   canUpload,
   todayStr,
+  toolsOut = {},
 }: {
+  /** 工具领用里还没还的件数, 按人名 —— 离职那一块提一句。 */
+  toolsOut?: Record<string, number>
   people: ArchivePerson[]
   roster: string[]
-  /** 删文件、删档案、办离职 —— 老板和于海伟。 */
+  /** 删文件、删档案 —— 老板和于海伟。 */
   canEdit: boolean
-  /** 建档、传文件、点住宿 —— 再加上人事。 */
+  /** 建档、传文件、点住宿、办离职 —— 再加上人事。 */
   canUpload: boolean
   todayStr: string
 }) {
@@ -151,6 +159,8 @@ export function ArchiveBoard({
         ) : (
           shown.map((p) => {
             const have = new Set(p.files.map((f) => f.kind))
+            // 离职那一栏多看三样离职材料。
+            const kinds = p.leftAt ? [...ARCHIVE_KINDS, ...LEAVE_KINDS] : ARCHIVE_KINDS
             return (
               <Fragment key={p.id}>
                 <button
@@ -165,7 +175,7 @@ export function ArchiveBoard({
                   </span>
                   <span className="w-[40px] shrink-0 text-[12px] text-[var(--color-ink-3)]">{p.lodging ?? ''}</span>
                   <span className="flex flex-1 flex-wrap gap-1.5">
-                    {ARCHIVE_KINDS.map((k) => (
+                    {kinds.map((k) => (
                       <span
                         key={k}
                         className={`rounded-[2px] border px-1.5 py-0.5 text-[11.5px] ${
@@ -184,7 +194,13 @@ export function ArchiveBoard({
                   )}
                 </button>
                 {open === p.id && (
-                  <PersonPanel p={p} canEdit={canEdit} canUpload={canUpload} todayStr={todayStr} />
+                  <PersonPanel
+                    p={p}
+                    canEdit={canEdit}
+                    canUpload={canUpload}
+                    todayStr={todayStr}
+                    toolsOut={toolsOut[p.name] ?? 0}
+                  />
                 )}
               </Fragment>
             )
@@ -193,7 +209,7 @@ export function ArchiveBoard({
       </div>
 
       <p className="mt-4 text-[12px] leading-relaxed text-[var(--color-ink-3)]">
-        人事、于海伟、老板看得到，也都能建档、传文件；删文件、删档案、办离职只有老板和于海伟。照片点一下放大，PDF 点一下在新窗口打开。办了离职的挪到「离职」那一栏，档案原样留着。
+        人事、于海伟、老板看得到，也都能建档、传文件、办离职；删文件、删档案只有老板和于海伟。照片点一下放大，PDF 点一下在新窗口打开。办了离职的挪到「离职」那一栏，档案原样留着。
       </p>
     </div>
   )
@@ -204,11 +220,13 @@ function PersonPanel({
   canEdit,
   canUpload,
   todayStr,
+  toolsOut,
 }: {
   p: ArchivePerson
   canEdit: boolean
   canUpload: boolean
   todayStr: string
+  toolsOut: number
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
@@ -270,9 +288,28 @@ function PersonPanel({
         ))}
       </div>
 
-      {canEdit && (
+      {/* 离职 —— 三样材料 + 办理离职 (人事就能办)。 */}
+      <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+        <p className="mb-2 flex flex-wrap items-baseline gap-3">
+          <span className="text-[13px] font-medium text-[var(--color-ink)]">离职</span>
+          <span
+            className={`text-[12px] ${toolsOut > 0 ? 'text-[var(--color-overdue)]' : 'text-[var(--color-ink-3)]'}`}
+          >
+            {toolsOut > 0
+              ? `领用的工具还有 ${toolsOut} 件没还 —— 去「工具」那一栏做离职归还确认`
+              : '领用的工具都还了'}
+          </span>
+        </p>
+        <div className="space-y-2.5">
+          {LEAVE_KINDS.map((k) => (
+            <KindRow key={k} p={p} kind={k} canEdit={canEdit} canUpload={canUpload} />
+          ))}
+        </div>
+      </div>
+
+      {(canUpload || canEdit) && (
         <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-[var(--color-border)] pt-3 text-[12.5px]">
-          {p.leftAt ? (
+          {!canUpload ? null : p.leftAt ? (
             <button
               type="button"
               disabled={pending}
@@ -312,6 +349,7 @@ function PersonPanel({
             </button>
           )}
           {error && <span className="text-[12px] text-[var(--color-overdue)]">{error}</span>}
+          {canEdit && (
           <span className="ml-auto">
             {armDelete ? (
               <span className="inline-flex gap-3">
@@ -337,6 +375,7 @@ function PersonPanel({
               </button>
             )}
           </span>
+          )}
         </div>
       )}
     </div>
@@ -396,7 +435,7 @@ function KindRow({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="label w-[72px] shrink-0">{ARCHIVE_KIND_LABEL[kind]}</span>
+      <span className="label w-[140px] shrink-0">{ARCHIVE_KIND_LABEL[kind]}</span>
       {files.length === 0 && !canUpload && <span className="text-[12px] text-[var(--color-ink-4)]">—</span>}
       {files.map((f) => {
         const href = withBase(archiveFileHref(p.id, f.id))

@@ -3596,9 +3596,10 @@ async function dispatch(
     case 'setArchiveLeft':
     case 'deleteArchivePerson': {
       const u = await requireUser()
-      const light = body.kind === 'createArchivePerson' || body.kind === 'updateArchivePerson'
+      // 离职人事就能办 (于海伟 2026-10-29); 整份删掉只有老板和于海伟。
+      const light = body.kind !== 'deleteArchivePerson'
       if (light ? !canUploadHrArchive(u) : !canEditHrArchive(u))
-        return err(light ? '人事档案由人事、于海伟或老板来填' : '办离职、删档案只有老板和于海伟', 403)
+        return err(light ? '人事档案由人事、于海伟或老板来填' : '删档案只有老板和于海伟', 403)
       try {
         if (body.kind === 'createArchivePerson') {
           if (!isString(body.name) || !body.name.trim()) return err('先填姓名')

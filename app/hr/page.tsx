@@ -30,6 +30,7 @@ import { getLoans } from '@/lib/loan'
 import { HrLoanBoard } from './_loans'
 import { getActiveUsers, getProcurementProducts, getProcurements, isAdminUser } from '@/lib/db'
 import { getToolIssues } from '@/lib/tool'
+import { toolState } from '@/lib/tool-shared'
 import { getArchive } from '@/lib/hr-archive'
 import { ArchiveBoard } from './_archive'
 import { ToolBoard, type ToolCatalogItem } from './_tools'
@@ -125,7 +126,14 @@ export default async function HrPage({
       view === 'tool' ? getToolIssues() : Promise.resolve([]),
       view === 'tool' ? loadToolCatalog() : Promise.resolve([]),
     ])
-  const archive = view === 'archive' ? await getArchive().catch(() => []) : []
+  const [archive, archiveTools] =
+    view === 'archive'
+      ? await Promise.all([getArchive().catch(() => []), getToolIssues().catch(() => [])])
+      : [[], []]
+  // 工具领用里每个人还没还的件数 —— 档案的离职那一块提一句。
+  const toolsOut: Record<string, number> = {}
+  for (const t of archiveTools)
+    if (toolState(t) === 'out') toolsOut[t.name] = (toolsOut[t.name] ?? 0) + t.qty
 
   // 看全部 vs 看本部门. Scoped here, on the server, so a 工段长's page never
   // holds another team's lines in the first place — there is nothing to leak
@@ -219,6 +227,7 @@ export default async function HrPage({
             canEdit={canEditHrArchive(user)}
             canUpload={canUploadHrArchive(user)}
             todayStr={now}
+            toolsOut={toolsOut}
           />
         ) : view === 'tool' ? (
           <ToolBoard issues={toolIssues} roster={roster} catalog={toolCatalog} todayStr={now} />
