@@ -20,6 +20,11 @@ export async function GET(
     return new Response('bad path', { status: 400 })
   }
   const key = path.map(decodeURIComponent).join('/')
+  // 人事档案 (身份证、合同…) 不从这条公开的路出 —— 只走 /api/hr-archive, 那边
+  // 每次都查人。
+  if (key.startsWith('hr/archive/') || key === 'hr/archive.json') {
+    return new Response('not found', { status: 404 })
+  }
 
   const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(key)
   if (error || !data) {

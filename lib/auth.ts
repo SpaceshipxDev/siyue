@@ -245,6 +245,22 @@ export function canEditAttendance(u: AuthUser): boolean {
   return canEditHrRecord(u) || ATTENDANCE_EDITOR_USER_IDS.has(u.id)
 }
 
+// 人事档案 (身份证、劳动合同、社保证明…) —— 于海伟 2026-10-29: 人事、他、老板
+// 看得到, 也都能建档、传文件 (相关资料人事都可以上传); 删文件、删档案、办离职
+// 只有老板和他。
+export function canEditHrArchive(u: AuthUser): boolean {
+  return isAdminUser(u.id) || HR_EDITOR_USER_IDS.has(u.id)
+}
+
+export function canSeeHrArchive(u: AuthUser): boolean {
+  return canEditHrArchive(u) || ATTENDANCE_EDITOR_USER_IDS.has(u.id)
+}
+
+/** 建档、传文件、点住宿 —— 看得到档案的人都行 (人事 + 老板 + 于海伟)。 */
+export function canUploadHrArchive(u: AuthUser): boolean {
+  return canSeeHrArchive(u)
+}
+
 // 请假 (事假 / 病假 / 工伤) —— 于海伟 2026-10-17: 谁填的谁看; 人事、老板看全部。
 // 能改 / 删人事记录的 (于海伟) 也算一个, 看不到就没法改。别的几样 (加班、迟到
 // ……) 照旧按部门看。

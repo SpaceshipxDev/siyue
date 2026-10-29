@@ -144,6 +144,8 @@ import {
   canDeleteProcurement,
   canApplyLoan,
   canManageTools,
+  canEditHrArchive,
+  canUploadHrArchive,
   canEditPartRoute,
   canApproveLoan,
   canFilePayRequest,
@@ -200,6 +202,12 @@ import { writeReturnFlow } from '@/lib/return-flow-store'
 import { addToolIssue, deleteToolIssue, settleToolIssues } from '@/lib/tool'
 import { getReworkJobs, saveReworkJob, setReworkRate } from '@/lib/rework-job'
 import { putInTrash, takeFromTrash } from '@/lib/procurement-trash'
+import {
+  createArchivePerson,
+  deleteArchivePerson,
+  setArchiveLeft,
+  updateArchivePerson,
+} from '@/lib/hr-archive'
 import {
   addNcProgram,
   deleteNcProgram,
@@ -3578,6 +3586,53 @@ async function dispatch(
         return err(e instanceof Error ? e.message : '存不上')
       }
       revalidateJob(jobId)
+      return Response.json(ok())
+    }
+
+    // 人事档案 —— 建档、点住宿: 人事也行 (canUploadHrArchive); 办离职 / 撤销、
+    // 整份删掉: 只有老板和于海伟 (canEditHrArchive)。文件的传和删走 /api/hr-archive。
+    case 'createArchivePerson':
+    case 'updateArchivePerson':
+    case 'setArchiveLeft':
+    case 'deleteArchivePerson': {
+      const u = await requireUser()
+      const light = body.kind === 'createArchivePerson' || body.kind === 'updateArchivePerson'
+      if (light ? !canUploadHrArchive(u) : !canEditHrArchive(u))
+        return err(light ? '人事档案由人事、于海伟或老板来填' : '办离职、删档案只有老板和于海伟', 403)
+      try {
+        if (body.kind === 'createArchivePerson') {
+          if (!isString(body.name) || !body.name.trim()) return err('先填姓名')
+          const p = await createArchivePerson(
+            { name: body.name, dept: isString(body.dept) ? body.dept : undefined },
+            u.name,
+          )
+          revalidatePath('/hr')
+          return Response.json(ok({ id: p.id }))
+        }
+        const id = body.id
+        if (!isString(id)) return err(`bad ${body.kind} args`)
+        if (body.kind === 'updateArchivePerson') {
+          const lodging = body.lodging
+          await updateArchivePerson(id, {
+            name: isString(body.name) ? body.name : undefined,
+            dept: isString(body.dept) ? body.dept : undefined,
+            note: isString(body.note) ? body.note : undefined,
+            lodging: lodging === '内宿' || lodging === '外宿' ? lodging : lodging === null ? null : undefined,
+          })
+        } else if (body.kind === 'setArchiveLeft') {
+          const date = body.leftAt
+          await setArchiveLeft(
+            id,
+            isString(date) && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : date === null ? null : today(),
+            u.name,
+          )
+        } else {
+          await deleteArchivePerson(id)
+        }
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '办不了')
+      }
+      revalidatePath('/hr')
       return Response.json(ok())
     }
 

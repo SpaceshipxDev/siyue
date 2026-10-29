@@ -14,6 +14,9 @@ import {
   canSeeOrderLedger,
   canApplyLoan,
   canManageTools,
+  canSeeHrArchive,
+  canEditHrArchive,
+  canUploadHrArchive,
   canSettleAccounts,
   canFilePayRequest,
   canSeeOthersPayRequests,
@@ -27,6 +30,8 @@ import { getLoans } from '@/lib/loan'
 import { HrLoanBoard } from './_loans'
 import { getActiveUsers, getProcurementProducts, getProcurements, isAdminUser } from '@/lib/db'
 import { getToolIssues } from '@/lib/tool'
+import { getArchive } from '@/lib/hr-archive'
+import { ArchiveBoard } from './_archive'
 import { ToolBoard, type ToolCatalogItem } from './_tools'
 import { loadAttendanceReport } from './_sheet_data'
 import {
@@ -78,8 +83,12 @@ export default async function HrPage({
   const seeSheet = canSeeAttendance(user)
   // 工具 —— 工具领用登记, 离职归还确认, 没还的扣工资 (于海伟 2026-10-23)。
   const seeTool = canManageTools(user)
+  // 档案 —— 身份证、合同这些; 人事、于海伟、老板看得到 (于海伟 2026-10-29)。
+  const seeArchive = canSeeHrArchive(user)
   const view =
-    sp.v === 'dorm' && seeDorm
+    sp.v === 'archive' && seeArchive
+      ? 'archive'
+      : sp.v === 'dorm' && seeDorm
       ? 'dorm'
       : sp.v === 'tool' && seeTool
         ? 'tool'
@@ -116,6 +125,7 @@ export default async function HrPage({
       view === 'tool' ? getToolIssues() : Promise.resolve([]),
       view === 'tool' ? loadToolCatalog() : Promise.resolve([]),
     ])
+  const archive = view === 'archive' ? await getArchive().catch(() => []) : []
 
   // 看全部 vs 看本部门. Scoped here, on the server, so a 工段长's page never
   // holds another team's lines in the first place — there is nothing to leak
@@ -178,6 +188,9 @@ export default async function HrPage({
             {seeTool && (
               <ViewTab href="/hr?v=tool" label="工具" active={view === 'tool'} />
             )}
+            {seeArchive && (
+              <ViewTab href="/hr?v=archive" label="档案" active={view === 'archive'} />
+            )}
         </div>
         {view === 'sheet' ? (
           <SheetView
@@ -198,6 +211,14 @@ export default async function HrPage({
             isBoss={isAdminUser(user.id)}
             showDept={false}
             openId={sp.open}
+          />
+        ) : view === 'archive' ? (
+          <ArchiveBoard
+            people={archive}
+            roster={roster}
+            canEdit={canEditHrArchive(user)}
+            canUpload={canUploadHrArchive(user)}
+            todayStr={now}
           />
         ) : view === 'tool' ? (
           <ToolBoard issues={toolIssues} roster={roster} catalog={toolCatalog} todayStr={now} />
