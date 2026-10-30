@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import Link from 'next/link'
 import {
@@ -226,6 +226,34 @@ const MONEY_FILTER_LABEL: Record<MoneyFilter, string> = {
   settled: ORDER_STATUS_LABEL.settled, // 已结清
 }
 
+// 金额 column funnel (商务 overview only, 于海伟 2026-10-30) —— 按订单额和毛
+// 利切: 还没定金额的、多大的单、毛利亏了 / 不到 30% 的 (跟财务订单那边标红、
+// 标橙同一个口径)。单选, 跟收款那一个一样。
+type AmountFilter = 'all' | 'unpriced' | 'lt1w' | 'w1to5' | 'gt5w' | 'loss' | 'thin'
+
+const AMOUNT_FILTER_LABEL: Record<AmountFilter, string> = {
+  all: '全部',
+  unpriced: '未定金额',
+  lt1w: '1 万以下',
+  w1to5: '1 万 – 5 万',
+  gt5w: '5 万以上',
+  loss: '毛利亏损',
+  thin: '毛利不到 30%',
+}
+
+function rowMatchesAmount(r: MasterRow, f: AmountFilter): boolean {
+  if (f === 'all') return true
+  const a = r.amountCny
+  if (f === 'unpriced') return a == null
+  if (a == null) return false
+  if (f === 'lt1w') return a < 10_000
+  if (f === 'w1to5') return a >= 10_000 && a <= 50_000
+  if (f === 'gt5w') return a > 50_000
+  const m = r.marginCny ?? a - r.externalSpendCny
+  if (f === 'loss') return m < 0
+  return m >= 0 && a > 0 && m / a < 0.3 // 'thin'
+}
+
 // Does a row's money light fall in the funnel bucket? 'unpaid' is the broad
 // "invoiced but not settled" set, so it includes 逾期 (same as the AR ledger's
 // 未回款 filter) — the boss filtering "待回款" wants the overdue ones in there too.
@@ -441,6 +469,12 @@ export function MasterSheet({
     'all',
   )
   const moneyActive = moneyFilter !== 'all'
+  // 金额 funnel —— 按订单额 / 毛利切 (于海伟 2026-10-30)。
+  const [amountFilter, setAmountFilter] = usePersistentState<AmountFilter>(
+    `${persistKey}:amount`,
+    'all',
+  )
+  const amountActive = amountFilter !== 'all'
 
   const isProduction = role === 'production'
   const showMoney = role === 'commerce'
@@ -720,8 +754,11 @@ export function MasterSheet({
       const moneyScoped = moneyActive
         ? sortByMoneyUrgency(alarmScoped.filter((r) => rowMatchesMoney(r, moneyFilter)))
         : alarmScoped
+      const amountScoped = amountActive
+        ? moneyScoped.filter((r) => rowMatchesAmount(r, amountFilter))
+        : moneyScoped
       return {
-        topRows: floatRush(moneyScoped),
+        topRows: floatRush(amountScoped),
         upstreamRows: [] as MasterRow[],
         doneRows: [] as MasterRow[],
       }
@@ -756,7 +793,7 @@ export function MasterSheet({
       upstreamRows: floatRush(upstream),
       doneRows: done,
     }
-  }, [dateFiltered, isStationView, stageFilter, q, effectiveType, activeFilterStages, statusByStage, onlyPendingOutsource, onlyDrawingChange, moneyActive, moneyFilter, stuckActive, stuckStages])
+  }, [dateFiltered, isStationView, stageFilter, q, effectiveType, activeFilterStages, statusByStage, onlyPendingOutsource, onlyDrawingChange, moneyActive, moneyFilter, amountActive, amountFilter, stuckActive, stuckStages])
 
   // 待外协 count over the current date scope — drives the facet chip label and
   // hides the chip entirely when nothing is waiting (clean board, no chrome).
@@ -776,6 +813,15 @@ export function MasterSheet({
     () => dateFiltered.reduce((n, r) => (r.drawingChangeOpen ? n + 1 : n), 0),
     [dateFiltered],
   )
+
+  // 金额 funnel 的数 —— 跟收款那一个一样, 数在日期范围之内。
+  const amountCounts = useMemo(() => {
+    const keys: AmountFilter[] = ['all', 'unpriced', 'lt1w', 'w1to5', 'gt5w', 'loss', 'thin']
+    const c = Object.fromEntries(keys.map((k) => [k, 0])) as Record<AmountFilter, number>
+    if (!showMoney || !treatAsOverview) return c
+    for (const r of dateFiltered) for (const k of keys) if (rowMatchesAmount(r, k)) c[k] += 1
+    return c
+  }, [dateFiltered, showMoney, treatAsOverview])
 
   // Live counts for the 收款 funnel menu, over the current date scope. Computed
   // only on the commerce overview, where the money column + funnel live.
@@ -824,6 +870,7 @@ export function MasterSheet({
     onlyPendingOutsource ||
     onlyDrawingChange ||
     moneyActive ||
+    amountActive ||
     stuckActive
 
   type VirtualDivider = {
@@ -1095,8 +1142,26 @@ export function MasterSheet({
                 {isProduction ? `产品 / ${BRAND.commerceLabel}` : '客户 / 工程师'}
               </th>
               {showMoney && (
-                <th className="px-4 py-3 text-right label whitespace-nowrap">
-                  金额
+                <th
+                  style={{ overflow: 'visible' }}
+                  className="relative px-4 py-3 text-right whitespace-nowrap"
+                >
+                  <span className="inline-flex items-center justify-end gap-1 label">
+                    <span className={amountActive ? 'text-[var(--color-ink)]' : undefined}>金额</span>
+                    {treatAsOverview && (
+                      <AmountHeaderFilter
+                        value={amountFilter}
+                        counts={amountCounts}
+                        onChange={setAmountFilter}
+                      />
+                    )}
+                  </span>
+                  {amountActive && (
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-x-2 bottom-[6px] h-[2px] rounded-[2px] bg-[var(--color-info)]"
+                    />
+                  )}
                 </th>
               )}
               <th
@@ -1327,6 +1392,7 @@ export function MasterSheet({
                   setDateFilter({ kind: 'all' })
                   clearStageStatuses()
                   setMoneyFilter('all')
+                  setAmountFilter('all')
                   setStuckStages([])
                 }}
                 className="label mt-4 text-[var(--color-ink)] hover:underline underline-offset-4 decoration-[var(--color-ink-3)]"
@@ -1731,6 +1797,103 @@ function MoneyHeaderFilter({
                 setOpen(false)
               }}
             />
+          ))}
+        </div>
+      )}
+    </span>
+  )
+}
+
+// 金额 column funnel —— 跟收款那一个同一个样子, 单选。
+function AmountHeaderFilter({
+  value,
+  counts,
+  onChange,
+}: {
+  value: AmountFilter
+  counts: Record<AmountFilter, number>
+  onChange: (next: AmountFilter) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLSpanElement>(null)
+  const active = value !== 'all'
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const groups: { key: AmountFilter; tone?: StatusTone }[][] = [
+    [{ key: 'unpriced' }],
+    [{ key: 'lt1w' }, { key: 'w1to5' }, { key: 'gt5w' }],
+    [
+      { key: 'loss', tone: 'overdue' },
+      { key: 'thin', tone: 'warning' },
+    ],
+  ]
+
+  return (
+    <span ref={ref} className="relative inline-flex">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="按金额筛选"
+        title="按金额筛选"
+        className={`inline-flex h-4 w-4 items-center justify-center rounded-[2px] transition-colors ${
+          active
+            ? 'text-[var(--color-info)]'
+            : open
+              ? 'text-[var(--color-ink)] bg-black/[0.06]'
+              : 'text-[var(--color-ink-4)] hover:text-[var(--color-ink-2)] hover:bg-black/[0.04]'
+        }`}
+      >
+        {active ? <FunnelIcon /> : <CaretIcon />}
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          aria-label="金额"
+          className="absolute right-0 top-[calc(100%+8px)] z-40 min-w-[160px] overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] py-1 text-left shadow-[0_10px_34px_-12px_rgba(20,19,15,0.28)]"
+        >
+          <FilterMenuRow
+            label={AMOUNT_FILTER_LABEL.all}
+            count={counts.all}
+            active={value === 'all'}
+            onClick={() => {
+              onChange('all')
+              setOpen(false)
+            }}
+          />
+          {groups.map((g, i) => (
+            <Fragment key={i}>
+              <div className="my-1 h-px bg-[var(--color-border)]" />
+              {g.map((r) => (
+                <FilterMenuRow
+                  key={r.key}
+                  label={AMOUNT_FILTER_LABEL[r.key]}
+                  count={counts[r.key]}
+                  tone={r.tone}
+                  active={value === r.key}
+                  onClick={() => {
+                    onChange(r.key)
+                    setOpen(false)
+                  }}
+                />
+              ))}
+            </Fragment>
           ))}
         </div>
       )}
