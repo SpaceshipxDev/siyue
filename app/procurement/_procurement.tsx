@@ -142,6 +142,9 @@ export function ProcurementBoard({
   const [q, setQ] = useState('')
   const [tab, setTab] = useState<Tab>('buying')
   const [openId, setOpenId] = useState<string | null>(null)
+  // 待领料里勾上的那几笔 —— 一键领料只领它们; 一笔都没勾就领列着的全部
+  // (于海伟 2026-10-30)。换一栏就清掉。
+  const [picked, setPicked] = useState<Set<string>>(() => new Set())
   const [modal, setModal] = useState<ModalMode>(null)
   // 类别 —— '' = 全部。筛的是整块板子: 六个框的数、下面的单子、钱、导出。
   const [cat, setCat] = useState('')
@@ -437,6 +440,7 @@ export function ProcurementBoard({
               type="button"
               onClick={() => {
                 setTab(b.key)
+                setPicked(new Set())
                 setOpenId(null)
               }}
               className={`inline-flex items-baseline gap-2 whitespace-nowrap rounded-[2px] border bg-[var(--color-surface)] px-3.5 py-[7px] ${
@@ -575,8 +579,31 @@ export function ProcurementBoard({
                 <span className="mono text-[13px] font-semibold text-[var(--color-ink)]">
                   {strip.count} 笔 · {formatCny(strip.sum)}
                 </span>
-                {(tab === 'purchase' || tab === 'buying') && shown.length > 0 && (
-                  <BulkConfirm tab={tab} rows={shown} today={today} />
+                {tab === 'arrived' && shown.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPicked(
+                        shown.every((p) => picked.has(p.id)) ? new Set() : new Set(shown.map((p) => p.id)),
+                      )
+                    }
+                    className="text-[12.5px] text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
+                  >
+                    {shown.every((p) => picked.has(p.id)) ? '全不选' : '全选'}
+                  </button>
+                )}
+                {(tab === 'purchase' || tab === 'buying' || tab === 'arrived') && shown.length > 0 && (
+                  <BulkConfirm
+                    tab={tab}
+                    rows={
+                      tab === 'arrived' && shown.some((p) => picked.has(p.id))
+                        ? shown.filter((p) => picked.has(p.id))
+                        : shown
+                    }
+                    selected={tab === 'arrived' && shown.some((p) => picked.has(p.id))}
+                    today={today}
+                    onDone={() => setPicked(new Set())}
+                  />
                 )}
               </div>
             )}
@@ -633,6 +660,18 @@ export function ProcurementBoard({
                   dim={tab === 'ledger'}
                   open={openId === p.id}
                   onToggle={() => setOpenId(openId === p.id ? null : p.id)}
+                  picked={tab === 'arrived' ? picked.has(p.id) : undefined}
+                  onPick={
+                    tab === 'arrived'
+                      ? () =>
+                          setPicked((cur) => {
+                            const next = new Set(cur)
+                            if (next.has(p.id)) next.delete(p.id)
+                            else next.add(p.id)
+                            return next
+                          })
+                      : undefined
+                  }
                   canApprove={canApprove}
                   canDelete={canDelete}
                   jobOptions={jobOptions}
@@ -1015,7 +1054,12 @@ function Row({
   roster,
   pastPicks,
   onEdit,
+  picked,
+  onPick,
 }: {
+  /** 待领料: 前面一个勾 —— 一键领料只领勾上的。 */
+  picked?: boolean
+  onPick?: () => void
   p: Procurement
   category?: string
   today: string
@@ -1039,7 +1083,18 @@ function Row({
         }`}
       >
         <span className="flex justify-center">
-          <StatusDot p={p} today={today} />
+          {onPick ? (
+            <input
+              type="checkbox"
+              checked={!!picked}
+              onChange={onPick}
+              onClick={(e) => e.stopPropagation()}
+              aria-label="选这一笔"
+              className="h-4 w-4 cursor-pointer accent-[var(--color-ink)]"
+            />
+          ) : (
+            <StatusDot p={p} today={today} />
+          )}
         </span>
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
@@ -3505,50 +3560,92 @@ function Plus() {
 }
 
 // 一键确认 (于海伟 2026-10-28) —— 待采购: 列着的这几笔全部「已下单」(供应商、
-// 单价、到货日已经填了的照带); 待到货: 全部「到货了」。按的是眼前列着的 (搜索、
+// 单价、到货日已经填了的照带); 待到货: 全部「到货了」; 待领料 (10-30): 全部
+// 「领料」—— 每笔按请购时定的领料人、整笔件数领, 没定领料人的在按钮旁边填一个
+// 名字; 验货标了不合格的不跟着领。按的是眼前列着的 (搜索、
 // 类别筛过之后的), 先问一句再办。一笔一笔地写, 半路断了, 没写到的还在原来那一
 // 栏, 再点一次接着办。
 function BulkConfirm({
   tab,
   rows,
   today,
+  selected,
+  onDone,
 }: {
-  tab: 'purchase' | 'buying'
+  tab: 'purchase' | 'buying' | 'arrived'
   rows: Procurement[]
   today: string
+  /** 待领料里勾了几笔 —— 按钮上写「已选」。 */
+  selected?: boolean
+  onDone?: () => void
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const [error, setError] = useState<string | null>(null)
-  const label = tab === 'purchase' ? '一键下单' : '一键到货'
+  const [picker, setPicker] = useState('')
+  // 待领料: 不合格的不领; 没定领料人的要在旁边填一个。
+  const list = tab === 'arrived' ? rows.filter((p) => p.inspectResult !== 'defect') : rows
+  const noPicker = tab === 'arrived' ? list.filter((p) => !p.picker?.trim()).length : 0
+  const label = tab === 'purchase' ? '一键下单' : tab === 'buying' ? '一键到货' : '一键领料'
+  const verb = tab === 'purchase' ? '下单' : tab === 'buying' ? '到货' : '领料'
   function run() {
-    if (!confirm(`${rows.length} 笔全部${tab === 'purchase' ? '标成已下单' : '标成到货了'}？`)) return
+    if (list.length === 0) return
+    if (noPicker > 0 && !picker.trim()) return setError(`有 ${noPicker} 笔没定领料人，先填一个`)
+    const skipped = rows.length - list.length
+    if (
+      !confirm(
+        `${list.length} 笔全部${tab === 'purchase' ? '标成已下单' : tab === 'buying' ? '标成到货了' : '领料'}？${
+          skipped > 0 ? `（${skipped} 笔不合格的不领）` : ''
+        }`,
+      )
+    )
+      return
     setError(null)
     start(async () => {
       try {
-        for (const p of rows)
+        for (const p of list)
           await mutate({
             kind: 'updateProcurement',
             procurementId: p.id,
-            patch: tab === 'purchase' ? { status: 'ordered', orderDate: today } : { status: 'arrived' },
+            patch:
+              tab === 'purchase'
+                ? { status: 'ordered', orderDate: today }
+                : tab === 'buying'
+                  ? { status: 'arrived' }
+                  : {
+                      status: 'done',
+                      picker: p.picker?.trim() || picker.trim(),
+                      pickQty: p.qty ?? null,
+                      ...(p.inspectResult ? {} : { inspectResult: 'ok' }),
+                    },
           })
-        showToast(`${rows.length} 笔已${tab === 'purchase' ? '下单' : '到货'}`, 'success')
+        showToast(`${list.length} 笔已${verb}`, 'success')
+        onDone?.()
       } catch (e) {
         setError(e instanceof Error ? e.message : '办不了')
       }
       router.refresh()
     })
   }
+  if (list.length === 0) return null
   return (
     <span className="ml-auto flex items-center gap-2">
       {error && <span className="text-[12px] text-[var(--color-overdue)]">{error}</span>}
+      {noPicker > 0 && (
+        <input
+          value={picker}
+          onChange={(e) => setPicker(e.target.value)}
+          placeholder={`${noPicker} 笔没定领料人 · 填名字`}
+          className="h-8 w-[170px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 text-[12.5px] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
+        />
+      )}
       <button
         type="button"
         onClick={run}
         disabled={pending}
         className="rounded-[2px] bg-[var(--color-ink)] px-3.5 py-1.5 text-[12.5px] font-medium text-[var(--color-surface)] hover:opacity-85 disabled:opacity-50"
       >
-        {pending ? '办理中…' : `${label} · ${rows.length} 笔`}
+        {pending ? '办理中…' : selected ? `领料 · 已选 ${list.length} 笔` : `${label} · ${list.length} 笔`}
       </button>
     </span>
   )
