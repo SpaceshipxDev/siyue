@@ -12,7 +12,8 @@ import { STAGES, type Stage } from '@/lib/data'
 // 金额、不走出货, 不进对账和财务 (lib/rework-job)。
 //
 //   原工单上: 「制程返工」按钮 → 勾零件、填件数、点要重做的工序、填单价 → 开单
-//   返工单上: 一条说明 + 每个零件的返工报工单价, 能改
+//   返工单上: 一条说明, 不写价钱 (于海伟 2026-11-01: 返工单表头不要体现价格);
+//            能改单价的人 (商务 / 工程) 点「改返工报工单价」才摊开那几格
 
 // 返工能重做的工序 —— 出货不算 (返工单不发货), 工程 / 采购不是车间的活。
 const REWORK_STAGES: Stage[] = STAGES.filter((s) => !['工程', '采购', '出货'].includes(s))
@@ -282,9 +283,11 @@ export function ReworkBanner({
   rates: Record<string, number>
   canEdit: boolean
 }) {
+  // 价钱不摆在表头 —— 车间打开这张单看不到; 能改的人点开才看。
+  const [showRates, setShowRates] = useState(false)
   return (
     <div className="mb-6 rounded-[2px] border border-[var(--color-warning)] bg-[color-mix(in_srgb,var(--color-warning)_6%,transparent)] px-4 py-3">
-      <p className="text-[13px] text-[var(--color-ink)]">
+      <p className="flex flex-wrap items-baseline gap-x-1 text-[13px] text-[var(--color-ink)]">
         <b className="font-semibold">制程返工单</b>
         {sourceJobNo && (
           <>
@@ -300,18 +303,29 @@ export function ReworkBanner({
           </>
         )}
         <span className="text-[var(--color-ink-3)]"> · 只算报工和个人产值，不进对账和财务</span>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setShowRates((v) => !v)}
+            className="ml-auto text-[12px] text-[var(--color-ink-3)] underline underline-offset-2 hover:text-[var(--color-ink)]"
+          >
+            {showRates ? '收起' : '改返工报工单价'}
+          </button>
+        )}
       </p>
-      <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1.5">
-        {parts.map((p) => (
-          <RateLine
-            key={p.id}
-            jobId={jobId}
-            part={p}
-            rate={rates[p.id]}
-            canEdit={canEdit}
-          />
-        ))}
-      </div>
+      {canEdit && showRates && (
+        <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1.5">
+          {parts.map((p) => (
+            <RateLine
+              key={p.id}
+              jobId={jobId}
+              part={p}
+              rate={rates[p.id]}
+              canEdit={canEdit}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
