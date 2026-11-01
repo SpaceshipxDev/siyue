@@ -26,6 +26,9 @@ import { DefectDetail } from './_defect_detail'
 // 点一行打开这一条的详情 —— 全部信息加上判不良时拍的照片, 照片点开看大图。
 //
 // 检验时选了「外协」的不良不在这张表里: 那是供应商做坏的, 在「来料异常」。
+//
+// 搜索框旁边三个下拉 (于海伟 2026-11-01): 品名、责任人、判定 —— 从这个月的
+// 记录里列, 后面带条数; 导出跟着走。
 
 const MONTHS = [
   '01', '02', '03', '04', '05', '06',
@@ -50,12 +53,37 @@ export function DefectsBoard({
   const [month, setMonth] = useState<string>(todayStr.slice(5, 7))
   const [q, setQ] = useState('')
   const [detail, setDetail] = useState<DefectRow | null>(null)
+  // 下拉筛选 —— '' = 全部。
+  const [part, setPart] = useState('')
+  const [owner, setOwner] = useState('')
+  const [verdict, setVerdict] = useState('')
+
+  // 这个月的 (不管下拉选了什么) —— 下拉里的选项从这里数。
+  const inMonth = useMemo(() => {
+    const ym = `${year}-${month}`
+    return rows.filter((r) => (r.at ?? '').slice(0, 7) === ym)
+  }, [rows, year, month])
+  const optionsOf = (get: (r: DefectRow) => string | undefined) => {
+    const m = new Map<string, number>()
+    for (const r of inMonth) {
+      const v = (get(r) ?? '').trim()
+      if (v) m.set(v, (m.get(v) ?? 0) + 1)
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh'))
+  }
+  const partOptions = optionsOf((r) => r.partName)
+  const ownerOptions = optionsOf((r) => r.owner)
+  const verdictOptions = optionsOf((r) => r.verdict)
 
   const monthRows = useMemo(() => {
-    const ym = `${year}-${month}`
     const needle = q.trim().toLowerCase()
-    return rows
-      .filter((r) => (r.at ?? '').slice(0, 7) === ym)
+    return inMonth
+      .filter(
+        (r) =>
+          (!part || r.partName.trim() === part) &&
+          (!owner || (r.owner ?? '').trim() === owner) &&
+          (!verdict || r.verdict === verdict),
+      )
       .filter((r) =>
         !needle
           ? true
@@ -73,7 +101,7 @@ export function DefectsBoard({
               .toLowerCase()
               .includes(needle),
       )
-  }, [rows, actions, year, month, q])
+  }, [inMonth, actions, q, part, owner, verdict])
 
   const stats = useMemo(() => {
     let check = 0
@@ -101,7 +129,16 @@ export function DefectsBoard({
 
   const exportHref = `/quality/export?m=${year}-${month}${
     q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ''
-  }`
+  }${part ? `&part=${encodeURIComponent(part)}` : ''}${
+    owner ? `&owner=${encodeURIComponent(owner)}` : ''
+  }${verdict ? `&verdict=${encodeURIComponent(verdict)}` : ''}`
+  const filtered = !!(part || owner || verdict)
+  const sel = (on: boolean) =>
+    `h-9 max-w-[180px] rounded-[2px] border bg-[var(--color-surface)] px-2 text-[13px] outline-none ${
+      on
+        ? 'border-[var(--color-ink)] text-[var(--color-ink)]'
+        : 'border-[var(--color-border)] text-[var(--color-ink-2)]'
+    }`
 
   return (
     <div>
@@ -137,7 +174,44 @@ export function DefectsBoard({
           </p>
           <p className="label mt-2.5">待定措施</p>
         </div>
-        <div className="ml-auto flex items-center gap-2.5">
+        <div className="ml-auto flex flex-wrap items-center gap-2.5">
+          <select value={part} onChange={(e) => setPart(e.target.value)} className={sel(!!part)} aria-label="按品名筛选">
+            <option value="">全部品名</option>
+            {partOptions.map(([v, n]) => (
+              <option key={v} value={v}>
+                {v} · {n}
+              </option>
+            ))}
+          </select>
+          <select value={owner} onChange={(e) => setOwner(e.target.value)} className={sel(!!owner)} aria-label="按责任人筛选">
+            <option value="">全部责任人</option>
+            {ownerOptions.map(([v, n]) => (
+              <option key={v} value={v}>
+                {v} · {n}
+              </option>
+            ))}
+          </select>
+          <select value={verdict} onChange={(e) => setVerdict(e.target.value)} className={sel(!!verdict)} aria-label="按判定筛选">
+            <option value="">全部判定</option>
+            {verdictOptions.map(([v, n]) => (
+              <option key={v} value={v}>
+                {v} · {n}
+              </option>
+            ))}
+          </select>
+          {filtered && (
+            <button
+              type="button"
+              onClick={() => {
+                setPart('')
+                setOwner('')
+                setVerdict('')
+              }}
+              className="text-[12.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+            >
+              清除
+            </button>
+          )}
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -161,7 +235,13 @@ export function DefectsBoard({
           <button
             key={m}
             type="button"
-            onClick={() => setMonth(m)}
+            onClick={() => {
+              // 换个月, 下拉的选项跟着变 —— 选过的清掉, 免得筛成空的。
+              setMonth(m)
+              setPart('')
+              setOwner('')
+              setVerdict('')
+            }}
             className={`rounded-[2px] border bg-[var(--color-surface)] px-2.5 py-1 text-[12.5px] font-medium ${
               m === month
                 ? 'border-[var(--color-ink)] text-[var(--color-ink)] shadow-[inset_0_0_0_1px_var(--color-ink)]'
@@ -188,7 +268,7 @@ export function DefectsBoard({
 
         {monthRows.length === 0 ? (
           <p className="px-5 py-12 text-center text-[13px] text-[var(--color-ink-3)]">
-            {q ? '没有匹配的记录' : '这个月没有质量异常'}
+            {q || filtered ? '没有匹配的记录' : '这个月没有质量异常'}
           </p>
         ) : (
           monthRows.map((r, i) => (
