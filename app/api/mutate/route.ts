@@ -165,6 +165,7 @@ import {
   canSeeExpenses,
   canSeeOrderLedger,
   canEditQuality,
+  ownerOnlyEdit,
   canEditWarehouse,
   canRenameUploadedJob,
   canRunReturnRework,
@@ -4214,7 +4215,8 @@ async function dispatch(
       }
       const u = await requireUser()
       await updateComplaint(complaintId, p, {
-        fillBlanksOnly: !canEditQuality(u),
+        // 责任人那一格: 程江华、戴棵、潘健、范小唱 填过的也能改 (ownerOnlyEdit)。
+        fillBlanksOnly: !canEditQuality(u) && !ownerOnlyEdit(u, p),
         editor: u.name,
       })
       revalidatePath('/quality')
@@ -4323,7 +4325,7 @@ async function dispatch(
         return err('数量不对')
       const u = await requireUser()
       await updateProcessDefect(defectId, p, {
-        fillBlanksOnly: !canEditQuality(u),
+        fillBlanksOnly: !canEditQuality(u) && !ownerOnlyEdit(u, p),
       })
       revalidatePath('/quality')
       return Response.json(ok())
@@ -4381,7 +4383,9 @@ async function dispatch(
       }
       if (p.qty !== undefined && typeof p.qty !== 'number') return err('数量不对')
       const u = await requireUser()
-      await updateScrapRecord(scrapId, p, { fillBlanksOnly: !canEditQuality(u) })
+      await updateScrapRecord(scrapId, p, {
+        fillBlanksOnly: !canEditQuality(u) && !ownerOnlyEdit(u, p),
+      })
       revalidatePath('/quality')
       return Response.json(ok())
     }
@@ -4566,7 +4570,7 @@ async function dispatch(
       }
       const u = await requireUser()
       await updateIncomingDefect(defectId, p, {
-        fillBlanksOnly: !canEditQuality(u),
+        fillBlanksOnly: !canEditQuality(u) && !ownerOnlyEdit(u, p),
       })
       revalidatePath('/quality')
       return Response.json(ok())

@@ -45,6 +45,7 @@ export function ComplaintsBoard({
   todayStr,
   customers,
   canEdit,
+  canEditOwner = canEdit,
   userName,
 }: {
   rows: Complaint[]
@@ -56,6 +57,8 @@ export function ComplaintsBoard({
    * 记一条、补一个还空着的格, 有账号的人都可以, 不看这个。
    */
   canEdit: boolean
+  /** 责任那几格填过的也能改 —— 程江华、戴棵、潘健、范小唱也算 (于海伟 2026-11-02)。 */
+  canEditOwner?: boolean
   /** 登录的人 —— 自己记的那条, 不良原因自己能改。 */
   userName: string
 }) {
@@ -483,7 +486,7 @@ export function ComplaintsBoard({
                 onSave={(v) => patch(r.id, { handling: v })}
               />
               <Cell
-                canEdit={canEdit || !r.owner}
+                canEdit={canEditOwner || !r.owner}
                 value={r.owner}
                 placeholder="待定"
                 onSave={(v) => patch(r.id, { owner: v })}

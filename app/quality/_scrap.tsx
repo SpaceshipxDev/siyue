@@ -32,6 +32,7 @@ export function ScrapBoard({
   todayStr,
   depts,
   canEdit,
+  canEditOwner = canEdit,
 }: {
   rows: ScrapRecord[]
   todayStr: string
@@ -39,6 +40,8 @@ export function ScrapBoard({
   depts: string[]
   /** 改已经填下去的东西 / 删一条 — 工程 + 商务于海伟。 */
   canEdit: boolean
+  /** 责任那几格填过的也能改 —— 程江华、戴棵、潘健、范小唱也算 (于海伟 2026-11-02)。 */
+  canEditOwner?: boolean
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
@@ -377,13 +380,13 @@ export function ScrapBoard({
                 <span className="text-[12.5px] text-[var(--color-ink-2)]">{r.source}</span>
               )}
               <Cell
-                canEdit={canEdit || !r.dept}
+                canEdit={canEditOwner || !r.dept}
                 value={r.dept}
                 placeholder="待定"
                 onSave={(v) => patch(r.id, { dept: v })}
               />
               <Cell
-                canEdit={canEdit || !r.owner}
+                canEdit={canEditOwner || !r.owner}
                 value={r.owner}
                 placeholder="待定"
                 onSave={(v) => patch(r.id, { owner: v })}

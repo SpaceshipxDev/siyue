@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { TopBar } from '@/app/_ui'
 import {
   canEditQuality,
+  canEditQualityOwner,
   canSeeOrderLedger,
   canSeeReport,
   hrDeptOf,
@@ -62,6 +63,8 @@ export default async function QualityPage({
 }) {
   const user = await requireUser()
   const canEdit = canEditQuality(user)
+  // 责任人那几格 —— 程江华、戴棵、潘健、范小唱填过的也能改 (lib/auth)。
+  const canEditOwner = canEditQualityOwner(user)
   const sp = await searchParams
   const view =
     sp?.v === 'complaint'
@@ -228,6 +231,7 @@ export default async function QualityPage({
             todayStr={todayStr}
             customers={customers}
             canEdit={canEdit}
+            canEditOwner={canEditOwner}
             userName={user.name}
           />
         ) : view === 'improve' ? (
@@ -255,6 +259,7 @@ export default async function QualityPage({
             todayStr={todayStr}
             suppliers={incomingSuppliers}
             canEdit={canEdit}
+            canEditOwner={canEditOwner}
           />
         ) : view === 'files' ? (
           <FilesBoard rows={files} todayStr={todayStr} canEdit={canEdit} />
@@ -264,12 +269,14 @@ export default async function QualityPage({
             todayStr={todayStr}
             depts={depts}
             canEdit={canEdit}
+            canEditOwner={canEditOwner}
           />
         ) : view === 'process' ? (
           <ProcessBoard
             rows={processDefects}
             todayStr={todayStr}
             canEdit={canEdit}
+            canEditOwner={canEditOwner}
           />
         ) : (
           <DefectsBoard

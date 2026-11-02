@@ -395,6 +395,29 @@ export function canEditQuality(u: AuthUser): boolean {
   return QUALITY_EDITOR_USER_IDS.has(u.id) || isAdminUser(u.id)
 }
 
+// 责任人那几格 (制程不良的直接 / 间接责任、报废的责任部门 / 责任人、来料异常
+// 和客诉的责任人) —— 于海伟 2026-11-02: 程江华、戴棵、潘健、范小唱 填过的也
+// 能改。只开这几格, 原因、措施、金额照旧是上面那一档。按名字认 (跟工序权限
+// 一样), 一个人换了 / 多开了账号也认得出。
+const QUALITY_OWNER_EDITOR_NAMES = ['程江华', '戴棵', '潘健', '范小唱']
+
+/** 质量各表里「责任」那几个字段的名字 —— 只改这些的时候放行。 */
+export const QUALITY_OWNER_FIELDS = ['owner', 'coOwner', 'dept'] as const
+
+export function canEditQualityOwner(u: AuthUser): boolean {
+  return canEditQuality(u) || QUALITY_OWNER_EDITOR_NAMES.some((n) => u.name.includes(n))
+}
+
+/** 这一次改的全是责任那几格, 而且这个人能改责任 —— 不用只补空格。 */
+export function ownerOnlyEdit(u: AuthUser, patch: Record<string, unknown>): boolean {
+  const keys = Object.keys(patch).filter((k) => patch[k] !== undefined)
+  return (
+    keys.length > 0 &&
+    keys.every((k) => (QUALITY_OWNER_FIELDS as readonly string[]).includes(k)) &&
+    canEditQualityOwner(u)
+  )
+}
+
 // 导出 = 改那一档, 不是看那一档。屏幕上一次看一个月, 导出是把整张表连着客户、
 // 损失金额、责任人一起带出厂 —— 那是管理的动作, 跟"谁能动已经填下去的东西"
 // 是同一个信任。

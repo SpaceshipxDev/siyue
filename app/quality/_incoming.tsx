@@ -40,6 +40,7 @@ export function IncomingBoard({
   todayStr,
   suppliers,
   canEdit,
+  canEditOwner = canEdit,
 }: {
   rows: IncomingDefect[]
   /** 检验转过来的那几条的不良照片 —— 按「工单|零件」分好。 */
@@ -52,6 +53,8 @@ export function IncomingBoard({
    * 记一条、补一个还空着的格, 有账号的人都可以, 不看这个。
    */
   canEdit: boolean
+  /** 责任那几格填过的也能改 —— 程江华、戴棵、潘健、范小唱也算 (于海伟 2026-11-02)。 */
+  canEditOwner?: boolean
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
@@ -423,7 +426,7 @@ export function IncomingBoard({
                 onSave={(v) => patch(r.id, { handling: v })}
               />
               <Cell
-                canEdit={canEdit || !r.owner}
+                canEdit={canEditOwner || !r.owner}
                 value={r.owner}
                 placeholder="后补…"
                 onSave={(v) => patch(r.id, { owner: v })}
