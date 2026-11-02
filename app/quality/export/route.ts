@@ -1,3 +1,13 @@
+import {
+  CHANGE_COLS,
+  COMPLAINT_COLS,
+  IMPROVEMENT_COLS,
+  INCOMING_COLS,
+  PROCESS_COLS,
+  SCRAP_COLS,
+  colFiltersFrom,
+  matchCols,
+} from '@/lib/quality-filter'
 import { defectFiltersFrom, matchDefectFilters } from '@/lib/defect-filter'
 import { NextRequest } from 'next/server'
 import * as XLSX from 'xlsx'
@@ -129,6 +139,8 @@ export async function GET(request: NextRequest): Promise<Response> {
   const q = (sp.get('q') ?? '').trim().toLowerCase()
 
   const view = sp.get('v')
+  // 页面上表头的筛选 (lib/quality-filter) —— 导出的跟屏幕上一致。
+  const colFilters = colFiltersFrom(sp)
   const complaints = view === 'complaint'
   const process = view === 'process'
   const scrap = view === 'scrap'
@@ -144,6 +156,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   if (change) {
     const rows = (await getChangeRecords())
       .filter((r) => r.date.slice(0, 7) === month)
+      .filter((r) => matchCols(r, CHANGE_COLS, colFilters))
       .filter((r) =>
         !q
           ? true
@@ -172,6 +185,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   } else if (incoming) {
     const rows = (await getIncomingDefects())
       .filter((r) => r.date.slice(0, 7) === month)
+      .filter((r) => matchCols(r, INCOMING_COLS, colFilters))
       .filter((r) =>
         !q
           ? true
@@ -212,6 +226,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   } else if (improve) {
     const rows = (await getImprovements())
       .filter((r) => r.date.slice(0, 7) === month)
+      .filter((r) => matchCols(r, IMPROVEMENT_COLS, colFilters))
       .filter((r) =>
         !q
           ? true
@@ -250,6 +265,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   } else if (scrap) {
     const rows = (await getScrapRecords())
       .filter((r) => r.date.slice(0, 7) === month)
+      .filter((r) => matchCols(r, SCRAP_COLS, colFilters))
       .filter((r) =>
         !q
           ? true
@@ -275,6 +291,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   } else if (process) {
     const rows = (await getProcessDefects())
       .filter((r) => r.date.slice(0, 7) === month)
+      .filter((r) => matchCols(r, PROCESS_COLS, colFilters))
       .filter((r) =>
         !q
           ? true
@@ -313,6 +330,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   } else if (complaints) {
     const rows = (await getComplaints())
       .filter((r) => r.date.slice(0, 7) === month)
+      .filter((r) => matchCols(r, COMPLAINT_COLS, colFilters))
       .filter((r) =>
         !q
           ? true

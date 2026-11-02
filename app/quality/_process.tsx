@@ -1,5 +1,7 @@
 'use client'
 
+import { useColFilters } from './_col_head'
+import { PROCESS_COLS } from '@/lib/quality-filter'
 import { useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -60,11 +62,18 @@ export function ProcessBoard({
   const [action, setAction] = useState('')
   const [error, setError] = useState<string | null>(null)
 
+  // 表头筛选 (于海伟 2026-11-02) —— 这个月的那一批里按列筛 (_col_head)。
+  const inMonth = useMemo(
+    () => rows.filter((r) => r.date.slice(0, 7) === `${year}-${month}`),
+    [rows, year, month],
+  )
+  const cf = useColFilters(inMonth, PROCESS_COLS)
+
   const monthRows = useMemo(() => {
     const ym = `${year}-${month}`
     const needle = q.trim().toLowerCase()
     return rows
-      .filter((r) => r.date.slice(0, 7) === ym)
+      .filter((r) => r.date.slice(0, 7) === ym && cf.match(r))
       .filter((r) =>
         !needle
           ? true
@@ -74,7 +83,8 @@ export function ProcessBoard({
               .toLowerCase()
               .includes(needle),
       )
-  }, [rows, year, month, q])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, year, month, q, cf.filters])
 
   const stats = useMemo(() => {
     let qtySum = 0
@@ -143,7 +153,7 @@ export function ProcessBoard({
 
   const exportHref = `/quality/export?v=process&m=${year}-${month}${
     q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ''
-  }`
+  }${cf.params}`
 
   return (
     <div>
@@ -239,6 +249,15 @@ export function ProcessBoard({
           <p className="label mt-2.5">待定措施</p>
         </div>
         <div className="ml-auto flex items-center gap-2.5">
+          {cf.active && (
+            <button
+              type="button"
+              onClick={cf.clear}
+              className="text-[12.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+            >
+              清除筛选
+            </button>
+          )}
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -262,7 +281,11 @@ export function ProcessBoard({
           <button
             key={m}
             type="button"
-            onClick={() => setMonth(m)}
+            onClick={() => {
+              // 换个月, 表头的选项跟着变 —— 选过的清掉。
+              setMonth(m)
+              cf.clear()
+            }}
             className={`rounded-[2px] border bg-[var(--color-surface)] px-2.5 py-1 text-[12.5px] font-medium ${
               m === month
                 ? 'border-[var(--color-ink)] text-[var(--color-ink)] shadow-[inset_0_0_0_1px_var(--color-ink)]'
@@ -278,21 +301,21 @@ export function ProcessBoard({
         <div
           className={`hidden ${COLS} items-center gap-3 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid`}
         >
-          <span className="label">日期</span>
-          <span className="label">工单号</span>
+          {cf.head('date')}
+          {cf.head('jobNo')}
           <span className="label text-right">不良数</span>
-          <span className="label">不良原因</span>
-          <span className="label">处理方式</span>
-          <span className="label">直接责任</span>
-          <span className="label">间接责任</span>
-          <span className="label">纠正预防措施</span>
-          <span className="label">记录人</span>
+          {cf.head('reason')}
+          {cf.head('handling')}
+          {cf.head('owner')}
+          {cf.head('coOwner')}
+          {cf.head('action')}
+          {cf.head('by')}
           <span />
         </div>
 
         {monthRows.length === 0 ? (
           <p className="px-5 py-12 text-center text-[13px] text-[var(--color-ink-3)]">
-            {q ? '没有匹配的记录' : '这个月没有制程不良'}
+            {q || cf.active ? '没有匹配的记录' : '这个月没有制程不良'}
           </p>
         ) : (
           monthRows.map((r) => (
