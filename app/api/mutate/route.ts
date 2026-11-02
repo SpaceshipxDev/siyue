@@ -165,6 +165,7 @@ import {
   canSeeExpenses,
   canSeeOrderLedger,
   canEditQuality,
+  canEditQualityOwner,
   ownerOnlyEdit,
   canEditWarehouse,
   canRenameUploadedJob,
@@ -1472,6 +1473,26 @@ async function dispatch(
         dStage,
       )
       revalidateStage(jobId, dStage)
+      return Response.json(ok())
+    }
+
+    // 质量异常表上改责任人 (于海伟 2026-11-02) —— 判定时记下的那个责任人, 回头
+    // 在质量页上补 / 改。能改责任的那一档 (canEditQualityOwner: 工程、于海伟、
+    // 质量两位、程江华 / 戴棵 / 潘健 / 范小唱), 或者本来就报这一道的人。只动责
+    // 任人, 判定和原因不碰。
+    case 'setDefectOwner': {
+      const jobId = body.jobId
+      const componentId = body.componentId
+      const owner = body.owner
+      if (!isString(jobId) || !isString(componentId) || !isString(owner))
+        return err('bad setDefectOwner args')
+      const dStage = body.stage === '质量' ? '质量' : '检验'
+      const u = await requireUser()
+      if (!canEditQualityOwner(u) && !canClickStage(u, dStage))
+        return err('改责任人要找工程、于海伟或质量', 403)
+      await setInspectionVerdictDetail(jobId, componentId, { owner }, dStage)
+      revalidateStage(jobId, dStage)
+      revalidatePath('/quality')
       return Response.json(ok())
     }
 

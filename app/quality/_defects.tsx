@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
-import { EditableTextArea } from '@/app/_editable'
+import { EditableText, EditableTextArea } from '@/app/_editable'
 import type { DefectRow } from '@/lib/db'
 import { DefectDetail } from './_defect_detail'
 import {
@@ -50,7 +50,10 @@ export function DefectsBoard({
   actions,
   todayStr,
   canEdit,
+  canEditOwner = canEdit,
 }: {
+  /** 责任人那一格能填能改 —— 能改责任的那一档 (于海伟 2026-11-02)。 */
+  canEditOwner?: boolean
   rows: DefectRow[]
   /** 纠正预防措施 — 按 零件::环节 挂回那条异常上。 */
   actions: Record<string, string>
@@ -287,9 +290,29 @@ export function DefectsBoard({
               <span className="hidden break-words text-[12.5px] text-[var(--color-ink-2)] md:block">
                 {r.reason || '—'}
               </span>
-              <span className="hidden break-words text-[12.5px] text-[var(--color-ink-2)] md:block">
-                {r.owner || '—'}
-              </span>
+              {canEditOwner ? (
+                <span className="hidden md:block" onClick={(e) => e.stopPropagation()}>
+                  <EditableText
+                    value={r.owner}
+                    placeholder="—"
+                    className="text-[12.5px] text-[var(--color-ink-2)]"
+                    onSave={async (v) => {
+                      await mutate({
+                        kind: 'setDefectOwner',
+                        jobId: r.jobId,
+                        componentId: r.componentId,
+                        stage: r.stage,
+                        owner: v,
+                      })
+                      router.refresh()
+                    }}
+                  />
+                </span>
+              ) : (
+                <span className="hidden break-words text-[12.5px] text-[var(--color-ink-2)] md:block">
+                  {r.owner || '—'}
+                </span>
+              )}
               <span className="hidden md:block" onClick={(e) => e.stopPropagation()}>
                 {canEdit || !actions[`${r.partId}::${r.stage}`] ? (
                   <EditableTextArea

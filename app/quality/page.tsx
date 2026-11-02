@@ -284,6 +284,7 @@ export default async function QualityPage({
             actions={defectActions}
             todayStr={todayStr}
             canEdit={canEdit}
+            canEditOwner={canEditOwner}
           />
         )}
       </main>
