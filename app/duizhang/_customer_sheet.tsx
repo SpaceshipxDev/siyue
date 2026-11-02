@@ -344,7 +344,7 @@ export function CustomerSheet({
                   {pending ? '审批中…' : '审批所选，生成应收单'}
                 </button>
               ) : (
-                <span className="text-[12px] text-[var(--color-ink-4)]">审批由于海伟或财务来点</span>
+                <span className="text-[12px] text-[var(--color-ink-4)]">审批由商务或财务来点</span>
               )}
             </span>
           </div>

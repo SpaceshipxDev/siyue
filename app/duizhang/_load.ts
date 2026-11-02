@@ -2,6 +2,7 @@ import 'server-only'
 import { redirect } from 'next/navigation'
 import {
   canSettleAccounts,
+  canConfirmDuizhang,
   canClickStage,
   canManageOutsource,
   canSeeOrderLedger,
@@ -275,7 +276,8 @@ export async function loadDuizhang(params: {
     skipped,
     skippedLines,
     canBackfill: canClickStage(user, '出货') || canSettleAccounts(user),
-    canApprove: canSettleAccounts(user),
+    // 审批 / 确认对账单 —— 所有商务和财务 (于海伟 2026-11-02)。
+    canApprove: canConfirmDuizhang(user),
     canOpenLedger: user.role === 'commerce',
   }
 }

@@ -327,7 +327,7 @@ export function VendorSheet({
                   {pending ? '确认中…' : '确认'}
                 </button>
               ) : (
-                <span className="text-[12px] text-[var(--color-ink-4)]">确认由于海伟或财务来点</span>
+                <span className="text-[12px] text-[var(--color-ink-4)]">确认由商务或财务来点</span>
               )}
             </span>
           </div>

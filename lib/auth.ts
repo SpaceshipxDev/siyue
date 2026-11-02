@@ -96,6 +96,13 @@ export function canSettleAccounts(u: AuthUser): boolean {
   return canSeeExpenses(u)
 }
 
+// 对账单的确认 —— 客户对账单「审批」、外协对账单「确认」(于海伟 2026-11-02:
+// 开放给所有商务和财务, 俞予悦、王雪梅、黄优兰香、商务004、商务005 都在里面)。
+// 只是认下这一张纸; 记回款、付款、作废这些动钱的还是上面 canSettleAccounts。
+export function canConfirmDuizhang(u: AuthUser): boolean {
+  return u.role === 'commerce' || canSettleAccounts(u)
+}
+
 // 员工借款 —— 分两头, 跟事情本身走:
 //
 //   人事那头 (/hr 借款): 填申请、看批没批。人事是收申请的人, 所以跟「看全部

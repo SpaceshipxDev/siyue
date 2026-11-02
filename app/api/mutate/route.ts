@@ -153,6 +153,7 @@ import {
   canFinalApprovePayRequest,
   isPayReviewer,
   canSettleAccounts,
+  canConfirmDuizhang,
   canClickStage,
   canCreatePartRow,
   canDeleteHrRecord,
@@ -3027,7 +3028,7 @@ async function dispatch(
       if (!isString(customer) || !customer.trim() || !isString(period) || !isMonth(period))
         return err('bad approveDuizhang args')
       const u = await requireUser()
-      if (!canSettleAccounts(u)) return err('审批对账单要找于海伟或财务', 403)
+      if (!canConfirmDuizhang(u)) return err('审批对账单要找商务或财务', 403)
       const party = customer.trim()
       const { from, to } = monthBounds(period)
       const [rows, detail] = await Promise.all([
@@ -3089,7 +3090,7 @@ async function dispatch(
       if (!Array.isArray(ids) || ids.length === 0 || !ids.every(isString))
         return err('先勾上这回要对的外协单')
       const u = await requireUser()
-      if (!canSettleAccounts(u)) return err('确认外协对账单要找于海伟或财务', 403)
+      if (!canConfirmDuizhang(u)) return err('确认外协对账单要找商务或财务', 403)
       const party = vendor.trim()
       const { from, to } = monthBounds(period)
       const [blocks, vendors, payables, requests] = await Promise.all([
