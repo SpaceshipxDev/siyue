@@ -1,12 +1,21 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
 import { EditableTextArea } from '@/app/_editable'
 import type { DefectRow } from '@/lib/db'
 import { DefectDetail } from './_defect_detail'
+import {
+  DEFECT_COLS,
+  DEFECT_COL_LABEL,
+  defectCell,
+  defectFilterParams,
+  matchDefectFilters,
+  type DefectCol,
+  type DefectFilters,
+} from '@/lib/defect-filter'
 
 // 质量异常 — 全厂判成 重做 / 返修 / 外修 的零件, 检验 (过程检) 和 质量 (出货
 // 前的成品检) 两道一起。厂里自己检出来的那一半。
@@ -27,8 +36,9 @@ import { DefectDetail } from './_defect_detail'
 //
 // 检验时选了「外协」的不良不在这张表里: 那是供应商做坏的, 在「来料异常」。
 //
-// 搜索框旁边三个下拉 (于海伟 2026-11-01): 品名、责任人、判定 —— 从这个月的
-// 记录里列, 后面带条数; 导出跟着走。
+// 表头每一列都能筛 (于海伟 2026-11-02, 原来是搜索框旁边三个下拉): 点列名旁
+// 边的小箭头, 列出这个月这一列出现过的值和条数, 选一个只看那些; 几列叠着筛,
+// 跟 Excel 一样 (lib/defect-filter)。导出跟着走。
 
 const MONTHS = [
   '01', '02', '03', '04', '05', '06',
@@ -53,37 +63,31 @@ export function DefectsBoard({
   const [month, setMonth] = useState<string>(todayStr.slice(5, 7))
   const [q, setQ] = useState('')
   const [detail, setDetail] = useState<DefectRow | null>(null)
-  // 下拉筛选 —— '' = 全部。
-  const [part, setPart] = useState('')
-  const [owner, setOwner] = useState('')
-  const [verdict, setVerdict] = useState('')
+  // 表头筛选 —— 哪一列选了哪个值; 没有 = 全部。
+  const [filters, setFilters] = useState<DefectFilters>({})
 
   // 这个月的 (不管下拉选了什么) —— 下拉里的选项从这里数。
   const inMonth = useMemo(() => {
     const ym = `${year}-${month}`
     return rows.filter((r) => (r.at ?? '').slice(0, 7) === ym)
   }, [rows, year, month])
-  const optionsOf = (get: (r: DefectRow) => string | undefined) => {
+  // 一列的选项: 按别的列已经筛过的那一批数 (跟 Excel 一样), 多的排前面。
+  const optionsOf = (col: DefectCol): [string, number][] => {
     const m = new Map<string, number>()
     for (const r of inMonth) {
-      const v = (get(r) ?? '').trim()
-      if (v) m.set(v, (m.get(v) ?? 0) + 1)
+      if (!matchDefectFilters(r, filters, actions, col)) continue
+      const v = defectCell(r, col, actions)
+      m.set(v, (m.get(v) ?? 0) + 1)
     }
-    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh'))
+    return [...m.entries()].sort((a, b) =>
+      col === 'date' ? b[0].localeCompare(a[0]) : b[1] - a[1] || a[0].localeCompare(b[0], 'zh'),
+    )
   }
-  const partOptions = optionsOf((r) => r.partName)
-  const ownerOptions = optionsOf((r) => r.owner)
-  const verdictOptions = optionsOf((r) => r.verdict)
 
   const monthRows = useMemo(() => {
     const needle = q.trim().toLowerCase()
     return inMonth
-      .filter(
-        (r) =>
-          (!part || r.partName.trim() === part) &&
-          (!owner || (r.owner ?? '').trim() === owner) &&
-          (!verdict || r.verdict === verdict),
-      )
+      .filter((r) => matchDefectFilters(r, filters, actions))
       .filter((r) =>
         !needle
           ? true
@@ -101,7 +105,7 @@ export function DefectsBoard({
               .toLowerCase()
               .includes(needle),
       )
-  }, [inMonth, actions, q, part, owner, verdict])
+  }, [inMonth, actions, q, filters])
 
   const stats = useMemo(() => {
     let check = 0
@@ -129,16 +133,15 @@ export function DefectsBoard({
 
   const exportHref = `/quality/export?m=${year}-${month}${
     q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ''
-  }${part ? `&part=${encodeURIComponent(part)}` : ''}${
-    owner ? `&owner=${encodeURIComponent(owner)}` : ''
-  }${verdict ? `&verdict=${encodeURIComponent(verdict)}` : ''}`
-  const filtered = !!(part || owner || verdict)
-  const sel = (on: boolean) =>
-    `h-9 max-w-[180px] rounded-[2px] border bg-[var(--color-surface)] px-2 text-[13px] outline-none ${
-      on
-        ? 'border-[var(--color-ink)] text-[var(--color-ink)]'
-        : 'border-[var(--color-border)] text-[var(--color-ink-2)]'
-    }`
+  }${defectFilterParams(filters)}`
+  const filtered = DEFECT_COLS.some((c) => filters[c])
+  const setCol = (col: DefectCol, v: string) =>
+    setFilters((cur) => {
+      const next = { ...cur }
+      if (v) next[col] = v
+      else delete next[col]
+      return next
+    })
 
   return (
     <div>
@@ -175,41 +178,13 @@ export function DefectsBoard({
           <p className="label mt-2.5">待定措施</p>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2.5">
-          <select value={part} onChange={(e) => setPart(e.target.value)} className={sel(!!part)} aria-label="按品名筛选">
-            <option value="">全部品名</option>
-            {partOptions.map(([v, n]) => (
-              <option key={v} value={v}>
-                {v} · {n}
-              </option>
-            ))}
-          </select>
-          <select value={owner} onChange={(e) => setOwner(e.target.value)} className={sel(!!owner)} aria-label="按责任人筛选">
-            <option value="">全部责任人</option>
-            {ownerOptions.map(([v, n]) => (
-              <option key={v} value={v}>
-                {v} · {n}
-              </option>
-            ))}
-          </select>
-          <select value={verdict} onChange={(e) => setVerdict(e.target.value)} className={sel(!!verdict)} aria-label="按判定筛选">
-            <option value="">全部判定</option>
-            {verdictOptions.map(([v, n]) => (
-              <option key={v} value={v}>
-                {v} · {n}
-              </option>
-            ))}
-          </select>
           {filtered && (
             <button
               type="button"
-              onClick={() => {
-                setPart('')
-                setOwner('')
-                setVerdict('')
-              }}
+              onClick={() => setFilters({})}
               className="text-[12.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
             >
-              清除
+              清除筛选
             </button>
           )}
           <input
@@ -236,11 +211,9 @@ export function DefectsBoard({
             key={m}
             type="button"
             onClick={() => {
-              // 换个月, 下拉的选项跟着变 —— 选过的清掉, 免得筛成空的。
+              // 换个月, 表头的选项跟着变 —— 选过的清掉, 免得筛成空的。
               setMonth(m)
-              setPart('')
-              setOwner('')
-              setVerdict('')
+              setFilters({})
             }}
             className={`rounded-[2px] border bg-[var(--color-surface)] px-2.5 py-1 text-[12.5px] font-medium ${
               m === month
@@ -255,15 +228,16 @@ export function DefectsBoard({
 
       <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
         <div className="hidden grid-cols-[68px_108px_minmax(0,0.9fr)_56px_52px_minmax(0,1.1fr)_64px_minmax(0,1.2fr)_60px] items-center gap-3 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid">
-          <span className="label">日期</span>
-          <span className="label">工号</span>
-          <span className="label">零件</span>
-          <span className="label">环节</span>
-          <span className="label">判定</span>
-          <span className="label">不良原因</span>
-          <span className="label">责任人</span>
-          <span className="label">纠正预防措施</span>
-          <span className="label text-right">判定人</span>
+          {DEFECT_COLS.map((col) => (
+            <ColHead
+              key={col}
+              col={col}
+              value={filters[col]}
+              options={optionsOf(col)}
+              onPick={(v) => setCol(col, v)}
+              right={col === 'by'}
+            />
+          ))}
         </div>
 
         {monthRows.length === 0 ? (
@@ -363,5 +337,90 @@ export function DefectsBoard({
         空着的点一下就能写；写过的要改，找工程或于海伟。
       </p>
     </div>
+  )
+}
+
+// 表头一格 —— 列名 + 小箭头; 点开列出这一列的值 (后面带条数), 点一个筛, 点
+// 「全部」不筛。选了的列名变黑、下面一道蓝线。菜单用 fixed 摆, 不被表格裁掉。
+function ColHead({
+  col,
+  value,
+  options,
+  onPick,
+  right,
+}: {
+  col: DefectCol
+  value?: string
+  options: [string, number][]
+  onPick: (v: string) => void
+  right?: boolean
+}) {
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null)
+  const btn = useRef<HTMLButtonElement>(null)
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!at) return
+    const close = (e: Event) => {
+      if (e.type === 'mousedown' && box.current?.contains(e.target as Node)) return
+      if (e.type === 'mousedown' && btn.current?.contains(e.target as Node)) return
+      setAt(null)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setAt(null)
+    document.addEventListener('mousedown', close)
+    window.addEventListener('scroll', close, true)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      window.removeEventListener('scroll', close, true)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [at])
+  const active = !!value
+  return (
+    <span className={`relative flex items-center gap-1 ${right ? 'justify-end' : ''}`}>
+      <span className={`label ${active ? 'text-[var(--color-ink)]' : ''}`}>{DEFECT_COL_LABEL[col]}</span>
+      <button
+        ref={btn}
+        type="button"
+        onClick={() => {
+          if (at) return setAt(null)
+          const r = btn.current?.getBoundingClientRect()
+          if (r) setAt({ left: Math.min(r.left, window.innerWidth - 240), top: r.bottom + 6 })
+        }}
+        aria-label={`按${DEFECT_COL_LABEL[col]}筛选`}
+        className={`inline-flex h-4 w-4 items-center justify-center rounded-[2px] text-[10px] ${
+          active ? 'text-[var(--color-info)]' : 'text-[var(--color-ink-4)] hover:text-[var(--color-ink-2)]'
+        }`}
+      >
+        {active ? '●' : '▾'}
+      </button>
+      {active && (
+        <span className="pointer-events-none absolute -bottom-[7px] left-0 right-0 h-[2px] rounded-[2px] bg-[var(--color-info)]" />
+      )}
+      {at && (
+        <div
+          ref={box}
+          style={{ left: at.left, top: at.top }}
+          className="fixed z-50 max-h-[320px] w-[230px] overflow-y-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] py-1 text-left shadow-[0_10px_34px_-12px_rgba(20,19,15,0.28)]"
+        >
+          {[['', options.reduce((n, [, c]) => n + c, 0)] as [string, number], ...options].map(([v, n]) => (
+            <button
+              key={v || '__all'}
+              type="button"
+              onClick={() => {
+                onPick(v)
+                setAt(null)
+              }}
+              className={`flex w-full items-baseline justify-between gap-3 px-3 py-1.5 text-left text-[12.5px] hover:bg-[#f5f3ed] ${
+                (value ?? '') === v ? 'font-semibold text-[var(--color-ink)]' : 'text-[var(--color-ink-2)]'
+              }`}
+            >
+              <span className="min-w-0 truncate">{v || '全部'}</span>
+              <span className="mono shrink-0 text-[11.5px] text-[var(--color-ink-4)]">{n}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
   )
 }

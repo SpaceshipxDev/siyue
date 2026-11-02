@@ -1,3 +1,4 @@
+import { defectFiltersFrom, matchDefectFilters } from '@/lib/defect-filter'
 import { NextRequest } from 'next/server'
 import * as XLSX from 'xlsx'
 import { requireQualityEditor } from '@/lib/auth'
@@ -365,19 +366,12 @@ export async function GET(request: NextRequest): Promise<Response> {
     const actions = await getDefectActions()
     // 外协做坏的已经转到来料异常 —— 跟屏幕上一样不在这里重复记。
     const links = await getInspectionLinks()
-    // 页面上的三个下拉 (品名 / 责任人 / 判定) —— 导出的跟屏幕上一致。
-    const fPart = (sp.get('part') ?? '').trim()
-    const fOwner = (sp.get('owner') ?? '').trim()
-    const fVerdict = (sp.get('verdict') ?? '').trim()
+    // 页面上表头的筛选 (lib/defect-filter) —— 导出的跟屏幕上一致。
+    const filters = defectFiltersFrom(sp)
     const rows = (await getDefectRows())
       .filter((r) => !links.has(`${r.jobId}|${r.componentId}|${r.stage}`))
       .filter((r) => (r.at ?? '').slice(0, 7) === month)
-      .filter(
-        (r) =>
-          (!fPart || r.partName.trim() === fPart) &&
-          (!fOwner || (r.owner ?? '').trim() === fOwner) &&
-          (!fVerdict || r.verdict === fVerdict),
-      )
+      .filter((r) => matchDefectFilters(r, filters, actions))
       .filter((r) =>
         !q
           ? true
