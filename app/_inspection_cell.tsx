@@ -164,6 +164,19 @@ export function InspectionCell({
           }
           setIsOut(wantOut)
         }
+        // 自制件判重做 —— 报废登记里自动记一条 (改成外协就撤掉)。改判别的,
+        // 服务端在 setInspectionVerdict 里已经撤了。
+        if (verdict === '重做') {
+          await mutate({
+            kind: 'setInspectionScrap',
+            jobId,
+            componentId,
+            stage,
+            scrap: detail.source !== 'outsource',
+            reason: detail.reason ?? null,
+            owner: detail.owner ?? null,
+          })
+        }
       } catch (e) {
         setOptimistic(null)
         if (!guard.denyIfScopeError(e)) setError(true)
@@ -570,6 +583,10 @@ function InspectionModal({
                       确认后转到质量模块「来料异常」，责任人可以先空着，以后在那边补。
                     </p>
                   </>
+                ) : draft === '重做' ? (
+                  <p className="mt-1.5 text-[11.5px] text-[var(--color-ink-3)]">
+                    确认后自动记进质量模块「报废登记」。
+                  </p>
                 ) : null}
               </div>
             ) : null}

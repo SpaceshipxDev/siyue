@@ -250,7 +250,9 @@ import {
 import {
   addScrapRecord,
   deleteScrapRecord,
+  removeInspectionScrap,
   updateScrapRecord,
+  upsertInspectionScrap,
 } from '@/lib/scrap'
 import { deleteQualityFile, deleteQualityFilePhoto, updateQualityFile } from '@/lib/quality-files'
 import {
@@ -1382,7 +1384,51 @@ async function dispatch(
         reportActor(u, body),
         stage,
       )
+      // 不是重做了 —— 原来判重做时自动记的那条报废跟着撤掉。
+      if (verdict !== '重做') {
+        await removeInspectionScrap({ jobId, componentId, stage })
+        revalidatePath('/quality')
+      }
       revalidateStage(jobId, stage)
+      return Response.json(ok())
+    }
+
+    // 自制件判「重做」(于海伟 2026-11-03) —— 确认时报废登记里自动记一条: 工单
+    // 号、零件名 + 不良原因、整行件数、自制加工、责任人。同一个零件同一道只一
+    // 条, 再判就更新。scrap: false (改成外协) 撤掉那一条。门跟判定同一道。
+    case 'setInspectionScrap': {
+      const jobId = body.jobId
+      const componentId = body.componentId
+      if (!isString(jobId) || !isString(componentId) || typeof body.scrap !== 'boolean')
+        return err('bad setInspectionScrap args')
+      for (const k of ['reason', 'owner'] as const) {
+        const v = body[k]
+        if (v !== undefined && v !== null && !isString(v)) return err('bad setInspectionScrap args')
+      }
+      const sStage = body.stage === '质量' ? '质量' : '检验'
+      const u = await requireOwnStage(sStage)
+      const link = { jobId, componentId, stage: sStage }
+      if (!body.scrap) {
+        await removeInspectionScrap(link)
+      } else {
+        const job = await getJob(jobId)
+        const part = job?.components.find((c) => c.id === componentId)
+        if (!job || !part) return err('找不到这个零件', 404)
+        await upsertInspectionScrap(
+          link,
+          {
+            date: today(),
+            jobNo: job.jobNo,
+            item: part.name,
+            qty: part.qty,
+            reason: isString(body.reason) ? body.reason : undefined,
+            owner: isString(body.owner) ? body.owner : undefined,
+          },
+          u.name,
+          new Date().toISOString(),
+        )
+      }
+      revalidatePath('/quality')
       return Response.json(ok())
     }
 

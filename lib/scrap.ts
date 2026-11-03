@@ -1,5 +1,6 @@
 import 'server-only'
 import { supabase, STORAGE_BUCKET } from './supabase'
+import { linkKey, type InspectionLink } from './incoming-defects'
 
 /*
  * 报废登记 — 做坏了、不能再用的件, 由质量落笔。
@@ -10,6 +11,10 @@ import { supabase, STORAGE_BUCKET } from './supabase'
  * 一条记录回答: 哪张工单 · 报废几件 · 为什么 · 哪里做坏的 (自制加工 / 外协加
  * 工 / 客退) · 哪个部门、谁的责任 · 以后怎么不再犯 · 谁填的。来源分三种,
  * 因为责任在不在厂里, 要不要找外协、找客户, 是第一件要分清的事。
+ *
+ * 自制件检验判「重做」(于海伟 2026-11-03) —— 确认的那一刻自动记一条, 带着
+ * 它是哪张单、哪个零件、哪一道判出来的 (link)。同一个零件同一道只一条, 再判
+ * 就更新; 改判别的、改成外协, 这一条跟着撤掉。手记的没有 link。
  *
  * Table-free, 跟 客诉 / 制程不良 一个路子: 没有 migration 要人去应用。
  */
@@ -38,6 +43,8 @@ export type ScrapRecord = {
   action: string // 纠正预防措施
   by?: string // 填写人员 — 落笔那一刻的账号
   createdAt: string
+  /** 检验判重做自动记的 —— 哪张单、哪个零件、哪一道。手记的没有。 */
+  link?: InspectionLink
 }
 
 export type ScrapPatch = {
@@ -65,6 +72,14 @@ function source(v: unknown): ScrapSource | '' {
   return (SCRAP_SOURCES as readonly string[]).includes(s) ? (s as ScrapSource) : ''
 }
 
+function readLink(v: unknown): InspectionLink | undefined {
+  if (typeof v !== 'object' || v === null) return undefined
+  const o = v as Record<string, unknown>
+  if (typeof o.jobId !== 'string' || typeof o.componentId !== 'string' || typeof o.stage !== 'string')
+    return undefined
+  return { jobId: o.jobId, componentId: o.componentId, stage: o.stage }
+}
+
 function normalize(raw: unknown): ScrapRecord[] {
   if (!Array.isArray(raw)) return []
   const out: ScrapRecord[] = []
@@ -84,6 +99,7 @@ function normalize(raw: unknown): ScrapRecord[] {
       action: str(r.action),
       by: str(r.by) || undefined,
       createdAt: str(r.createdAt),
+      link: readLink(r.link),
     })
   }
   return out
@@ -183,6 +199,55 @@ export async function updateScrapRecord(
     if (patch.owner !== undefined) row.owner = patch.owner.trim()
     if (patch.action !== undefined) row.action = patch.action.trim()
     await write(rows)
+  })
+}
+
+// 原因前面带上零件名 —— 报废登记只有工单号一格, 不写零件就分不清是哪一件。
+function inspectionReason(item: string, reason?: string): string {
+  return [item.trim(), reason?.trim() ?? ''].filter(Boolean).join(' · ')
+}
+
+/** 检验判重做 (自制) —— 记一条报废; 同一个零件同一道已经有了就更新原因、责任人。 */
+export async function upsertInspectionScrap(
+  link: InspectionLink,
+  input: { date: string; jobNo: string; item: string; qty: number; reason?: string; owner?: string },
+  by: string,
+  nowIso: string,
+): Promise<void> {
+  await withLock(async () => {
+    const rows = await read()
+    const key = linkKey(link)
+    const row = rows.find((r) => r.link && linkKey(r.link) === key)
+    if (row) {
+      if (input.reason?.trim()) row.reason = inspectionReason(input.item, input.reason)
+      if (input.owner?.trim()) row.owner = input.owner.trim()
+    } else {
+      rows.push({
+        id: crypto.randomUUID(),
+        date: input.date,
+        jobNo: input.jobNo.trim(),
+        qty: count(input.qty),
+        reason: inspectionReason(input.item, input.reason),
+        source: '自制加工',
+        dept: '',
+        owner: input.owner?.trim() ?? '',
+        action: '',
+        by,
+        createdAt: nowIso,
+        link,
+      })
+    }
+    await write(rows)
+  })
+}
+
+/** 撤掉检验判重做自动记的那一条 (改判了 / 改成外协)。没有就什么都不做。 */
+export async function removeInspectionScrap(link: InspectionLink): Promise<void> {
+  await withLock(async () => {
+    const rows = await read()
+    const key = linkKey(link)
+    const left = rows.filter((r) => !(r.link && linkKey(r.link) === key))
+    if (left.length !== rows.length) await write(left)
   })
 }
 
