@@ -26,8 +26,9 @@ import { stageScopeFor, type AuthUser } from './auth'
  * 过 3 件的, 编程那一道的经手金额 = 原来算出来的 ÷ 件数 × 3 (只算 3 件)。在
  * 拆件 · 加刀、返工单价都换完之后再折, 所以哪种零件都一样。
  *
- * 制程返工单 (lib/rework-job) 也在这里换金额: 那张单的零件没有售价, 每一道
- * 完成一次 = 返工报工单价 × 件数 (于海伟 2026-10-24)。
+ * 制程返工单 (lib/rework-job) 也在这里换金额: 那张单的零件没有售价, 返工报工
+ * 单价就当它的单价, 跟在产订单一样每一道拿 5% —— 完成一次 = 单价 × 件数 × 5%
+ * (于海伟 2026-11-03; 原来每一道都拿整个单价)。
  *
  * 出货 (于海伟 2026-10-27): 质量的人顺手点的出货不算钱 —— 出货是发货前最后
  * 一眼, 不是质量的活。「质量的人」= 能报 质量 这一道、又不是全权账号的那几个
@@ -107,14 +108,14 @@ export async function getFamilyValues(jobIds: string[]): Promise<Map<string, Fam
     return (r.data ?? []) as AnyRow[]
   })
 
-  // 制程返工单 —— 每件按返工报工单价, 哪一道都一样; 不参与下面拆件 · 加刀。
+  // 制程返工单 —— 返工报工单价当单价, 跟在产订单一样每一道 5%; 不参与下面拆件 · 加刀。
   const rework = await getReworkJobs().catch(() => ({}) as Awaited<ReturnType<typeof getReworkJobs>>)
   for (const p of parts) {
     const rec = rework[p.job_id as string]
     if (!rec) continue
     const rate = rec.rates[p.id as string]
     const qty = Number(p.qty ?? 0)
-    const value = typeof rate === 'number' ? Math.round(rate * qty * 100) / 100 : 0
+    const value = typeof rate === 'number' ? Math.round(rate * qty * 0.05 * 100) / 100 : 0
     for (const st of STAGES)
       out.set(workSplitKey(p.id as string, st), {
         valueCny: value,
