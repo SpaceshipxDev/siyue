@@ -103,7 +103,12 @@ export function OrderLedger({
   // below shows (and what 导出 will write). 毛利 only sums 已定价 orders, but
   // their 成本 still includes every 外协/采购 receipt.
   const totals = { amount: 0, unpriced: 0, outsource: 0, procurement: 0, margin: 0, priced: 0 }
+  // 钱走到哪一步了 —— 已对账 / 已开票 / 已收款各几单 (于海伟 2026-11-04)。
+  const steps = { settled: 0, invoiced: 0, paid: 0 }
   for (const r of filtered) {
+    if (r.settle) steps.settled += 1
+    if (r.invoicedCny > 0 || r.money.some((m) => m.kind === 'invoice')) steps.invoiced += 1
+    if (r.paidCny > 0 || r.money.some((m) => m.kind === 'payment')) steps.paid += 1
     totals.outsource += r.outsourceCny
     totals.procurement += r.procurementCny
     if (r.amountCny == null) {
@@ -159,6 +164,7 @@ export function OrderLedger({
           label="订单"
           value={String(filtered.length)}
           sub={totals.unpriced > 0 ? `其中 ${totals.unpriced} 单价格未定` : '全部已定价'}
+          sub2={`已对账 ${steps.settled} · 已开票 ${steps.invoiced} · 已收款 ${steps.paid}`}
         />
         <Stat label="订单额" value={formatCny(totals.amount)} sub="已定价订单合计" />
         <Stat
@@ -847,11 +853,13 @@ function Stat({
   label,
   value,
   sub,
+  sub2,
   tone,
 }: {
   label: string
   value: string
   sub: string
+  sub2?: string
   tone?: 'overdue'
 }) {
   return (
@@ -865,6 +873,7 @@ function Stat({
       </p>
       <p className="label mt-3">{label}</p>
       <p className="text-[12px] text-[var(--color-ink-3)] mt-1 tabular-nums">{sub}</p>
+      {sub2 && <p className="text-[12px] text-[var(--color-ink-2)] mt-0.5 tabular-nums">{sub2}</p>}
     </div>
   )
 }
