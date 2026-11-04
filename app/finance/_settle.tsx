@@ -10,6 +10,7 @@ import { formatCny } from '@/lib/data'
 import { DatePop } from '@/app/_datepop'
 import { usePasteImage } from '@/app/_paste_image'
 import { proxiedStorageUrl } from '@/lib/storage-url'
+import { shanghaiDay } from '@/lib/today'
 import { PhotoViewer } from '@/app/_photo_viewer'
 import {
   settleOutstanding,
@@ -146,6 +147,14 @@ function sourceOf(r: SettleRow): '导入' | '补录' | '对账审批' {
   return r.manual ? '补录' : r.imported ? '导入' : '对账审批'
 }
 
+// 应收按审批月份归月 (于海伟 2026-11-04) —— 对账页审批的, 哪天点的审批就算
+// 哪个月; 导入的、补录的没有审批这一步, 还按它们自己的月份 (下单月份 / 补录
+// 时填的月份)。
+function monthOf(r: SettleRow): string {
+  if (r.manual || r.imported) return r.period
+  return shanghaiDay(r.approvedAt).slice(0, 7) || r.period
+}
+
 export function SettleBoard({
   kind,
   rows,
@@ -178,14 +187,14 @@ export function SettleBoard({
 
   const month = todayStr.slice(0, 7)
 
-  // 对账月份 (应收, 于海伟 2026-11-04) —— 选一个月, 顶上的数、列表、按客户、
+  // 审批月份 (应收, 于海伟 2026-11-04) —— 选一个月, 顶上的数、列表、按客户、
   // 导出都只算这个月的应收单。空 = 全部月份。
   const [period, setPeriod] = useState('')
   const periods = useMemo(
-    () => [...new Set(rows.filter((r) => !r.voidedAt && r.period).map((r) => r.period))].sort().reverse(),
+    () => [...new Set(rows.filter((r) => !r.voidedAt && monthOf(r)).map(monthOf))].sort().reverse(),
     [rows],
   )
-  const scoped = useMemo(() => (period ? rows.filter((r) => r.period === period) : rows), [rows, period])
+  const scoped = useMemo(() => (period ? rows.filter((r) => monthOf(r) === period) : rows), [rows, period])
   const periodLabel = (p: string) =>
     p.slice(0, 4) === month.slice(0, 4) ? `${Number(p.slice(5))}月` : `${p.slice(0, 4)}年${Number(p.slice(5))}月`
 
@@ -220,7 +229,7 @@ export function SettleBoard({
     }
   }, [scoped, todayStr])
 
-  // 应收多一种看法: 按客户 · 按对账月份汇总 (于海伟 2026-11-04)。
+  // 应收多一种看法: 按客户 · 按审批月份汇总 (于海伟 2026-11-04)。
   const [view, setView] = useState<'list' | 'party'>('list')
 
   const shown = useMemo(() => {
@@ -232,7 +241,7 @@ export function SettleBoard({
       if (filter === 'void' && st !== 'void') return false
       if (!needle) return true
       // 单号也能搜 —— 输一个工单号, 看它挂在哪张应收单上。
-      return [r.no, r.party, r.period, r.request?.no, r.request?.subject, r.request?.category, kind === 'receivable' ? sourceOf(r) : '', ...(r.jobNos ?? [])]
+      return [r.no, r.party, kind === 'receivable' ? monthOf(r) : r.period, r.request?.no, r.request?.subject, r.request?.category, kind === 'receivable' ? sourceOf(r) : '', ...(r.jobNos ?? [])]
         .join(' ')
         .toLowerCase()
         .includes(needle)
@@ -243,7 +252,7 @@ export function SettleBoard({
     <div>
       {kind === 'receivable' && periods.length > 0 && (
         <div className="mb-6 flex flex-wrap items-baseline gap-x-4 gap-y-2">
-          <span className="label">对账月份</span>
+          <span className="label">审批月份</span>
           {['', ...periods].map((p) => (
             <button
               key={p || 'all'}
@@ -407,7 +416,7 @@ export function SettleBoard({
         >
           <span className="label">{c.no}</span>
           <span className="label">{c.party}</span>
-          <span className="label">期间</span>
+          <span className="label">{kind === 'receivable' ? '审批月份' : '期间'}</span>
           <span className="label text-right">{c.amount}</span>
           <span className="label text-right">{c.paid}</span>
           <span className="label text-right">{c.left}</span>
@@ -460,7 +469,7 @@ export function SettleBoard({
                     </span>
                   </span>
                   <span className="mono hidden text-[12.5px] text-[var(--color-ink-2)] md:block">
-                    {r.period.slice(2).replace('-', '.')}
+                    {(kind === 'receivable' ? monthOf(r) : r.period).slice(2).replace('-', '.')}
                   </span>
                   <span className="mono hidden text-right text-[13px] text-[var(--color-ink)] md:block">
                     {formatCny(r.amountCny)}
@@ -574,7 +583,7 @@ function ReceivableExport({
   )
 }
 
-// 按客户 · 按对账月份 —— 一个客户一行合计, 下面一个月一行: 应收、已收、未收
+// 按客户 · 按审批月份 —— 一个客户一行合计, 下面一个月一行: 应收、已收、未收
 // (红字)。作废的不算。只看未收清时, 收完了的月份、客户不列。
 function PartyMonths({
   rows,
@@ -599,15 +608,15 @@ function PartyMonths({
     const byParty = new Map<string, { total: Sum; months: Map<string, Sum> }>()
     for (const r of rows) {
       if (r.voidedAt) continue
-      if (needle && ![r.no, r.party, r.period].join(' ').toLowerCase().includes(needle)) continue
+      if (needle && ![r.no, r.party, monthOf(r)].join(' ').toLowerCase().includes(needle)) continue
       const g = byParty.get(r.party) ?? {
         total: { amount: 0, paid: 0, left: 0, count: 0 },
         months: new Map<string, Sum>(),
       }
       add(g.total, r)
-      const m = g.months.get(r.period) ?? { amount: 0, paid: 0, left: 0, count: 0 }
+      const m = g.months.get(monthOf(r)) ?? { amount: 0, paid: 0, left: 0, count: 0 }
       add(m, r)
-      g.months.set(r.period, m)
+      g.months.set(monthOf(r), m)
       byParty.set(r.party, g)
     }
     const r2 = (n: number) => Math.round(n * 100) / 100
@@ -631,7 +640,7 @@ function PartyMonths({
   return (
     <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
       <div className={`grid ${cols} items-center gap-3 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2`}>
-        <span className="label">客户 · 对账月份</span>
+        <span className="label">客户 · 审批月份</span>
         <span className="label text-right">张数</span>
         <span className="label text-right">应收</span>
         <span className="label text-right">已收</span>

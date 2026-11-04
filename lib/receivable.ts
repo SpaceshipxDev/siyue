@@ -165,7 +165,9 @@ export async function createReceivable(input: {
 
     const row: Receivable = {
       id: crypto.randomUUID(),
-      no: nextSettleNo('YS', input.period, rows),
+      // 单号跟审批那个月走 (于海伟 2026-11-04: 应收按对账审批日期记月份);
+      // period 还是对账单那个月 —— 对账页靠它认哪几单审过了。导入的照下单月份。
+      no: nextSettleNo('YS', input.imported ? input.period : input.todayYmd.slice(0, 7), rows),
       customer: input.customer,
       period: input.period,
       amountCny: money(input.amountCny),
