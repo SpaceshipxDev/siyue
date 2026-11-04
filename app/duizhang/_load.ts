@@ -207,10 +207,17 @@ export async function loadDuizhang(params: {
       if (skippedLines.length > 0) sheet = keepCustomerLines(sheet, (l) => !skipLine.has(l.key))
       record = settled.whole ?? null
       customerRecords = settled.whole ? [] : settled.records
+      // 财务订单导入落的应收单按下单月份挂 —— 别的月份那张里已经有的单号,
+      // 这个月也不再上纸 (lib/order-import)。
+      const imported = new Set(
+        receivables
+          .filter((r) => r.imported && !r.voidedAt && r.customer === party)
+          .flatMap((r) => r.jobNos ?? []),
+      )
       // 指名要这几个单号 (打印勾选的) 就照给; 否则审过的单号不再上纸。
       if (only) sheet = pickCustomerLines(sheet, (no) => only.has(no))
-      else if (!settled.whole && settled.jobNos.size > 0)
-        sheet = pickCustomerLines(sheet, (no) => !settled.jobNos.has(no))
+      else if (!settled.whole && (settled.jobNos.size > 0 || imported.size > 0))
+        sheet = pickCustomerLines(sheet, (no) => !settled.jobNos.has(no) && !imported.has(no))
     }
   } else {
     const { from, to } = monthBounds(month)

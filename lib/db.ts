@@ -3663,6 +3663,12 @@ async function receivableSettleByJob(
     (activeByKey.get(key) ?? []).find(
       (r) => !r.jobNos || r.jobNos.includes(jobNoOf.get(jobId) ?? ''),
     )
+  // 财务订单导入落的应收单 (lib/order-import) 按下单月份挂, 不按出货月份 ——
+  // 单号在里面, 这张单就整个算对过账了, 不管哪个月出的货。
+  const importedFor = new Map<string, (typeof receivables)[number]>()
+  for (const r of receivables)
+    if (r.imported && !r.voidedAt)
+      for (const n of r.jobNos ?? []) importedFor.set(`${r.customer}|${n}`, r)
   const keysByJob = new Map<string, Set<string>>()
   for (const sr of shipmentsRaw) {
     const jobId = sr.job_id as string
@@ -3674,6 +3680,11 @@ async function receivableSettleByJob(
     keysByJob.set(jobId, set)
   }
   for (const [jobId, keys] of keysByJob) {
+    const imp = importedFor.get(`${customerOf.get(jobId)}|${jobNoOf.get(jobId)}`)
+    if (imp) {
+      out.set(jobId, { settle: settleOutstanding(imp) <= 0 ? 'paid' : 'reconciled', nos: [imp.no] })
+      continue
+    }
     const recs = [...keys].map((k) => recFor(jobId, k))
     if (recs.length === 0 || recs.some((r) => !r)) continue
     const paid = recs.every((r) => settleOutstanding(r!) <= 0)

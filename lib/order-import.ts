@@ -28,8 +28,10 @@ import { shanghaiDay } from './today'
  *           次, 第二次什么都不会多记。
  *
  * 进应收 (于海伟 2026-11-04) —— 标了已对账 / 已回款、或者填了开票的单落应收单
- *           (财务 → 应收): 按客户 + 出货月份一张 (没出货的按下单月份), 认
- *           的就是这几个单号。金额以导入表为准 —— 表上的订单额, 没填用系统
+ *           (财务 → 应收): 按客户 + 下单月份一张 —— 跟「财务 → 订单」分月
+ *           一个口径, 导的是哪个月的表, 应收就落在哪个月 (于海伟: 8 月下单、
+ *           9 月出货的单按出货月份落, 跑到了 9 月应收里, 对不上)。认的就是
+ *           这几个单号。金额以导入表为准 —— 表上的订单额, 没填用系统
  *           里的订单额, 再没有用开票额 (于海伟: 表上 72 单对完是 458483.1,
  *           按出货金额现算只有 40 万, 对不上)。已回款的整张记一笔回款; 填了
  *           收款的按表上收款合计记一笔。
@@ -176,7 +178,7 @@ export function receivableAmountOf(
   return typeof n === 'number' && n > 0 ? r2(n) : undefined
 }
 
-// 按客户 + 出货月份落应收单, 金额照导入表。
+// 按客户 + 下单月份落应收单, 金额照导入表。
 async function intoReceivables(
   want: Map<string, { it: OrderImportItem; row: OrderLedgerRow }>,
   by: string,
@@ -186,16 +188,14 @@ async function intoReceivables(
   const [finance, receivables] = await Promise.all([getFinanceRows(), getReceivables()])
   const nowIso = new Date().toISOString()
 
-  // 每单最后一次出货的月份、出了几件 —— 应收单挂在那个月上。
-  const shipMonth = new Map<string, string>()
+  // 每单出了几件 —— 应收单上的件数。
   const shipQty = new Map<string, number>()
   for (const f of finance) {
     if (!want.has(f.jobNo)) continue
-    const m = shanghaiDay(f.shipDate).slice(0, 7)
-    if (m > (shipMonth.get(f.jobNo) ?? '')) shipMonth.set(f.jobNo, m)
     shipQty.set(f.jobNo, (shipQty.get(f.jobNo) ?? 0) + f.qty)
   }
-  const periodOf = (no: string) => shipMonth.get(no) ?? want.get(no)!.row.createdDate.slice(0, 7)
+  // 应收单挂在下单那个月 —— 跟财务订单的月份一样。
+  const periodOf = (no: string) => want.get(no)!.row.createdDate.slice(0, 7)
   const customerOf = (no: string) => want.get(no)!.row.customer.trim()
 
   // 导入落的 —— 打了 imported 的; 早先那一批没打 (同一个人、今天落的、回款都是
