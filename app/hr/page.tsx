@@ -261,14 +261,6 @@ export default async function HrPage({
             canDelete={canDeleteHrRecord(user)}
             canEdit={canEditHrRecord(user)}
             scope={seeAll ? null : myDept}
-            // 录入的人能选的部门 —— 厂里账号上实际有的那几个, 办公室那一档除外。
-            depts={
-              seeAll
-                ? []
-                : [...new Set([myDept, ...users.map((u) => hrDeptOf(u))])]
-                    .filter((d) => d && d !== '商务')
-                    .sort((a, b) => a.localeCompare(b, 'zh'))
-            }
             today={now}
           />
         )}

@@ -208,8 +208,14 @@ export function canUseHr(_s: Scope): boolean {
 
 // 看全部 — every 部门 in one table. 商务 covers 老板 + 商务于海伟 + 人事;
 // 采购站 is named because 采购 runs as production but sits in the office.
-export function canSeeAllHr(s: Scope): boolean {
-  return s.role === 'commerce' || s.defaultStage === '采购'
+// 于海伟的工程号也看全厂 (于海伟 2026-11-04: 一次看到所有, 不用一个部门一个
+// 部门换) —— 改 / 删人事记录的就是他, 本来就是看全部的那一档。
+export function canSeeAllHr(s: Scope & { id?: string }): boolean {
+  return (
+    s.role === 'commerce' ||
+    s.defaultStage === '采购' ||
+    (s.id !== undefined && HR_EDITOR_USER_IDS.has(s.id))
+  )
 }
 
 export async function requireHrUser(): Promise<AuthUser> {
