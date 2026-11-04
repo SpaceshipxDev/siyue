@@ -167,47 +167,102 @@ export function SettleBoard({
 
   const month = todayStr.slice(0, 7)
 
+  // 对账月份 (应收, 于海伟 2026-11-04) —— 选一个月, 顶上的数、列表、按客户、
+  // 导出都只算这个月的应收单。空 = 全部月份。
+  const [period, setPeriod] = useState('')
+  const periods = useMemo(
+    () => [...new Set(rows.filter((r) => !r.voidedAt && r.period).map((r) => r.period))].sort().reverse(),
+    [rows],
+  )
+  const scoped = useMemo(() => (period ? rows.filter((r) => r.period === period) : rows), [rows, period])
+  const periodLabel = (p: string) =>
+    p.slice(0, 4) === month.slice(0, 4) ? `${Number(p.slice(5))}月` : `${p.slice(0, 4)}年${Number(p.slice(5))}月`
+
   const stats = useMemo(() => {
     let outstanding = 0
     let overdue = 0
     let paidThisMonth = 0
-    for (const r of rows) {
+    let amount = 0
+    let paid = 0
+    for (const r of scoped) {
       if (r.voidedAt) continue
       outstanding += settleOutstanding(r)
+      amount += r.amountCny
+      paid += settlePaid(r)
       if (settleStatus(r, todayStr) === 'overdue') overdue += 1
       for (const p of r.payments) {
-        if (p.date.slice(0, 7) === month) paidThisMonth += p.amountCny
+        if (p.date.slice(0, 7) === todayStr.slice(0, 7)) paidThisMonth += p.amountCny
       }
     }
+    const r2 = (n: number) => Math.round(n * 100) / 100
     return {
-      outstanding: Math.round(outstanding * 100) / 100,
+      outstanding: r2(outstanding),
       overdue,
-      paidThisMonth: Math.round(paidThisMonth * 100) / 100,
+      paidThisMonth: r2(paidThisMonth),
+      amount: r2(amount),
+      paid: r2(paid),
     }
-  }, [rows, todayStr, month])
+  }, [scoped, todayStr])
 
   // 应收多一种看法: 按客户 · 按对账月份汇总 (于海伟 2026-11-04)。
   const [view, setView] = useState<'list' | 'party'>('list')
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    return rows.filter((r) => {
+    return scoped.filter((r) => {
       const st = settleStatus(r, todayStr)
       if (filter === 'open' && (st === 'paid' || st === 'void')) return false
       if (!needle) return true
       return [r.no, r.party, r.period, r.request?.no, r.request?.subject, r.request?.category].join(' ').toLowerCase().includes(needle)
     })
-  }, [rows, filter, q, todayStr])
+  }, [scoped, filter, q, todayStr])
 
   return (
     <div>
+      {kind === 'receivable' && periods.length > 0 && (
+        <div className="mb-6 flex flex-wrap items-baseline gap-x-4 gap-y-2">
+          <span className="label">对账月份</span>
+          {['', ...periods].map((p) => (
+            <button
+              key={p || 'all'}
+              type="button"
+              onClick={() => setPeriod(p)}
+              className={`text-[13px] tabular-nums transition-colors ${
+                period === p
+                  ? 'font-semibold text-[var(--color-ink)] underline decoration-[var(--color-ink)] underline-offset-[6px]'
+                  : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+              }`}
+            >
+              {p ? periodLabel(p) : '全部'}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="mb-8 flex flex-wrap items-end gap-x-10 gap-y-4">
         <div>
           <p className="text-[32px] font-semibold leading-none tracking-tight tabular-nums text-[var(--color-overdue)]">
             {formatCny(stats.outstanding)}
           </p>
-          <p className="label mt-2.5">{c.total}</p>
+          <p className="label mt-2.5">
+            {kind === 'receivable' && period ? `${periodLabel(period)}未收` : c.total}
+          </p>
         </div>
+        {kind === 'receivable' && (
+          <>
+            <div>
+              <p className="text-[22px] font-semibold leading-none tracking-tight tabular-nums text-[var(--color-ink)]">
+                {formatCny(stats.amount)}
+              </p>
+              <p className="label mt-2.5">{period ? `${periodLabel(period)}应收` : '应收合计'}</p>
+            </div>
+            <div>
+              <p className="text-[22px] font-semibold leading-none tracking-tight tabular-nums text-[var(--color-ink)]">
+                {formatCny(stats.paid)}
+              </p>
+              <p className="label mt-2.5">{period ? `${periodLabel(period)}已收` : '已收合计'}</p>
+            </div>
+          </>
+        )}
         <div>
           <p
             className={`text-[22px] font-semibold leading-none tracking-tight tabular-nums ${
@@ -305,7 +360,7 @@ export function SettleBoard({
 
       {view === 'party' ? (
         <PartyMonths
-          rows={rows}
+          rows={scoped}
           q={q}
           openOnly={filter === 'open'}
           onPick={(party, period) => {
