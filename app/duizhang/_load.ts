@@ -19,6 +19,7 @@ import {
   getUndocumentedShipments,
   type UndocumentedShipment,
   getCustomerStatementLines,
+  getFenqiData,
   getFinanceRows,
   getOutsourceBlockRows,
   getVendors,
@@ -28,6 +29,7 @@ import { effectiveAmount } from '@/lib/finance'
 import {
   buildCustomerDuizhang,
   buildVendorDuizhang,
+  customerBooksMoney,
   customerOptions,
   isDuizhangKind,
   isMonth,
@@ -188,12 +190,15 @@ export async function loadDuizhang(params: {
     }
     if (party) {
       // 零件级明细 —— 只有真的选了客户才去取 (四步窄查询, 见 lib/db)。
-      const [detail, receivables] = await Promise.all([
+      const [detail, receivables, books] = await Promise.all([
         getCustomerStatementLines(party, from, to, shanghaiDay),
         getReceivables(),
+        getFenqiData(),
       ])
       const settled = customerSettledFrom(receivables, party, month)
       sheet = buildCustomerDuizhang(allRows, party, from, to, shanghaiDay, detail)
+      // 开票 / 回款 / 未收 跟记账同一本账 (lib/duizhang customerBooksMoney)。
+      sheet = { ...sheet, ...customerBooksMoney(allRows, party, from, to, books) }
       skipped = [...new Set(sheet.lines.map((l) => l.docNo).filter((no) => skip.has(no)))]
       if (skipped.length > 0) sheet = pickCustomerLines(sheet, (no) => !skip.has(no))
       skippedLines = sheet.lines

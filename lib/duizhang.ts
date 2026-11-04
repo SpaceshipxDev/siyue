@@ -21,6 +21,7 @@ import {
   type Vendor,
 } from './data'
 import { effectiveAmount, outstanding, type FinanceRow } from './finance'
+import type { FenqiData } from './fenqi'
 
 /** 零件级明细的入参 —— 和 lib/db 的 StatementLine 同形, 这里只留用得上的几样。 */
 export type StatementLineInput = {
@@ -250,6 +251,62 @@ export function buildCustomerDuizhang(
     carryAmountCny,
     carryCount: 0,
   }
+}
+
+/**
+ * 本期开票 / 本期回款 / 截至今日未收 —— 跟「财务 → 订单」「记账」同一本账
+ * (于海伟 2026-11-04: 对账单上的应收跟实际对不上)。
+ *
+ * 开票收款现在记在「记账」里 (订单号行 + 一笔一笔的开票收款, 订单账导入也
+ * 记在这里)。出货单上那几格是更早的老记法, 原来对账单只读它们, 记账里记的
+ * 一分都看不到。现在跟订单账一个口径: 这张单在记账里有订单号行的, 用记账的
+ * (红冲掉的不算); 没有的, 照旧用出货单上的老数。免收的单不算。
+ */
+export function customerBooksMoney(
+  all: FinanceRow[],
+  party: string,
+  from: string,
+  to: string,
+  books: FenqiData,
+): { invoicedCny: number; paidCny: number; carryAmountCny: number } {
+  const lineJob = new Map(books.lines.map((l) => [l.id, l.jobId]))
+  const booked = new Set(books.lines.map((l) => l.jobId))
+  const jobs = new Map(
+    books.jobs.filter((j) => j.customer.trim() === party && j.billable).map((j) => [j.jobId, j]),
+  )
+  const reversed = new Set(books.events.flatMap((e) => (e.reversalOf ? [e.reversalOf] : [])))
+  let invoicedCny = 0
+  let paidCny = 0
+  const perJob = new Map<string, { inv: number; paid: number }>()
+  for (const e of books.events) {
+    if (e.reversalOf || reversed.has(e.id)) continue
+    const jobId = lineJob.get(e.poLineId)
+    if (!jobId || !jobs.has(jobId)) continue
+    const t = perJob.get(jobId) ?? { inv: 0, paid: 0 }
+    const inPeriod = e.eventDate >= from && e.eventDate <= to
+    if (e.kind === 'invoice') {
+      t.inv += e.amountCny
+      if (inPeriod) invoicedCny += e.amountCny
+    } else {
+      t.paid += e.amountCny
+      if (inPeriod) paidCny += e.amountCny
+    }
+    perJob.set(jobId, t)
+  }
+  let carryAmountCny = 0
+  for (const t of perJob.values()) carryAmountCny += Math.max(0, t.inv - t.paid)
+
+  // 没进记账的单 —— 出货单上的老数, 跟原来一样。
+  for (const r of all) {
+    if ((r.customer ?? '').trim() !== party || booked.has(r.jobId)) continue
+    if (r.invoiceDate && r.invoiceDate >= from && r.invoiceDate <= to)
+      invoicedCny += r.invoiceAmountCny ?? effectiveAmount(r) ?? 0
+    if (r.paymentDate && r.paymentDate >= from && r.paymentDate <= to)
+      paidCny += r.paymentAmountCny ?? 0
+    carryAmountCny += outstanding(r)
+  }
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  return { invoicedCny: r2(invoicedCny), paidCny: r2(paidCny), carryAmountCny: r2(carryAmountCny) }
 }
 
 /**
