@@ -136,7 +136,9 @@ const COPY = {
 const COLS =
   'grid-cols-[minmax(0,1fr)_76px] md:grid-cols-[112px_minmax(0,1fr)_72px_104px_104px_104px_96px]'
 
-type Filter = 'open' | 'all'
+// 应收的「全部」不含作废的 —— 作废的单子不算钱, 摆在明细、导出里只会让人以为
+// 那几单还挂在应收上 (于海伟 2026-11-04)。要恢复的去「已作废」里找。
+type Filter = 'open' | 'all' | 'void'
 
 // 应收单从哪来 —— 对账页审批、财务订单导入、手动补录。合计对不上时先看这个
 // (于海伟 2026-11-04: 导入表 458483.1, 应收合计差 1 万多)。
@@ -163,6 +165,7 @@ export function SettleBoard({
   const [filter, setFilter] = useState<Filter>(() => {
     // 从对账页点过来的那张要是已经结清了, 默认筛选会把它藏掉 —— 那就看全部。
     const target = openId ? rows.find((r) => r.id === openId) : undefined
+    if (target?.voidedAt) return 'void'
     return target && settleStatus(target, todayStr) === 'paid' ? 'all' : 'open'
   })
   const [q, setQ] = useState('')
@@ -225,8 +228,11 @@ export function SettleBoard({
     return scoped.filter((r) => {
       const st = settleStatus(r, todayStr)
       if (filter === 'open' && (st === 'paid' || st === 'void')) return false
+      if (kind === 'receivable' && filter === 'all' && st === 'void') return false
+      if (filter === 'void' && st !== 'void') return false
       if (!needle) return true
-      return [r.no, r.party, r.period, r.request?.no, r.request?.subject, r.request?.category, kind === 'receivable' ? sourceOf(r) : '']
+      // 单号也能搜 —— 输一个工单号, 看它挂在哪张应收单上。
+      return [r.no, r.party, r.period, r.request?.no, r.request?.subject, r.request?.category, kind === 'receivable' ? sourceOf(r) : '', ...(r.jobNos ?? [])]
         .join(' ')
         .toLowerCase()
         .includes(needle)
@@ -328,7 +334,10 @@ export function SettleBoard({
             </div>
           )}
           <div className="flex items-baseline gap-4">
-            {(['open', 'all'] as Filter[]).map((f) => (
+            {(kind === 'receivable' && rows.some((r) => r.voidedAt)
+              ? (['open', 'all', 'void'] as Filter[])
+              : (['open', 'all'] as Filter[])
+            ).map((f) => (
               <button
                 key={f}
                 type="button"
@@ -339,14 +348,14 @@ export function SettleBoard({
                     : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
                 }`}
               >
-                {f === 'open' ? c.filterOpen : '全部'}
+                {f === 'open' ? c.filterOpen : f === 'void' ? '已作废' : '全部'}
               </button>
             ))}
           </div>
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder={`搜索 · ${c.party} / 单号`}
+            placeholder={kind === 'receivable' ? '搜索 · 客户 / 应收单号 / 工单号' : `搜索 · ${c.party} / 单号`}
             className="h-9 w-[180px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
           />
           {kind === 'receivable' && (
@@ -413,7 +422,9 @@ export function SettleBoard({
                 ? c.emptyNone
                 : filter === 'open'
                   ? c.emptyClear
-                  : c.emptyNone}
+                  : filter === 'void'
+                    ? '没有作废的单子'
+                    : c.emptyNone}
           </p>
         ) : (
           shown.map((r) => {
