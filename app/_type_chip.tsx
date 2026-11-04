@@ -19,6 +19,7 @@ import {
   type JobType,
 } from '@/lib/data'
 import { mutate } from '@/lib/mutate'
+import { useRouter } from 'next/navigation'
 import { showToast } from './_toast'
 
 // --------------------------------------------------------------------------
@@ -32,12 +33,14 @@ export function TypeChip({
   isProduct,
   paused,
   pauseReason,
+  pickup,
   jobNo,
   canEdit,
   canPause,
   onChange,
   onProductChange,
   onPauseChange,
+  onPickupChange,
 }: {
   jobType?: JobType
   isProduct?: boolean
@@ -45,6 +48,8 @@ export function TypeChip({
   paused?: boolean
   /** Optional free-text reason, shown in the popover input + chip tooltip. */
   pauseReason?: string
+  /** 待提货 (lib/pickup) —— 货做好了等客户来拿。 */
+  pickup?: boolean
   jobNo: string
   /** Commerce/工程 can edit the duration/priority bucket + 产品. */
   canEdit: boolean
@@ -61,6 +66,8 @@ export function TypeChip({
   onProductChange?: (next: boolean) => void
   /** Called when 暂停 is toggled or its reason edited. `(paused, reason)`. */
   onPauseChange?: (next: boolean, reason?: string) => void
+  /** 待提货 点上 / 撤掉。不给就不出这一项。 */
+  onPickupChange?: (next: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLSpanElement>(null)
@@ -97,13 +104,19 @@ export function TypeChip({
 
   // 暂停 toggle / reason edit. Unlike onPick* this does NOT close the popover —
   // the user typically wants to type a reason right after pausing.
+  const onPickPickup = (next: boolean) => {
+    setOpen(false)
+    if (next === Boolean(pickup)) return
+    onPickupChange?.(next)
+  }
+
   const onPickPaused = (next: boolean, reason?: string) => {
     if (next === Boolean(paused) && (reason ?? '') === (pauseReason ?? '')) return
     onPauseChange?.(next, reason)
   }
 
   if (!canEdit && !canPause) {
-    if (!jobType && !isProduct && !paused) return null
+    if (!jobType && !isProduct && !paused && !pickup) return null
     return (
       <span className="inline-flex flex-col items-start gap-1">
         {jobType && (
@@ -136,6 +149,11 @@ export function TypeChip({
             暂停
           </span>
         )}
+        {pickup && (
+          <span className="type-chip" data-job-type="pickup" aria-label="待提货" title="待提货">
+            待提货
+          </span>
+        )}
       </span>
     )
   }
@@ -152,7 +170,7 @@ export function TypeChip({
     if (e.key === 'Enter' || e.key === ' ') toggle(e)
   }
 
-  const hasAnyTag = Boolean(jobType) || Boolean(isProduct) || Boolean(paused)
+  const hasAnyTag = Boolean(jobType) || Boolean(isProduct) || Boolean(paused) || Boolean(pickup)
   // Empty-state affordance: managers get "类别" (they edit the bucket); a
   // pause-only worker gets "暂停" so the entry point names what they can do.
   const emptyLabel = canEdit ? '类别' : '暂停'
@@ -209,6 +227,22 @@ export function TypeChip({
               暂停
             </span>
           )}
+          {pickup && (
+            <span
+              role="button"
+              tabIndex={0}
+              className="type-chip cursor-pointer select-none"
+              data-job-type="pickup"
+              onClick={toggle}
+              onKeyDown={onKey}
+              aria-haspopup="menu"
+              aria-expanded={open}
+              aria-label="待提货 · 点击修改"
+              title="待提货 · 点击修改"
+            >
+              待提货
+            </span>
+          )}
         </>
       ) : (
         <span
@@ -232,11 +266,13 @@ export function TypeChip({
           isProduct={Boolean(isProduct)}
           paused={Boolean(paused)}
           pauseReason={pauseReason ?? ''}
+          pickup={Boolean(pickup)}
           canEdit={canEdit}
           canPause={Boolean(canPause)}
           onPick={onPick}
           onPickProduct={onPickProduct}
           onPickPaused={onPickPaused}
+          onPickPickup={onPickupChange ? onPickPickup : undefined}
         />
       )}
     </span>
@@ -248,21 +284,25 @@ function TypePopover({
   isProduct,
   paused,
   pauseReason,
+  pickup,
   canEdit,
   canPause,
   onPick,
   onPickProduct,
   onPickPaused,
+  onPickPickup,
 }: {
   current: JobType | null
   isProduct: boolean
   paused: boolean
   pauseReason: string
+  pickup: boolean
   canEdit: boolean
   canPause: boolean
   onPick: (next: JobType | null) => void
   onPickProduct: (next: boolean) => void
   onPickPaused: (next: boolean, reason?: string) => void
+  onPickPickup?: (next: boolean) => void
 }) {
   // Local draft of the reason so typing doesn't round-trip on every keystroke;
   // committed on blur / Enter. Seeded from the server value; re-seeds if the
@@ -413,6 +453,34 @@ function TypePopover({
           )}
         </>
       )}
+      {/* 待提货 —— 商务 / 工程; 点上就跳到看板「待提货」那一栏。 */}
+      {canEdit && onPickPickup && (
+        <button
+          type="button"
+          role="menuitemcheckbox"
+          aria-checked={pickup}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onPickPickup(!pickup)
+          }}
+          className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] transition-colors hover:bg-[var(--color-muted-bg)] ${
+            pickup ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-2)]'
+          }`}
+        >
+          <span
+            className="inline-block h-2 w-2 rounded-[2px]"
+            style={{ background: 'var(--color-type-pickup)' }}
+            aria-hidden="true"
+          />
+          <span className="flex-1">待提货</span>
+          {pickup && (
+            <span aria-hidden="true" className="text-[var(--color-ink-3)]">
+              ✓
+            </span>
+          )}
+        </button>
+      )}
     </div>
   )
 }
@@ -430,6 +498,7 @@ export function JobTypeEditor({
   initialIsProduct,
   initialPaused,
   initialPauseReason,
+  initialPickup,
   canEdit,
   canPause = true,
 }: {
@@ -439,6 +508,7 @@ export function JobTypeEditor({
   initialIsProduct?: boolean
   initialPaused?: boolean
   initialPauseReason?: string
+  initialPickup?: boolean
   canEdit: boolean
   /** 暂停 is open to anyone logged in — defaults true so every viewer of the
    *  detail page can pause/resume. */
@@ -452,6 +522,27 @@ export function JobTypeEditor({
   const [pauseReason, setLocalPauseReason] = useState<string>(
     initialPauseReason ?? '',
   )
+  const [pickup, setLocalPickup] = useState<boolean>(Boolean(initialPickup))
+  const router = useRouter()
+
+  // 待提货 —— 点上之后跳到看板「待提货」那一栏 (看板的分栏记在 sessionStorage)。
+  const onPickupChange = (next: boolean) => {
+    setLocalPickup(next)
+    mutate({ kind: 'setJobPickup', jobId, pickup: next })
+      .then(() => {
+        showToast(next ? `${jobNo} · 已转待提货` : `${jobNo} · 已撤销待提货`)
+        if (next) {
+          try {
+            sessionStorage.setItem(PICKUP_TAB_KEY, JSON.stringify('pickup'))
+          } catch {}
+          router.push('/')
+        }
+      })
+      .catch(() => {
+        setLocalPickup(!next)
+        showToast('待提货修改失败,请重试', 'neutral')
+      })
+  }
 
   const onPauseChange = (next: boolean, reason?: string) => {
     const prevPaused = paused
@@ -507,15 +598,20 @@ export function JobTypeEditor({
       isProduct={isProduct}
       paused={paused}
       pauseReason={pauseReason}
+      pickup={pickup}
       jobNo={jobNo}
       canEdit={canEdit}
       canPause={canPause}
       onChange={onChange}
       onProductChange={onProductChange}
       onPauseChange={onPauseChange}
+      onPickupChange={onPickupChange}
     />
   )
 }
+
+/** 看板 (总览) 记住在哪一栏的那个键 —— 跟 _master_filter 的 persistKey 对得上。 */
+export const PICKUP_TAB_KEY = 'mes:filter:v1:master:overview:ship'
 
 // --------------------------------------------------------------------------
 // Convenience hook used by surfaces that own a list of rows. Mirrors the
@@ -523,7 +619,7 @@ export function JobTypeEditor({
 // chip + stripe + sort all update in the same React tick as the click.
 // --------------------------------------------------------------------------
 
-export function useOptimisticJobType<T extends { id: string; jobType?: JobType; isProduct?: boolean; pausedAt?: string; jobNo: string }>(
+export function useOptimisticJobType<T extends { id: string; jobType?: JobType; isProduct?: boolean; pausedAt?: string; awaitingPickup?: boolean; jobNo: string }>(
   _rows: T[],
 ) {
   // Overlay map: per-jobId, the type the user JUST picked. `null` (explicit)
@@ -539,6 +635,33 @@ export function useOptimisticJobType<T extends { id: string; jobType?: JobType; 
   // boolean only; the reason isn't sorted/counted on, so it rides the server
   // round-trip + revalidate.
   const [pausedOverlay, setPausedOverlay] = useState<Record<string, boolean>>({})
+  // 待提货 —— 同一套 overlay, 点上的那一刻就挪栏。
+  const [pickupOverlay, setPickupOverlay] = useState<Record<string, boolean>>({})
+
+  const effectiveIsPickup = useCallback(
+    (row: { id: string; awaitingPickup?: boolean }): boolean => {
+      const server = Boolean(row.awaitingPickup)
+      if (!(row.id in pickupOverlay)) return server
+      return pickupOverlay[row.id]
+    },
+    [pickupOverlay],
+  )
+
+  const setPickup = useCallback((row: { id: string; jobNo: string }, next: boolean) => {
+    setPickupOverlay((prev) => ({ ...prev, [row.id]: next }))
+    mutate({ kind: 'setJobPickup', jobId: row.id, pickup: next })
+      .then(() => {
+        showToast(next ? `${row.jobNo} · 已转待提货` : `${row.jobNo} · 已撤销待提货`)
+      })
+      .catch(() => {
+        setPickupOverlay((prev) => {
+          const copy = { ...prev }
+          delete copy[row.id]
+          return copy
+        })
+        showToast('待提货修改失败,请重试', 'neutral')
+      })
+  }, [])
 
   const effectiveType = useCallback(
     (row: { id: string; jobType?: JobType }): JobType | undefined => {
@@ -649,8 +772,10 @@ export function useOptimisticJobType<T extends { id: string; jobType?: JobType; 
     effectiveType,
     effectiveIsProduct,
     effectiveIsPaused,
+    effectiveIsPickup,
     setType,
     setIsProduct,
     setPaused,
+    setPickup,
   }
 }

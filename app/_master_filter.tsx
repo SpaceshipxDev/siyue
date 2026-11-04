@@ -44,6 +44,7 @@ import { JobNotesInline } from './_editable'
 import { planToneClass } from './_stage_plan'
 import { ReturnChip } from './_returns'
 import { ReworkStarter } from './jobs/[id]/_rework'
+import { SemiStockPanel } from './_semi_stock'
 import { TypeChip, useOptimisticJobType } from './_type_chip'
 import { SearchInput } from './_search'
 import { BRAND } from '@/lib/brand'
@@ -176,7 +177,10 @@ type DateFilter =
 //
 // 制程返工 是第五类, 最优先: 厂里自己做坏了开的返工单 (lib/rework-job), 只为
 // 报工和个人产值存在, 不算在产、不出货 (于海伟 2026-10-27)。
-type ShipFilter = 'live' | 'paused' | 'shipped' | 'rework' | 'process'
+//
+// 待提货: 货做好了等客户来拿 (lib/pickup), 从在产挪出来; 出货报完归已出货。
+// 半成品库存不是一类工单, 是同一排上的一张手记清单 (lib/semi-stock)。
+type ShipFilter = 'live' | 'paused' | 'shipped' | 'rework' | 'process' | 'pickup' | 'stock'
 
 // Tab names, reused when telling the user a search hit lives outside the
 // tab they're standing in.
@@ -186,6 +190,8 @@ const SHIP_SCOPE_LABEL: Record<ShipFilter, string> = {
   paused: '暂停/取消',
   rework: '退货返工',
   process: '制程返工',
+  pickup: '待提货',
+  stock: '半成品库存',
 }
 
 // Per-column status filter (商务 / 工程 overview only). The viewer focuses ONE
@@ -489,9 +495,11 @@ export function MasterSheet({
     effectiveType,
     effectiveIsProduct,
     effectiveIsPaused,
+    effectiveIsPickup,
     setType,
     setIsProduct,
     setPaused,
+    setPickup,
   } = useOptimisticJobType(rows)
 
   // Ref handed to <StickyHorizontalScrollbar>: the grid is hundreds of rows
@@ -521,7 +529,7 @@ export function MasterSheet({
   // 暂停 wins over 在产 for any not-yet-shipped job; shipped always wins (a
   // shipped job is done regardless of a stale pause flag). Uses the optimistic
   // overlay so the counts move in the same tick the chip is toggled.
-  // 一行归哪一栏 —— 制程返工 > 退货返工 > 已出货 > 暂停 > 在产。计数、列表、
+  // 一行归哪一栏 —— 制程返工 > 退货返工 > 已出货 > 待提货 > 暂停 > 在产。计数、列表、
   // 搜索跳栏都用这一个, 一行不可能列在一栏、数在另一栏。
   const scopeOf = useCallback(
     (r: MasterRow): ShipFilter =>
@@ -531,13 +539,16 @@ export function MasterSheet({
           ? 'rework'
           : rowIsShipped(r)
             ? 'shipped'
-            : effectiveIsPaused(r)
-              ? 'paused'
-              : 'live',
-    [effectiveIsPaused],
+            : effectiveIsPickup(r)
+              ? 'pickup'
+              : effectiveIsPaused(r)
+                ? 'paused'
+                : 'live',
+    [effectiveIsPaused, effectiveIsPickup],
   )
 
-  const { liveCount, pausedCount, shippedCount, reworkCount, processCount } = useMemo(() => {
+  const { liveCount, pausedCount, shippedCount, reworkCount, processCount, pickupCount } = useMemo(() => {
+    let pickup = 0
     let live = 0
     let paused = 0
     let shipped = 0
@@ -552,6 +563,7 @@ export function MasterSheet({
       if (r.isProcessRework) process++
       else if (r.activeReturn) rework++
       else if (rowIsShipped(r)) shipped++
+      else if (effectiveIsPickup(r)) pickup++
       else if (effectiveIsPaused(r)) paused++
       else live++
     }
@@ -561,8 +573,9 @@ export function MasterSheet({
       shippedCount: shipped,
       reworkCount: rework,
       processCount: process,
+      pickupCount: pickup,
     }
-  }, [rows, effectiveIsPaused])
+  }, [rows, effectiveIsPaused, effectiveIsPickup])
 
   const scopedRows = useMemo(() => {
     if (!showShipTabs) return rows.filter((r) => !rowIsInbox(r))
@@ -623,6 +636,8 @@ export function MasterSheet({
       shipped: 0,
       rework: 0,
       process: 0,
+      pickup: 0,
+      stock: 0,
     }
     for (const r of hits) {
       const s = scopeOf(r)
@@ -983,12 +998,18 @@ export function MasterSheet({
           shippedCount={shippedCount}
           reworkCount={reworkCount}
           processCount={processCount}
+          pickupCount={pickupCount}
           alwaysProcess={canEditType}
           shippedPending={pendingShipped}
           shippedFailed={shippedFailed}
           onRetryShipped={onRetryShipped}
         />
       )}
+      {/* 半成品库存 —— 一张手记清单, 换掉下面整块工单表。 */}
+      {showShipTabs && shipFilter === 'stock' ? (
+        <SemiStockPanel />
+      ) : (
+      <>
       {/* 制程返工 —— 开单的入口就在这一栏顶上 (商务 / 工程)。 */}
       {showShipTabs && shipFilter === 'process' && canEditType && (
         <div className="mb-5 flex flex-wrap items-center gap-3">
@@ -1327,6 +1348,12 @@ export function MasterSheet({
                   onTypeChange={(next) => setType(row, next)}
                   onProductChange={(next) => setIsProduct(row, next)}
                   onPauseChange={(next, reason) => setPaused(row, next, reason)}
+                  pickup={effectiveIsPickup(row)}
+                  onPickupChange={(next) => {
+                    setPickup(row, next)
+                    // 点上待提货 —— 跟着跳到「待提货」那一栏。
+                    if (next && showShipTabs) setShipFilter('pickup')
+                  }}
                 />
               )
             })}
@@ -1404,6 +1431,8 @@ export function MasterSheet({
         )}
       </div>
       <StickyHorizontalScrollbar containerRef={tableScrollRef} />
+      </>
+      )}
     </>
   )
 }
@@ -1438,6 +1467,7 @@ function ShipFilterToggle({
   shippedCount,
   reworkCount,
   processCount,
+  pickupCount,
   alwaysProcess,
   shippedPending,
   shippedFailed,
@@ -1450,6 +1480,7 @@ function ShipFilterToggle({
   shippedCount: number
   reworkCount: number
   processCount: number
+  pickupCount: number
   /** 能开返工单的人 (商务 / 工程) 一直看得到这一栏 —— 入口在里面。 */
   alwaysProcess?: boolean
   /** Shipped rows still streaming in — show … instead of a partial count. */
@@ -1460,6 +1491,7 @@ function ShipFilterToggle({
 }) {
   const segments: { key: ShipFilter; label: string; count: number | string }[] = [
     { key: 'live', label: '在产', count: liveCount },
+    { key: 'pickup', label: '待提货', count: pickupCount },
     {
       key: 'shipped',
       label: '已出货',
@@ -1483,6 +1515,8 @@ function ShipFilterToggle({
     ...(processCount > 0 || alwaysProcess
       ? [{ key: 'process' as ShipFilter, label: '制程返工', count: processCount as number | string }]
       : []),
+    // 半成品库存 —— 不是一类工单, 一张手记清单; 数字在清单里自己看。
+    { key: 'stock', label: '半成品库存', count: '' },
   ]
   return (
     <div role="tablist" aria-label="工单范围" className="mb-6 flex items-baseline gap-x-7">
@@ -1558,7 +1592,7 @@ function ScopeJumpHints({
   prominent?: boolean
 }) {
   if (!hits) return null
-  const others = (['live', 'shipped', 'paused', 'process'] as ShipFilter[]).filter(
+  const others = (['live', 'pickup', 'shipped', 'paused', 'process'] as ShipFilter[]).filter(
     (s) => s !== active && hits[s] > 0,
   )
   if (others.length === 0) return null
@@ -2016,6 +2050,8 @@ function JobRow({
   onTypeChange,
   onProductChange,
   onPauseChange,
+  pickup,
+  onPickupChange,
 }: {
   measureRef?: (node: HTMLTableRowElement | null) => void
   virtualIndex?: number
@@ -2045,6 +2081,9 @@ function JobRow({
   onTypeChange: (next: JobType | null) => void
   onProductChange: (next: boolean) => void
   onPauseChange: (next: boolean, reason?: string) => void
+  /** 待提货 —— 生效后的 (含 overlay)。 */
+  pickup: boolean
+  onPickupChange: (next: boolean) => void
 }) {
   // 滞留工序 — 最前面那一道还没做完的工段 (lib/master rowStuckStage)。
   const stuckStage = rowStuckStage(row)
@@ -2097,12 +2136,14 @@ function JobRow({
               isProduct={isProduct}
               paused={paused}
               pauseReason={pauseReason}
+              pickup={pickup}
               jobNo={row.jobNo}
               canEdit={canEditType}
               canPause
               onChange={onTypeChange}
               onProductChange={onProductChange}
               onPauseChange={onPauseChange}
+              onPickupChange={onPickupChange}
             />
             {/* 大单 —— 零件超过 10 项, 或者任一零件数量超过 10 件。这两种
                 单不能按平常的节奏排 (一道工序卡住就是一片件一起卡), 所以让

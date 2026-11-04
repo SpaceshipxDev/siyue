@@ -84,6 +84,8 @@ export type CompactMasterRow = [
   settle: WireValue<'reconciled' | 'paid'>,
   // 制程返工单 (index 37) — 追加在最末, 旧客户端读不到就当不是。
   isProcessRework: WireValue<boolean>,
+  // 待提货 (index 38) — 追加在最末, 旧客户端读不到就当不是。
+  awaitingPickup: WireValue<boolean>,
 ]
 
 function canSeeCustomerData(scope: Scope): boolean {
@@ -206,6 +208,7 @@ export function toMasterWireRows(rows: MasterRow[], scope: Scope): CompactMaster
       r.hasBigPartQty ?? null,
       r.settle ?? null,
       r.isProcessRework ?? null,
+      r.awaitingPickup ?? null,
     ]
   })
 }
@@ -256,6 +259,7 @@ export function expandMasterWireRows(rows: CompactMasterRow[]): MasterRow[] {
       hasBigPartQty: r[35] ?? undefined,
       settle: r[36] ?? undefined,
       isProcessRework: r[37] ?? undefined,
+      awaitingPickup: r[38] ?? undefined,
     }
   })
 }

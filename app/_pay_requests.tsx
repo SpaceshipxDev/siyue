@@ -14,6 +14,7 @@ import {
   PAY_CATEGORIES,
   PAY_FILE_LABEL,
   PAY_STAGE_LABEL,
+  WAGE_CATEGORY,
   payItemAmount,
   payStage,
   type PayDept,
@@ -33,7 +34,8 @@ import {
 // 收款方、类别、事项说明、付款清单、凭证和发票 (图点开放大), 下面是这一步
 // 该谁按的那个按钮。
 
-type Filter = 'pending' | 'all'
+// 工资 —— 只看临时工资那一类 (于海伟 2026-11-04)。
+type Filter = 'pending' | 'all' | 'wage'
 
 const STAGE_TONE: Record<PayStage, string> = {
   fill: 'text-[var(--color-overdue)] font-medium',
@@ -81,7 +83,12 @@ export function PayRequestBoard({
   const [composing, setComposing] = useState(false)
 
   const shown = useMemo(
-    () => (filter === 'pending' ? requests.filter(waiting) : requests),
+    () =>
+      filter === 'pending'
+        ? requests.filter(waiting)
+        : filter === 'wage'
+          ? requests.filter((r) => r.category === WAGE_CATEGORY)
+          : requests,
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [requests, filter],
   )
@@ -93,6 +100,7 @@ export function PayRequestBoard({
           [
             ['pending', `待审批${pendingCount > 0 ? ` ${pendingCount}` : ''}`],
             ['all', '全部'],
+            ['wage', '工资'],
           ] as [Filter, string][]
         ).map(([f, label]) => (
           <button
@@ -123,10 +131,11 @@ export function PayRequestBoard({
         <NewRequest
           dept={dept}
           past={requests}
+          initialCategory={filter === 'wage' ? WAGE_CATEGORY : ''}
           onCancel={() => setComposing(false)}
           onFiled={(id) => {
             setComposing(false)
-            setFilter('pending')
+            if (filter !== 'wage') setFilter('pending')
             setOpen(id)
           }}
         />
@@ -144,7 +153,11 @@ export function PayRequestBoard({
         </div>
         {shown.length === 0 ? (
           <p className="px-5 py-12 text-center text-[13px] text-[var(--color-ink-3)]">
-            {requests.length === 0 ? '还没有付款申请' : '没有等着批的'}
+            {requests.length === 0
+              ? '还没有付款申请'
+              : filter === 'wage'
+                ? '还没有工资的付款申请'
+                : '没有等着批的'}
           </p>
         ) : (
           shown.map((r) => {
@@ -332,11 +345,14 @@ async function readItemsFile(file: File): Promise<ImportedItem[]> {
 function NewRequest({
   dept,
   past,
+  initialCategory = '',
   onCancel,
   onFiled,
 }: {
   dept: PayDept
   past: PayRequest[]
+  /** 从「工资」那一栏点开的 —— 类别先选好临时工资。 */
+  initialCategory?: string
   onCancel: () => void
   onFiled: (id: string) => void
 }) {
@@ -346,7 +362,7 @@ function NewRequest({
   const seq = useRef(1)
   const [payee, setPayee] = useState('')
   const [account, setAccount] = useState('')
-  const [category, setCategory] = useState('')
+  const [category, setCategory] = useState(initialCategory)
   const [subject, setSubject] = useState('')
   const [note, setNote] = useState('')
   const [items, setItems] = useState<DraftItem[]>([

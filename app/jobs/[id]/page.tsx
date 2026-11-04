@@ -92,6 +92,7 @@ import { JobTabs } from './_job_tabs'
 import { CommOrderSheet } from '@/app/comm/[no]/_sheet'
 import { getCommOrder } from '@/lib/comm-order'
 import { getReworkJobs } from '@/lib/rework-job'
+import { getPickupJobIds } from '@/lib/pickup'
 import { OpenReworkButton, ReworkBanner } from './_rework'
 import { SourceFileRow } from '@/app/_source_file'
 import { ProductionOrderRow } from '@/app/_production_order'
@@ -162,11 +163,12 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // Portal tokens power the 微信 share button on each 委外 row. No-op once
   // every vendor has one (the common case) — see ensureVendorPortalTokens.
   // 沟通确认单 (按工号) —— 全厂都看得到, 工程、商务能改 (于海伟 2026-10-20)。
-  const [rawVendors, commOrder, reworkJobs] = await Promise.all([
+  const [rawVendors, commOrder, reworkJobs, pickupIds] = await Promise.all([
     ensureVendorPortalTokens(fetchedVendors),
     getCommOrder(rawJob.jobNo).catch(() => undefined),
     // 制程返工单 (lib/rework-job) —— 这张是不是, 是的话每个零件的返工报工单价。
     getReworkJobs().catch(() => ({}) as Awaited<ReturnType<typeof getReworkJobs>>),
+    getPickupJobIds().catch(() => new Set<string>()),
   ])
   const rework = reworkJobs[rawJob.id]
   // Only `ready` jobs live on the production board. A draft/parsing/failed job
@@ -594,6 +596,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 initialIsProduct={job.isProduct}
                 initialPaused={Boolean(job.pausedAt)}
                 initialPauseReason={job.pauseReason}
+                initialPickup={pickupIds.has(job.id)}
                 canEdit={canManageOutsource(user)}
               />
             </div>

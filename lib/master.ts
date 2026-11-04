@@ -161,6 +161,8 @@ export type MasterRow = {
    * 产值存在。看板上单独一栏「制程返工」, 不算在产。
    */
   isProcessRework?: boolean
+  /** 待提货 (lib/pickup) —— 货做好了等客户来拿。看板上单独一栏「待提货」。 */
+  awaitingPickup?: boolean
   /** Lowercased haystack for substring search — built by the view. */
   searchHaystack: string
   /** Open 退货, if any. */

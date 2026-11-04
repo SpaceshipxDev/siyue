@@ -16,11 +16,14 @@
 
 import { PROCUREMENT_CATEGORIES, type VoucherFile } from './data'
 
-// 付款类别 —— 采购那一套, 再加两样只有付款才有的 (于海伟 2026-10-16)。
+// 付款类别 —— 采购那一套, 再加只有付款才有的 (于海伟 2026-10-16)。
+// 临时工资 (于海伟 2026-11-04): 临时工的工资走付款, 付款页上单独一栏「工资」。
+export const WAGE_CATEGORY = '临时工资'
 export const PAY_CATEGORIES: readonly string[] = [
   ...PROCUREMENT_CATEGORIES,
   '供应商货款',
   '外协加工费用',
+  WAGE_CATEGORY,
 ]
 
 export type PayDept = '人事' | '商务'

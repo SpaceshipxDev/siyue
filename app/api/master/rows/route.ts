@@ -13,12 +13,19 @@ import { toMasterWireRows } from '@/lib/master_wire'
 import { getReturnFlows } from '@/lib/return-flow-store'
 import { returnStep } from '@/lib/return-flow'
 import { getReworkJobIds } from '@/lib/rework-job'
+import { getPickupJobIds } from '@/lib/pickup'
 
 // 制程返工单 —— 那份记录里有的工单, 行上标一下, 看板单独放一栏。
+// 待提货 (lib/pickup) 也在这里盖上, 一样单独一栏。
 async function applyProcessRework(rows: MasterRow[]): Promise<MasterRow[]> {
-  const ids = await getReworkJobIds().catch(() => new Set<string>())
-  if (ids.size === 0) return rows
-  for (const r of rows) if (ids.has(r.id)) r.isProcessRework = true
+  const [ids, pickup] = await Promise.all([
+    getReworkJobIds().catch(() => new Set<string>()),
+    getPickupJobIds().catch(() => new Set<string>()),
+  ])
+  for (const r of rows) {
+    if (ids.has(r.id)) r.isProcessRework = true
+    if (pickup.has(r.id)) r.awaitingPickup = true
+  }
   return rows
 }
 

@@ -254,6 +254,8 @@ import {
   updateScrapRecord,
   upsertInspectionScrap,
 } from '@/lib/scrap'
+import { setJobPickup } from '@/lib/pickup'
+import { addSemiStock, deleteSemiStock, updateSemiStock, type SemiStockInput } from '@/lib/semi-stock'
 import { deleteQualityFile, deleteQualityFilePhoto, updateQualityFile } from '@/lib/quality-files'
 import {
   isRateList,
@@ -1770,6 +1772,45 @@ async function dispatch(
       for (const s of STAGES) {
         revalidatePath(`/station/${encodeURIComponent(s)}`)
       }
+      return Response.json(ok())
+    }
+
+    // 待提货 (lib/pickup) —— 跟类别同一档: 商务 / 工程。
+    case 'setJobPickup': {
+      const jobId = body.jobId
+      if (!isString(jobId) || typeof body.pickup !== 'boolean') return err('bad setJobPickup args')
+      const u = await requireUser()
+      if (!canManageOutsource(u)) return err('无权设置待提货 (仅商务/工程可操作)', 403)
+      await setJobPickup(jobId, body.pickup, u.name)
+      revalidatePath('/')
+      revalidatePath(`/jobs/${jobId}`)
+      return Response.json(ok())
+    }
+
+    // 半成品库存 (lib/semi-stock) —— 登录的人都能录、能改、能删。
+    case 'addSemiStock':
+    case 'updateSemiStock': {
+      const input = body.input
+      if (typeof input !== 'object' || input === null) return err(`bad ${kind} args`)
+      const i = input as Record<string, unknown>
+      for (const k of ['jobNo', 'name', 'status', 'note'] as const)
+        if (i[k] !== undefined && !isString(i[k])) return err(`bad ${kind} args`)
+      if (i.qty !== undefined && typeof i.qty !== 'number') return err('数量不对')
+      const u = await requireUser()
+      if (kind === 'addSemiStock') {
+        if (!isString(i.jobNo) || !i.jobNo.trim()) return err('先填工单号')
+        await addSemiStock(i as SemiStockInput, u.name, new Date().toISOString())
+      } else {
+        if (!isString(body.itemId)) return err('bad updateSemiStock args')
+        await updateSemiStock(body.itemId, i as SemiStockInput)
+      }
+      return Response.json(ok())
+    }
+
+    case 'deleteSemiStock': {
+      if (!isString(body.itemId)) return err('bad deleteSemiStock args')
+      await requireUser()
+      await deleteSemiStock(body.itemId)
       return Response.json(ok())
     }
 
