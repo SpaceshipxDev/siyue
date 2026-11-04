@@ -14,7 +14,6 @@ import {
   voidImportedReceivable,
 } from './receivable'
 import type { OrderLedgerRow } from './data'
-import { shanghaiDay } from './today'
 
 /*
  * 订单账导入 (于海伟 2026-11-04) —— 财务把「财务 → 订单」导出去, 在系统外对
@@ -205,15 +204,10 @@ async function intoReceivables(
   const periodOf = (no: string) => want.get(no)!.row.createdDate.slice(0, 7)
   const customerOf = (no: string) => want.get(no)!.row.customer.trim()
 
-  // 导入落的 —— 打了 imported 的; 早先那一批没打 (同一个人、今天落的、回款都是
-  // 导入记的、单号全在这张表里), 也算。
-  const importMade = (r: (typeof receivables)[number]) =>
-    r.imported ||
-    (r.approvedBy === by &&
-      shanghaiDay(r.approvedAt) === todayYmd &&
-      !!r.jobNos?.length &&
-      r.jobNos.every((n) => inFile.has(n)) &&
-      r.payments.every((p) => (p.note ?? '').startsWith('导入')))
+  // 导入落的 —— 只认打了 imported 的。原来还按「同一个人、今天落的、单号全在
+  // 表里」猜早先那一批, 会把同一天在对账页亲手审批的也当成导入的作废掉
+  // (于海伟: 导入后对账单上又冒出几单), 不再猜。
+  const importMade = (r: (typeof receivables)[number]) => !!r.imported
 
   const free = new Set(want.keys())
   for (const r of receivables) {

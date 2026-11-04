@@ -376,6 +376,7 @@ import {
   createReceivable,
   createManualReceivable,
   deleteReceivablePayment,
+  restoreReceivable,
   voidReceivable,
 } from '@/lib/receivable'
 import { logStageAction } from '@/lib/access-log'
@@ -4076,6 +4077,22 @@ async function dispatch(
       const u = await requireUser()
       if (!canSettleAccounts(u)) return err('删回款要找于海伟或财务', 403)
       await deleteReceivablePayment(id, paymentId)
+      revalidatePath('/finance')
+      revalidatePath('/duizhang')
+      return Response.json(ok())
+    }
+
+    // 恢复作废的应收单 (lib/receivable restoreReceivable) —— 跟作废同一档。
+    case 'restoreReceivable': {
+      const id = body.receivableId
+      if (!isString(id)) return err('bad restoreReceivable args')
+      const u = await requireUser()
+      if (!canSettleAccounts(u)) return err('恢复应收单要找于海伟或财务', 403)
+      try {
+        await restoreReceivable(id)
+      } catch (e) {
+        return err(e instanceof Error ? e.message : '恢复不了')
+      }
       revalidatePath('/finance')
       revalidatePath('/duizhang')
       return Response.json(ok())

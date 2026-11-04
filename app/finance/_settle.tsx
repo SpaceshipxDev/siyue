@@ -874,6 +874,18 @@ function Detail({
     })
   }
 
+  function doRestore() {
+    start(async () => {
+      try {
+        await mutate({ kind: 'restoreReceivable', receivableId: r.id })
+        showToast(`${r.no} 已恢复`, 'success')
+        router.refresh()
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : '恢复不了', 'warning')
+      }
+    })
+  }
+
   function doVoid() {
     start(async () => {
       try {
@@ -1140,6 +1152,19 @@ function Detail({
         {r.voidedAt && (
           <span>
             {r.voidedBy} 作废于 {r.voidedAt.slice(0, 10)}
+          </span>
+        )}
+        {/* 作废错了 —— 恢复 (只有应收; 单号已经进了别的应收单就恢复不了)。 */}
+        {canEdit && r.voidedAt && kind === 'receivable' && (
+          <span className="ml-auto">
+            <button
+              type="button"
+              onClick={doRestore}
+              disabled={pending}
+              className="font-medium text-[var(--color-ink-2)] hover:text-[var(--color-ink)] disabled:opacity-50"
+            >
+              恢复
+            </button>
           </span>
         )}
         {canEdit && !r.voidedAt && r.payments.length === 0 && (

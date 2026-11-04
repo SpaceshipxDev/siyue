@@ -277,6 +277,36 @@ export async function voidImportedReceivable(id: string, by: string, nowIso: str
   })
 }
 
+/**
+ * 恢复一张作废的应收单 —— 作废错了 (比如导入时被当成导入落的作废掉)。它认的
+ * 单号要是已经进了别的应收单, 不能恢复, 免得一单收两回钱。
+ */
+export async function restoreReceivable(id: string): Promise<void> {
+  await withLock(async () => {
+    const rows = await read()
+    const r = rows.find((x) => x.id === id)
+    if (!r || !r.voidedAt) return
+    if (!r.manual) {
+      const mine = r.jobNos ? new Set(r.jobNos) : null
+      const overlap = (x: Receivable) => !!mine && !!x.jobNos?.some((n) => mine.has(n))
+      const dup = rows.find(
+        (x) =>
+          x.id !== r.id &&
+          !x.voidedAt &&
+          !x.manual &&
+          x.customer === r.customer &&
+          // 同一个月: 有一边是整月审的, 或者单号有重的; 别的月: 单号有重的
+          // (导入落的按下单月份挂, 可能跟对账页审的不在一个月)。
+          ((x.period === r.period && (!mine || !x.jobNos || overlap(x))) || overlap(x)),
+      )
+      if (dup) throw new Error(`这张单上的单号已经在应收单 ${dup.no} 里了，不能恢复`)
+    }
+    r.voidedAt = undefined
+    r.voidedBy = undefined
+    await write(rows)
+  })
+}
+
 export async function voidReceivable(
   id: string,
   by: string,
