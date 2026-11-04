@@ -358,6 +358,7 @@ async function OrdersTab({ todayStr, canImport }: { todayStr: string; canImport:
     const m = ext[r.jobId]
     if (!m || r.settle) continue
     r.settle = m.status
+    r.extSettle = true
     if (m.no && !r.receivableNos.includes(m.no)) r.receivableNos = [...r.receivableNos, m.no]
   }
   return <OrderLedger rows={rows} todayStr={todayStr} canImport={canImport} />

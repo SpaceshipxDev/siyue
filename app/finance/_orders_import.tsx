@@ -149,6 +149,9 @@ export function OrderImportButton({ rows, todayStr }: { rows: OrderLedgerRow[]; 
         const lower: string[] = []
         if (row) {
           if (p.settle && !row.settle) changes.push(p.settle === 'paid' ? '标已回款' : '标已对账')
+          // 已对账 / 开了票 —— 落应收单 (lib/order-import), 系统里还没进过应收的才进。
+          if ((!row.settle || row.extSettle) && !row.free && (p.settle || (p.invoiceCny ?? 0) > 0))
+            changes.push('进应收')
           if (!row.free) {
             if (p.invoiceCny !== undefined) {
               const d = r2(p.invoiceCny - row.invoicedCny)
@@ -192,7 +195,13 @@ export function OrderImportButton({ rows, todayStr }: { rows: OrderLedgerRow[]; 
     if (todo.length === 0) return
     start(async () => {
       try {
-        const res = await mutate<{ invoices: number; payments: number; settles: number }>({
+        const res = await mutate<{
+          invoices: number
+          payments: number
+          settles: number
+          receivables: number
+          notReceivable: string[]
+        }>({
           kind: 'importOrderLedger',
           items: todo.map(({ row: _r, changes: _c, lower: _l, ...p }) => {
             void _r
@@ -203,9 +212,11 @@ export function OrderImportButton({ rows, todayStr }: { rows: OrderLedgerRow[]; 
         })
         const d = res.data
         showToast(
-          `导入好了 · 对账 ${d.settles} 单 · 开票 ${d.invoices} 笔 · 收款 ${d.payments} 笔`,
+          `导入好了 · 对账 ${d.settles} 单 · 开票 ${d.invoices} 笔 · 收款 ${d.payments} 笔 · 应收单 ${d.receivables} 张`,
           'success',
         )
+        if (d.notReceivable.length > 0)
+          showToast(`这几单没进应收：${d.notReceivable.slice(0, 6).join('；')}${d.notReceivable.length > 6 ? ' …' : ''}`, 'warning')
         setLines(null)
         router.refresh()
       } catch (e) {
@@ -296,6 +307,7 @@ export function OrderImportButton({ rows, todayStr }: { rows: OrderLedgerRow[]; 
               )}
               <p className="mt-3 text-[12px] leading-relaxed text-[var(--color-ink-4)]">
                 开票、收款按表上的合计算，比系统里多的那一截补进记账；没填日期的按今天（{todayStr.slice(5)}）记。
+                「进应收」的按客户、出货月份落应收单，金额照对账单的出货金额算；已回款的记一笔回款。
               </p>
             </div>
 

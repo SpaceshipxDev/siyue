@@ -1010,6 +1010,8 @@ export type OrderLedgerRow = {
   // 对账 → 开票 → 收款 —— 这张单的钱收到哪一步了。
   /** 对账 —— 每一车货都进了审批过的应收单 ('reconciled'), 那几张都收清了 ('paid')。 */
   settle?: 'reconciled' | 'paid'
+  /** 对账是系统外导进来的 (lib/ext-settle), 还没落应收单。 */
+  extSettle?: boolean
   /** 认下这张单的应收单号 (YS-2609-001…)。 */
   receivableNos: string[]
   /** 开票 / 收款 —— 记账 (分期账) 那本上这张单的数, 红冲掉的不算。 */
