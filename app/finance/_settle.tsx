@@ -186,6 +186,9 @@ export function SettleBoard({
     }
   }, [rows, todayStr, month])
 
+  // 应收多一种看法: 按客户 · 按对账月份汇总 (于海伟 2026-11-04)。
+  const [view, setView] = useState<'list' | 'party'>('list')
+
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase()
     return rows.filter((r) => {
@@ -225,6 +228,29 @@ export function SettleBoard({
           </p>
         </div>
         <div className="ml-auto flex items-center gap-4">
+          {kind === 'receivable' && (
+            <div className="inline-flex overflow-hidden rounded-[2px] border border-[var(--color-border)]">
+              {(
+                [
+                  ['list', '明细'],
+                  ['party', '按客户'],
+                ] as const
+              ).map(([v, label]) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setView(v)}
+                  className={`px-2.5 py-1 text-[12px] transition-colors ${
+                    view === v
+                      ? 'bg-[var(--color-active-bg)] font-medium text-[var(--color-ink)]'
+                      : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="flex items-baseline gap-4">
             {(['open', 'all'] as Filter[]).map((f) => (
               <button
@@ -277,6 +303,19 @@ export function SettleBoard({
         />
       )}
 
+      {view === 'party' ? (
+        <PartyMonths
+          rows={rows}
+          q={q}
+          openOnly={filter === 'open'}
+          onPick={(party, period) => {
+            // 点一个月 —— 回到明细, 只看这个客户这个月的那几张。
+            setQ(`${party} ${period}`)
+            setFilter('all')
+            setView('list')
+          }}
+        />
+      ) : (
       <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
         <div
           className={`hidden ${COLS} items-center gap-3 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid`}
@@ -356,6 +395,8 @@ export function SettleBoard({
           })
         )}
       </div>
+
+      )}
 
       <p className="mt-4 text-[12px] leading-relaxed text-[var(--color-ink-3)]">{c.foot}</p>
     </div>
@@ -439,6 +480,113 @@ function ReceivableExport({
       {busy ? '导出中…' : '导出 Excel'}
       <span aria-hidden className="text-[14px] leading-none">↓</span>
     </button>
+  )
+}
+
+// 按客户 · 按对账月份 —— 一个客户一行合计, 下面一个月一行: 应收、已收、未收
+// (红字)。作废的不算。只看未收清时, 收完了的月份、客户不列。
+function PartyMonths({
+  rows,
+  q,
+  openOnly,
+  onPick,
+}: {
+  rows: SettleRow[]
+  q: string
+  openOnly: boolean
+  onPick: (party: string, period: string) => void
+}) {
+  const groups = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    type Sum = { amount: number; paid: number; left: number; count: number }
+    const add = (s: Sum, r: SettleRow) => {
+      s.amount += r.amountCny
+      s.paid += settlePaid(r)
+      s.left += settleOutstanding(r)
+      s.count += 1
+    }
+    const byParty = new Map<string, { total: Sum; months: Map<string, Sum> }>()
+    for (const r of rows) {
+      if (r.voidedAt) continue
+      if (needle && ![r.no, r.party, r.period].join(' ').toLowerCase().includes(needle)) continue
+      const g = byParty.get(r.party) ?? {
+        total: { amount: 0, paid: 0, left: 0, count: 0 },
+        months: new Map<string, Sum>(),
+      }
+      add(g.total, r)
+      const m = g.months.get(r.period) ?? { amount: 0, paid: 0, left: 0, count: 0 }
+      add(m, r)
+      g.months.set(r.period, m)
+      byParty.set(r.party, g)
+    }
+    const r2 = (n: number) => Math.round(n * 100) / 100
+    return [...byParty.entries()]
+      .map(([party, g]) => ({
+        party,
+        total: { ...g.total, amount: r2(g.total.amount), paid: r2(g.total.paid), left: r2(g.total.left) },
+        months: [...g.months.entries()]
+          .map(([period, m]) => ({ period, ...m, amount: r2(m.amount), paid: r2(m.paid), left: r2(m.left) }))
+          .filter((m) => !openOnly || m.left > 0)
+          .sort((a, b) => b.period.localeCompare(a.period)),
+      }))
+      .filter((g) => !openOnly || g.total.left > 0)
+      .sort((a, b) => b.total.left - a.total.left || a.party.localeCompare(b.party, 'zh'))
+  }, [rows, q, openOnly])
+
+  const cols = 'grid-cols-[minmax(0,1fr)_56px_112px_112px_112px]'
+  const money = (n: number, cls = 'text-[var(--color-ink-2)]') => (
+    <span className={`mono text-right text-[13px] ${cls}`}>{n > 0 ? formatCny(n) : '—'}</span>
+  )
+  return (
+    <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className={`grid ${cols} items-center gap-3 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2`}>
+        <span className="label">客户 · 对账月份</span>
+        <span className="label text-right">张数</span>
+        <span className="label text-right">应收</span>
+        <span className="label text-right">已收</span>
+        <span className="label text-right">未收</span>
+      </div>
+      {groups.length === 0 ? (
+        <p className="px-5 py-12 text-center text-[13px] text-[var(--color-ink-3)]">
+          {q ? '没有匹配的客户' : openOnly ? '钱都收清了' : '还没有应收单'}
+        </p>
+      ) : (
+        groups.map((g) => (
+          <div key={g.party} className="border-b border-[var(--color-border)] last:border-b-0">
+            <div className={`grid ${cols} items-center gap-3 px-5 pt-3 pb-1.5`}>
+              <span className="truncate text-[14px] font-semibold tracking-tight text-[var(--color-ink)]">
+                {g.party}
+              </span>
+              <span className="mono text-right text-[12.5px] text-[var(--color-ink-3)]">{g.total.count}</span>
+              {money(g.total.amount, 'font-medium text-[var(--color-ink)]')}
+              {money(g.total.paid, 'font-medium text-[var(--color-ink)]')}
+              {g.total.left > 0
+                ? money(g.total.left, 'font-semibold text-[var(--color-overdue)]')
+                : <span className="text-right text-[12.5px] text-[var(--color-success)]">已收完</span>}
+            </div>
+            {g.months.map((m) => (
+              <button
+                key={m.period}
+                type="button"
+                onClick={() => onPick(g.party, m.period)}
+                title="看这个月的应收单"
+                className={`grid w-full ${cols} items-center gap-3 px-5 py-1.5 text-left hover:bg-[#faf8f2] last:pb-3`}
+              >
+                <span className="mono pl-4 text-[12.5px] text-[var(--color-ink-2)]">
+                  {m.period.slice(0, 4)}年{Number(m.period.slice(5))}月
+                </span>
+                <span className="mono text-right text-[12px] text-[var(--color-ink-4)]">{m.count}</span>
+                {money(m.amount)}
+                {money(m.paid)}
+                {m.left > 0
+                  ? money(m.left, 'font-medium text-[var(--color-overdue)]')
+                  : <span className="text-right text-[12px] text-[var(--color-success)]">已收完</span>}
+              </button>
+            ))}
+          </div>
+        ))
+      )}
+    </div>
   )
 }
 
