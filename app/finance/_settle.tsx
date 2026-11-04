@@ -54,6 +54,8 @@ export type SettleRow = {
   blockIds?: string[]
   /** 应收单认的那几个单号 (没有 = 整月审的)。 */
   jobNos?: string[]
+  /** 财务订单导入落的应收单 (lib/order-import)。 */
+  imported?: boolean
   /** 补录的老账 —— 备注 + 凭证, 不挂对账单。 */
   manual?: SettleManual
   /** 付款申请老板批下来落的 (只有应付) —— 清单、凭证、发票在申请上。 */
@@ -136,6 +138,12 @@ const COLS =
 
 type Filter = 'open' | 'all'
 
+// 应收单从哪来 —— 对账页审批、财务订单导入、手动补录。合计对不上时先看这个
+// (于海伟 2026-11-04: 导入表 458483.1, 应收合计差 1 万多)。
+function sourceOf(r: SettleRow): '导入' | '补录' | '对账审批' {
+  return r.manual ? '补录' : r.imported ? '导入' : '对账审批'
+}
+
 export function SettleBoard({
   kind,
   rows,
@@ -184,10 +192,12 @@ export function SettleBoard({
     let paidThisMonth = 0
     let amount = 0
     let paid = 0
+    const bySource: Record<string, number> = {}
     for (const r of scoped) {
       if (r.voidedAt) continue
       outstanding += settleOutstanding(r)
       amount += r.amountCny
+      bySource[sourceOf(r)] = (bySource[sourceOf(r)] ?? 0) + r.amountCny
       paid += settlePaid(r)
       if (settleStatus(r, todayStr) === 'overdue') overdue += 1
       for (const p of r.payments) {
@@ -201,6 +211,9 @@ export function SettleBoard({
       paidThisMonth: r2(paidThisMonth),
       amount: r2(amount),
       paid: r2(paid),
+      bySource: (['导入', '对账审批', '补录'] as const)
+        .filter((k) => bySource[k])
+        .map((k) => ({ k, v: r2(bySource[k]) })),
     }
   }, [scoped, todayStr])
 
@@ -213,9 +226,12 @@ export function SettleBoard({
       const st = settleStatus(r, todayStr)
       if (filter === 'open' && (st === 'paid' || st === 'void')) return false
       if (!needle) return true
-      return [r.no, r.party, r.period, r.request?.no, r.request?.subject, r.request?.category].join(' ').toLowerCase().includes(needle)
+      return [r.no, r.party, r.period, r.request?.no, r.request?.subject, r.request?.category, kind === 'receivable' ? sourceOf(r) : '']
+        .join(' ')
+        .toLowerCase()
+        .includes(needle)
     })
-  }, [scoped, filter, q, todayStr])
+  }, [scoped, filter, q, todayStr, kind])
 
   return (
     <div>
@@ -254,6 +270,11 @@ export function SettleBoard({
                 {formatCny(stats.amount)}
               </p>
               <p className="label mt-2.5">{period ? `${periodLabel(period)}应收` : '应收合计'}</p>
+              {stats.bySource.length > 1 && (
+                <p className="mt-1 text-[11.5px] tabular-nums text-[var(--color-ink-3)]">
+                  {stats.bySource.map(({ k, v }) => `${k} ${formatCny(v)}`).join(' · ')}
+                </p>
+              )}
             </div>
             <div>
               <p className="text-[22px] font-semibold leading-none tracking-tight tabular-nums text-[var(--color-ink)]">
@@ -412,6 +433,9 @@ export function SettleBoard({
                   </span>
                   <span className="min-w-0 truncate text-[14px] font-medium tracking-tight text-[var(--color-ink)]">
                     {r.party}
+                    {kind === 'receivable' && r.imported && (
+                      <span className="ml-2 text-[11px] font-normal text-[var(--color-ink-4)]">导入</span>
+                    )}
                     {r.manual && (
                       <span className="ml-2 text-[11px] font-normal text-[var(--color-ink-4)]">补录</span>
                     )}
@@ -480,7 +504,7 @@ function ReceivableExport({
         const st = settleStatus(r, todayStr)
         return st === 'overdue' ? `逾期 ${settleOverdueDays(r, todayStr)} 天` : labels[st]
       }
-      const head = ['应收单号', '客户', '期间', '应收', '已回款', '未收', '状态', '约定回款日', '审批人', '审批日期', '单号', '备注']
+      const head = ['应收单号', '客户', '期间', '应收', '已回款', '未收', '状态', '约定回款日', '审批人', '审批日期', '单号', '来源', '备注']
       const body = rows.map((r) => [
         r.no,
         r.party,
@@ -493,7 +517,8 @@ function ReceivableExport({
         r.approvedBy,
         r.approvedAt.slice(0, 10),
         r.jobNos?.join('、') ?? (r.manual ? '' : '整月'),
-        r.manual ? `补录${r.manual.note ? ` · ${r.manual.note}` : ''}` : '',
+        sourceOf(r),
+        r.manual?.note ?? '',
       ])
       const payHead = ['应收单号', '客户', '回款日期', '金额', '备注', '记录人', '收款凭证']
       const payBody = rows.flatMap((r) =>
@@ -515,7 +540,7 @@ function ReceivableExport({
         return ws
       }
       const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, sheet(head, body, [14, 22, 9, 12, 12, 12, 10, 11, 8, 11, 40, 20]), '应收单')
+      XLSX.utils.book_append_sheet(wb, sheet(head, body, [14, 22, 9, 12, 12, 12, 10, 11, 8, 11, 40, 9, 20]), '应收单')
       XLSX.utils.book_append_sheet(wb, sheet(payHead, payBody, [14, 22, 11, 12, 24, 8, 24]), '回款明细')
       XLSX.writeFile(wb, `应收_${todayStr}.xlsx`)
     } finally {
