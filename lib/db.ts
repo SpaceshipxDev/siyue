@@ -2277,7 +2277,7 @@ export async function getMasterRowsPage(
   opts: MasterRowsPageOptions,
 ): Promise<MasterRowsPage> {
   const page = await getMasterRowsPageFromBoardTable(opts)
-  if (page) return page
+  if (page) return { ...page, rows: await withUnrolledCells(page.rows) }
 
   // Pre-0060 fallback: preserve behavior by filtering in memory. This is not
   // the scalable path, but it keeps deploy-before-migration safe.
@@ -2722,6 +2722,12 @@ async function getMasterRowsPageFromBoardTable(
 }
 
 async function getMasterRowsScoped(scope: MasterRowsScope): Promise<MasterRow[]> {
+  const rows = await getMasterRowsScopedRaw(scope)
+  // 只读一两张单 (点完一格读回来) 就只数这几张; 整份看板一次数全部。
+  return withUnrolledCells(rows, scope.kind === 'ids' ? scope.ids : undefined)
+}
+
+async function getMasterRowsScopedRaw(scope: MasterRowsScope): Promise<MasterRow[]> {
   const fastRows = await getMasterRowsFromBoardTable(scope)
   if (fastRows) return fastRows
   await ensureSeeded()
@@ -7560,15 +7566,31 @@ export async function getProgrammingQueue(): Promise<ProgrammingQueue> {
 // 一道工序在每张单上的进度, 直接从零件的工序里数, 不走看板汇总 —— 车铣是
 // 10-15 才加的一道, 看板那份汇总还不认它, 计划 (app/plan) 靠这里知道哪张单
 // 走车铣、做完没有。只数厂里自己做的, 不管外协。
-export async function getStageCellsByJob(stage: Stage): Promise<Map<string, MasterCell>> {
-  const stageRows = await selectAllIn('part_stages', 'stage', [stage])
+export async function getStageCellsByJob(
+  stage: Stage,
+  /** 只要这几张单的 (看板读回一两张单时用, 不去扫整份)。 */
+  jobIds?: string[],
+): Promise<Map<string, MasterCell>> {
   const out = new Map<string, MasterCell>()
-  if (stageRows.length === 0) return out
-  const parts = await selectAllIn(
-    'parts',
-    'id',
-    [...new Set(stageRows.map((r) => r.part_id as string))],
-  )
+  let stageRows: AnyRow[]
+  let parts: AnyRow[]
+  if (jobIds) {
+    parts = await selectAllIn('parts', 'job_id', jobIds)
+    stageRows = await selectAllIn(
+      'part_stages',
+      'part_id',
+      parts.map((p) => p.id as string),
+      { column: 'stage', values: [stage] },
+    )
+  } else {
+    stageRows = await selectAllIn('part_stages', 'stage', [stage])
+    if (stageRows.length === 0) return out
+    parts = await selectAllIn(
+      'parts',
+      'id',
+      [...new Set(stageRows.map((r) => r.part_id as string))],
+    )
+  }
   const jobOf = new Map(parts.map((p) => [p.id as string, p.job_id as string]))
   for (const r of stageRows) {
     const jobId = jobOf.get(r.part_id as string)
@@ -7595,6 +7617,8 @@ export async function getStageCellsByJob(stage: Stage): Promise<Map<string, Mast
       if (at && (!c.latestFinishedAt || at > c.latestFinishedAt)) {
         c.latestFinishedAt = at
         c.latestBy = (r.by_actor as string | null) ?? undefined
+        const fin = r.finished_at as string | null
+        c.latestCompletedAt = fin ? shanghaiDay(fin).slice(5) || undefined : (at.length === 5 ? at : undefined)
       }
     } else if (r.status === 'in_progress') {
       c.inProgress++
@@ -7602,6 +7626,30 @@ export async function getStageCellsByJob(stage: Stage): Promise<Map<string, Mast
     } else c.pending++
   }
   return out
+}
+
+// 看板汇总还不认车铣 (10-15 才加的一道) —— 生产表上它那一格一直是斜线
+// (于海伟 2026-11-04: 分配到车铣的没有统计出来)。从零件的工序里数出来补上;
+// 汇总里已经有的不碰。读不到就照原样, 看板不能因为这一格打不开。
+const UNROLLED_STAGES: Stage[] = ['车铣']
+async function withUnrolledCells(
+  rows: MasterRow[],
+  jobIds?: string[],
+): Promise<MasterRow[]> {
+  if (rows.length === 0) return rows
+  try {
+    const maps = await Promise.all(UNROLLED_STAGES.map((st) => getStageCellsByJob(st, jobIds)))
+    return rows.map((m) => {
+      let cells = m.cells
+      UNROLLED_STAGES.forEach((st, i) => {
+        const c = maps[i].get(m.id)
+        if (c && !cells[st]?.total) cells = { ...cells, [st]: c }
+      })
+      return cells === m.cells ? m : { ...m, cells }
+    })
+  } catch {
+    return rows
+  }
 }
 
 export type StationJob = {
