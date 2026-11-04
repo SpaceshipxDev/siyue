@@ -52,6 +52,8 @@ export type SettleRow = {
   payments: PayablePayment[]
   /** 应付单认的那几张外协单 —— 「看对账单」重印的就是它们。 */
   blockIds?: string[]
+  /** 应收单认的那几个单号 (没有 = 整月审的)。 */
+  jobNos?: string[]
   /** 补录的老账 —— 备注 + 凭证, 不挂对账单。 */
   manual?: SettleManual
   /** 付款申请老板批下来落的 (只有应付) —— 清单、凭证、发票在申请上。 */
@@ -245,6 +247,9 @@ export function SettleBoard({
             placeholder={`搜索 · ${c.party} / 单号`}
             className="h-9 w-[180px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
           />
+          {kind === 'receivable' && (
+            <ReceivableExport rows={shown} todayStr={todayStr} labels={c.status} />
+          )}
           {canEdit && !adding && (
             <button
               type="button"
@@ -354,6 +359,86 @@ export function SettleBoard({
 
       <p className="mt-4 text-[12px] leading-relaxed text-[var(--color-ink-3)]">{c.foot}</p>
     </div>
+  )
+}
+
+// 导出 (于海伟 2026-11-04) —— 当前筛选、搜索下看到的那几张应收单。两张表:
+// 应收单 (一张一行) 和 回款明细 (一笔一行), 金额是数字, 财务能直接求和。
+function ReceivableExport({
+  rows,
+  todayStr,
+  labels,
+}: {
+  rows: SettleRow[]
+  todayStr: string
+  labels: Record<SettleStatus, string>
+}) {
+  const [busy, setBusy] = useState(false)
+  const disabled = busy || rows.length === 0
+  const onExport = async () => {
+    if (disabled) return
+    setBusy(true)
+    try {
+      const XLSX = await import('xlsx')
+      const statusText = (r: SettleRow) => {
+        const st = settleStatus(r, todayStr)
+        return st === 'overdue' ? `逾期 ${settleOverdueDays(r, todayStr)} 天` : labels[st]
+      }
+      const head = ['应收单号', '客户', '期间', '应收', '已回款', '未收', '状态', '约定回款日', '审批人', '审批日期', '单号', '备注']
+      const body = rows.map((r) => [
+        r.no,
+        r.party,
+        r.period,
+        r.amountCny,
+        settlePaid(r),
+        settleOutstanding(r),
+        statusText(r),
+        r.dueDate,
+        r.approvedBy,
+        r.approvedAt.slice(0, 10),
+        r.jobNos?.join('、') ?? (r.manual ? '' : '整月'),
+        r.manual ? `补录${r.manual.note ? ` · ${r.manual.note}` : ''}` : '',
+      ])
+      const payHead = ['应收单号', '客户', '回款日期', '金额', '备注', '记录人', '收款凭证']
+      const payBody = rows.flatMap((r) =>
+        r.voidedAt
+          ? []
+          : r.payments.map((p) => [
+              r.no,
+              r.party,
+              p.date,
+              p.amountCny,
+              p.note ?? '',
+              p.by ?? '',
+              p.proof ? p.proof.filename : '',
+            ]),
+      )
+      const sheet = (h: string[], b: (string | number)[][], widths: number[]) => {
+        const ws = XLSX.utils.aoa_to_sheet([h, ...b])
+        ws['!cols'] = widths.map((wch) => ({ wch }))
+        return ws
+      }
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, sheet(head, body, [14, 22, 9, 12, 12, 12, 10, 11, 8, 11, 40, 20]), '应收单')
+      XLSX.utils.book_append_sheet(wb, sheet(payHead, payBody, [14, 22, 11, 12, 24, 8, 24]), '回款明细')
+      XLSX.writeFile(wb, `应收_${todayStr}.xlsx`)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={onExport}
+      disabled={disabled}
+      title="导出当前看到的应收单 (含回款明细)"
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] transition-colors ${
+        disabled ? 'cursor-default text-[var(--color-ink-4)]' : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+      }`}
+    >
+      {busy ? '导出中…' : '导出 Excel'}
+      <span aria-hidden className="text-[14px] leading-none">↓</span>
+    </button>
   )
 }
 
