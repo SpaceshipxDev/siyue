@@ -7,6 +7,7 @@ import { formatCny, type OrderLedgerRow, type ProcurementStatus } from '@/lib/da
 import { shiftDate, windowDateBounds, type Granularity } from '@/lib/today'
 import { SearchInput } from '@/app/_search'
 import { DatePop } from '@/app/_datepop'
+import { OrderImportButton } from './_orders_import'
 
 // 订单 — the money read of the order book, one row per 工单:
 //
@@ -42,9 +43,12 @@ const BUY_STATUS_LABEL: Record<ProcurementStatus, string> = {
 export function OrderLedger({
   rows,
   todayStr,
+  canImport = false,
 }: {
   rows: OrderLedgerRow[]
   todayStr: string
+  /** 导入 —— 记开票收款的那一档 (商务)。 */
+  canImport?: boolean
 }) {
   const [gran, setGran] = useState<Gran>('month')
   const [anchor, setAnchor] = useState(todayStr)
@@ -240,6 +244,7 @@ export function OrderLedger({
             }}
             placeholder="搜索 · 工号 / 客户 / 产品 / 厂商"
           />
+          {canImport && <OrderImportButton rows={rows} todayStr={todayStr} />}
           <ExportButton rows={filtered} bounds={bounds} todayStr={todayStr} />
         </div>
       </div>
@@ -725,7 +730,15 @@ function ExportButton({
         '应收单号',
         '开票',
         '收款',
+        // 系统外开票收款填在这三格, 改完导回来 (./_orders_import)。
+        '开票日期',
+        '发票号',
+        '收款日期',
       ]
+      const lastDate = (r: OrderLedgerRow, kind: 'invoice' | 'payment') =>
+        r.money
+          .filter((m) => m.kind === kind)
+          .reduce((d, m) => (m.date > d ? m.date : d), '')
       const orderBody = rows.map((r) => [
         r.createdDate,
         r.jobNo,
@@ -744,6 +757,9 @@ function ExportButton({
         r.receivableNos.join('、'),
         r.free ? '免收' : num(r.invoicedCny || undefined),
         r.free ? '免收' : num(r.paidCny || undefined),
+        lastDate(r, 'invoice'),
+        r.money.flatMap((m) => (m.invoiceNo ? [m.invoiceNo] : [])).join('、'),
+        lastDate(r, 'payment'),
       ])
 
       // Sheet 2 — 外协 receipts, one row per block.
@@ -786,7 +802,7 @@ function ExportButton({
       }
       XLSX.utils.book_append_sheet(
         wb,
-        sheet(orderHead, orderBody, [11, 16, 20, 22, 10, 10, 10, 10, 10, 32, 11, 8, 16, 10, 10]),
+        sheet(orderHead, orderBody, [11, 16, 20, 22, 10, 10, 10, 10, 10, 32, 11, 8, 16, 10, 10, 11, 16, 11]),
         '订单',
       )
       XLSX.utils.book_append_sheet(

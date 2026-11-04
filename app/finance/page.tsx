@@ -42,6 +42,7 @@ import { BossMoney } from './_boss'
 import { ExpenseLedger } from './_expense_ledger'
 import { MonthlyCashflow } from './_monthly'
 import { OrderLedger } from './_orders'
+import { getExtSettles } from '@/lib/ext-settle'
 import { PayrollBoard } from './_payroll'
 import { RaiseLedger } from './_raises'
 import { SettleBoard, type SettleRow } from './_settle'
@@ -189,7 +190,7 @@ export default async function FinancePage({
       />
       <main className="mx-auto w-full max-w-[1240px] px-5 md:px-10 py-10 md:py-14 flex-1">
         <FinanceTabs tab={tab} isCommerce={isCommerce} showExpenses={showExpenses} />
-        {tab === 'orders' && <OrdersTab todayStr={todayStr} />}
+        {tab === 'orders' && <OrdersTab todayStr={todayStr} canImport={isCommerce} />}
         {tab === 'receivable' && (
           <ReceivableTab user={user} todayStr={todayStr} openId={params.open} />
         )}
@@ -347,9 +348,19 @@ async function PayableTab({
 
 // === 订单 — every order's money story (one payload, client-driven) ===
 
-async function OrdersTab({ todayStr }: { todayStr: string }) {
-  const rows = await getOrderLedgerRows()
-  return <OrderLedger rows={rows} todayStr={todayStr} />
+async function OrdersTab({ todayStr, canImport }: { todayStr: string; canImport: boolean }) {
+  const [rows, ext] = await Promise.all([
+    getOrderLedgerRows(),
+    getExtSettles().catch(() => ({}) as Awaited<ReturnType<typeof getExtSettles>>),
+  ])
+  // 系统外对账 (lib/ext-settle) —— 系统里没对账的单, 用导进来的那一条。
+  for (const r of rows) {
+    const m = ext[r.jobId]
+    if (!m || r.settle) continue
+    r.settle = m.status
+    if (m.no && !r.receivableNos.includes(m.no)) r.receivableNos = [...r.receivableNos, m.no]
+  }
+  return <OrderLedger rows={rows} todayStr={todayStr} canImport={canImport} />
 }
 
 // === 记账 — the 分期账 ledger (her surface; one payload, client-driven) ===

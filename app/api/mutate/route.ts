@@ -255,6 +255,7 @@ import {
   upsertInspectionScrap,
 } from '@/lib/scrap'
 import { setJobPickup } from '@/lib/pickup'
+import { importOrderLedger, type OrderImportItem } from '@/lib/order-import'
 import { addSemiStock, deleteSemiStock, updateSemiStock, type SemiStockInput } from '@/lib/semi-stock'
 import { deleteQualityFile, deleteQualityFilePhoto, updateQualityFile } from '@/lib/quality-files'
 import {
@@ -2647,6 +2648,37 @@ async function dispatch(
       const id = await voidMoneyEvent(eventId, u.name)
       revalidatePath('/finance')
       return Response.json(ok({ id }))
+    }
+
+    // 订单账导入 (lib/order-import) —— 系统外对账、开票、收款的表导回来, 按
+    // 工号对上订单。开票收款跟记账同一档 (商务)。
+    case 'importOrderLedger': {
+      const items = body.items
+      if (!Array.isArray(items) || items.length === 0) return err('表上没有能导的行')
+      if (items.length > 3000) return err('一次最多 3000 行')
+      const ymd = (v: unknown) => (isString(v) && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined)
+      const money = (v: unknown) =>
+        typeof v === 'number' && Number.isFinite(v) && v >= 0 && v < 1e10 ? v : undefined
+      const clean: OrderImportItem[] = []
+      for (const raw of items as unknown[]) {
+        if (typeof raw !== 'object' || raw === null) return err('bad importOrderLedger args')
+        const i = raw as Record<string, unknown>
+        if (!isString(i.jobNo) || !i.jobNo.trim()) continue
+        clean.push({
+          jobNo: i.jobNo.trim(),
+          settle: i.settle === 'reconciled' || i.settle === 'paid' ? i.settle : undefined,
+          settleNo: isString(i.settleNo) ? i.settleNo.trim().slice(0, 60) || undefined : undefined,
+          invoiceCny: money(i.invoiceCny),
+          invoiceDate: ymd(i.invoiceDate),
+          invoiceNo: isString(i.invoiceNo) ? i.invoiceNo.trim().slice(0, 120) || undefined : undefined,
+          paymentCny: money(i.paymentCny),
+          paymentDate: ymd(i.paymentDate),
+        })
+      }
+      const u = await requireCommerce()
+      const result = await importOrderLedger(clean, u.name, today())
+      revalidatePath('/finance')
+      return Response.json(ok(result))
     }
 
     case 'setJobBillable': {
