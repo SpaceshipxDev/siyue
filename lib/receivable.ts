@@ -3,10 +3,12 @@ import { supabase, STORAGE_BUCKET } from './supabase'
 import {
   addDays,
   nextSettleNo,
+  readPaymentProof,
   readSettleManual,
   settlePaid,
   SETTLE_TERM_DAYS,
   type Receivable,
+  type PaymentProof,
   type ReceivablePayment,
   type SettleManual,
 } from './settle-shared'
@@ -60,6 +62,7 @@ function normalize(raw: unknown): Receivable[] {
             note: str(p.note) || undefined,
             by: str(p.by) || undefined,
             createdAt: str(p.createdAt),
+            proof: readPaymentProof(p.proof),
           }))
       : []
     out.push({
@@ -214,7 +217,7 @@ export async function createManualReceivable(input: {
 
 export async function addReceivablePayment(
   id: string,
-  input: { date: string; amountCny: number; note?: string },
+  input: { date: string; amountCny: number; note?: string; proof?: PaymentProof },
   by: string,
   nowIso: string,
 ): Promise<void> {
@@ -230,6 +233,7 @@ export async function addReceivablePayment(
       note: input.note?.trim() || undefined,
       by,
       createdAt: nowIso,
+      proof: input.proof,
     })
     r.payments.sort((a, b) => a.date.localeCompare(b.date))
     await write(rows)

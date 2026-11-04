@@ -74,13 +74,14 @@ const COPY = {
       open: '未回款',
       partial: '部分回款',
       overdue: '逾期',
-      paid: '已收清',
+      paid: '已收完',
       void: '已作废',
     } as Record<SettleStatus, string>,
     noPay: '还没有回款',
     act: '记回款',
     amountPh: '回款金额',
     notePh: '备注 · 转账 / 承兑…',
+    proof: '收款凭证',
     over: '比未收多了',
     by: '审批',
     emptyNone: '还没有应收单 —— 到「对账」里选一个客户，审批通过就会落在这里',
@@ -113,6 +114,7 @@ const COPY = {
     act: '记付款',
     amountPh: '付款金额',
     notePh: '备注 · 哪个账户 / 用途…',
+    proof: '付款凭证',
     over: '比未付多了',
     by: '确认',
     emptyNone: '还没有应付单 —— 到「对账 · 供应商」里选一家，确认无误就会落在这里',
@@ -457,7 +459,8 @@ function Detail({
   const [armVoid, setArmVoid] = useState(false)
   const [armDel, setArmDel] = useState<string | null>(null)
 
-  // 付款凭证 (只有应付) —— 传上去、机器读一遍, 挂在这一笔上。
+  // 付款 / 收款凭证 —— 传上去、机器读一遍, 挂在这一笔上 (应收也挂, 于海伟
+  // 2026-11-04)。
   const [proof, setProof] = useState<PaymentProof | null>(null)
   const [reading, setReading] = useState(false)
   const [hint, setHint] = useState<string | null>(null)
@@ -472,7 +475,7 @@ function Detail({
       try {
         const fd = new FormData()
         fd.append('file', file)
-        fd.append('payableId', r.id)
+        fd.append(kind === 'receivable' ? 'receivableId' : 'payableId', r.id)
         const res = await fetch(withBase('/api/payable-proof'), { method: 'POST', body: fd })
         const data = (await res.json()) as
           | {
@@ -499,7 +502,8 @@ function Detail({
         if (x.date) setDate(x.date > todayStr ? todayStr : x.date)
         if (x.amountCny) setAmount(String(x.amountCny))
         if (x.memo) setNote(x.memo)
-        if (x.payee && !samePayee(x.payee, r.party)) {
+        // 收款方对不上只问应付 —— 应收的回单上收款方是我们自己。
+        if (kind === 'payable' && x.payee && !samePayee(x.payee, r.party)) {
           setHint(`凭证上的收款方是「${x.payee}」，跟「${r.party}」对不上——看一眼再记`)
         } else {
           setHint('日期、金额从凭证上读出来了，看一眼对不对')
@@ -510,10 +514,10 @@ function Detail({
         setReading(false)
       }
     },
-    [r.id, r.party, todayStr],
+    [kind, r.id, r.party, todayStr],
   )
 
-  usePasteImage(zoneRef, (f) => void uploadProof(f), kind === 'payable' && canEdit)
+  usePasteImage(zoneRef, (f) => void uploadProof(f), canEdit)
 
   function addPayment() {
     const n = Number(amount.trim().replace(/[¥,，元\s]/g, ''))
@@ -528,7 +532,7 @@ function Detail({
             date,
             amountCny: n,
             note: note.trim() || undefined,
-            ...(kind === 'payable' && proof ? { proof } : {}),
+            ...(proof ? { proof } : {}),
           },
         })
         if (n > left + 0.005) {
@@ -589,7 +593,7 @@ function Detail({
       ref={zoneRef}
       className="border-b border-[var(--color-border)] bg-[#faf8f2] px-4 py-4 last:border-b-0 md:px-5"
     >
-      {/* 已记的每一笔 —— 按日期排; 应付那边带着凭证。 */}
+      {/* 已记的每一笔 —— 按日期排, 带着凭证。 */}
       {r.payments.length === 0 ? (
         <p className="text-[12.5px] text-[var(--color-ink-3)]">{c.noPay}</p>
       ) : (
@@ -605,18 +609,17 @@ function Detail({
               <span className="mono w-[104px] shrink-0 text-right text-[13px] font-medium text-[var(--color-ink)]">
                 {formatCny(p.amountCny)}
               </span>
-              {kind === 'payable' &&
-                (p.proof ? (
+              {p.proof ? (
                   <ProofLink
                     proof={p.proof}
-                    title={`付款凭证 · ${p.proof.filename}`}
+                    title={`${c.proof} · ${p.proof.filename}`}
                     className="shrink-0"
                   >
                     {isImage(p.proof) ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={proxiedStorageUrl(p.proof.url)}
-                        alt="付款凭证"
+                        alt={c.proof}
                         className="h-8 w-8 rounded-[2px] border border-[var(--color-border)] object-cover"
                       />
                     ) : (
@@ -632,7 +635,7 @@ function Detail({
                   >
                     无凭证
                   </span>
-                ))}
+                )}
               <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--color-ink-2)]">
                 {p.note}
               </span>
@@ -661,13 +664,12 @@ function Detail({
         </div>
       )}
 
-      {/* 记一笔 —— 金额默认就是还差的那个数, 一次结清就是点一下。应付那边
-          先传凭证最省事: 日期金额机器填好, 人看一眼就记。 */}
+      {/* 记一笔 —— 金额默认就是还差的那个数, 一次结清就是点一下。先传凭证
+          最省事: 日期金额机器填好, 人看一眼就记。 */}
       {canEdit && !r.voidedAt && left > 0 && (
         <div className="mt-3">
           <div className="flex flex-wrap items-center gap-2.5">
-            {kind === 'payable' && (
-              <>
+            <>
                 <input
                   ref={fileRef}
                   type="file"
@@ -686,7 +688,7 @@ function Detail({
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={proxiedStorageUrl(proof.url)}
-                          alt="付款凭证"
+                          alt={c.proof}
                           className="h-9 w-9 rounded-[2px] border border-[var(--color-border)] object-cover"
                         />
                       ) : (
@@ -718,8 +720,7 @@ function Detail({
                     {reading ? '读凭证中…' : '传凭证'}
                   </button>
                 )}
-              </>
-            )}
+            </>
             <DatePop
               value={date}
               onChange={(d) => d && setDate(d)}

@@ -29,6 +29,8 @@ export type ReceivablePayment = {
   note?: string // 转账 / 承兑 / 哪个账户… 一句话
   by?: string // 记录人
   createdAt: string // ISO
+  /** 收款凭证 —— 银行回单 / 转账截图 (于海伟 2026-11-04, 应收也挂)。 */
+  proof?: PaymentProof
 }
 
 export type Receivable = {
@@ -185,14 +187,16 @@ export function readSettleManual(v: unknown): SettleManual | undefined {
   if (typeof v !== 'object' || v === null) return undefined
   const o = v as Record<string, unknown>
   const note = typeof o.note === 'string' && o.note.trim() ? o.note.trim() : undefined
-  const p = o.proof as Record<string, unknown> | undefined
-  const proof =
-    p && typeof p === 'object' && typeof p.url === 'string' && p.url
-      ? {
-          url: p.url,
-          filename: typeof p.filename === 'string' && p.filename ? p.filename : '凭证',
-          contentType: typeof p.contentType === 'string' ? p.contentType : undefined,
-        }
-      : undefined
-  return { note, proof }
+  return { note, proof: readPaymentProof(o.proof) }
+}
+
+export function readPaymentProof(v: unknown): PaymentProof | undefined {
+  const p = v as Record<string, unknown> | undefined
+  return p && typeof p === 'object' && typeof p.url === 'string' && p.url
+    ? {
+        url: p.url,
+        filename: typeof p.filename === 'string' && p.filename ? p.filename : '凭证',
+        contentType: typeof p.contentType === 'string' ? p.contentType : undefined,
+      }
+    : undefined
 }

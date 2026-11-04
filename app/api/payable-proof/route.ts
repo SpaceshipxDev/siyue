@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { canSettleAccounts, currentUser } from '@/lib/auth'
 import { extractPaymentProof, type ExtractedPaymentProof } from '@/lib/gemini'
 import { getPayable, isAllowedProofName, storePaymentProof } from '@/lib/payable'
+import { getReceivables } from '@/lib/receivable'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -21,7 +22,10 @@ export async function POST(request: NextRequest) {
   }
   const form = await request.formData()
   const file = form.get('file')
-  const payableId = form.get('payableId')
+  // 应收那边的收款凭证也走这里 (于海伟 2026-11-04) —— 带 receivableId。
+  const receivableId = form.get('receivableId')
+  const payableId =
+    typeof receivableId === 'string' && receivableId ? `ys-${receivableId}` : form.get('payableId')
   if (!(file instanceof File)) {
     return Response.json({ ok: false, error: '没有文件' }, { status: 400 })
   }
@@ -35,7 +39,10 @@ export async function POST(request: NextRequest) {
     return Response.json({ ok: false, error: '文件过大（上限 16MB）' }, { status: 413 })
   }
   // 'manual' —— 补录老账时挂的凭证 (应收、应付都走这里), 那时还没有单子。
-  if (payableId !== 'manual' && !(await getPayable(payableId))) {
+  if (typeof receivableId === 'string' && receivableId) {
+    if (!(await getReceivables()).some((r) => r.id === receivableId))
+      return Response.json({ ok: false, error: '找不到这张应收单' }, { status: 404 })
+  } else if (payableId !== 'manual' && !(await getPayable(payableId))) {
     return Response.json({ ok: false, error: '找不到这张应付单' }, { status: 404 })
   }
 

@@ -4029,6 +4029,22 @@ async function dispatch(
         return err('回款金额要填一个正数')
       if (input.note !== undefined && !isString(input.note))
         return err('bad addReceivablePayment args')
+      // 收款凭证 —— 跟应付同一个上传口 (/api/payable-proof), 同一个存放处。
+      let rProof: { url: string; filename: string; contentType?: string } | undefined
+      if (input.proof !== undefined && input.proof !== null) {
+        const pr = input.proof as Record<string, unknown>
+        if (
+          typeof pr !== 'object' ||
+          !isString(pr.url) ||
+          !pr.url.startsWith('/api/img/finance/payables/proofs/')
+        )
+          return err('凭证地址不对')
+        rProof = {
+          url: pr.url,
+          filename: isString(pr.filename) ? pr.filename.slice(0, 120) : '收款凭证',
+          contentType: isString(pr.contentType) ? pr.contentType : undefined,
+        }
+      }
       const u = await requireUser()
       if (!canSettleAccounts(u)) return err('记回款要找于海伟或财务', 403)
       try {
@@ -4038,6 +4054,7 @@ async function dispatch(
             date: input.date,
             amountCny: input.amountCny,
             note: isString(input.note) ? input.note : undefined,
+            proof: rProof,
           },
           u.name,
           new Date().toISOString(),
