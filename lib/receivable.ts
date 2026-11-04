@@ -74,6 +74,7 @@ function normalize(raw: unknown): Receivable[] {
       lineCount: typeof r.lineCount === 'number' ? r.lineCount : 0,
       totalQty: typeof r.totalQty === 'number' ? r.totalQty : 0,
       ...(r.manual ? { manual: readSettleManual(r.manual) } : null),
+      ...(r.imported === true ? { imported: true } : null),
       ...(Array.isArray(r.jobNos)
         ? { jobNos: (r.jobNos as unknown[]).filter((x): x is string => typeof x === 'string') }
         : null),
@@ -141,6 +142,8 @@ export async function createReceivable(input: {
   totalQty: number
   /** 勾着审的那几个单号; 不传 = 整个月一起审。 */
   jobNos?: string[]
+  /** 财务订单导入落的。 */
+  imported?: boolean
   approvedBy: string
   nowIso: string
   todayYmd: string
@@ -169,6 +172,7 @@ export async function createReceivable(input: {
       lineCount: input.lineCount,
       totalQty: input.totalQty,
       ...(input.jobNos ? { jobNos: input.jobNos } : null),
+      ...(input.imported ? { imported: true } : null),
       approvedBy: input.approvedBy,
       approvedAt: input.nowIso,
       dueDate: addDays(input.todayYmd, SETTLE_TERM_DAYS),
@@ -256,6 +260,23 @@ export async function deleteReceivablePayment(
 
 // 作废 —— 已经有回款挂着的不给作废: 钱是真收了的, 单子一作废这笔钱就没地
 // 方落了。先把回款删掉 (说明是记错了), 再作废。
+/**
+ * 导入落的应收单重开 —— 作废它, 上面导入时一起记的回款跟着作废 (不算钱)。
+ * 有人手记过回款的不动, 返回 false。
+ */
+export async function voidImportedReceivable(id: string, by: string, nowIso: string): Promise<boolean> {
+  return withLock(async () => {
+    const rows = await read()
+    const r = rows.find((x) => x.id === id)
+    if (!r || r.voidedAt) return true
+    if (r.payments.some((p) => !(p.note ?? '').startsWith('导入'))) return false
+    r.voidedAt = nowIso
+    r.voidedBy = by
+    await write(rows)
+    return true
+  })
+}
+
 export async function voidReceivable(
   id: string,
   by: string,

@@ -2673,6 +2673,7 @@ async function dispatch(
           invoiceNo: isString(i.invoiceNo) ? i.invoiceNo.trim().slice(0, 120) || undefined : undefined,
           paymentCny: money(i.paymentCny),
           paymentDate: ymd(i.paymentDate),
+          orderCny: money(i.orderCny),
         })
       }
       const u = await requireCommerce()

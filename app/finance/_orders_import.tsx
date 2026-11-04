@@ -23,10 +23,13 @@ type Parsed = {
   invoiceNo?: string
   paymentCny?: number
   paymentDate?: string
+  orderCny?: number
 }
 
 type Line = Parsed & {
   row?: OrderLedgerRow
+  /** 进应收的金额 —— 跟 lib/order-import receivableAmountOf 同一个口径。 */
+  receivable?: number
   /** 这一行会记的事, 一句一句。空 = 没变化。 */
   changes: string[]
   /** 表上比系统里少的。 */
@@ -42,6 +45,7 @@ const HEADERS: Record<keyof Parsed, RegExp> = {
   invoiceNo: /^(发票号|发票号码)$/,
   paymentCny: /^(收款|收款金额|回款|回款金额|已收款)$/,
   paymentDate: /^(收款日期|回款日期)$/,
+  orderCny: /^(订单额|订单金额)$/,
 }
 
 function cellText(v: unknown): string {
@@ -109,6 +113,7 @@ function parseSheet(aoa: unknown[][]): Parsed[] | null {
       invoiceNo: cellText(at(r, 'invoiceNo')) || undefined,
       paymentCny: moneyOf(at(r, 'paymentCny')),
       paymentDate: ymdOf(at(r, 'paymentDate')),
+      orderCny: moneyOf(at(r, 'orderCny')),
     })
   }
   return out
@@ -147,11 +152,17 @@ export function OrderImportButton({ rows, todayStr }: { rows: OrderLedgerRow[]; 
         const row = byNo.get(key)
         const changes: string[] = []
         const lower: string[] = []
+        let receivable: number | undefined
         if (row) {
           if (p.settle && !row.settle) changes.push(p.settle === 'paid' ? '标已回款' : '标已对账')
-          // 已对账 / 开了票 —— 落应收单 (lib/order-import), 系统里还没进过应收的才进。
-          if ((!row.settle || row.extSettle) && !row.free && (p.settle || (p.invoiceCny ?? 0) > 0))
-            changes.push('进应收')
+          // 已对账 / 开了票 —— 落应收单, 金额以表上为准 (lib/order-import)。
+          if (!row.free && (p.settle || (p.invoiceCny ?? 0) > 0)) {
+            const n = p.orderCny ?? row.amountCny ?? p.invoiceCny
+            if (typeof n === 'number' && n > 0) {
+              receivable = r2(n)
+              changes.push(`进应收 ${formatCny(receivable)}`)
+            } else changes.push('进应收 · 没有金额')
+          }
           if (!row.free) {
             if (p.invoiceCny !== undefined) {
               const d = r2(p.invoiceCny - row.invoicedCny)
@@ -174,7 +185,7 @@ export function OrderImportButton({ rows, todayStr }: { rows: OrderLedgerRow[]; 
             .filter((t) => t && !old.has(t))
             .join('、') || undefined
         }
-        out.push({ ...p, invoiceNo, row, changes, lower })
+        out.push({ ...p, invoiceNo, row, receivable, changes, lower })
       }
       setFileName(f.name)
       setLines(out)
@@ -190,6 +201,8 @@ export function OrderImportButton({ rows, todayStr }: { rows: OrderLedgerRow[]; 
   const unmatched = lines?.filter((l) => !l.row) ?? []
   const lower = lines?.filter((l) => l.row && l.lower.length > 0) ?? []
   const same = (lines?.length ?? 0) - todo.length - unmatched.length
+  const receivableSum = r2(todo.reduce((s, l) => s + (l.receivable ?? 0), 0))
+  const receivableCount = todo.filter((l) => l.receivable !== undefined).length
 
   const confirm = () => {
     if (todo.length === 0) return
@@ -200,19 +213,21 @@ export function OrderImportButton({ rows, todayStr }: { rows: OrderLedgerRow[]; 
           payments: number
           settles: number
           receivables: number
+          receivableCny: number
           notReceivable: string[]
         }>({
           kind: 'importOrderLedger',
-          items: todo.map(({ row: _r, changes: _c, lower: _l, ...p }) => {
+          items: todo.map(({ row: _r, changes: _c, lower: _l, receivable: _v, ...p }) => {
             void _r
             void _c
             void _l
+            void _v
             return p
           }),
         })
         const d = res.data
         showToast(
-          `导入好了 · 对账 ${d.settles} 单 · 开票 ${d.invoices} 笔 · 收款 ${d.payments} 笔 · 应收单 ${d.receivables} 张`,
+          `导入好了 · 对账 ${d.settles} 单 · 开票 ${d.invoices} 笔 · 收款 ${d.payments} 笔 · 应收单 ${d.receivables} 张 ${formatCny(d.receivableCny)}`,
           'success',
         )
         if (d.notReceivable.length > 0)
@@ -263,6 +278,12 @@ export function OrderImportButton({ rows, todayStr }: { rows: OrderLedgerRow[]; 
                 {todo.length > 0 ? (
                   <>
                     <span className="font-semibold">{todo.length}</span> 单要记
+                    {receivableCount > 0 && (
+                      <>
+                        {' · '}进应收 {receivableCount} 单，合计{' '}
+                        <span className="mono font-semibold">{formatCny(receivableSum)}</span>
+                      </>
+                    )}
                   </>
                 ) : (
                   '没有要记的 —— 表上的数跟系统里一样'

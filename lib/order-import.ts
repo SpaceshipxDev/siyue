@@ -2,16 +2,18 @@ import 'server-only'
 import {
   createMoneyEvent,
   createPoLine,
-  getCustomerStatementLines,
   getFenqiData,
   getFinanceRows,
   getOrderLedgerRows,
 } from './db'
 import { setExtSettles } from './ext-settle'
-import { addReceivablePayment, createReceivable, getReceivables } from './receivable'
-import { customerSettledFrom } from './settle-shared'
-import { getNoReconcile, LINE_MARK } from './no-reconcile'
-import { buildCustomerDuizhang, keepCustomerLines, monthBounds, pickCustomerLines } from './duizhang'
+import {
+  addReceivablePayment,
+  createReceivable,
+  getReceivables,
+  voidImportedReceivable,
+} from './receivable'
+import type { OrderLedgerRow } from './data'
 import { shanghaiDay } from './today'
 
 /*
@@ -25,11 +27,14 @@ import { shanghaiDay } from './today'
  *           比系统里少的不动 (要减得去记账里红冲, 不替人冲)。所以同一张表导两
  *           次, 第二次什么都不会多记。
  *
- * 进应收 (于海伟 2026-11-04) —— 标了已对账 / 已回款、或者填了开票的单, 跟对账页上
- *           点「审批通过」一样落应收单 (财务 → 应收): 按客户 + 出货月份一张,
- *           认的就是这几个单号, 金额照对账单现算 (出货金额)。已回款的整张记一
- *           笔回款; 填了收款的按表上收款合计记一笔。已经进过应收单的单号不再
- *           进; 没出货、没定价的进不了, 只打已对账的标记。
+ * 进应收 (于海伟 2026-11-04) —— 标了已对账 / 已回款、或者填了开票的单落应收单
+ *           (财务 → 应收): 按客户 + 出货月份一张 (没出货的按下单月份), 认
+ *           的就是这几个单号。金额以导入表为准 —— 表上的订单额, 没填用系统
+ *           里的订单额, 再没有用开票额 (于海伟: 表上 72 单对完是 458483.1,
+ *           按出货金额现算只有 40 万, 对不上)。已回款的整张记一笔回款; 填了
+ *           收款的按表上收款合计记一笔。
+ *           对账页上审批过的单号不再进。导入落的应收单 (imported) 再导一次
+ *           就作废重开, 所以表改了再导, 应收跟着表走。
  *
  * 记账的钱挂在订单号行 (po_lines) 上。这张单还没有订单号行的, 先开一行 (金额
  * = 订单额); 它原来的开票收款是记在出货单上的老数, 一开新行订单账就只认新行,
@@ -45,6 +50,8 @@ export type OrderImportItem = {
   invoiceNo?: string
   paymentCny?: number
   paymentDate?: string
+  /** 表上的订单额。 */
+  orderCny?: number
 }
 
 export type OrderImportResult = {
@@ -55,8 +62,9 @@ export type OrderImportResult = {
   payments: number
   /** 表上的数比系统里少, 没动的。 */
   lower: string[]
-  /** 落了几张应收单。 */
+  /** 落了几张应收单, 合计多少。 */
   receivables: number
+  receivableCny: number
   /** 想进应收、没进去的 (没出货 / 没定价 / 已经审过)。 */
   notReceivable: string[]
 }
@@ -82,10 +90,11 @@ export async function importOrderLedger(
     payments: 0,
     lower: [],
     receivables: 0,
+    receivableCny: 0,
     notReceivable: [],
   }
-  // 要进应收的单 —— 工号 → 表上那一行。
-  const toReceive = new Map<string, OrderImportItem>()
+  // 要进应收的单 —— 工号 → 表上那一行 + 系统里那一行。
+  const toReceive = new Map<string, { it: OrderImportItem; row: OrderLedgerRow }>()
   const marks: { jobId: string; status: 'reconciled' | 'paid'; no?: string }[] = []
   const seen = new Set<string>()
 
@@ -104,8 +113,7 @@ export async function importOrderLedger(
       marks.push({ jobId: row.jobId, status: it.settle, no: it.settleNo })
       out.settles++
     }
-    if (!row.settle && !row.free && (it.settle || (it.invoiceCny ?? 0) > 0))
-      toReceive.set(row.jobNo, it)
+    if (!row.free && (it.settle || (it.invoiceCny ?? 0) > 0)) toReceive.set(row.jobNo, { it, row })
 
     if (row.free) continue
     const wantInv = it.invoiceCny
@@ -159,94 +167,121 @@ export async function importOrderLedger(
   return out
 }
 
-// 按客户 + 出货月份落应收单 —— 跟 /api/mutate approveDuizhang 同一个算法。
+/** 这一单进应收的金额 —— 表上订单额 > 系统订单额 > 表上开票额。 */
+export function receivableAmountOf(
+  it: Pick<OrderImportItem, 'orderCny' | 'invoiceCny'>,
+  row: Pick<OrderLedgerRow, 'amountCny'>,
+): number | undefined {
+  const n = it.orderCny ?? row.amountCny ?? it.invoiceCny
+  return typeof n === 'number' && n > 0 ? r2(n) : undefined
+}
+
+// 按客户 + 出货月份落应收单, 金额照导入表。
 async function intoReceivables(
-  want: Map<string, OrderImportItem>,
+  want: Map<string, { it: OrderImportItem; row: OrderLedgerRow }>,
   by: string,
   todayYmd: string,
   out: OrderImportResult,
 ): Promise<void> {
-  const [rows, receivables, marks] = await Promise.all([
-    getFinanceRows(),
-    getReceivables(),
-    getNoReconcile().catch(() => ({}) as Record<string, unknown>),
-  ])
-  const groups = new Map<string, { customer: string; period: string; jobNos: Set<string> }>()
-  const shipped = new Set<string>()
-  for (const r of rows) {
-    if (!want.has(r.jobNo) || r.jobNo in marks) continue
-    shipped.add(r.jobNo)
-    const customer = (r.customer ?? '').trim()
-    const period = shanghaiDay(r.shipDate).slice(0, 7)
-    const key = `${customer}|${period}`
-    if (!groups.has(key)) groups.set(key, { customer, period, jobNos: new Set() })
-    groups.get(key)!.jobNos.add(r.jobNo)
-  }
-  for (const no of want.keys()) if (!shipped.has(no)) out.notReceivable.push(`${no} 没出货`)
-  // 一张单分几个月出的货 —— 表上的收款只算进第一张应收单, 不重复记。
-  const paidUsed = new Set<string>()
+  const [finance, receivables] = await Promise.all([getFinanceRows(), getReceivables()])
+  const nowIso = new Date().toISOString()
 
-  for (const g of groups.values()) {
-    const settled = customerSettledFrom(receivables, g.customer, g.period)
-    if (settled.whole) continue
-    const nos = [...g.jobNos].filter((n) => !settled.jobNos.has(n))
-    if (nos.length === 0) continue
-    const { from, to } = monthBounds(g.period)
-    const detail = await getCustomerStatementLines(g.customer, from, to, shanghaiDay)
-    const keep = new Set(nos)
-    const sheet = pickCustomerLines(
-      keepCustomerLines(
-        buildCustomerDuizhang(rows, g.customer, from, to, shanghaiDay, detail),
-        (l) => !(`${LINE_MARK}${l.key}` in marks),
-      ),
-      (no) => keep.has(no),
-    )
-    const label = `${g.customer} ${Number(g.period.slice(5))}月`
-    if (sheet.lines.length === 0) continue
-    if (sheet.unpricedCount > 0) {
-      out.notReceivable.push(`${label} 有 ${sheet.unpricedCount} 行没定价`)
+  // 每单最后一次出货的月份、出了几件 —— 应收单挂在那个月上。
+  const shipMonth = new Map<string, string>()
+  const shipQty = new Map<string, number>()
+  for (const f of finance) {
+    if (!want.has(f.jobNo)) continue
+    const m = shanghaiDay(f.shipDate).slice(0, 7)
+    if (m > (shipMonth.get(f.jobNo) ?? '')) shipMonth.set(f.jobNo, m)
+    shipQty.set(f.jobNo, (shipQty.get(f.jobNo) ?? 0) + f.qty)
+  }
+  const periodOf = (no: string) => shipMonth.get(no) ?? want.get(no)!.row.createdDate.slice(0, 7)
+  const customerOf = (no: string) => want.get(no)!.row.customer.trim()
+
+  // 导入落的 —— 打了 imported 的; 早先那一批没打 (同一个人、今天落的、回款都是
+  // 导入记的、单号全在这张表里), 也算。
+  const importMade = (r: (typeof receivables)[number]) =>
+    r.imported ||
+    (r.approvedBy === by &&
+      shanghaiDay(r.approvedAt) === todayYmd &&
+      !!r.jobNos?.length &&
+      r.jobNos.every((n) => want.has(n)) &&
+      r.payments.every((p) => (p.note ?? '').startsWith('导入')))
+
+  const free = new Set(want.keys())
+  for (const r of receivables) {
+    if (r.voidedAt || r.manual) continue
+    const touched = r.jobNos
+      ? r.jobNos.filter((n) => want.has(n))
+      : [...want.keys()].filter((n) => customerOf(n) === r.customer && periodOf(n) === r.period)
+    if (touched.length === 0) continue
+    // 导入落的、单号全在这张表里 —— 作废重开。
+    if (importMade(r) && r.jobNos && r.jobNos.every((n) => want.has(n))) {
+      if (await voidImportedReceivable(r.id, by, nowIso)) continue
+    }
+    // 对账页上审批过的 (或者重开不了的) —— 不动, 这几单不再进。
+    for (const n of touched) {
+      if (!free.has(n)) continue
+      free.delete(n)
+      out.notReceivable.push(`${n} 已在应收单 ${r.no}`)
+    }
+  }
+
+  const groups = new Map<string, { customer: string; period: string; nos: string[] }>()
+  for (const no of free) {
+    const { it, row } = want.get(no)!
+    if (receivableAmountOf(it, row) === undefined) {
+      out.notReceivable.push(`${no} 没有金额`)
       continue
     }
-    const onSheet = [...new Set(sheet.lines.map((l) => l.docNo))]
+    const key = `${customerOf(no)}|${periodOf(no)}`
+    if (!groups.has(key)) groups.set(key, { customer: customerOf(no), period: periodOf(no), nos: [] })
+    groups.get(key)!.nos.push(no)
+  }
+
+  for (const g of groups.values()) {
+    const items = g.nos.map((n) => want.get(n)!)
+    const amount = r2(items.reduce((s, x) => s + receivableAmountOf(x.it, x.row)!, 0))
     let rec
     try {
       rec = await createReceivable({
         customer: g.customer,
         period: g.period,
-        amountCny: sheet.totalAmountCny,
-        lineCount: sheet.lines.length,
-        totalQty: sheet.totalQty,
-        jobNos: onSheet,
+        amountCny: amount,
+        lineCount: g.nos.length,
+        totalQty: g.nos.reduce((s, n) => s + (shipQty.get(n) ?? 0), 0),
+        jobNos: g.nos,
+        imported: true,
         approvedBy: by,
-        nowIso: new Date().toISOString(),
+        nowIso,
         todayYmd,
       })
     } catch (e) {
-      out.notReceivable.push(`${label} ${e instanceof Error ? e.message : '没落上'}`)
+      out.notReceivable.push(
+        `${g.customer} ${Number(g.period.slice(5))}月 ${e instanceof Error ? e.message : '没落上'}`,
+      )
       continue
     }
     out.receivables++
-    // 回款: 已回款 → 整张收完; 不然按表上这几单的收款合计 (不超过应收)。
-    const items = onSheet.map((n) => want.get(n)!).filter(Boolean)
-    const allPaid = items.length > 0 && items.every((i) => i.settle === 'paid')
-    const paid = Math.min(
-      rec.amountCny,
-      allPaid
-        ? rec.amountCny
-        : items.reduce((s, i) => s + (paidUsed.has(i.jobNo) ? 0 : (i.paymentCny ?? 0)), 0),
+    out.receivableCny = r2(out.receivableCny + amount)
+    // 回款: 已回款的那单按它的应收金额收完; 不然按表上的收款 (不超过它的应收)。
+    const paid = r2(
+      items.reduce((s, { it, row }) => {
+        const own = receivableAmountOf(it, row)!
+        return s + (it.settle === 'paid' ? own : Math.min(own, it.paymentCny ?? 0))
+      }, 0),
     )
-    for (const i of items) paidUsed.add(i.jobNo)
     if (paid > 0) {
-      const dates = items.map((i) => i.paymentDate).filter((d): d is string => !!d).sort()
+      const dates = items.map((x) => x.it.paymentDate).filter((d): d is string => !!d).sort()
       await addReceivablePayment(
         rec.id,
         {
           date: dates[dates.length - 1] ?? todayYmd,
-          amountCny: Math.round(paid * 100) / 100,
-          note: allPaid ? '导入 · 已回款' : '导入',
+          amountCny: paid,
+          note: items.every((x) => x.it.settle === 'paid') ? '导入 · 已回款' : '导入',
         },
         by,
-        new Date().toISOString(),
+        nowIso,
       )
     }
   }

@@ -48,6 +48,8 @@ export type Receivable = {
   jobNos?: string[]
   /** 补录的老账 (不是对账单审出来的)。 */
   manual?: SettleManual
+  /** 财务订单导入落的 (lib/order-import) —— 金额是导入表上的, 再导一次会重开。 */
+  imported?: boolean
   approvedBy: string
   approvedAt: string // ISO
   dueDate: string // 约定回款日 YYYY-MM-DD —— 审批日 + 30 天 (月结)
