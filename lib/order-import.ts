@@ -27,7 +27,9 @@ import { shanghaiDay } from './today'
  *           比系统里少的不动 (要减得去记账里红冲, 不替人冲)。所以同一张表导两
  *           次, 第二次什么都不会多记。
  *
- * 进应收 (于海伟 2026-11-04) —— 标了已对账 / 已回款、或者填了开票的单落应收单
+ * 进应收 (于海伟 2026-11-04) —— 标了已对账 / 已回款的单落应收单。只认对账那一
+ *           格: 导出的表上开票那一格本来就带着系统里开过的票, 拿它当条件, 没
+ *           对过账的单也被扫进了应收 (于海伟: 这 9 单没对账, 却在 9 月应收里)。
  *           (财务 → 应收): 按客户 + 下单月份一张 —— 跟「财务 → 订单」分月
  *           一个口径, 导的是哪个月的表, 应收就落在哪个月 (于海伟: 8 月下单、
  *           9 月出货的单按出货月份落, 跑到了 9 月应收里, 对不上)。认的就是
@@ -35,8 +37,9 @@ import { shanghaiDay } from './today'
  *           里的订单额, 再没有用开票额 (于海伟: 表上 72 单对完是 458483.1,
  *           按出货金额现算只有 40 万, 对不上)。已回款的整张记一笔回款; 填了
  *           收款的按表上收款合计记一笔。
- *           对账页上审批过的单号不再进。导入落的应收单 (imported) 再导一次
- *           就作废重开, 所以表改了再导, 应收跟着表走。
+ *           对账页上审批过的单号不再进。导入落的应收单 (imported), 只要它
+ *           认的单号在这张表上, 再导一次就作废重开 —— 表上不再算已对账的单
+ *           就此退出应收, 应收跟着表走。
  *
  * 记账的钱挂在订单号行 (po_lines) 上。这张单还没有订单号行的, 先开一行 (金额
  * = 订单额); 它原来的开票收款是记在出货单上的老数, 一开新行订单账就只认新行,
@@ -97,6 +100,8 @@ export async function importOrderLedger(
   }
   // 要进应收的单 —— 工号 → 表上那一行 + 系统里那一行。
   const toReceive = new Map<string, { it: OrderImportItem; row: OrderLedgerRow }>()
+  // 这张表上有的单号 (不管对没对账) —— 导入落的应收单认的单在表上, 就按表重开。
+  const inFile = new Set<string>()
   const marks: { jobId: string; status: 'reconciled' | 'paid'; no?: string }[] = []
   const seen = new Set<string>()
 
@@ -109,13 +114,14 @@ export async function importOrderLedger(
     // 一张表里同一个工号写了两行 —— 只认第一行。
     if (seen.has(row.jobId)) continue
     seen.add(row.jobId)
+    inFile.add(row.jobNo)
     out.matched++
 
     if (it.settle && !row.settle) {
       marks.push({ jobId: row.jobId, status: it.settle, no: it.settleNo })
       out.settles++
     }
-    if (!row.free && (it.settle || (it.invoiceCny ?? 0) > 0)) toReceive.set(row.jobNo, { it, row })
+    if (!row.free && it.settle) toReceive.set(row.jobNo, { it, row })
 
     if (row.free) continue
     const wantInv = it.invoiceCny
@@ -165,7 +171,7 @@ export async function importOrderLedger(
   }
 
   await setExtSettles(marks, by, new Date().toISOString())
-  if (toReceive.size > 0) await intoReceivables(toReceive, by, todayYmd, out)
+  await intoReceivables(toReceive, inFile, by, todayYmd, out)
   return out
 }
 
@@ -181,6 +187,7 @@ export function receivableAmountOf(
 // 按客户 + 下单月份落应收单, 金额照导入表。
 async function intoReceivables(
   want: Map<string, { it: OrderImportItem; row: OrderLedgerRow }>,
+  inFile: Set<string>,
   by: string,
   todayYmd: string,
   out: OrderImportResult,
@@ -205,20 +212,20 @@ async function intoReceivables(
     (r.approvedBy === by &&
       shanghaiDay(r.approvedAt) === todayYmd &&
       !!r.jobNos?.length &&
-      r.jobNos.every((n) => want.has(n)) &&
+      r.jobNos.every((n) => inFile.has(n)) &&
       r.payments.every((p) => (p.note ?? '').startsWith('导入')))
 
   const free = new Set(want.keys())
   for (const r of receivables) {
     if (r.voidedAt || r.manual) continue
+    // 导入落的、认的单号在这张表上 —— 作废, 下面按表重开。
+    if (importMade(r) && r.jobNos?.some((n) => inFile.has(n))) {
+      if (await voidImportedReceivable(r.id, by, nowIso)) continue
+    }
     const touched = r.jobNos
       ? r.jobNos.filter((n) => want.has(n))
       : [...want.keys()].filter((n) => customerOf(n) === r.customer && periodOf(n) === r.period)
     if (touched.length === 0) continue
-    // 导入落的、单号全在这张表里 —— 作废重开。
-    if (importMade(r) && r.jobNos && r.jobNos.every((n) => want.has(n))) {
-      if (await voidImportedReceivable(r.id, by, nowIso)) continue
-    }
     // 对账页上审批过的 (或者重开不了的) —— 不动, 这几单不再进。
     for (const n of touched) {
       if (!free.has(n)) continue

@@ -155,8 +155,8 @@ export function OrderImportButton({ rows, todayStr }: { rows: OrderLedgerRow[]; 
         let receivable: number | undefined
         if (row) {
           if (p.settle && !row.settle) changes.push(p.settle === 'paid' ? '标已回款' : '标已对账')
-          // 已对账 / 开了票 —— 落应收单, 金额以表上为准 (lib/order-import)。
-          if (!row.free && (p.settle || (p.invoiceCny ?? 0) > 0)) {
+          // 已对账 / 已回款 —— 落应收单, 金额以表上为准 (lib/order-import)。
+          if (!row.free && p.settle) {
             const n = p.orderCny ?? row.amountCny ?? p.invoiceCny
             if (typeof n === 'number' && n > 0) {
               receivable = r2(n)
@@ -217,7 +217,9 @@ export function OrderImportButton({ rows, todayStr }: { rows: OrderLedgerRow[]; 
           notReceivable: string[]
         }>({
           kind: 'importOrderLedger',
-          items: todo.map(({ row: _r, changes: _c, lower: _l, receivable: _v, ...p }) => {
+          // 表上对上的每一行都送过去 —— 没变化的不会多记, 但服务端要知道表上有
+          // 哪些单, 才能把以前导入落的应收单按这张表重开 (lib/order-import)。
+          items: (lines ?? []).filter((l) => l.row).map(({ row: _r, changes: _c, lower: _l, receivable: _v, ...p }) => {
             void _r
             void _c
             void _l
@@ -328,7 +330,7 @@ export function OrderImportButton({ rows, todayStr }: { rows: OrderLedgerRow[]; 
               )}
               <p className="mt-3 text-[12px] leading-relaxed text-[var(--color-ink-4)]">
                 开票、收款按表上的合计算，比系统里多的那一截补进记账；没填日期的按今天（{todayStr.slice(5)}）记。
-                「进应收」的按客户、出货月份落应收单，金额照对账单的出货金额算；已回款的记一笔回款。
+                「进应收」的是写了已对账、已回款的单，按客户、下单月份落应收单，金额以表上订单额为准；已回款的记一笔回款。
               </p>
             </div>
 
