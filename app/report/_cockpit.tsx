@@ -79,6 +79,10 @@ type DrillComponent = {
   partId?: string
   shared?: boolean
   pending?: boolean
+  /** 金额于海伟手改过 (lib/report-value)。 */
+  edited?: boolean
+  /** 分了工, 金额只是这个人那一份。 */
+  split?: boolean
 }
 type DrillJob = {
   jobId: string
@@ -476,7 +480,19 @@ function Drill({
                     )}
                     <span className="text-[var(--color-ink)]">{c.partName}</span>
                     <span className="tabular-nums text-[var(--color-ink-3)]">×{c.qty}</span>
-                    <span className="ml-auto tabular-nums text-[var(--color-ink-4)]">{fmtTs(c.ts)}</span>
+                    {canFix && showMoney && (
+                      <ValueCell
+                        className="ml-auto"
+                        value={c.valueCny}
+                        edited={!!c.edited}
+                        editable={!!c.partId && !c.shared && !c.split && !c.pending}
+                        onSave={(valueCny) =>
+                          mutate({ kind: 'setReportValue', partId: c.partId, stage: c.stage, valueCny })
+                        }
+                        onChanged={onChanged}
+                      />
+                    )}
+                    <span className={`${canFix && showMoney ? '' : 'ml-auto '}tabular-nums text-[var(--color-ink-4)]`}>{fmtTs(c.ts)}</span>
                     {canFix && c.partId && !c.shared ? (
                       <FixControls
                         name={actor}
@@ -762,6 +778,93 @@ function FixControls({
         保存
       </button>
       <button type="button" disabled={busy} onClick={() => setMode('idle')} className={link}>取消</button>
+    </span>
+  )
+}
+
+// --- 改一条的经手金额 (商务于海伟) ---------------------------------------------
+//
+// 明细每一条后面的金额。点一下就地变成输入框, 回车存; 清空回车 = 回到系统算
+// 的。手改过的数后面带一个「改」字。分了工的、在制的、别人名下分来的那几条
+// 金额只是一份, 不在这里改 (lib/report-value)。
+
+function ValueCell({
+  value,
+  edited,
+  editable,
+  className = '',
+  onSave,
+  onChanged,
+}: {
+  value: number
+  edited: boolean
+  editable: boolean
+  className?: string
+  onSave: (valueCny: number | null) => Promise<unknown>
+  onChanged: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [v, setV] = useState('')
+  const [busy, setBusy] = useState(false)
+  const shown = (
+    <>
+      {formatCny(value)}
+      {edited && <span className="ml-1 text-[10px] text-[var(--color-warning)]">改</span>}
+    </>
+  )
+  if (!editable)
+    return <span className={`${className} shrink-0 tabular-nums text-[var(--color-ink-3)]`}>{shown}</span>
+  if (!editing)
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setV(String(Math.round(value * 100) / 100))
+          setEditing(true)
+        }}
+        title="改这一条的金额"
+        className={`${className} shrink-0 tabular-nums text-[var(--color-ink-2)] underline decoration-dotted decoration-[var(--color-ink-4)] underline-offset-[3px] hover:text-[var(--color-ink)]`}
+      >
+        {shown}
+      </button>
+    )
+  const save = async () => {
+    if (busy) return
+    const t = v.trim()
+    const n = Number(t)
+    if (t && !(n >= 0)) return
+    setBusy(true)
+    try {
+      await onSave(t ? n : null)
+      showToast(t ? '金额已改' : '已回到系统算的金额', 'success')
+      setEditing(false)
+      onChanged()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '没改成', 'warning')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <span className={`${className} flex shrink-0 items-center gap-1.5`}>
+      <input
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void save()
+          if (e.key === 'Escape') setEditing(false)
+        }}
+        autoFocus
+        inputMode="decimal"
+        placeholder="清空 = 系统算"
+        className="mono h-6 w-[88px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 text-right text-[12px] text-[var(--color-ink)] outline-none focus:border-[var(--color-border-strong)]"
+      />
+      <button type="button" disabled={busy} onClick={() => void save()} className="text-[11px] font-medium text-[var(--color-ink)] hover:underline disabled:opacity-40">
+        保存
+      </button>
+      <button type="button" disabled={busy} onClick={() => setEditing(false)} className="text-[11px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)]">
+        取消
+      </button>
     </span>
   )
 }

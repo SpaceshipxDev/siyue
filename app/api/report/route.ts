@@ -149,6 +149,8 @@ export async function GET(request: Request): Promise<Response> {
             partId?: string
             shared?: boolean
             pending?: boolean
+            edited?: boolean
+            split?: boolean
           }[]
         }
       >()
@@ -172,6 +174,8 @@ export async function GET(request: Request): Promise<Response> {
           partId: e.partId,
           shared: e.shared,
           pending: e.pending,
+          edited: showMoney ? e.edited : undefined,
+          split: e.split,
         })
       }
       const jobs = [...jobMap.values()].sort((a, b) => b.finishes - a.finishes)

@@ -2,6 +2,7 @@ import 'server-only'
 import { supabase } from './supabase'
 import { workSplitKey } from './work-split'
 import { getReworkJobs } from './rework-job'
+import { getValueEdits } from './report-value'
 import { STAGES } from './data'
 import { getActiveUsers } from './db'
 import { stageScopeFor, type AuthUser } from './auth'
@@ -269,7 +270,25 @@ export async function applyFamilyValues(rows: AnyRow[]): Promise<Map<AnyRow, num
   await applyFamilyOnly(rows, changed)
   capProgramming(rows, changed)
   if (rows.some((r) => r.stage === '出货')) zeroQualityShipping(rows, changed, await getQualityNames())
+  applyValueEdits(rows, changed, await getValueEdits())
   return changed
+}
+
+/** 于海伟在报表上手改过的金额 (lib/report-value) —— 最后套, 盖过上面算的。 */
+function applyValueEdits(
+  rows: AnyRow[],
+  changed: Map<AnyRow, number>,
+  edits: Record<string, { valueCny: number }>,
+) {
+  if (Object.keys(edits).length === 0) return
+  for (const row of rows) {
+    const e = edits[workSplitKey(row.part_id as string, row.stage as string)]
+    if (!e) continue
+    if (!changed.has(row)) changed.set(row, Number(row.value_cny ?? 0))
+    row.value_cny = e.valueCny
+    row.is_unpriced = false
+    row.value_edited = true
+  }
 }
 
 let qualityCache: { at: number; names: Set<string> } | null = null

@@ -5,6 +5,7 @@ import { supabase } from './supabase'
 import { today, shanghaiWindow, shanghaiRangeWindow, shiftDate } from './today'
 import { getWorkSplits, workSplitKey, type WorkShare } from './work-split'
 import { applyFamilyValues, getFamilyJobIds, getQualityNames, PROGRAMMING_QTY_CAP } from './part-family'
+import { getValueEdits } from './report-value'
 
 // Read shapes for the /pulse (现场) surface. Hits the views from
 // migration 0019_pulse_views.sql — nothing here computes; the SQL does.
@@ -202,6 +203,10 @@ export type WorkerStageEvent = {
   shared?: boolean
   /** 在制 — 报了几件, 这道工序还没做完。 */
   pending?: boolean
+  /** 金额是于海伟手改过的 (lib/report-value)。 */
+  edited?: boolean
+  /** 这一条分了工, 金额只是这个人那一份 —— 整条的金额去别处改。 */
+  split?: boolean
 }
 
 // Daily/weekly/monthly scoreboard: one row per worker, sorted by output.
@@ -412,6 +417,36 @@ async function getFamilyDeltas(
       const batch = (r.data ?? []) as AnyRow[]
       for (const row of batch) if (!famSet.has(row.job_id as string)) rows.push(row)
       if (batch.length < 1000) break
+    }
+  }
+  // 手改过金额的那几条 (lib/report-value) —— 不在上面捞到的里面的也捞进来,
+  // 差额一样补到按 ✓ 的人头上。
+  const edits = await getValueEdits()
+  const editKeys = Object.keys(edits)
+  if (editKeys.length > 0) {
+    const seen = new Set(rows.map((r) => workSplitKey(r.part_id as string, r.stage as string)))
+    const editParts = [...new Set(editKeys.map((k) => k.split('::')[0]))]
+    const got = await fetchInChunks(editParts, async (chunk) => {
+      let q = supabase
+        .from('worker_stage_events')
+        .select('job_id, part_id, stage, actor_name, part_qty, value_cny')
+        .eq('kind', 'finished')
+        .gte('ts', window.from)
+        .lt('ts', window.to)
+        .in('part_id', chunk)
+      if (stage) q = q.eq('stage', stage)
+      const r = await q
+      if (r.error) {
+        if (isSchemaLagError(r.error)) return []
+        throw r.error
+      }
+      return (r.data ?? []) as AnyRow[]
+    })
+    for (const row of got) {
+      const k = workSplitKey(row.part_id as string, row.stage as string)
+      if (!edits[k] || seen.has(k)) continue
+      seen.add(k)
+      rows.push(row)
     }
   }
   const before = await applyFamilyValues(rows)
@@ -717,6 +752,7 @@ export async function getWorkerTimeline(opts: {
     surfaceTreatment: (row.surface_treatment as string | null) ?? undefined,
     imageUrl: (row.image_url as string | null) ?? undefined,
     partId: (row.part_id as string | null) ?? undefined,
+    edited: row.value_edited === true || undefined,
   })
   const raw = (r.data ?? []) as AnyRow[]
   await applyFamilyValues(raw)
@@ -746,6 +782,7 @@ export async function getWorkerTimeline(opts: {
     if (!own) continue // 这条整条给了别人
     mine.push({
       ...ev,
+      split: true,
       partQty: Math.round(own.qty * 100) / 100,
       valueCny: Math.round(own.valueCny * 100) / 100,
     })

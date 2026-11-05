@@ -241,9 +241,11 @@ import {
   setPersonSplit,
   setWorkSplit,
   updatePersonShare,
+  workSplitKey,
   type PersonPart,
   type WorkShare,
 } from '@/lib/work-split'
+import { setValueEdit } from '@/lib/report-value'
 import {
   addProcessDefect,
   deleteProcessDefect,
@@ -4930,6 +4932,22 @@ async function dispatch(
       await syncShipments(jobId, stage, u.name)
       revalidateStage(jobId, stage)
       revalidatePath('/report')
+      return Response.json(ok())
+    }
+
+    // 改一条完成的经手金额 (lib/report-value) —— 只开商务于海伟; 清空 = 回到
+    // 系统算的。
+    case 'setReportValue': {
+      const { partId, stage } = body
+      if (!isString(partId) || !isStage(stage)) return err('bad setReportValue args')
+      const v = body.valueCny
+      if (v !== null && (typeof v !== 'number' || !Number.isFinite(v) || v < 0))
+        return err('金额不对')
+      const u = await requireUser()
+      if (!canFixReport(u)) return err('改报工金额要找商务于海伟', 403)
+      await setValueEdit(workSplitKey(partId, stage), v as number | null, u.name)
+      revalidatePath('/report')
+      revalidatePath('/')
       return Response.json(ok())
     }
 
