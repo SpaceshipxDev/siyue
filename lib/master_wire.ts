@@ -86,6 +86,9 @@ export type CompactMasterRow = [
   isProcessRework: WireValue<boolean>,
   // 待提货 (index 38) — 追加在最末, 旧客户端读不到就当不是。
   awaitingPickup: WireValue<boolean>,
+  // 有零件转外协、还没开外协单 (index 39, lib/outsource-transfer) —— 这张单
+  // 别的零件已经在外协, 待外协也照样亮。
+  outsourceTransfer: WireValue<boolean>,
 ]
 
 function canSeeCustomerData(scope: Scope): boolean {
@@ -209,6 +212,7 @@ export function toMasterWireRows(rows: MasterRow[], scope: Scope): CompactMaster
       r.settle ?? null,
       r.isProcessRework ?? null,
       r.awaitingPickup ?? null,
+      r.outsourceTransfer ?? null,
     ]
   })
 }
@@ -260,6 +264,7 @@ export function expandMasterWireRows(rows: CompactMasterRow[]): MasterRow[] {
       settle: r[36] ?? undefined,
       isProcessRework: r[37] ?? undefined,
       awaitingPickup: r[38] ?? undefined,
+      outsourceTransfer: r[39] ?? undefined,
     }
   })
 }

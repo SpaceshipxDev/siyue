@@ -162,6 +162,8 @@ import {
   canEditHrRecord,
   canDeletePartRow,
   canManageOutsource,
+  canTransferOutsource,
+  canCancelTransferOutsource,
   canEditShipment,
   canSeeExpenses,
   canSeeOrderLedger,
@@ -255,6 +257,7 @@ import {
   upsertInspectionScrap,
 } from '@/lib/scrap'
 import { setJobPickup } from '@/lib/pickup'
+import { clearTransfers, getTransfer, setTransfer } from '@/lib/outsource-transfer'
 import { importOrderLedger, type OrderImportItem } from '@/lib/order-import'
 import { addSemiStock, deleteSemiStock, updateSemiStock, type SemiStockInput } from '@/lib/semi-stock'
 import { deleteQualityFile, deleteQualityFilePhoto, updateQualityFile } from '@/lib/quality-files'
@@ -382,7 +385,7 @@ import {
 import { logStageAction } from '@/lib/access-log'
 import type { JobType, PlanKey, Stage, Verdict } from '@/lib/data'
 import { rowStageCounts } from '@/lib/master'
-import { finishStepOf, isCaiwuSheet, JOB_TYPES, PICK_WORKER_STAGES, STAGES, stageOfStep, stepsOf, VERDICTS } from '@/lib/data'
+import { finishStepOf, isCaiwuSheet, isStageOutsourced, isStageUntouched, JOB_TYPES, partRoute, PICK_WORKER_STAGES, STAGES, stageOfStep, stepsOf, VERDICTS } from '@/lib/data'
 import { isExpenseCategory } from '@/lib/expenses'
 import { isDimRow, type InspectionReportPatch } from '@/lib/inspection-report'
 import { removeInspectionPhotoObject } from '@/lib/inspection-photo'
@@ -1006,6 +1009,17 @@ function revalidateExternal(jobId?: string) {
   revalidatePath('/')
   revalidatePath('/station/outsource')
   if (jobId) revalidatePath(`/jobs/${jobId}`)
+}
+
+// 外协单开了 (或者加进了零件) —— 这几个零件的「转外协」就算处理掉了。同一张
+// 单上还有别的零件等着外发, 待外协再点亮 (开外协单那一步会把它清掉)。
+async function settleTransfers(componentIds: string[]): Promise<void> {
+  try {
+    const left = await clearTransfers(componentIds)
+    for (const [jobId, n] of left) if (n > 0) await updateJob(jobId, { needsOutsource: true })
+  } catch {
+    // 记录读写不上不拦外协单 —— 最多待外协多挂一会儿。
+  }
 }
 
 // Auth gates mirror the server-action versions in app/actions.ts exactly.
@@ -1778,6 +1792,56 @@ async function dispatch(
     }
 
     // 待提货 (lib/pickup) —— 跟类别同一档: 商务 / 工程。
+    // 转外协 (零件那一行, lib/outsource-transfer) —— 这个零件还没开工的 编程 /
+    // 操机 / 车铣 关掉, 这张单进待外协; 商务开了外协单就自己消掉。
+    case 'transferPartOutsource':
+    case 'cancelPartOutsource': {
+      const jobId = body.jobId
+      const componentId = body.componentId
+      if (!isString(jobId) || !isString(componentId)) return err(`bad ${kind} args`)
+      const u = await requireUser()
+      const cancel = kind === 'cancelPartOutsource'
+      if (cancel ? !canCancelTransferOutsource(u) : !canTransferOutsource(u))
+        return err(cancel ? '转外协点错了找于海伟或老板取消' : '转外协由工程、商务来点', 403)
+      const job = await getJob(jobId)
+      const c = job?.components.find((x) => x.id === componentId)
+      if (!job || !c) return err('找不到这个零件')
+      const mark = await getTransfer(componentId)
+      const route = partRoute(c)
+      if (cancel) {
+        if (!mark) return Response.json(ok())
+        // 关掉的那几道原样还回去 (已经外协了的那道不动)。
+        const back = mark.removed.filter((s) => !route.includes(s))
+        if (back.length > 0) {
+          const r = await setPartRoute(jobId, componentId, STAGES.filter((s) => route.includes(s) || back.includes(s)), { force: false })
+          if (!r.ok) return err('工序还不回去，刷新再试')
+        }
+        const left = await clearTransfers([componentId])
+        if ((left.get(jobId) ?? 0) === 0)
+          await updateJob(jobId, { needsOutsource: false, outsourceFlaggedBy: null, outsourceFlaggedAt: null })
+      } else {
+        if (mark) return Response.json(ok())
+        // 只关还没开工的 —— 做了一半、做完了的报工记录不能跟着删。
+        const removed = (['编程', '操机', '车铣'] as Stage[]).filter(
+          (s) => route.includes(s) && isStageUntouched(c, s) && !isStageOutsourced(c, s),
+        )
+        if (removed.length > 0) {
+          const r = await setPartRoute(jobId, componentId, route.filter((s) => !removed.includes(s)), { force: false })
+          if (!r.ok) return err('工序关不掉，刷新再试')
+        }
+        const at = new Date().toISOString()
+        await setTransfer(componentId, { jobId, removed, at, by: u.name })
+        await updateJob(jobId, {
+          needsOutsource: true,
+          ...(job.outsourceNote ? null : { outsourceNote: `${c.name} 转外协` }),
+          outsourceFlaggedBy: u.name,
+          outsourceFlaggedAt: at,
+        })
+      }
+      revalidateExternal(jobId)
+      return Response.json(ok())
+    }
+
     case 'setJobPickup': {
       const jobId = body.jobId
       if (!isString(jobId) || typeof body.pickup !== 'boolean') return err('bad setJobPickup args')
@@ -2034,7 +2098,10 @@ async function dispatch(
         componentIds as string[],
         input as NewBlockInput,
       )
-      if (result.ok) revalidateExternal(jobId)
+      if (result.ok) {
+        await settleTransfers(componentIds as string[])
+        revalidateExternal(jobId)
+      }
       return Response.json(ok({ result }))
     }
 
@@ -2088,6 +2155,7 @@ async function dispatch(
         body.force === true,
       )
       if (result.ok) {
+        await settleTransfers((items as AddBlockMemberInput[]).map((x) => x.componentId))
         if (isString(jobId)) revalidateExternal(jobId)
         revalidatePath(`/print/outsource/${blockId}`)
       }

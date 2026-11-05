@@ -41,6 +41,8 @@ import {
   canDeleteOrder,
   canExportProductionOrder,
   canManageOutsource,
+  canTransferOutsource,
+  canCancelTransferOutsource,
   canRenameUploadedJob,
   canUploadDrawing,
   canWriteNcProgram,
@@ -93,6 +95,7 @@ import { CommOrderSheet } from '@/app/comm/[no]/_sheet'
 import { getCommOrder } from '@/lib/comm-order'
 import { getReworkJobs } from '@/lib/rework-job'
 import { getPickupJobIds } from '@/lib/pickup'
+import { getJobTransfers } from '@/lib/outsource-transfer'
 import { OpenReworkButton, ReworkBanner } from './_rework'
 import { SourceFileRow } from '@/app/_source_file'
 import { ProductionOrderRow } from '@/app/_production_order'
@@ -105,6 +108,7 @@ import {
 } from '@/app/_returns'
 import { DrawingChangeBanner } from '@/app/_drawing_change'
 import { PartDrawingChange } from '@/app/_part_drawing_change'
+import { PartTransfer } from './_part_transfer'
 import { ShippingComposerButton } from '@/app/_shipping'
 import { ShipmentHistoryButton } from '@/app/_shipment_history'
 import { ProgrammingTab } from '@/app/_programming'
@@ -163,12 +167,14 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // Portal tokens power the 微信 share button on each 委外 row. No-op once
   // every vendor has one (the common case) — see ensureVendorPortalTokens.
   // 沟通确认单 (按工号) —— 全厂都看得到, 工程、商务能改 (于海伟 2026-10-20)。
-  const [rawVendors, commOrder, reworkJobs, pickupIds] = await Promise.all([
+  const [rawVendors, commOrder, reworkJobs, pickupIds, transfers] = await Promise.all([
     ensureVendorPortalTokens(fetchedVendors),
     getCommOrder(rawJob.jobNo).catch(() => undefined),
     // 制程返工单 (lib/rework-job) —— 这张是不是, 是的话每个零件的返工报工单价。
     getReworkJobs().catch(() => ({}) as Awaited<ReturnType<typeof getReworkJobs>>),
     getPickupJobIds().catch(() => new Set<string>()),
+    // 转外协 (lib/outsource-transfer) —— 哪几个零件转了、还没开外协单。
+    getJobTransfers(rawJob.id).catch(() => ({}) as Awaited<ReturnType<typeof getJobTransfers>>),
   ])
   const rework = reworkJobs[rawJob.id]
   // Only `ready` jobs live on the production board. A draft/parsing/failed job
@@ -1018,6 +1024,15 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                           imageUrl={c.imageUrl}
                           changes={c.drawingChanges ?? []}
                           canEdit={canEditFields}
+                        />
+                        <PartTransfer
+                          jobId={job.id}
+                          componentId={c.id}
+                          partName={c.name}
+                          mark={transfers[c.id]}
+                          canTransfer={canTransferOutsource(user)}
+                          canCancel={canCancelTransferOutsource(user)}
+                          atVendor={(c.outsourceBlocks ?? []).some((b) => !isBlockClosed(b))}
                         />
                       </div>
                     </td>

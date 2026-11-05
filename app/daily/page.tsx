@@ -6,6 +6,7 @@ import { scrubMasterRow } from '@/lib/dto'
 import { today } from '@/lib/today'
 import type { MasterRow } from '@/lib/master'
 import { DailyFocusBoard, type FocusJobLite } from './_daily'
+import { getTransferJobIds } from '@/lib/outsource-transfer'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,9 +29,10 @@ export default async function DailyFocusPage({
   const todayStr = today()
   const day = rawDay && /^\d{4}-\d{2}-\d{2}$/.test(rawDay) ? rawDay : todayStr
 
-  const [items, rawRows] = await Promise.all([
+  const [items, rawRows, transfer] = await Promise.all([
     getDailyFocusItems(day),
     getMasterRows(),
+    getTransferJobIds().catch(() => new Set<string>()),
   ])
   // 工程 head reaches this page too — scrub customer/money exactly like the
   // master view does, so the join + autocomplete leak nothing extra.
@@ -47,7 +49,7 @@ export default async function DailyFocusPage({
     dueDate: r.effectiveDueDate,
     secondaryDueDate: r.secondaryDueDate,
     hasOpenOutsource: r.hasOpenOutsource,
-    needsOutsource: Boolean(r.needsOutsource && !r.hasOpenOutsource),
+    needsOutsource: Boolean(transfer.has(r.id) || (r.needsOutsource && !r.hasOpenOutsource)),
     isShipped: r.isShipped,
   })
 

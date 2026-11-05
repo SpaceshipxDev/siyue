@@ -502,6 +502,20 @@ export function canManageOutsource(s: Scope): boolean {
   return s.role === 'commerce' || s.defaultStage === '工程'
 }
 
+// 转外协 (零件那一行, lib/outsource-transfer) —— 工程、商务、程江华 点; 点错了
+// 取消只有于海伟和老板 (于海伟 2026-11-05)。
+export function canTransferOutsource(u: AuthUser): boolean {
+  return canManageOutsource(u) || u.id === 'u-mpc3rcje-6987yo' // 程江华
+}
+
+export function canCancelTransferOutsource(u: AuthUser): boolean {
+  return (
+    isAdminUser(u.id) ||
+    u.id === 'u-ms45yjq9-2kbdi1' || // 商务于海伟
+    u.id === 'u-mose92lt-a0cutz' // 于海伟 — 工程号
+  )
+}
+
 // 外协的单价、金额 —— 只给商务和财务 (于海伟 2026-10-17)。工程管外协照样收发、
 // 打单, 但看不到价钱; 车间挂在工程名下的账号也一样。
 export function canSeeOutsourceMoney(u: AuthUser): boolean {

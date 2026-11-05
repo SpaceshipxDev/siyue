@@ -758,7 +758,7 @@ export function MasterSheet({
           })
         : statusScoped
       const facetScoped = onlyPendingOutsource
-        ? stuckScoped.filter((r) => r.needsOutsource && !r.hasOpenOutsource)
+        ? stuckScoped.filter((r) => r.outsourceTransfer || (r.needsOutsource && !r.hasOpenOutsource))
         : stuckScoped
       const alarmScoped = onlyDrawingChange
         ? facetScoped.filter((r) => r.drawingChangeOpen)
@@ -815,7 +815,7 @@ export function MasterSheet({
   const pendingOutsourceCount = useMemo(
     () =>
       dateFiltered.reduce(
-        (n, r) => (r.needsOutsource && !r.hasOpenOutsource ? n + 1 : n),
+        (n, r) => (r.outsourceTransfer || (r.needsOutsource && !r.hasOpenOutsource) ? n + 1 : n),
         0,
       ),
     [dateFiltered],

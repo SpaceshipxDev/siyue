@@ -14,17 +14,21 @@ import { getReturnFlows } from '@/lib/return-flow-store'
 import { returnStep } from '@/lib/return-flow'
 import { getReworkJobIds } from '@/lib/rework-job'
 import { getPickupJobIds } from '@/lib/pickup'
+import { getTransferJobIds } from '@/lib/outsource-transfer'
 
 // 制程返工单 —— 那份记录里有的工单, 行上标一下, 看板单独放一栏。
 // 待提货 (lib/pickup) 也在这里盖上, 一样单独一栏。
 async function applyProcessRework(rows: MasterRow[]): Promise<MasterRow[]> {
-  const [ids, pickup] = await Promise.all([
+  const [ids, pickup, transfer] = await Promise.all([
     getReworkJobIds().catch(() => new Set<string>()),
     getPickupJobIds().catch(() => new Set<string>()),
+    getTransferJobIds().catch(() => new Set<string>()),
   ])
   for (const r of rows) {
     if (ids.has(r.id)) r.isProcessRework = true
     if (pickup.has(r.id)) r.awaitingPickup = true
+    // 有零件转外协、还没开外协单 —— 算待外协 (lib/outsource-transfer)。
+    if (transfer.has(r.id)) r.outsourceTransfer = true
   }
   return rows
 }
