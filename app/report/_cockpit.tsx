@@ -101,6 +101,7 @@ export function ReportClient({
   initialWorker,
   todayStr,
   showMoney,
+  showAmount = false,
   showRate = false,
   canFix = false,
 }: {
@@ -109,7 +110,10 @@ export function ReportClient({
   initialAnchor: string
   initialWorker: string | null
   todayStr: string
+  /** 经手金额 —— 商务 + 于海伟的工程号 (lib/auth canSeeReportValue)。 */
   showMoney: boolean
+  /** 导出里的订单金额 —— 只给商务。 */
+  showAmount?: boolean
   /** 「按5%」那几个字 —— 只有老板和于海伟 (lib/auth canSeeHandledValue); 金额照旧。 */
   showRate?: boolean
   /** 改·删报工记录 (商务于海伟)。 */
@@ -272,6 +276,7 @@ export function ReportClient({
             from={from}
             to={to}
             showMoney={showMoney}
+            showAmount={showAmount}
             showRate={showRate}
             hasData={shown.length > 0}
             stuck={worker ? [] : stuck}
@@ -1090,6 +1095,7 @@ function ExportButton({
   from,
   to,
   showMoney,
+  showAmount = false,
   showRate = false,
   hasData,
   stuck,
@@ -1100,6 +1106,7 @@ function ExportButton({
   from: string
   to: string
   showMoney: boolean
+  showAmount?: boolean
   showRate?: boolean
   hasData: boolean
   stuck: StuckPart[]
@@ -1185,7 +1192,7 @@ function ExportButton({
       const ojHead = [
         '工号',
         '客户',
-        ...(showMoney ? ['订单金额'] : []),
+        ...(showAmount ? ['订单金额'] : []),
         '完成工序',
         '经手件数',
         ...(showMoney ? [valueLabel(showRate), '金额来源'] : []),
@@ -1193,7 +1200,7 @@ function ExportButton({
       const ojBody: (string | number)[][] = orders.map((o) => [
         o.jobNo,
         o.customer,
-        ...(showMoney ? [toCents(o.amountCny)] : []),
+        ...(showAmount ? [toCents(o.amountCny)] : []),
         o.finishes,
         o.pieces,
         ...(showMoney ? [toCents(o.valueCny), groupSource(o.components)] : []),
@@ -1205,7 +1212,7 @@ function ExportButton({
       ojBody.push([
         '合计',
         '',
-        ...(showMoney ? [toCents(ojTot.amt)] : []),
+        ...(showAmount ? [toCents(ojTot.amt)] : []),
         ojTot.f,
         ojTot.p,
         ...(showMoney ? [toCents(ojTot.v), ''] : []),
@@ -1219,7 +1226,7 @@ function ExportButton({
           ...(showRate ? [['说明', '经手金额 = 零件销售价 × 5%，每完成一道工序计一次']] : []),
           ['完成工序', '报工次数 — 同一个零件过 编程 和 操机 算 2'],
           ['经手件数', '每过一道工序，该零件的数量算一次'],
-          ['订单金额', '该工单的全部合同额，不是本人产出'],
+          ...(showAmount ? [['订单金额', '该工单的全部合同额，不是本人产出']] : []),
           ['报价', '零件本身有单价 — 准确'],
           ['摊分', '零件没有单价，按 订单金额 ÷ 零件数 估算'],
           ['无单价', '订单也没有金额，记 0'],

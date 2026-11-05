@@ -362,6 +362,12 @@ export function canSeeHandledValue(u: AuthUser): boolean {
   return JOB_EXPORT_USER_IDS.has(u.id) || isAdminUser(u.id)
 }
 
+// 报表 (/report) 上的经手金额 —— 屏幕和导出。商务都看; 于海伟的工程号也看 (于
+// 海伟 2026-11-06: 导出的报工汇总表没有金额)。订单金额照旧只给商务 (canSeeMoney)。
+export function canSeeReportValue(u: AuthUser): boolean {
+  return canSeeMoney(u) || canSeeHandledValue(u)
+}
+
 // ─── 已上传工单的工号 ──────────────────────────────────────────────────
 //
 // 上传之前 (收件箱那一版) 工号谁都能改 —— 收件箱就是干这个用的, AI 认错一个

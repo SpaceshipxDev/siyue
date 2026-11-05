@@ -1,4 +1,4 @@
-import { currentUser, canSeeReport, canSeeMoney } from '@/lib/auth'
+import { currentUser, canSeeReport, canSeeMoney, canSeeReportValue } from '@/lib/auth'
 import { PICK_WORKER_STAGES, stageOfRecordedStep, type Stage } from '@/lib/data'
 import { isReportView, stagesOfView } from '@/lib/report-view'
 import { getPersonSplits, workSplitKey } from '@/lib/work-split'
@@ -37,7 +37,9 @@ export async function GET(request: Request): Promise<Response> {
   if (!user || !canSeeReport(user)) {
     return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 })
   }
-  const showMoney = canSeeMoney(user)
+  // 经手金额 (lib/auth canSeeReportValue); 订单金额只给商务。
+  const showMoney = canSeeReportValue(user)
+  const showAmount = canSeeMoney(user)
 
   const sp = new URL(request.url).searchParams
 
@@ -107,9 +109,9 @@ export async function GET(request: Request): Promise<Response> {
       const { orders, truncated } = multi
         ? mergeOrders(await Promise.all(stages!.map((s) => getStationDetailByOrder(s, window, worker ?? undefined))))
         : await getStationDetailByOrder(stage, window, worker ?? undefined)
-      if (!showMoney) {
-        for (const o of orders) {
-          o.amountCny = 0
+      for (const o of orders) {
+        if (!showAmount) o.amountCny = 0
+        if (!showMoney) {
           o.valueCny = 0
           for (const c of o.components) c.valueCny = 0
         }

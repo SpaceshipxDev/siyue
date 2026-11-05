@@ -4,6 +4,7 @@ import {
   requireReportViewer,
   canSeeHandledValue,
   canSeeMoney,
+  canSeeReportValue,
   canSeeReport,
   canSeeOrderLedger,
   canFixReport,
@@ -121,7 +122,8 @@ export default async function ReportPage({
             initialAnchor={anchor}
             initialWorker={worker}
             todayStr={todayStr}
-            showMoney={canSeeMoney(user)}
+            showMoney={canSeeReportValue(user)}
+            showAmount={canSeeMoney(user)}
             showRate={canSeeHandledValue(user)}
             canFix={canFixReport(user)}
           />
