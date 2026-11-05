@@ -449,6 +449,11 @@ function Drill({
   canFix: boolean
   onChanged: () => void
 }) {
+  // 改金额 (商务于海伟) 放在工单那一行的金额上 (于海伟 2026-11-05): 一张单
+  // 只有一条就直接改; 好几条的, 点一下才在每条后面摊开各自的金额。
+  const fixMoney = canFix && showMoney
+  const [spread, setSpread] = useState<string | null>(null)
+  const canEditLine = (c: DrillComponent) => !!c.partId && !c.shared && !c.split && !c.pending
   return (
     <div className="bg-[var(--color-surface)] px-3 md:px-5 py-4 border-t border-[var(--color-border)]">
       {jobs === undefined ? (
@@ -465,8 +470,39 @@ function Drill({
                   <span className="mx-1.5 text-[var(--color-ink-4)]">·</span>
                   <span className="text-[var(--color-ink-3)]">{j.customer}</span>
                 </Link>
-                <span className="shrink-0 text-[11px] tabular-nums text-[var(--color-ink-3)]">
-                  {NUM.format(j.finishes)} 件零件{showMoney && j.valueCny > 0 ? ` · ${formatCny(j.valueCny)}` : ''}
+                <span className="flex shrink-0 items-baseline text-[11px] tabular-nums text-[var(--color-ink-3)]">
+                  {NUM.format(j.finishes)} 件零件
+                  {fixMoney && j.components.length === 1 && canEditLine(j.components[0]) ? (
+                    <>
+                      <span className="mx-1">·</span>
+                      <ValueCell
+                        value={j.valueCny}
+                        edited={!!j.components[0].edited}
+                        editable
+                        onSave={(valueCny) =>
+                          mutate({ kind: 'setReportValue', partId: j.components[0].partId, stage: j.components[0].stage, valueCny })
+                        }
+                        onChanged={onChanged}
+                      />
+                    </>
+                  ) : fixMoney && j.components.some(canEditLine) ? (
+                    <>
+                      <span className="mx-1">·</span>
+                      <button
+                        type="button"
+                        onClick={() => setSpread(spread === j.jobId ? null : j.jobId)}
+                        title="分开改每一条的金额"
+                        className="tabular-nums text-[var(--color-ink-2)] underline decoration-dotted decoration-[var(--color-ink-4)] underline-offset-[3px] hover:text-[var(--color-ink)]"
+                      >
+                        {formatCny(j.valueCny)}
+                        {j.components.some((c) => c.edited) && (
+                          <span className="ml-1 text-[10px] text-[var(--color-warning)]">改</span>
+                        )}
+                      </button>
+                    </>
+                  ) : showMoney && j.valueCny > 0 ? (
+                    ` · ${formatCny(j.valueCny)}`
+                  ) : null}
                 </span>
               </div>
               <ul className="flex flex-col gap-0.5 pl-1">
@@ -480,19 +516,19 @@ function Drill({
                     )}
                     <span className="text-[var(--color-ink)]">{c.partName}</span>
                     <span className="tabular-nums text-[var(--color-ink-3)]">×{c.qty}</span>
-                    {canFix && showMoney && (
+                    {fixMoney && spread === j.jobId && (
                       <ValueCell
                         className="ml-auto"
                         value={c.valueCny}
                         edited={!!c.edited}
-                        editable={!!c.partId && !c.shared && !c.split && !c.pending}
+                        editable={canEditLine(c)}
                         onSave={(valueCny) =>
                           mutate({ kind: 'setReportValue', partId: c.partId, stage: c.stage, valueCny })
                         }
                         onChanged={onChanged}
                       />
                     )}
-                    <span className={`${canFix && showMoney ? '' : 'ml-auto '}tabular-nums text-[var(--color-ink-4)]`}>{fmtTs(c.ts)}</span>
+                    <span className={`${fixMoney && spread === j.jobId ? '' : 'ml-auto '}tabular-nums text-[var(--color-ink-4)]`}>{fmtTs(c.ts)}</span>
                     {canFix && c.partId && !c.shared ? (
                       <FixControls
                         name={actor}
@@ -784,8 +820,8 @@ function FixControls({
 
 // --- 改一条的经手金额 (商务于海伟) ---------------------------------------------
 //
-// 明细每一条后面的金额。点一下就地变成输入框, 回车存; 清空回车 = 回到系统算
-// 的。手改过的数后面带一个「改」字。分了工的、在制的、别人名下分来的那几条
+// 工单那一行的金额 (好几条的摊开后在每条后面)。点一下就地变成输入框, 回车存;
+// 清空回车 = 回到系统算的。手改过的数后面带一个「改」字。分了工的、在制的、别人名下分来的那几条
 // 金额只是一份, 不在这里改 (lib/report-value)。
 
 function ValueCell({
