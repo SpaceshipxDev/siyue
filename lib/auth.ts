@@ -356,6 +356,12 @@ export function canExportJobs(u: AuthUser): boolean {
   return JOB_EXPORT_USER_IDS.has(u.id) || isAdminUser(u.id)
 }
 
+// 经手金额后面「按5%」那几个字 —— 只给老板和于海伟 (商务号、工程号)。金额
+// 照旧谁该看谁看, 别人只是看不到是按几成算的 (于海伟 2026-11-05)。
+export function canSeeHandledValue(u: AuthUser): boolean {
+  return JOB_EXPORT_USER_IDS.has(u.id) || isAdminUser(u.id)
+}
+
 // ─── 已上传工单的工号 ──────────────────────────────────────────────────
 //
 // 上传之前 (收件箱那一版) 工号谁都能改 —— 收件箱就是干这个用的, AI 认错一个

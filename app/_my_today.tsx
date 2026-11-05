@@ -9,14 +9,18 @@ import type { WorkerSelfStats } from '@/lib/pulse'
 // 现场/报工 answer "how is the floor doing"; this answers "how am *I* doing."
 // It is the one place a worker sees money — their own throughput value, by the
 // boss's call — so it sits above everything, before the work queue itself.
+// 「按5%」几个字只给老板和于海伟看, 金额照旧 (于海伟 2026-11-05)。
 export function MyToday({
   name,
   stats,
   todayStr,
+  showRate = false,
 }: {
   name: string
   stats: WorkerSelfStats
   todayStr: string
+  /** 「按5%」那几个字 —— 只有老板和于海伟看得到 (lib/auth canSeeHandledValue)。 */
+  showRate?: boolean
 }) {
   const nf = new Intl.NumberFormat('zh-CN')
   return (
@@ -41,7 +45,7 @@ export function MyToday({
           aside={`${nf.format(stats.todayPieces)} 件次`}
         />
         <Stat
-          label="今日经手（按5%）"
+          label={showRate ? '今日经手（按5%）' : '今日经手'}
           value={formatCny(stats.todayValueCny)}
           aside={stats.todayUnpriced > 0 ? `${stats.todayUnpriced} 未定价` : undefined}
           warnAside

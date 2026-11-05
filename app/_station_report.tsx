@@ -18,9 +18,12 @@ const NUM = new Intl.NumberFormat('zh-CN')
 export async function StationReportAsync({
   stage,
   showMoney,
+  showRate = false,
 }: {
   stage: Stage
   showMoney: boolean
+  /** 「按5%」那几个字 —— 只给老板和于海伟 (lib/auth canSeeHandledValue); 金额照旧。 */
+  showRate?: boolean
 }) {
   const rows = await getStationOutput(stage)
   const reportHref = `/report?stage=${encodeURIComponent(stage)}`
@@ -53,7 +56,9 @@ export async function StationReportAsync({
           <span className="label text-right">完成工序</span>
           <span className="label text-right">开始</span>
           {showMoney && (
-            <span className="label text-right whitespace-nowrap">经手金额（按5%）</span>
+            <span className="label text-right whitespace-nowrap">
+              {showRate ? '经手金额（按5%）' : '经手金额'}
+            </span>
           )}
         </div>
         <ul>

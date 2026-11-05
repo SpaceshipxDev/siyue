@@ -14,7 +14,7 @@ import {
   getOrderMoneyLightByJob,
   getStageFlowMinutes,
 } from '@/lib/db'
-import { requireUser, canDeleteJob, canExportJobs, canSeeFactoryPulse, canSeeMoney, canSeeReport, canSeeOrderLedger, stageScopeFor, canUndoFinishedStage } from '@/lib/auth'
+import { requireUser, canDeleteJob, canExportJobs, canSeeFactoryPulse, canSeeHandledValue, canSeeMoney, canSeeReport, canSeeOrderLedger, stageScopeFor, canUndoFinishedStage } from '@/lib/auth'
 import { StageScopeProvider } from './_stage_scope'
 import { logBoardView } from '@/lib/access-log'
 import { scrubMasterRow } from '@/lib/dto'
@@ -278,7 +278,12 @@ export default async function MasterBoard(
 
       <main className="w-full px-4 md:px-10 py-6 md:py-10 flex-1">
         {selfStats && (
-          <MyToday name={user.name} stats={selfStats} todayStr={today()} />
+          <MyToday
+            name={user.name}
+            stats={selfStats}
+            todayStr={today()}
+            showRate={canSeeHandledValue(user)}
+          />
         )}
 
         {/* 今日重点 — rendered on EVERY view of this page (商务 overview,
@@ -357,6 +362,7 @@ export default async function MasterBoard(
             <StationReportAsync
               stage={summaryStage}
               showMoney={canSeeMoney(user)}
+              showRate={canSeeHandledValue(user)}
             />
           </Suspense>
         )}

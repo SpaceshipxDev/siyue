@@ -97,6 +97,7 @@ export function ReportClient({
   initialWorker,
   todayStr,
   showMoney,
+  showRate = false,
   canFix = false,
 }: {
   initialStage: ReportView | null
@@ -105,6 +106,8 @@ export function ReportClient({
   initialWorker: string | null
   todayStr: string
   showMoney: boolean
+  /** 「按5%」那几个字 —— 只有老板和于海伟 (lib/auth canSeeHandledValue); 金额照旧。 */
+  showRate?: boolean
   /** 改·删报工记录 (商务于海伟)。 */
   canFix?: boolean
 }) {
@@ -247,7 +250,7 @@ export function ReportClient({
           {totals.pending > 0 && (
             <Totaled label="在制报工" value={`${NUM.format(totals.pending)} 件`} />
           )}
-          {showMoney && <Totaled label="经手金额（按5%）" value={formatCny(totals.valueCny)} />}
+          {showMoney && <Totaled label={valueLabel(showRate)} value={formatCny(totals.valueCny)} />}
         </div>
         <div className="flex items-center gap-3">
           <PeriodBar
@@ -265,6 +268,7 @@ export function ReportClient({
             from={from}
             to={to}
             showMoney={showMoney}
+            showRate={showRate}
             hasData={shown.length > 0}
             stuck={worker ? [] : stuck}
           />
@@ -288,6 +292,7 @@ export function ReportClient({
 
       {/* ① people — the hero */}
       <PeopleList
+        showRate={showRate}
         loading={loading}
         error={error}
         people={shown}
@@ -302,6 +307,7 @@ export function ReportClient({
 
       {/* 个人报工 — 操机、喷漆选的人, 账号表照旧, 这里另列一张。 */}
       <PersonOutputList
+        showRate={showRate}
         persons={worker ? persons.filter((p) => p.name === worker) : persons}
         stage={stage}
         exportName={`${worker ?? stage ?? '全部'}_${from === to ? from : `${from}_${to}`}`}
@@ -324,6 +330,7 @@ function PeopleList({
   people,
   worker,
   showMoney,
+  showRate,
   open,
   drills,
   onToggle,
@@ -335,6 +342,7 @@ function PeopleList({
   people: Person[]
   worker: string | null
   showMoney: boolean
+  showRate: boolean
   open: string | null
   drills: Record<string, DrillJob[]>
   onToggle: (name: string) => void
@@ -367,7 +375,7 @@ function PeopleList({
         <span className="label text-right">完成工序</span>
         <span className="label text-right">在制</span>
         <span className="label text-right">开始</span>
-        {showMoney && <span className="label text-right whitespace-nowrap">经手金额（按5%）</span>}
+        {showMoney && <span className="label text-right whitespace-nowrap">{valueLabel(showRate)}</span>}
         <span className="label text-right">最后活动</span>
       </div>
       <ul>
@@ -500,6 +508,7 @@ function PersonOutputList({
   stage,
   exportName,
   showMoney,
+  showRate,
   canFix,
   onChanged,
 }: {
@@ -508,6 +517,7 @@ function PersonOutputList({
   /** 文件名里 周期 / 人 / 工段 那一截。 */
   exportName: string
   showMoney: boolean
+  showRate: boolean
   canFix: boolean
   onChanged: () => void
 }) {
@@ -520,7 +530,7 @@ function PersonOutputList({
         <h2 className="text-[13px] font-medium tracking-tight text-[var(--color-ink-2)]">个人报工</h2>
         <span className="label text-[var(--color-ink-3)]">{stage ?? PICK_WORKER_STAGES.join(' · ')} · 报工时选的人</span>
         <span className="ml-auto">
-          <PersonExportButton persons={persons} showMoney={showMoney} name={exportName} />
+          <PersonExportButton persons={persons} showMoney={showMoney} showRate={showRate} name={exportName} />
         </span>
       </div>
       <div className="rounded-[2px] border border-[var(--color-border)] overflow-hidden">
@@ -600,10 +610,12 @@ function PersonOutputList({
 function PersonExportButton({
   persons,
   showMoney,
+  showRate,
   name,
 }: {
   persons: PersonOut[]
   showMoney: boolean
+  showRate: boolean
   name: string
 }) {
   const [busy, setBusy] = useState(false)
@@ -615,7 +627,7 @@ function PersonExportButton({
       const wb = XLSX.utils.book_new()
       const money = (v: number) => (showMoney ? [Math.round(v * 100) / 100] : [])
 
-      const sHead = ['姓名', '报工次数', '件数', ...(showMoney ? ['经手金额（按5%）'] : [])]
+      const sHead = ['姓名', '报工次数', '件数', ...(showMoney ? [valueLabel(showRate)] : [])]
       const sBody = persons.map((p) => [p.name, p.finishes, p.pieces, ...money(p.valueCny)])
       const sum = persons.reduce(
         (a, p) => ({ f: a.f + p.finishes, q: a.q + p.pieces, v: toCents(a.v + toCents(p.valueCny)) }),
@@ -626,7 +638,7 @@ function PersonExportButton({
       sWs['!cols'] = sHead.map((h) => ({ wch: h === '姓名' ? 14 : 12 }))
       XLSX.utils.book_append_sheet(wb, sWs, '个人汇总')
 
-      const dHead = ['姓名', '工段', '工号', '客户', '零件', '件数', '零件总数', '报工时间', ...(showMoney ? ['经手金额（按5%）'] : [])]
+      const dHead = ['姓名', '工段', '工号', '客户', '零件', '件数', '零件总数', '报工时间', ...(showMoney ? [valueLabel(showRate)] : [])]
       const dBody: (string | number)[][] = []
       persons.forEach((p, pi) => {
         if (pi > 0) dBody.push([])
@@ -939,6 +951,7 @@ function ExportButton({
   from,
   to,
   showMoney,
+  showRate = false,
   hasData,
   stuck,
 }: {
@@ -948,6 +961,7 @@ function ExportButton({
   from: string
   to: string
   showMoney: boolean
+  showRate?: boolean
   hasData: boolean
   stuck: StuckPart[]
 }) {
@@ -991,7 +1005,7 @@ function ExportButton({
 
       // 工段汇总 — per-station monthly output (the cross-tab for 全部; one row for
       // a single station). 完成工序 / 经手件数 / 工单数 / 人数 / ¥.
-      const stageHead = ['工段', '完成工序', '经手件数', '工单数', '人数', ...(showMoney ? ['经手金额（按5%）', '其中摊分'] : [])]
+      const stageHead = ['工段', '完成工序', '经手件数', '工单数', '人数', ...(showMoney ? [valueLabel(showRate), '其中摊分'] : [])]
       const stageRows: (string | number)[][] = STAGES.filter((s) => byStage.has(s)).map((s) => {
         const v = byStage.get(s)!
         return [s, v.finishes, v.pieces, v.jobs.size, v.workers.size, ...(showMoney ? [toCents(v.valueCny), toCents(v.allocCny)] : [])]
@@ -1012,7 +1026,7 @@ function ExportButton({
 
       // 人员汇总 — per-person output (产量 / 计件基数), most productive first.
       const workerRows = [...byWorker.entries()].sort((a, b) => b[1].finishes - a[1].finishes)
-      const wHead = ['姓名', '完成工序', '经手件数', ...(showMoney ? ['经手金额（按5%）', '其中摊分'] : [])]
+      const wHead = ['姓名', '完成工序', '经手件数', ...(showMoney ? [valueLabel(showRate), '其中摊分'] : [])]
       const wBody: (string | number)[][] = workerRows.map(([name, v]) => [
         name,
         v.finishes,
@@ -1035,7 +1049,7 @@ function ExportButton({
         ...(showMoney ? ['订单金额'] : []),
         '完成工序',
         '经手件数',
-        ...(showMoney ? ['经手金额（按5%）', '金额来源'] : []),
+        ...(showMoney ? [valueLabel(showRate), '金额来源'] : []),
       ]
       const ojBody: (string | number)[][] = orders.map((o) => [
         o.jobNo,
@@ -1063,7 +1077,7 @@ function ExportButton({
       if (showMoney) {
         ojBody.push(
           [],
-          ['说明', '经手金额 = 零件销售价 × 5%，每完成一道工序计一次'],
+          ...(showRate ? [['说明', '经手金额 = 零件销售价 × 5%，每完成一道工序计一次']] : []),
           ['完成工序', '报工次数 — 同一个零件过 编程 和 操机 算 2'],
           ['经手件数', '每过一道工序，该零件的数量算一次'],
           ['订单金额', '该工单的全部合同额，不是本人产出'],
@@ -1079,7 +1093,7 @@ function ExportButton({
       // ── 报工明细 — 工单 foremost, its components spanning underneath. 工号/客户
       // sit on the order's first row; blank on the rest so each order reads as a
       // header with its 零件 listed below it. A blank row separates orders.
-      const head = ['工号', '客户', '零件', '料号', '数量', '工段', '经手人', '完成时间', ...(showMoney ? ['经手金额（按5%）', '金额来源'] : [])]
+      const head = ['工号', '客户', '零件', '料号', '数量', '工段', '经手人', '完成时间', ...(showMoney ? [valueLabel(showRate), '金额来源'] : [])]
       const body: (string | number)[][] = []
       orders.forEach((o, oi) => {
         if (oi > 0) body.push([]) // spacer between orders
@@ -1139,6 +1153,11 @@ function ExportButton({
 }
 
 // --- small chrome ------------------------------------------------------------
+
+// 经手金额的表头 —— 「按5%」那几个字只给老板和于海伟看 (于海伟 2026-11-05)。
+function valueLabel(showRate: boolean): string {
+  return showRate ? '经手金额（按5%）' : '经手金额'
+}
 
 function Totaled({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (

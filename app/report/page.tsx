@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { isReportView, type ReportView } from '@/lib/report-view'
 import {
   requireReportViewer,
+  canSeeHandledValue,
   canSeeMoney,
   canSeeReport,
   canSeeOrderLedger,
@@ -121,6 +122,7 @@ export default async function ReportPage({
             initialWorker={worker}
             todayStr={todayStr}
             showMoney={canSeeMoney(user)}
+            showRate={canSeeHandledValue(user)}
             canFix={canFixReport(user)}
           />
         )}
