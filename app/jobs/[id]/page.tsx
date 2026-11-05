@@ -566,24 +566,27 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           </div>
           <div className="col-span-1 md:col-span-2">
             <p className="label mb-2">工号</p>
-            <div className="flex items-center gap-2">
+            {/* 长工号放不下就换行, 不截 (于海伟 2026-11-05)。 */}
+            <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
               {/* 工号 上传之后就定死了 —— 这个号是全厂认这批活的唯一凭据,
                   图纸、报工、质检、出货单、对账单、车间墙上那张生产单都写着
                   它。改它是名单制 (canRenameUploadedJob: 老板 + 于海伟), 别
                   人看到的是一行字; 服务端 lib/db updateJob 那一道同样挡着。
                   上传之前谁都能改, 那在收件箱那一版。 */}
               {canRenameJobNo ? (
-                <JobText
-                  jobId={job.id}
-                  field="jobNo"
-                  value={job.jobNo}
-                  mono
-                  className="text-[15px] text-[var(--color-ink)]"
-                  placeholder="工号"
-                />
+                <div className="min-w-0 flex-1 basis-[120px]">
+                  <JobText
+                    jobId={job.id}
+                    field="jobNo"
+                    value={job.jobNo}
+                    multiline
+                    className="mono w-full text-[15px] text-[var(--color-ink)] [overflow-wrap:anywhere]"
+                    placeholder="工号"
+                  />
+                </div>
               ) : (
                 <p
-                  className="mono text-[15px] text-[var(--color-ink)]"
+                  className="mono min-w-0 text-[15px] text-[var(--color-ink)] [overflow-wrap:anywhere]"
                   title="工号上传后不能再改 — 要改找于海伟"
                 >
                   {job.jobNo}
