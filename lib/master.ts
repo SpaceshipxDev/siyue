@@ -163,6 +163,8 @@ export type MasterRow = {
   isProcessRework?: boolean
   /** 待提货 (lib/pickup) —— 货做好了等客户来拿。看板上单独一栏「待提货」。 */
   awaitingPickup?: boolean
+  /** 待确认 (lib/pending-confirm) —— 看板上单独一栏「待确认」。 */
+  awaitingConfirm?: boolean
   /** 有零件点了「转外协」、商务还没开外协单 (lib/outsource-transfer)。算待外协。 */
   outsourceTransfer?: boolean
   /** Lowercased haystack for substring search — built by the view. */

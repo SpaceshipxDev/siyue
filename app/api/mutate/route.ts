@@ -259,6 +259,7 @@ import {
   upsertInspectionScrap,
 } from '@/lib/scrap'
 import { setJobPickup } from '@/lib/pickup'
+import { setJobConfirm } from '@/lib/pending-confirm'
 import { clearTransfers, getTransfer, setTransfer } from '@/lib/outsource-transfer'
 import { importOrderLedger, type OrderImportItem } from '@/lib/order-import'
 import { addSemiStock, deleteSemiStock, updateSemiStock, type SemiStockInput } from '@/lib/semi-stock'
@@ -1841,6 +1842,18 @@ async function dispatch(
         })
       }
       revalidateExternal(jobId)
+      return Response.json(ok())
+    }
+
+    // 待确认 (lib/pending-confirm) —— 跟待提货同一档 (商务 / 工程)。
+    case 'setJobConfirm': {
+      const jobId = body.jobId
+      if (!isString(jobId) || typeof body.confirm !== 'boolean') return err('bad setJobConfirm args')
+      const u = await requireUser()
+      if (!canManageOutsource(u)) return err('无权设置待确认 (仅商务/工程可操作)', 403)
+      await setJobConfirm(jobId, body.confirm, u.name)
+      revalidatePath('/')
+      revalidatePath(`/jobs/${jobId}`)
       return Response.json(ok())
     }
 

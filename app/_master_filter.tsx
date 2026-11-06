@@ -179,8 +179,9 @@ type DateFilter =
 // 报工和个人产值存在, 不算在产、不出货 (于海伟 2026-10-27)。
 //
 // 待提货: 货做好了等客户来拿 (lib/pickup), 从在产挪出来; 出货报完归已出货。
+// 待确认 (lib/pending-confirm, 于海伟 2026-11-06): 跟待提货一个样子, 从在产挪出来。
 // 半成品库存不是一类工单, 是同一排上的一张手记清单 (lib/semi-stock)。
-type ShipFilter = 'live' | 'paused' | 'shipped' | 'rework' | 'process' | 'pickup' | 'stock'
+type ShipFilter = 'live' | 'paused' | 'shipped' | 'rework' | 'process' | 'pickup' | 'confirm' | 'stock'
 
 // Tab names, reused when telling the user a search hit lives outside the
 // tab they're standing in.
@@ -191,6 +192,7 @@ const SHIP_SCOPE_LABEL: Record<ShipFilter, string> = {
   rework: '退货返工',
   process: '制程返工',
   pickup: '待提货',
+  confirm: '待确认',
   stock: '半成品库存',
 }
 
@@ -496,10 +498,12 @@ export function MasterSheet({
     effectiveIsProduct,
     effectiveIsPaused,
     effectiveIsPickup,
+    effectiveIsConfirm,
     setType,
     setIsProduct,
     setPaused,
     setPickup,
+    setConfirm,
   } = useOptimisticJobType(rows)
 
   // Ref handed to <StickyHorizontalScrollbar>: the grid is hundreds of rows
@@ -529,7 +533,7 @@ export function MasterSheet({
   // 暂停 wins over 在产 for any not-yet-shipped job; shipped always wins (a
   // shipped job is done regardless of a stale pause flag). Uses the optimistic
   // overlay so the counts move in the same tick the chip is toggled.
-  // 一行归哪一栏 —— 制程返工 > 退货返工 > 已出货 > 待提货 > 暂停 > 在产。计数、列表、
+  // 一行归哪一栏 —— 制程返工 > 退货返工 > 已出货 > 待提货 > 待确认 > 暂停 > 在产。计数、列表、
   // 搜索跳栏都用这一个, 一行不可能列在一栏、数在另一栏。
   const scopeOf = useCallback(
     (r: MasterRow): ShipFilter =>
@@ -541,14 +545,17 @@ export function MasterSheet({
             ? 'shipped'
             : effectiveIsPickup(r)
               ? 'pickup'
-              : effectiveIsPaused(r)
-                ? 'paused'
-                : 'live',
-    [effectiveIsPaused, effectiveIsPickup],
+              : effectiveIsConfirm(r)
+                ? 'confirm'
+                : effectiveIsPaused(r)
+                  ? 'paused'
+                  : 'live',
+    [effectiveIsPaused, effectiveIsPickup, effectiveIsConfirm],
   )
 
-  const { liveCount, pausedCount, shippedCount, reworkCount, processCount, pickupCount } = useMemo(() => {
+  const { liveCount, pausedCount, shippedCount, reworkCount, processCount, pickupCount, confirmCount } = useMemo(() => {
     let pickup = 0
+    let confirm = 0
     let live = 0
     let paused = 0
     let shipped = 0
@@ -564,6 +571,7 @@ export function MasterSheet({
       else if (r.activeReturn) rework++
       else if (rowIsShipped(r)) shipped++
       else if (effectiveIsPickup(r)) pickup++
+      else if (effectiveIsConfirm(r)) confirm++
       else if (effectiveIsPaused(r)) paused++
       else live++
     }
@@ -574,8 +582,9 @@ export function MasterSheet({
       reworkCount: rework,
       processCount: process,
       pickupCount: pickup,
+      confirmCount: confirm,
     }
-  }, [rows, effectiveIsPaused, effectiveIsPickup])
+  }, [rows, effectiveIsPaused, effectiveIsPickup, effectiveIsConfirm])
 
   const scopedRows = useMemo(() => {
     if (!showShipTabs) return rows.filter((r) => !rowIsInbox(r))
@@ -637,6 +646,7 @@ export function MasterSheet({
       rework: 0,
       process: 0,
       pickup: 0,
+      confirm: 0,
       stock: 0,
     }
     for (const r of hits) {
@@ -999,6 +1009,7 @@ export function MasterSheet({
           reworkCount={reworkCount}
           processCount={processCount}
           pickupCount={pickupCount}
+          confirmCount={confirmCount}
           alwaysProcess={canEditType}
           shippedPending={pendingShipped}
           shippedFailed={shippedFailed}
@@ -1354,6 +1365,11 @@ export function MasterSheet({
                     // 点上待提货 —— 跟着跳到「待提货」那一栏。
                     if (next && showShipTabs) setShipFilter('pickup')
                   }}
+                  confirm={effectiveIsConfirm(row)}
+                  onConfirmChange={(next) => {
+                    setConfirm(row, next)
+                    if (next && showShipTabs) setShipFilter('confirm')
+                  }}
                 />
               )
             })}
@@ -1468,6 +1484,7 @@ function ShipFilterToggle({
   reworkCount,
   processCount,
   pickupCount,
+  confirmCount,
   alwaysProcess,
   shippedPending,
   shippedFailed,
@@ -1481,6 +1498,7 @@ function ShipFilterToggle({
   reworkCount: number
   processCount: number
   pickupCount: number
+  confirmCount: number
   /** 能开返工单的人 (商务 / 工程) 一直看得到这一栏 —— 入口在里面。 */
   alwaysProcess?: boolean
   /** Shipped rows still streaming in — show … instead of a partial count. */
@@ -1491,6 +1509,7 @@ function ShipFilterToggle({
 }) {
   const segments: { key: ShipFilter; label: string; count: number | string }[] = [
     { key: 'live', label: '在产', count: liveCount },
+    { key: 'confirm', label: '待确认', count: confirmCount },
     { key: 'pickup', label: '待提货', count: pickupCount },
     {
       key: 'shipped',
@@ -1592,7 +1611,7 @@ function ScopeJumpHints({
   prominent?: boolean
 }) {
   if (!hits) return null
-  const others = (['live', 'pickup', 'shipped', 'paused', 'process'] as ShipFilter[]).filter(
+  const others = (['live', 'confirm', 'pickup', 'shipped', 'paused', 'process'] as ShipFilter[]).filter(
     (s) => s !== active && hits[s] > 0,
   )
   if (others.length === 0) return null
@@ -2052,6 +2071,8 @@ function JobRow({
   onPauseChange,
   pickup,
   onPickupChange,
+  confirm,
+  onConfirmChange,
 }: {
   measureRef?: (node: HTMLTableRowElement | null) => void
   virtualIndex?: number
@@ -2084,6 +2105,9 @@ function JobRow({
   /** 待提货 —— 生效后的 (含 overlay)。 */
   pickup: boolean
   onPickupChange: (next: boolean) => void
+  /** 待确认 —— 生效后的 (含 overlay)。 */
+  confirm: boolean
+  onConfirmChange: (next: boolean) => void
 }) {
   // 滞留工序 — 最前面那一道还没做完的工段 (lib/master rowStuckStage)。
   const stuckStage = rowStuckStage(row)
@@ -2137,6 +2161,7 @@ function JobRow({
               paused={paused}
               pauseReason={pauseReason}
               pickup={pickup}
+              confirm={confirm}
               jobNo={row.jobNo}
               canEdit={canEditType}
               canPause
@@ -2144,6 +2169,7 @@ function JobRow({
               onProductChange={onProductChange}
               onPauseChange={onPauseChange}
               onPickupChange={onPickupChange}
+              onConfirmChange={onConfirmChange}
             />
             {/* 大单 —— 零件超过 10 项, 或者任一零件数量超过 10 件。这两种
                 单不能按平常的节奏排 (一道工序卡住就是一片件一起卡), 所以让

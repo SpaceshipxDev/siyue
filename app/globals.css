@@ -51,6 +51,7 @@
   --color-type-paused: #bf6a1a;
   /* 待提货 — 货好了等客户来拿。青色, 跟上面几样都分得开。 */
   --color-type-pickup: #2a7177;
+  --color-type-confirm: #6b4c9a;
 }
 
 @theme inline {
@@ -201,6 +202,8 @@ html, body {
 .type-chip[data-job-type="product"] { color: var(--color-type-product); background: color-mix(in srgb, var(--color-type-product) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-product) 34%, transparent); }
 .type-chip[data-job-type="pickup"] { color: var(--color-type-pickup); background: color-mix(in srgb, var(--color-type-pickup) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-pickup) 34%, transparent); }
 .type-chip[data-job-type="pickup"]:hover { background: color-mix(in srgb, var(--color-type-pickup) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-pickup) 48%, transparent); }
+.type-chip[data-job-type="confirm"] { color: var(--color-type-confirm); background: color-mix(in srgb, var(--color-type-confirm) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-confirm) 34%, transparent); }
+.type-chip[data-job-type="confirm"]:hover { background: color-mix(in srgb, var(--color-type-confirm) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-confirm) 48%, transparent); }
 .type-chip[data-job-type="product"]:hover { background: color-mix(in srgb, var(--color-type-product) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-type-product) 48%, transparent); }
 
 /* 暂停 — filled like 加急 (a blocked job is loud, you want to see it), in amber. */

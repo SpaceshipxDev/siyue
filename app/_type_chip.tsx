@@ -34,6 +34,7 @@ export function TypeChip({
   paused,
   pauseReason,
   pickup,
+  confirm,
   jobNo,
   canEdit,
   canPause,
@@ -41,6 +42,7 @@ export function TypeChip({
   onProductChange,
   onPauseChange,
   onPickupChange,
+  onConfirmChange,
 }: {
   jobType?: JobType
   isProduct?: boolean
@@ -50,6 +52,8 @@ export function TypeChip({
   pauseReason?: string
   /** 待提货 (lib/pickup) —— 货做好了等客户来拿。 */
   pickup?: boolean
+  /** 待确认 (lib/pending-confirm)。 */
+  confirm?: boolean
   jobNo: string
   /** Commerce/工程 can edit the duration/priority bucket + 产品. */
   canEdit: boolean
@@ -68,6 +72,8 @@ export function TypeChip({
   onPauseChange?: (next: boolean, reason?: string) => void
   /** 待提货 点上 / 撤掉。不给就不出这一项。 */
   onPickupChange?: (next: boolean) => void
+  /** 待确认 点上 / 撤掉。不给就不出这一项。 */
+  onConfirmChange?: (next: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLSpanElement>(null)
@@ -109,6 +115,11 @@ export function TypeChip({
     if (next === Boolean(pickup)) return
     onPickupChange?.(next)
   }
+  const onPickConfirm = (next: boolean) => {
+    setOpen(false)
+    if (next === Boolean(confirm)) return
+    onConfirmChange?.(next)
+  }
 
   const onPickPaused = (next: boolean, reason?: string) => {
     if (next === Boolean(paused) && (reason ?? '') === (pauseReason ?? '')) return
@@ -116,7 +127,7 @@ export function TypeChip({
   }
 
   if (!canEdit && !canPause) {
-    if (!jobType && !isProduct && !paused && !pickup) return null
+    if (!jobType && !isProduct && !paused && !pickup && !confirm) return null
     return (
       <span className="inline-flex flex-col items-start gap-1">
         {jobType && (
@@ -154,6 +165,11 @@ export function TypeChip({
             待提货
           </span>
         )}
+        {confirm && (
+          <span className="type-chip" data-job-type="confirm" aria-label="待确认" title="待确认">
+            待确认
+          </span>
+        )}
       </span>
     )
   }
@@ -170,7 +186,7 @@ export function TypeChip({
     if (e.key === 'Enter' || e.key === ' ') toggle(e)
   }
 
-  const hasAnyTag = Boolean(jobType) || Boolean(isProduct) || Boolean(paused) || Boolean(pickup)
+  const hasAnyTag = Boolean(jobType) || Boolean(isProduct) || Boolean(paused) || Boolean(pickup) || Boolean(confirm)
   // Empty-state affordance: managers get "类别" (they edit the bucket); a
   // pause-only worker gets "暂停" so the entry point names what they can do.
   const emptyLabel = canEdit ? '类别' : '暂停'
@@ -243,6 +259,22 @@ export function TypeChip({
               待提货
             </span>
           )}
+          {confirm && (
+            <span
+              role="button"
+              tabIndex={0}
+              className="type-chip cursor-pointer select-none"
+              data-job-type="confirm"
+              onClick={toggle}
+              onKeyDown={onKey}
+              aria-haspopup="menu"
+              aria-expanded={open}
+              aria-label="待确认 · 点击修改"
+              title="待确认 · 点击修改"
+            >
+              待确认
+            </span>
+          )}
         </>
       ) : (
         <span
@@ -267,12 +299,14 @@ export function TypeChip({
           paused={Boolean(paused)}
           pauseReason={pauseReason ?? ''}
           pickup={Boolean(pickup)}
+          confirm={Boolean(confirm)}
           canEdit={canEdit}
           canPause={Boolean(canPause)}
           onPick={onPick}
           onPickProduct={onPickProduct}
           onPickPaused={onPickPaused}
           onPickPickup={onPickupChange ? onPickPickup : undefined}
+          onPickConfirm={onConfirmChange ? onPickConfirm : undefined}
         />
       )}
     </span>
@@ -285,24 +319,28 @@ function TypePopover({
   paused,
   pauseReason,
   pickup,
+  confirm,
   canEdit,
   canPause,
   onPick,
   onPickProduct,
   onPickPaused,
   onPickPickup,
+  onPickConfirm,
 }: {
   current: JobType | null
   isProduct: boolean
   paused: boolean
   pauseReason: string
   pickup: boolean
+  confirm: boolean
   canEdit: boolean
   canPause: boolean
   onPick: (next: JobType | null) => void
   onPickProduct: (next: boolean) => void
   onPickPaused: (next: boolean, reason?: string) => void
   onPickPickup?: (next: boolean) => void
+  onPickConfirm?: (next: boolean) => void
 }) {
   // Local draft of the reason so typing doesn't round-trip on every keystroke;
   // committed on blur / Enter. Seeded from the server value; re-seeds if the
@@ -453,6 +491,34 @@ function TypePopover({
           )}
         </>
       )}
+      {/* 待确认 —— 商务 / 工程; 点上就跳到看板「待确认」那一栏。 */}
+      {canEdit && onPickConfirm && (
+        <button
+          type="button"
+          role="menuitemcheckbox"
+          aria-checked={confirm}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onPickConfirm(!confirm)
+          }}
+          className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] transition-colors hover:bg-[var(--color-muted-bg)] ${
+            confirm ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-2)]'
+          }`}
+        >
+          <span
+            className="inline-block h-2 w-2 rounded-[2px]"
+            style={{ background: 'var(--color-type-confirm)' }}
+            aria-hidden="true"
+          />
+          <span className="flex-1">待确认</span>
+          {confirm && (
+            <span aria-hidden="true" className="text-[var(--color-ink-3)]">
+              ✓
+            </span>
+          )}
+        </button>
+      )}
       {/* 待提货 —— 商务 / 工程; 点上就跳到看板「待提货」那一栏。 */}
       {canEdit && onPickPickup && (
         <button
@@ -499,6 +565,7 @@ export function JobTypeEditor({
   initialPaused,
   initialPauseReason,
   initialPickup,
+  initialConfirm,
   canEdit,
   canPause = true,
 }: {
@@ -509,6 +576,7 @@ export function JobTypeEditor({
   initialPaused?: boolean
   initialPauseReason?: string
   initialPickup?: boolean
+  initialConfirm?: boolean
   canEdit: boolean
   /** 暂停 is open to anyone logged in — defaults true so every viewer of the
    *  detail page can pause/resume. */
@@ -523,7 +591,27 @@ export function JobTypeEditor({
     initialPauseReason ?? '',
   )
   const [pickup, setLocalPickup] = useState<boolean>(Boolean(initialPickup))
+  const [confirm, setLocalConfirm] = useState<boolean>(Boolean(initialConfirm))
   const router = useRouter()
+
+  // 待确认 —— 跟待提货一样, 点上之后跳到看板「待确认」那一栏。
+  const onConfirmChange = (next: boolean) => {
+    setLocalConfirm(next)
+    mutate({ kind: 'setJobConfirm', jobId, confirm: next })
+      .then(() => {
+        showToast(next ? `${jobNo} · 已转待确认` : `${jobNo} · 已撤销待确认`)
+        if (next) {
+          try {
+            sessionStorage.setItem(PICKUP_TAB_KEY, JSON.stringify('confirm'))
+          } catch {}
+          router.push('/')
+        }
+      })
+      .catch(() => {
+        setLocalConfirm(!next)
+        showToast('待确认修改失败,请重试', 'neutral')
+      })
+  }
 
   // 待提货 —— 点上之后跳到看板「待提货」那一栏 (看板的分栏记在 sessionStorage)。
   const onPickupChange = (next: boolean) => {
@@ -599,6 +687,7 @@ export function JobTypeEditor({
       paused={paused}
       pauseReason={pauseReason}
       pickup={pickup}
+      confirm={confirm}
       jobNo={jobNo}
       canEdit={canEdit}
       canPause={canPause}
@@ -606,6 +695,7 @@ export function JobTypeEditor({
       onProductChange={onProductChange}
       onPauseChange={onPauseChange}
       onPickupChange={onPickupChange}
+      onConfirmChange={onConfirmChange}
     />
   )
 }
@@ -619,7 +709,7 @@ export const PICKUP_TAB_KEY = 'mes:filter:v1:master:overview:ship'
 // chip + stripe + sort all update in the same React tick as the click.
 // --------------------------------------------------------------------------
 
-export function useOptimisticJobType<T extends { id: string; jobType?: JobType; isProduct?: boolean; pausedAt?: string; awaitingPickup?: boolean; jobNo: string }>(
+export function useOptimisticJobType<T extends { id: string; jobType?: JobType; isProduct?: boolean; pausedAt?: string; awaitingPickup?: boolean; awaitingConfirm?: boolean; jobNo: string }>(
   _rows: T[],
 ) {
   // Overlay map: per-jobId, the type the user JUST picked. `null` (explicit)
@@ -646,6 +736,34 @@ export function useOptimisticJobType<T extends { id: string; jobType?: JobType; 
     },
     [pickupOverlay],
   )
+
+  // 待确认 —— 同一套 overlay。
+  const [confirmOverlay, setConfirmOverlay] = useState<Record<string, boolean>>({})
+
+  const effectiveIsConfirm = useCallback(
+    (row: { id: string; awaitingConfirm?: boolean }): boolean => {
+      const server = Boolean(row.awaitingConfirm)
+      if (!(row.id in confirmOverlay)) return server
+      return confirmOverlay[row.id]
+    },
+    [confirmOverlay],
+  )
+
+  const setConfirm = useCallback((row: { id: string; jobNo: string }, next: boolean) => {
+    setConfirmOverlay((prev) => ({ ...prev, [row.id]: next }))
+    mutate({ kind: 'setJobConfirm', jobId: row.id, confirm: next })
+      .then(() => {
+        showToast(next ? `${row.jobNo} · 已转待确认` : `${row.jobNo} · 已撤销待确认`)
+      })
+      .catch(() => {
+        setConfirmOverlay((prev) => {
+          const copy = { ...prev }
+          delete copy[row.id]
+          return copy
+        })
+        showToast('待确认修改失败,请重试', 'neutral')
+      })
+  }, [])
 
   const setPickup = useCallback((row: { id: string; jobNo: string }, next: boolean) => {
     setPickupOverlay((prev) => ({ ...prev, [row.id]: next }))
@@ -773,9 +891,11 @@ export function useOptimisticJobType<T extends { id: string; jobType?: JobType; 
     effectiveIsProduct,
     effectiveIsPaused,
     effectiveIsPickup,
+    effectiveIsConfirm,
     setType,
     setIsProduct,
     setPaused,
     setPickup,
+    setConfirm,
   }
 }
