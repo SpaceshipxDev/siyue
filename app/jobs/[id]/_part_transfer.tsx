@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
 
-// 转外协 —— 零件那一行, 检验报告 · 图纸变更 后面。点一下变成「确认？」,
-// 再点才算 (点错了只有于海伟、老板能取消)。原地变、宽度不变 —— 字一变长就
-// 挤到下一行, 第二下点空了 (于海伟 2026-11-07)。转了: 这个零件还没开工的 编程 /
+// 转外协 —— 零件那一行, 检验报告 · 图纸变更 下面单独一行, 转没转都是同一
+// 个带边框的小标签 (于海伟 2026-11-07: 跟转好了的一个样子)。点一下变成「确
+// 认转外协？」, 再点才算 (点错了只有于海伟、老板能取消)。转了: 这个零件还没开工的 编程 /
 // 操机 / 车铣 关掉, 这张单进看板「待外协」; 商务开了外协单这条就自己消掉
 // (lib/outsource-transfer)。
 export function PartTransfer({
@@ -51,7 +51,7 @@ export function PartTransfer({
 
   if (mark) {
     return (
-      <span className="inline-flex items-center gap-2 whitespace-nowrap">
+      <span className="flex basis-full items-center gap-2 whitespace-nowrap">
         <span
           className="inline-flex items-center rounded-[2px] border border-[var(--color-warning)] px-1.5 py-0.5 text-[10px] tracking-wider text-[var(--color-warning)]"
           title={`${mark.by} ${mark.at.slice(5, 10)} 转外协${
@@ -83,19 +83,21 @@ export function PartTransfer({
   if (!canTransfer || atVendor) return null
 
   return (
-    <button
-      type="button"
-      disabled={pending}
-      onClick={() => (armed ? run('transferPartOutsource') : setArmed(true))}
-      onBlur={() => setArmed(false)}
-      title={armed ? '再点一下就转外协' : '这个零件外发：关掉还没开工的编程、操机、车铣，进待外协'}
-      className={`inline-block w-[3.6em] whitespace-nowrap text-left text-[10px] tracking-wider outline-none transition-colors disabled:opacity-50 ${
-        armed
-          ? 'font-semibold text-[var(--color-warning)]'
-          : 'text-[var(--color-ink-4)] hover:text-[var(--color-warning)]'
-      }`}
-    >
-      {pending ? '…' : armed ? '确认？' : '转外协'}
-    </button>
+    <span className="flex basis-full">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => (armed ? run('transferPartOutsource') : setArmed(true))}
+        onBlur={() => setArmed(false)}
+        title={armed ? '再点一下就转外协' : '这个零件外发：关掉还没开工的编程、操机、车铣，进待外协'}
+        className={`inline-flex items-center whitespace-nowrap rounded-[2px] border px-1.5 py-0.5 text-[10px] tracking-wider outline-none transition-colors disabled:opacity-50 ${
+          armed
+            ? 'border-[var(--color-warning)] bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] font-semibold text-[var(--color-warning)]'
+            : 'border-[var(--color-border-strong)] text-[var(--color-ink-3)] hover:border-[var(--color-warning)] hover:text-[var(--color-warning)]'
+        }`}
+      >
+        {pending ? '转外协中…' : armed ? '确认转外协？' : '转外协'}
+      </button>
+    </span>
   )
 }
