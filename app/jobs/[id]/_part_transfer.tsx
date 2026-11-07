@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
 
-// 转外协 —— 零件那一行, 检验报告 · 图纸变更 后面。点一下变成「确认转外协」,
-// 再点才算 (点错了只有于海伟、老板能取消)。转了: 这个零件还没开工的 编程 /
+// 转外协 —— 零件那一行, 检验报告 · 图纸变更 后面。点一下变成「确认？」,
+// 再点才算 (点错了只有于海伟、老板能取消)。原地变、宽度不变 —— 字一变长就
+// 挤到下一行, 第二下点空了 (于海伟 2026-11-07)。转了: 这个零件还没开工的 编程 /
 // 操机 / 车铣 关掉, 这张单进看板「待外协」; 商务开了外协单这条就自己消掉
 // (lib/outsource-transfer)。
 export function PartTransfer({
@@ -65,13 +66,14 @@ export function PartTransfer({
             disabled={pending}
             onClick={() => (armed ? run('cancelPartOutsource') : setArmed(true))}
             onBlur={() => setArmed(false)}
-            className={`text-[10px] tracking-wider transition-colors disabled:opacity-50 ${
+            title={armed ? '再点一下取消转外协' : undefined}
+            className={`inline-block w-[3.6em] whitespace-nowrap text-left text-[10px] tracking-wider transition-colors disabled:opacity-50 ${
               armed
                 ? 'font-semibold text-[var(--color-overdue)]'
                 : 'text-[var(--color-ink-4)] hover:text-[var(--color-ink)]'
             }`}
           >
-            {pending ? '取消中…' : armed ? '确认取消' : '取消'}
+            {pending ? '…' : armed ? '确认？' : '取消'}
           </button>
         )}
       </span>
@@ -86,14 +88,14 @@ export function PartTransfer({
       disabled={pending}
       onClick={() => (armed ? run('transferPartOutsource') : setArmed(true))}
       onBlur={() => setArmed(false)}
-      title="这个零件外发：关掉还没开工的编程、操机、车铣，进待外协"
-      className={`whitespace-nowrap text-[10px] tracking-wider outline-none transition-colors disabled:opacity-50 ${
+      title={armed ? '再点一下就转外协' : '这个零件外发：关掉还没开工的编程、操机、车铣，进待外协'}
+      className={`inline-block w-[3.6em] whitespace-nowrap text-left text-[10px] tracking-wider outline-none transition-colors disabled:opacity-50 ${
         armed
           ? 'font-semibold text-[var(--color-warning)]'
           : 'text-[var(--color-ink-4)] hover:text-[var(--color-warning)]'
       }`}
     >
-      {pending ? '转外协中…' : armed ? '确认转外协' : '转外协'}
+      {pending ? '…' : armed ? '确认？' : '转外协'}
     </button>
   )
 }
