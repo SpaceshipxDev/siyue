@@ -1823,14 +1823,19 @@ async function dispatch(
         if ((left.get(jobId) ?? 0) === 0)
           await updateJob(jobId, { needsOutsource: false, outsourceFlaggedBy: null, outsourceFlaggedAt: null })
       } else {
-        if (mark) return Response.json(ok())
+        if (mark) return Response.json(ok({ closed: mark.removed, kept: [] as Stage[] }))
         // 只关还没开工的 —— 做了一半、做完了的报工记录不能跟着删。
-        const removed = (['编程', '操机', '车铣'] as Stage[]).filter(
-          (s) => route.includes(s) && isStageUntouched(c, s) && !isStageOutsourced(c, s),
-        )
+        const onRoute = (['编程', '操机', '车铣'] as Stage[]).filter((s) => route.includes(s))
+        let removed = onRoute.filter((s) => isStageUntouched(c, s) && !isStageOutsourced(c, s))
+        // 关工序是顺手的事, 关不掉也照样转外协 (于海伟 2026-11-07: 有几个零件
+        // 怎么点都转不出去) —— 标记挂上、进待外协, 关不掉的那几道照实说。
         if (removed.length > 0) {
-          const r = await setPartRoute(jobId, componentId, route.filter((s) => !removed.includes(s)), { force: false })
-          if (!r.ok) return err('工序关不掉，刷新再试')
+          try {
+            const r = await setPartRoute(jobId, componentId, route.filter((s) => !removed.includes(s)), { force: false })
+            if (!r.ok) removed = []
+          } catch {
+            removed = []
+          }
         }
         const at = new Date().toISOString()
         await setTransfer(componentId, { jobId, removed, at, by: u.name })
@@ -1840,6 +1845,8 @@ async function dispatch(
           outsourceFlaggedBy: u.name,
           outsourceFlaggedAt: at,
         })
+        revalidateExternal(jobId)
+        return Response.json(ok({ closed: removed, kept: onRoute.filter((s) => !removed.includes(s)) }))
       }
       revalidateExternal(jobId)
       return Response.json(ok())

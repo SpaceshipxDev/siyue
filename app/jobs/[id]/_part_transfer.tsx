@@ -36,10 +36,15 @@ export function PartTransfer({
   const run = (kind: 'transferPartOutsource' | 'cancelPartOutsource') =>
     start(async () => {
       try {
-        await mutate({ kind, jobId, componentId })
+        const r = await mutate<{ closed?: string[]; kept?: string[] }>({ kind, jobId, componentId })
         setArmed(false)
+        const kept = r.data?.kept ?? []
         showToast(
-          kind === 'transferPartOutsource' ? `${partName} 已转外协` : `${partName} 已取消转外协`,
+          kind === 'cancelPartOutsource'
+            ? `${partName} 已取消转外协`
+            : kept.length > 0
+              ? `${partName} 已转外协 · ${kept.join('、')}已开工或关不掉，留着没关`
+              : `${partName} 已转外协`,
           'success',
         )
         router.refresh()
