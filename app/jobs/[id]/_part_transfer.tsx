@@ -14,7 +14,7 @@ export function PartTransfer({
   jobId,
   componentId,
   partName,
-  mark,
+  mark: serverMark,
   canTransfer,
   canCancel,
   atVendor,
@@ -32,6 +32,10 @@ export function PartTransfer({
   const router = useRouter()
   const [pending, start] = useTransition()
   const [armed, setArmed] = useState(false)
+  // 点完当场就变 —— 不等页面重新读回来 (于海伟 2026-11-07: 转了没出字样)。
+  // undefined = 照页面给的; null = 刚取消。
+  const [local, setLocal] = useState<{ by: string; at: string; removed: string[] } | null | undefined>(undefined)
+  const mark = local === undefined ? serverMark : (local ?? undefined)
 
   const run = (kind: 'transferPartOutsource' | 'cancelPartOutsource') =>
     start(async () => {
@@ -39,6 +43,11 @@ export function PartTransfer({
         const r = await mutate<{ closed?: string[]; kept?: string[] }>({ kind, jobId, componentId })
         setArmed(false)
         const kept = r.data?.kept ?? []
+        setLocal(
+          kind === 'cancelPartOutsource'
+            ? null
+            : { by: '', at: new Date().toISOString(), removed: r.data?.closed ?? [] },
+        )
         showToast(
           kind === 'cancelPartOutsource'
             ? `${partName} 已取消转外协`

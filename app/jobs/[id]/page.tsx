@@ -175,7 +175,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
     getReworkJobs().catch(() => ({}) as Awaited<ReturnType<typeof getReworkJobs>>),
     getPickupJobIds().catch(() => new Set<string>()),
     // 转外协 (lib/outsource-transfer) —— 哪几个零件转了、还没开外协单。
-    getJobTransfers(rawJob.id).catch(() => ({}) as Awaited<ReturnType<typeof getJobTransfers>>),
+    getJobTransfers(rawJob.id, rawJob.components.map((c) => c.id)).catch(() => ({}) as Awaited<ReturnType<typeof getJobTransfers>>),
     getConfirmJobIds().catch(() => new Set<string>()),
   ])
   const rework = reworkJobs[rawJob.id]
