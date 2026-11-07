@@ -8,8 +8,13 @@ import type { Stage } from './data'
  * 这张单进看板上的「待外协」; 商务给这个零件开了外协单 (外协操作照旧), 这条
  * 就自己消掉。点错了取消 (把关掉的工序还回去) 只有于海伟和老板。
  *
+ * 一个零件一份 (于海伟 2026-11-07: 同一张单两个零件都转了, 上面那个没显示)。
+ * 原来全厂一份 json, 线上几个进程前后脚各写各的, 后写的把先写的盖掉; 一个零
+ * 件一个文件就不会互相盖。文件名带着工单号, 看板列一下目录就知道哪几张单在等。
+ *
  * TABLE-FREE, 没有 migration:
- *   jobs/outsource-transfer.json   { "<componentId>": { jobId, removed, at, by } }
+ *   jobs/outsource-transfer/<jobId>__<componentId>.json   { jobId, removed, at, by }
+ *   jobs/outsource-transfer.json   早先那一份, 只读 + 清, 不再往里写。
  */
 
 export type TransferMark = {
@@ -20,89 +25,142 @@ export type TransferMark = {
   by: string
 }
 
-const KEY = 'jobs/outsource-transfer.json'
-const TTL_MS = 30_000
+const DIR = 'jobs/outsource-transfer'
+const LEGACY_KEY = 'jobs/outsource-transfer.json'
+const SEP = '__'
+// 看板每次刷新都问一回 —— 同一个进程几秒内不重复列目录。
+const TTL_MS = 5_000
 
-let chain: Promise<unknown> = Promise.resolve()
-function withLock<T>(fn: () => Promise<T>): Promise<T> {
-  const next = chain.then(fn, fn)
-  chain = next.catch(() => undefined)
+const fileOf = (jobId: string, componentId: string) => `${DIR}/${jobId}${SEP}${componentId}.json`
+
+function parseName(name: string): { jobId: string; componentId: string } | null {
+  if (!name.endsWith('.json')) return null
+  const base = name.slice(0, -'.json'.length)
+  const i = base.indexOf(SEP)
+  if (i <= 0) return null
+  return { jobId: base.slice(0, i), componentId: base.slice(i + SEP.length) }
+}
+
+function readMark(raw: unknown): TransferMark | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const r = raw as Record<string, unknown>
+  if (typeof r.jobId !== 'string' || !r.jobId) return null
+  return {
+    jobId: r.jobId,
+    removed: Array.isArray(r.removed)
+      ? (r.removed as unknown[]).filter((s): s is Stage => typeof s === 'string')
+      : [],
+    at: typeof r.at === 'string' ? r.at : '',
+    by: typeof r.by === 'string' ? r.by : '',
+  }
+}
+
+async function download(key: string): Promise<unknown> {
+  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(key)
+  if (error || !data) return undefined
+  try {
+    return JSON.parse(await data.text())
+  } catch {
+    return undefined
+  }
+}
+
+// ── 早先那一份 (全厂一个 json) —— 里面还挂着的照样算, 清的时候一起清。 ──
+
+let legacyLock: Promise<unknown> = Promise.resolve()
+function withLegacyLock<T>(fn: () => Promise<T>): Promise<T> {
+  const next = legacyLock.then(fn, fn)
+  legacyLock = next.catch(() => undefined)
   return next
 }
 
-let cache: { at: number; all: Record<string, TransferMark> } | null = null
-
-function normalize(raw: unknown): Record<string, TransferMark> {
+async function readLegacy(): Promise<Record<string, TransferMark>> {
+  const raw = await download(LEGACY_KEY)
   const out: Record<string, TransferMark> = {}
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return out
   for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof v !== 'object' || v === null) continue
-    const r = v as Record<string, unknown>
-    if (typeof r.jobId !== 'string' || !r.jobId) continue
-    out[id] = {
-      jobId: r.jobId,
-      removed: Array.isArray(r.removed)
-        ? (r.removed as unknown[]).filter((s): s is Stage => typeof s === 'string')
-        : [],
-      at: typeof r.at === 'string' ? r.at : '',
-      by: typeof r.by === 'string' ? r.by : '',
-    }
+    const m = readMark(v)
+    if (m) out[id] = m
   }
   return out
 }
 
-async function read(): Promise<Record<string, TransferMark>> {
-  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(KEY)
-  if (error || !data) return {}
-  try {
-    return normalize(JSON.parse(await data.text()))
-  } catch {
-    return {}
+async function dropLegacy(componentIds: string[]): Promise<void> {
+  await withLegacyLock(async () => {
+    const all = await readLegacy()
+    if (!componentIds.some((id) => all[id])) return
+    for (const id of componentIds) delete all[id]
+    const { error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(LEGACY_KEY, Buffer.from(JSON.stringify(all), 'utf8'), {
+        contentType: 'application/json',
+        upsert: true,
+      })
+    if (error) throw error
+  })
+}
+
+// ── 一个零件一份 ──
+
+/** 目录里的每一份: 哪张单、哪个零件。 */
+async function listNew(): Promise<{ jobId: string; componentId: string }[]> {
+  const out: { jobId: string; componentId: string }[] = []
+  for (let offset = 0; offset < 20_000; offset += 1000) {
+    const { data, error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .list(DIR, { limit: 1000, offset })
+    if (error || !data) break
+    for (const f of data) {
+      const p = parseName(f.name)
+      if (p) out.push(p)
+    }
+    if (data.length < 1000) break
   }
+  return out
 }
 
-async function write(all: Record<string, TransferMark>): Promise<void> {
-  const { error } = await supabase.storage
-    .from(STORAGE_BUCKET)
-    .upload(KEY, Buffer.from(JSON.stringify(all), 'utf8'), {
-      contentType: 'application/json',
-      upsert: true,
-    })
-  if (error) throw error
-  cache = { at: Date.now(), all }
-}
-
-/** 全部还在等商务外发的零件。半分钟读一次 —— 看板每次都要问。 */
-export async function getTransfers(): Promise<Record<string, TransferMark>> {
-  if (cache && Date.now() - cache.at < TTL_MS) return cache.all
-  const all = await read()
-  cache = { at: Date.now(), all }
-  return all
-}
+let idsCache: { at: number; ids: Set<string> } | null = null
 
 /** 有零件转了外协、还没开外协单的工单。 */
 export async function getTransferJobIds(): Promise<Set<string>> {
-  return new Set(Object.values(await getTransfers()).map((m) => m.jobId))
+  if (idsCache && Date.now() - idsCache.at < TTL_MS) return idsCache.ids
+  const [fresh, legacy] = await Promise.all([listNew(), readLegacy()])
+  const ids = new Set([...fresh.map((f) => f.jobId), ...Object.values(legacy).map((m) => m.jobId)])
+  idsCache = { at: Date.now(), ids }
+  return ids
 }
 
 /** 这张单上转了外协的零件。 */
 export async function getJobTransfers(jobId: string): Promise<Record<string, TransferMark>> {
-  const all = await getTransfers()
+  const [fresh, legacy] = await Promise.all([listNew(), readLegacy()])
   const out: Record<string, TransferMark> = {}
-  for (const [id, m] of Object.entries(all)) if (m.jobId === jobId) out[id] = m
+  for (const [id, m] of Object.entries(legacy)) if (m.jobId === jobId) out[id] = m
+  await Promise.all(
+    fresh
+      .filter((f) => f.jobId === jobId)
+      .map(async (f) => {
+        const m = readMark(await download(fileOf(f.jobId, f.componentId)))
+        if (m) out[f.componentId] = m
+      }),
+  )
   return out
 }
 
-export async function getTransfer(componentId: string): Promise<TransferMark | undefined> {
-  return (await read())[componentId]
+export async function getTransfer(jobId: string, componentId: string): Promise<TransferMark | undefined> {
+  const m = readMark(await download(fileOf(jobId, componentId)))
+  if (m) return m
+  return (await readLegacy())[componentId]
 }
 
 export async function setTransfer(componentId: string, mark: TransferMark): Promise<void> {
-  await withLock(async () => {
-    const all = await read()
-    all[componentId] = mark
-    await write(all)
-  })
+  const { error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(fileOf(mark.jobId, componentId), Buffer.from(JSON.stringify(mark), 'utf8'), {
+      contentType: 'application/json',
+      upsert: true,
+    })
+  if (error) throw error
+  idsCache = null
 }
 
 /**
@@ -110,21 +168,27 @@ export async function setTransfer(componentId: string, mark: TransferMark): Prom
  * 还有别的零件等着外发, 待外协就不能跟着消。
  */
 export async function clearTransfers(componentIds: string[]): Promise<Map<string, number>> {
-  return withLock(async () => {
-    const all = await read()
-    const jobs = new Set<string>()
-    let changed = false
-    for (const id of componentIds) {
-      const m = all[id]
-      if (!m) continue
-      jobs.add(m.jobId)
-      delete all[id]
-      changed = true
-    }
-    const left = new Map<string, number>()
-    if (!changed) return left
-    await write(all)
-    for (const j of jobs) left.set(j, Object.values(all).filter((m) => m.jobId === j).length)
-    return left
-  })
+  const want = new Set(componentIds)
+  const left = new Map<string, number>()
+  if (want.size === 0) return left
+  const [fresh, legacy] = await Promise.all([listNew(), readLegacy()])
+  const gone = fresh.filter((f) => want.has(f.componentId))
+  const goneLegacy = componentIds.filter((id) => legacy[id])
+  if (gone.length === 0 && goneLegacy.length === 0) return left
+  if (gone.length > 0) {
+    const { error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .remove(gone.map((f) => fileOf(f.jobId, f.componentId)))
+    if (error) throw error
+  }
+  if (goneLegacy.length > 0) await dropLegacy(goneLegacy)
+  idsCache = null
+  const jobs = new Set([...gone.map((f) => f.jobId), ...goneLegacy.map((id) => legacy[id].jobId)])
+  for (const j of jobs) {
+    const n =
+      fresh.filter((f) => f.jobId === j && !want.has(f.componentId)).length +
+      Object.entries(legacy).filter(([id, m]) => m.jobId === j && !want.has(id)).length
+    left.set(j, n)
+  }
+  return left
 }

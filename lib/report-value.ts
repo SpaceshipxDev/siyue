@@ -16,7 +16,8 @@ import { supabase, STORAGE_BUCKET } from './supabase'
 export type ValueEdit = { valueCny: number; by: string; at: string }
 
 const KEY = 'jobs/report-value.json'
-const TTL_MS = 30_000
+// 线上几个进程各缓存各的 —— 改完换个进程看也得马上对, 所以只缓存几秒。
+const TTL_MS = 3_000
 
 let chain: Promise<unknown> = Promise.resolve()
 function withLock<T>(fn: () => Promise<T>): Promise<T> {

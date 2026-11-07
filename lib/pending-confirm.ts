@@ -7,73 +7,89 @@ import { supabase, STORAGE_BUCKET } from './supabase'
  * 订单状态那个小菜单里点「待确认」, 这张单就从在产挪进看板上的「待确认」一
  * 栏; 再点一次撤掉, 回在产。出货报完了照样归已出货。
  *
+ * 一张单一份 (于海伟 2026-11-07) —— 线上几个进程前后脚各写各的, 全厂一份
+ * json 会被后写的盖掉 (转外协就吃过这个亏, lib/outsource-transfer)。
+ *
  * TABLE-FREE, 没有 migration:
- *   jobs/pending-confirm.json   { "<jobId>": { at, by } }
+ *   jobs/pending-confirm/<jobId>.json   { at, by }
+ *   jobs/pending-confirm.json   早先那一份, 只读 + 清, 不再往里写。
  */
 
 export type ConfirmMark = { at: string; by: string }
 
-const KEY = 'jobs/pending-confirm.json'
-const TTL_MS = 30_000
+const DIR = 'jobs/pending-confirm'
+const LEGACY_KEY = 'jobs/pending-confirm.json'
+const TTL_MS = 5_000
 
-let chain: Promise<unknown> = Promise.resolve()
-function withLock<T>(fn: () => Promise<T>): Promise<T> {
-  const next = chain.then(fn, fn)
-  chain = next.catch(() => undefined)
+let cache: { at: number; ids: Set<string> } | null = null
+
+let legacyLock: Promise<unknown> = Promise.resolve()
+function withLegacyLock<T>(fn: () => Promise<T>): Promise<T> {
+  const next = legacyLock.then(fn, fn)
+  legacyLock = next.catch(() => undefined)
   return next
 }
 
-let cache: { at: number; all: Record<string, ConfirmMark> } | null = null
-
-function normalize(raw: unknown): Record<string, ConfirmMark> {
-  const out: Record<string, ConfirmMark> = {}
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return out
-  for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof v !== 'object' || v === null) continue
-    const r = v as Record<string, unknown>
-    out[id] = {
-      at: typeof r.at === 'string' ? r.at : '',
-      by: typeof r.by === 'string' ? r.by : '',
-    }
-  }
-  return out
-}
-
-async function read(): Promise<Record<string, ConfirmMark>> {
-  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(KEY)
+async function readLegacy(): Promise<Record<string, ConfirmMark>> {
+  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(LEGACY_KEY)
   if (error || !data) return {}
   try {
-    return normalize(JSON.parse(await data.text()))
+    const raw = JSON.parse(await data.text())
+    return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+      ? (raw as Record<string, ConfirmMark>)
+      : {}
   } catch {
     return {}
   }
 }
 
-async function write(all: Record<string, ConfirmMark>): Promise<void> {
-  const { error } = await supabase.storage
-    .from(STORAGE_BUCKET)
-    .upload(KEY, Buffer.from(JSON.stringify(all), 'utf8'), {
-      contentType: 'application/json',
-      upsert: true,
-    })
-  if (error) throw error
-  cache = { at: Date.now(), all }
+async function listIds(): Promise<string[]> {
+  const out: string[] = []
+  for (let offset = 0; offset < 20_000; offset += 1000) {
+    const { data, error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .list(DIR, { limit: 1000, offset })
+    if (error || !data) break
+    for (const f of data) if (f.name.endsWith('.json')) out.push(f.name.slice(0, -'.json'.length))
+    if (data.length < 1000) break
+  }
+  return out
 }
 
-/** 标了待确认的工单。半分钟读一次 —— 看板每次都要问。 */
+/** 标了待确认的工单。几秒读一次 —— 看板每次都要问。 */
 export async function getConfirmJobIds(): Promise<Set<string>> {
-  if (cache && Date.now() - cache.at < TTL_MS) return new Set(Object.keys(cache.all))
-  const all = await read()
-  cache = { at: Date.now(), all }
-  return new Set(Object.keys(all))
+  if (cache && Date.now() - cache.at < TTL_MS) return cache.ids
+  const [fresh, legacy] = await Promise.all([listIds(), readLegacy()])
+  const ids = new Set([...fresh, ...Object.keys(legacy)])
+  cache = { at: Date.now(), ids }
+  return ids
 }
 
 export async function setJobConfirm(jobId: string, on: boolean, by: string): Promise<void> {
-  await withLock(async () => {
-    const all = await read()
-    if (on) all[jobId] = { at: new Date().toISOString(), by }
-    else if (all[jobId]) delete all[jobId]
-    else return
-    await write(all)
-  })
+  if (on) {
+    const mark: ConfirmMark = { at: new Date().toISOString(), by }
+    const { error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(`${DIR}/${jobId}.json`, Buffer.from(JSON.stringify(mark), 'utf8'), {
+        contentType: 'application/json',
+        upsert: true,
+      })
+    if (error) throw error
+  } else {
+    const { error } = await supabase.storage.from(STORAGE_BUCKET).remove([`${DIR}/${jobId}.json`])
+    if (error) throw error
+    await withLegacyLock(async () => {
+      const all = await readLegacy()
+      if (!all[jobId]) return
+      delete all[jobId]
+      const { error: e2 } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .upload(LEGACY_KEY, Buffer.from(JSON.stringify(all), 'utf8'), {
+          contentType: 'application/json',
+          upsert: true,
+        })
+      if (e2) throw e2
+    })
+  }
+  cache = null
 }

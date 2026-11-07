@@ -1809,7 +1809,7 @@ async function dispatch(
       const job = await getJob(jobId)
       const c = job?.components.find((x) => x.id === componentId)
       if (!job || !c) return err('找不到这个零件')
-      const mark = await getTransfer(componentId)
+      const mark = await getTransfer(jobId, componentId)
       const route = partRoute(c)
       if (cancel) {
         if (!mark) return Response.json(ok())
