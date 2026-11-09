@@ -5,7 +5,7 @@ import { extractAttendanceFromXlsx } from '@/lib/gemini'
 import { HR_TYPES, hrHasHours, type HrType } from '@/lib/data'
 import { isPayrollMonth } from '@/lib/payroll'
 import { errMessage } from '@/lib/err'
-import { guessMonth, parsePunchSheets } from '@/lib/punch-parse'
+import { parseBestMonth } from '@/lib/punch-parse'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -55,9 +55,10 @@ export async function POST(request: NextRequest) {
     // 不读: 不往人事考勤里记, 不往工资里记。先按格子直接读 (快、读不断), 读
     // 不出来才交给识别模型兜底。
     if (String(form.get('mode') ?? '') === 'punch') {
-      const m = guessMonth(sheets, file.name) ?? month
+      const best = parseBestMonth(sheets, file.name, month)
+      const m = best.month
       let punches: { name: string; dept?: string; day: number; in?: string; out?: string; hours?: number }[] =
-        parsePunchSheets(sheets, m)
+        best.punches
       if (punches.length === 0) {
         const ai = await extractAttendanceFromXlsx({ fileName: file.name, month: m, sheets })
         const hhmm = (v: unknown) => {

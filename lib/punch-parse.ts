@@ -17,7 +17,9 @@
 type Cell = string | number | boolean | null
 export type ParsedPunch = { name: string; dept?: string; day: number; in: string; out: string }
 
-const TIME = /([01]?\d|2[0-3])[:：]([0-5]\d)/g
+const TIME = /([01]?\d|2[0-3])[:：]([0-5]\d)(?:[:：][0-5]\d)?(?:\s*(AM|PM|am|pm))?/g
+// 时间前面写着 上午/下午 的 ("下午 1:30")。
+const PRE_TAG = /(上午|下午|晚上)\s*$/
 
 function str(c: Cell): string {
   return c === null || c === undefined ? '' : String(c).trim()
@@ -31,8 +33,17 @@ function timesIn(c: Cell): string[] {
     const mins = Math.round(frac * 24 * 60)
     return [`${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`]
   }
+  // 打卡机导出的时间有写成 "1:30 PM" / "下午 1:30" 的 —— 下午的加 12 小时,
+  // 不然 13:30 下班读成 01:30 (于海伟 2026-11-09: 考勤表识别不了)。
   const out: string[] = []
-  for (const m of str(c).matchAll(TIME)) out.push(`${m[1].padStart(2, '0')}:${m[2]}`)
+  const text = str(c)
+  for (const m of text.matchAll(TIME)) {
+    let h = Number(m[1])
+    const tag = m[3] ?? text.slice(0, m.index).match(PRE_TAG)?.[1]
+    if (tag && /PM|pm|下午|晚上/.test(tag) && h < 12) h += 12
+    if (tag && /AM|am|上午/.test(tag) && h === 12) h = 0
+    out.push(`${String(h).padStart(2, '0')}:${m[2]}`)
+  }
   return out
 }
 
@@ -58,6 +69,42 @@ function monthFrom(text: string): string | null {
   const m = text.match(/(20\d{2})\s*[-/.年]\s*(\d{1,2})/)
   if (!m || Number(m[2]) < 1 || Number(m[2]) > 12) return null
   return `${m[1]}-${m[2].padStart(2, '0')}`
+}
+
+/**
+ * 读出最多打卡的那个月 —— 表头上写着制表日期 ("2026-11-08") 的, 头一个认出
+ * 来的月份不一定是打卡的月份。候选: 表上找到的、页面上选着的、表里日期出现过
+ * 的, 一个个试。
+ */
+export function parseBestMonth(
+  sheets: { name: string; aoa: Cell[][] }[],
+  fileName: string,
+  pageMonth: string,
+): { month: string; punches: ParsedPunch[] } {
+  const seen = new Map<string, number>()
+  for (const sh of sheets)
+    for (const row of sh.aoa)
+      for (const c of row) {
+        const m = monthFrom(str(c))
+        if (m) seen.set(m, (seen.get(m) ?? 0) + 1)
+      }
+  const guessed = guessMonth(sheets, fileName)
+  const candidates = [
+    ...new Set([
+      ...(guessed ? [guessed] : []),
+      pageMonth,
+      ...[...seen.entries()].sort((a, b) => b[1] - a[1]).map(([m]) => m).slice(0, 4),
+    ]),
+  ]
+  let best = { month: guessed ?? pageMonth, punches: [] as ParsedPunch[] }
+  for (const m of candidates) {
+    const punches = parsePunchSheets(sheets, m)
+    if (punches.length > best.punches.length) best = { month: m, punches }
+  }
+  // 一个都没读出来 (月报格子跟月份无关) —— 月份按出现最多的那个, 给识别模型兜底用。
+  if (best.punches.length === 0 && seen.size > 0)
+    best.month = [...seen.entries()].sort((a, b) => b[1] - a[1])[0][0]
+  return best
 }
 
 /** 表上写的是哪个月 —— 标题、表名、文件名、日期列里找。 */
