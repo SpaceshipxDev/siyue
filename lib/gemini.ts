@@ -366,6 +366,42 @@ type GeminiHrJson = {
   punches?: ExtractedPunchDay[]
 }
 
+// 考勤表交给模型之前先压一压 (于海伟 2026-11-09: 钉钉导出的考勤报表一整本
+// 原样送过去, 超了模型一次能读的上限, 一条都读不出来)。打卡机导出的表常常带
+// 着几千行、几百列的空白格子: 去掉空行、每行末尾的空格子, 不排版缩进; 还是
+// 太大就截最大那张表后面的行 —— 读出一部分总比一条都读不出来强。
+const SHEETS_JSON_MAX_CHARS = 700_000
+
+function compactSheetsJson(
+  sheets: { name: string; aoa: (string | number | boolean | null)[][] }[],
+): string {
+  const blank = (c: string | number | boolean | null) => c === null || (typeof c === 'string' && c.trim() === '')
+  let compact = sheets
+    .map((sh) => ({
+      name: sh.name,
+      aoa: sh.aoa
+        .map((row) => {
+          let end = row.length
+          while (end > 0 && blank(row[end - 1])) end--
+          return row.slice(0, end).map((c) => (c === null ? '' : c))
+        })
+        .filter((row) => row.length > 0),
+    }))
+    .filter((sh) => sh.aoa.length > 0)
+  let json = JSON.stringify(compact)
+  // 还太大: 先截最大的那张 (一般是逐条的原始打卡记录), 一人一行的汇总表小,
+  // 留着不动。
+  for (let i = 0; i < 40 && json.length > SHEETS_JSON_MAX_CHARS; i++) {
+    const sizes = compact.map((sh) => JSON.stringify(sh).length)
+    const big = sizes.indexOf(Math.max(...sizes))
+    const sh = compact[big]
+    if (sh.aoa.length <= 20) break
+    compact = compact.map((x, j) => (j === big ? { ...x, aoa: x.aoa.slice(0, Math.ceil(x.aoa.length / 2)) } : x))
+    json = JSON.stringify(compact)
+  }
+  return json
+}
+
 export async function extractAttendanceFromXlsx(input: {
   fileName: string
   month: string
@@ -441,8 +477,8 @@ note：格子里除时长以外的说明，比如"事假 家里有事"里的"家
     `文件名: ${input.fileName}`,
     `页面上选着的月份: ${input.month}（只在表上和文件名里都看不出月份时才用它）`,
     '',
-    'Excel 工作表内容（每个工作表为二维数组，按行/列）：',
-    JSON.stringify(input.sheets, null, 2),
+    'Excel 工作表内容（每个工作表为二维数组，按行/列；空行、每行末尾的空格子已去掉）：',
+    compactSheetsJson(input.sheets),
   ].join('\n')
 
   const response = await ai.models.generateContent({
