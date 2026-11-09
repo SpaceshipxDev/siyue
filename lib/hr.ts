@@ -529,3 +529,63 @@ export async function updateHrRecord(
     return nextMonth
   })
 }
+
+/**
+ * 撤销一次导入 (lib/hr-import-undo) —— 这几个人这个月的考勤汇总还回导入前的
+ * 样子; 导入前没有的 (null) 就拿掉。
+ */
+export async function restoreAttendanceSummary(
+  month: string,
+  prev: Record<string, AttendanceSummary | null>,
+): Promise<void> {
+  await withHrLock(async () => {
+    const existing = await getAttendanceSummary(month)
+    for (const [name, row] of Object.entries(prev)) {
+      if (row === null) delete existing[name]
+      else existing[name] = row
+    }
+    const body = Buffer.from(JSON.stringify(Object.values(existing)), 'utf8')
+    const upR = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(summaryKey(month), body, { contentType: 'application/json', upsert: true })
+    if (upR.error) throw upR.error
+  })
+}
+
+/** 同一回导入落下的那一批人事记录 —— 同一个人、同一刻 (createdAt) 记的。 */
+export type HrImportBatch = { createdAt: string; by: string; count: number; months: string[] }
+
+/** 这几个月里, 这个人最近一回整批导入的记录 (一回两条以上才算导入)。 */
+export async function findLatestHrBatch(by: string, months: string[]): Promise<HrImportBatch | null> {
+  const groups = new Map<string, { count: number; months: Set<string> }>()
+  for (const m of months) {
+    for (const r of await readShard(m)) {
+      if (r.by !== by || !r.createdAt) continue
+      const g = groups.get(r.createdAt) ?? { count: 0, months: new Set<string>() }
+      g.count += 1
+      g.months.add(m)
+      groups.set(r.createdAt, g)
+    }
+  }
+  const latest = [...groups.entries()]
+    .filter(([, g]) => g.count >= 2)
+    .sort((a, b) => b[0].localeCompare(a[0]))[0]
+  return latest
+    ? { createdAt: latest[0], by, count: latest[1].count, months: [...latest[1].months] }
+    : null
+}
+
+/** 删掉一回导入落下的那一批记录。返回删了几条。 */
+export async function deleteHrBatch(batch: { createdAt: string; by: string; months: string[] }): Promise<number> {
+  let n = 0
+  await withHrLock(async () => {
+    for (const m of batch.months) {
+      const rows = await readShard(m)
+      const keep = rows.filter((r) => !(r.by === batch.by && r.createdAt === batch.createdAt))
+      if (keep.length === rows.length) continue
+      n += rows.length - keep.length
+      await writeShard(m, keep)
+    }
+  })
+  return n
+}

@@ -279,6 +279,10 @@ import {
 import {
   addHrRecord,
   addHrRecords,
+  deleteHrBatch,
+  findLatestHrBatch,
+  getAttendanceSummary,
+  restoreAttendanceSummary,
   saveAttendanceSummary,
   setHrPersonDept,
   deleteHrRecord as deleteHrRecordRow,
@@ -337,7 +341,8 @@ import {
   keepCustomerLines,
 } from '@/lib/duizhang'
 import { getNoReconcile, LINE_MARK, setNoReconcile } from '@/lib/no-reconcile'
-import { savePunchHours, setDailyHours } from '@/lib/hr-daily'
+import { getPunchHours, restorePunchHours, savePunchHours, setDailyHours } from '@/lib/hr-daily'
+import { addToImportUndo, dropImportUndo, getImportUndo, isBatchId, latestImportUndo } from '@/lib/hr-import-undo'
 import { isSprayStep, setSpraySteps, type SprayStep } from '@/lib/spray-steps'
 import {
   addLoanRepayment,
@@ -2992,6 +2997,62 @@ async function dispatch(
     // 考勤表导入 —— 一次记一批。人已经在预览里过过一眼了 (见
     // /api/hr-import), 这里只管落库, 校验和单条那一档完全一样: 每一条都要
     // 过 isValidHrInput, 部门照样由被记的那个人决定, 不能跨部门记。
+    // 撤销考勤导入 (lib/hr-import-undo)。带 batchId: 那一回覆盖掉的旧数原样还
+    // 回去、新加的人事记录删掉。不带 (早先没留底的那一回): 只能删掉这个人最
+    // 近一回整批导入的人事记录 —— peek 先说清楚要删什么, 再点才删。
+    case 'undoAttendanceImport': {
+      const u = await requireUser()
+      if (!canEditAttendance(u) && !canEditHrRecord(u)) return err('撤销导入要找人事', 403)
+      // peek: 最近一回能撤的是哪一回、撤掉什么 —— 留了底的优先。
+      if (body.peek === true) {
+        const last = await latestImportUndo(u.name)
+        if (last) {
+          const people = (o: Record<string, Record<string, unknown>>) =>
+            new Set(Object.values(o).flatMap((x) => Object.keys(x))).size
+          return Response.json(
+            ok({
+              batchId: last.batchId,
+              at: last.undo.at,
+              summary: people(last.undo.summary),
+              punch: people(last.undo.punch),
+              records: last.undo.records.length > 0,
+            }),
+          )
+        }
+      }
+      if (isBatchId(body.batchId)) {
+        const undo = await getImportUndo(body.batchId)
+        if (!undo) return err('这次导入已经撤销过了')
+        if ((Object.keys(undo.summary).length > 0 || undo.records.length > 0) && !canEditHrRecord(u))
+          return err('撤销导入要找人事', 403)
+        for (const [m, prev] of Object.entries(undo.summary)) await restoreAttendanceSummary(m, prev)
+        for (const [m, prev] of Object.entries(undo.punch)) await restorePunchHours(m, prev)
+        let removed = 0
+        for (const b of undo.records) removed += await deleteHrBatch(b)
+        await dropImportUndo(body.batchId)
+        revalidatePath('/hr')
+        revalidatePath('/finance')
+        return Response.json(ok({ removed }))
+      }
+      if (!canEditHrRecord(u)) return err('撤销导入要找人事', 403)
+      const t = today()
+      // 这个月、上个月、上上个月 (考勤都是月初导上个月的)。
+      const months = [0, 1, 2].map((k) => {
+        const d = new Date(Date.UTC(Number(t.slice(0, 4)), Number(t.slice(5, 7)) - 1 - k, 1))
+        return d.toISOString().slice(0, 7)
+      })
+      const batch = await findLatestHrBatch(u.name, months)
+      // 早先没留底的只认这两天的 —— 再早的多半不是"刚才那一回"。
+      if (!batch || Date.now() - Date.parse(batch.createdAt) > 2 * 86_400_000)
+        return err('没找到你最近能撤销的导入')
+      if (body.peek === true) return Response.json(ok({ createdAt: batch.createdAt, at: batch.createdAt, recordCount: batch.count }))
+      if (body.createdAt !== batch.createdAt) return err('最近一次导入变了，刷新再试')
+      const removed = await deleteHrBatch(batch)
+      revalidatePath('/hr')
+      revalidatePath('/finance')
+      return Response.json(ok({ removed }))
+    }
+
     case 'addHrRecords': {
       const inputs = body.inputs
       if (!Array.isArray(inputs) || inputs.length === 0)
@@ -3010,12 +3071,19 @@ async function dispatch(
         const outsider = inputs.find((i) => deptOf(i.name.trim()) !== mine)
         if (outsider) return err(`${outsider.name.trim()} 不是${mine}的人`, 403)
       }
-      const count = await addHrRecords(
-        inputs,
-        u.name,
-        deptOf,
-        new Date().toISOString(),
-      )
+      const nowIso = new Date().toISOString()
+      const count = await addHrRecords(inputs, u.name, deptOf, nowIso)
+      // 考勤导入带着 batchId —— 记下这一批, 撤销时删得掉 (lib/hr-import-undo)。
+      if (isBatchId(body.batchId))
+        await addToImportUndo(body.batchId, u.name, {
+          records: [
+            {
+              createdAt: nowIso,
+              by: u.name,
+              months: [...new Set((inputs as { date: string }[]).map((i) => i.date.slice(0, 7)))],
+            },
+          ],
+        })
       revalidatePath('/hr')
       revalidatePath('/finance')
       return Response.json(ok({ count }))
@@ -3057,6 +3125,14 @@ async function dispatch(
       }
       const u = await requireUser()
       if (!canEditAttendance(u)) return err('导入考勤要找人事', 403)
+      // 考勤导入带着 batchId —— 覆盖之前把这几个人的旧打卡存一份, 好撤销。
+      if (isBatchId(body.batchId)) {
+        const before = await getPunchHours(month)
+        const names = [...new Set(clean.map((r) => r.name.trim()).filter(Boolean))]
+        await addToImportUndo(body.batchId, u.name, {
+          punch: { [month]: Object.fromEntries(names.map((n) => [n, before[n] ?? null])) },
+        })
+      }
       const count = await savePunchHours(month, clean)
       revalidatePath('/hr')
       return Response.json(ok({ count }))
@@ -3132,6 +3208,12 @@ async function dispatch(
       }
       const u = await requireHrUser()
       if (!canEditHrRecord(u)) return err('无权导入考勤表', 403)
+      if (isBatchId(body.batchId)) {
+        const before = await getAttendanceSummary(month)
+        await addToImportUndo(body.batchId, u.name, {
+          summary: { [month]: Object.fromEntries(clean.map((r) => [r.name, before[r.name] ?? null])) },
+        })
+      }
       const n = await saveAttendanceSummary(month, clean)
       revalidatePath('/hr')
       revalidatePath('/finance')

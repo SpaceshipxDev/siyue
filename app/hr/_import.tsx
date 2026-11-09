@@ -187,6 +187,9 @@ export function HrImport({
     const hasPunches = punches && punches.length > 0
     if (!hasRows && !hasSums && !hasPunches) return
     setBusy(true)
+    // 这一回导入的编号 —— 三样都带着, 后台写之前把要覆盖的旧数存一份, 好撤销
+    // (lib/hr-import-undo)。
+    const batchId = crypto.randomUUID()
     try {
       let done = 0
       if (hasSums) {
@@ -200,6 +203,7 @@ export function HrImport({
             kind: 'saveAttendanceSummary',
             month: m,
             rows: rowsOfMonth,
+            batchId,
           })
           done += r.data.count
         }
@@ -215,6 +219,7 @@ export function HrImport({
             kind: 'savePunchHours',
             month: m,
             rows: rowsOfMonth,
+            batchId,
           })
           done += r.data.count
         }
@@ -222,6 +227,7 @@ export function HrImport({
       if (hasRows) {
         const r = await mutate<{ count: number }>({
           kind: 'addHrRecords',
+          batchId,
           inputs: rows!.map((x) => ({
             name: x.name,
             type: x.type,
@@ -280,6 +286,8 @@ export function HrImport({
       {error && !rows ? (
         <span className="text-[12px] text-[var(--color-overdue)]">{error}</span>
       ) : null}
+
+      {!busy && <UndoLastImport />}
 
       {rows || sums || punches ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 px-4">
@@ -470,6 +478,108 @@ export function HrImport({
         </div>
       ) : null}
     </>
+  )
+}
+
+// 撤销上一次导入 (于海伟 2026-11-09) —— 点一下先问后台最近一回能撤的是哪一
+// 回、撤掉什么, 摆出来; 再点「确认撤销」才撤。留了底的那一回: 汇总、打卡还回
+// 导入前的样子, 新加的人事记录删掉。早先没留底的: 只删得掉那一批人事记录。
+type UndoPeek = {
+  batchId?: string
+  createdAt?: string
+  at: string
+  summary?: number
+  punch?: number
+  records?: boolean
+  recordCount?: number
+}
+
+function UndoLastImport() {
+  const router = useRouter()
+  const [peek, setPeek] = useState<UndoPeek | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const ask = async () => {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const r = await mutate<UndoPeek>({ kind: 'undoAttendanceImport', peek: true })
+      setPeek(r.data)
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '没找到能撤销的导入')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const undo = async () => {
+    if (!peek) return
+    setBusy(true)
+    try {
+      await mutate({
+        kind: 'undoAttendanceImport',
+        ...(peek.batchId ? { batchId: peek.batchId } : { createdAt: peek.createdAt }),
+      })
+      setPeek(null)
+      showToast('已撤销这次导入', 'success')
+      router.refresh()
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '没撤成')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const when = (iso: string) => {
+    const d = new Date(iso)
+    const p = (n: number) => String(n).padStart(2, '0')
+    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+  }
+
+  if (peek) {
+    const parts = peek.batchId
+      ? [
+          peek.summary ? `${peek.summary} 人的汇总还原` : '',
+          peek.punch ? `${peek.punch} 人的打卡还原` : '',
+          peek.records ? '新加的人事记录删掉' : '',
+        ].filter(Boolean)
+      : [`删掉那一次新加的 ${peek.recordCount ?? 0} 条人事记录（汇总、打卡当时没留底，再导一次对的表会盖过去）`]
+    return (
+      <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[12px]">
+        <span className="text-[var(--color-ink-2)]">
+          撤销 {when(peek.at)} 的导入：{parts.join('，')}
+        </span>
+        <button
+          type="button"
+          onClick={undo}
+          disabled={busy}
+          className="font-medium text-[var(--color-overdue)] hover:underline disabled:opacity-50"
+        >
+          {busy ? '撤销中…' : '确认撤销'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setPeek(null)}
+          disabled={busy}
+          className="text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+        >
+          算了
+        </button>
+      </span>
+    )
+  }
+  return (
+    <span className="flex items-baseline gap-2 text-[12px]">
+      <button
+        type="button"
+        onClick={ask}
+        disabled={busy}
+        className="text-[var(--color-ink-4)] hover:text-[var(--color-ink)] disabled:opacity-50"
+      >
+        撤销上一次导入
+      </button>
+      {msg && <span className="text-[var(--color-ink-3)]">{msg}</span>}
+    </span>
   )
 }
 

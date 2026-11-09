@@ -181,3 +181,27 @@ export async function savePunchHours(
     return Object.keys(fresh).length
   })
 }
+
+/**
+ * 撤销一次导入 (lib/hr-import-undo) —— 这几个人这个月的打卡还回导入前的样子;
+ * 导入前没有的 (null) 就拿掉。
+ */
+export async function restorePunchHours(
+  month: string,
+  prev: Record<string, Record<number, PunchDay> | null>,
+): Promise<void> {
+  await withLock(async () => {
+    const map: Record<string, unknown> = await readPunchRaw(month)
+    for (const [name, row] of Object.entries(prev)) {
+      if (row === null) delete map[name]
+      else map[name] = row
+    }
+    const { error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(punchKey(month), Buffer.from(JSON.stringify(map), 'utf8'), {
+        contentType: 'application/json',
+        upsert: true,
+      })
+    if (error) throw error
+  })
+}
