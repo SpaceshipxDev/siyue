@@ -49,7 +49,7 @@ import { DormBoard } from './_dorm'
 import { HrBoard } from './_hr'
 import { AttendanceSheet } from './_attendance_sheet'
 import type { AttendanceReport } from '@/lib/hr-report'
-import { filerDeptOf } from '@/lib/hr-dept'
+import { filerDeptOf, hrMembership, monthAndPrev } from '@/lib/hr-dept'
 
 export const dynamic = 'force-dynamic'
 
@@ -150,13 +150,21 @@ export default async function HrPage({
   // Who the picker offers: system accounts plus everybody 人事 has been asked
   // to remember. Shared station accounts and people with no login at all still
   // take leave, so the account list alone was never the shop's roster. Scoped
-  // the same way — you can only file on people you can read.
+  // the same way — you can only file on people you can read. 不看全厂的人, 下拉
+  // 里只给记得上的 (lib/hr-dept hrMembership, 跟服务端同一个口径), 不会再点到
+  // 一个人然后被告知「不是本部门的人」。
   const roster = [
     ...new Set([
       ...users.filter((u) => seeAll || hrDeptOf(u) === myDept).map((u) => u.name),
       ...extraNames,
     ]),
   ].sort((a, b) => a.localeCompare(b, 'zh'))
+  const isMine = seeAll || view !== 'hr' ? null : await hrMembership(monthAndPrev(now))
+  const fileRoster = isMine
+    ? [...new Set([...users.map((u) => u.name), ...extraNames, ...records.map((r) => r.name)])]
+        .filter((n) => isMine(n, myDept))
+        .sort((a, b) => a.localeCompare(b, 'zh'))
+    : roster
 
   return (
     <div className="min-h-dvh bg-[var(--color-bg)]">
@@ -257,7 +265,7 @@ export default async function HrPage({
             )}
             period={period}
             months={months}
-            roster={roster}
+            roster={fileRoster}
             canDelete={canDeleteHrRecord(user)}
             canEdit={canEditHrRecord(user)}
             scope={seeAll ? null : myDept}

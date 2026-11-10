@@ -399,7 +399,7 @@ import { isDimRow, type InspectionReportPatch } from '@/lib/inspection-report'
 import { removeInspectionPhotoObject } from '@/lib/inspection-photo'
 import { deleteContractFile } from '@/lib/contract-file'
 import { deleteExpenseVoucher } from '@/lib/voucher-file'
-import { filerDeptOf } from '@/lib/hr-dept'
+import { filerDeptOf, hrMembership, monthAndPrev } from '@/lib/hr-dept'
 import { markWritten } from '@/lib/shared-read'
 import { addPlanRow, deletePlanRow, isPlanStage, updatePlanRow, type PlanPatch } from '@/lib/plan'
 import {
@@ -2978,11 +2978,16 @@ async function dispatch(
       const target = roster.find((x) => x.name === input.name.trim())
       // 录入的人的部门 —— 他自己选的 (lib/hr-dept), 没选过就是账号的工段。
       const filerDept = await filerDeptOf(u)
-      const dept = target ? hrDeptOf(target) : filerDept
+      let dept = target ? hrDeptOf(target) : filerDept
       // A filer without the whole-factory view may only file on his own 部门 —
-      // otherwise he could write a line he then isn't allowed to read.
-      if (!canSeeAllHr(u) && dept !== filerDept) {
-        return err(`${input.name.trim()} 不是${filerDept}的人`, 403)
+      // otherwise he could write a line he then isn't allowed to read. 算不算
+      // 他部门的人, 账号 / 工资名单 / 考勤上改过的部门任一处对上就行
+      // (lib/hr-dept hrMembership), 跟下拉给的名单同一个口径。
+      if (!canSeeAllHr(u)) {
+        const isMine = await hrMembership(monthAndPrev(input.date))
+        if (!isMine(input.name.trim(), filerDept))
+          return err(`${input.name.trim()} 不是${filerDept}的人`, 403)
+        dept = filerDept
       }
       const row = await addHrRecord(
         input,
@@ -3063,12 +3068,16 @@ async function dispatch(
       if (!canEditHrRecord(u)) return err('无权导入考勤表', 403)
       const roster = await getActiveUsers()
       const mine = await filerDeptOf(u)
+      const seeAll = canSeeAllHr(u)
       const deptOf = (name: string) => {
+        if (!seeAll) return mine
         const target = roster.find((x) => x.name === name)
         return target ? hrDeptOf(target) : mine
       }
-      if (!canSeeAllHr(u)) {
-        const outsider = inputs.find((i) => deptOf(i.name.trim()) !== mine)
+      if (!seeAll) {
+        const months = [...new Set(inputs.flatMap((i) => monthAndPrev(i.date)))]
+        const isMine = await hrMembership(months)
+        const outsider = inputs.find((i) => !isMine(i.name.trim(), mine))
         if (outsider) return err(`${outsider.name.trim()} 不是${mine}的人`, 403)
       }
       const nowIso = new Date().toISOString()
@@ -3260,8 +3269,11 @@ async function dispatch(
         const target = roster.find((x) => x.name === patch.name!.trim())
         if (target) dept = hrDeptOf(target)
         const filerDept = await filerDeptOf(u)
-        if (dept && !canSeeAllHr(u) && dept !== filerDept) {
-          return err(`${patch.name.trim()} 不是${filerDept}的人`, 403)
+        if (dept && !canSeeAllHr(u)) {
+          const isMine = await hrMembership(monthAndPrev(month))
+          if (!isMine(patch.name.trim(), filerDept))
+            return err(`${patch.name.trim()} 不是${filerDept}的人`, 403)
+          dept = filerDept
         }
       }
       let movedTo: string | null
