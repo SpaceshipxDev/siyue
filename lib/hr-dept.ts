@@ -34,12 +34,35 @@ const HR_DEPT_BY_NAME: [string, string][] = [
   ['李佳怡', '质量'],
 ]
 
+/*
+ * 挂在「工程」上的车间账号, 名字前面写着它真正的部门 (塑料操机001吴亦能、
+ * 编程002李军军、打磨喷漆…) —— 于海伟 2026-11-10: 操机的账号考勤页上写着
+ * 「你看到的是工程的人」, 还看得到别的工段记的线。按名字开头认回来; 名字里
+ * 看不出部门的 (周江华、工程003) 还是工程。只认挂在工程上的账号, 工段本来就
+ * 设对了的账号不受影响。
+ */
+const HR_DEPT_BY_PREFIX: [string, string][] = [
+  ['塑料操机', '塑料操机'],
+  ['金属操机', '金属操机'],
+  ['车工', '车件部'],
+  ['编程', '编程'],
+  ['手工', '手工'],
+  ['打磨喷漆', '打磨喷漆'],
+  ['批量组', '批量组'],
+  ['质量', '质量'],
+]
+
 export function accountHrDept(
   u: Pick<AuthUser, 'name' | 'role' | 'defaultStage'>,
 ): string {
   if (u.role === 'commerce') return hrDeptOf(u)
   const byName = HR_DEPT_BY_NAME.find(([n]) => u.name.includes(n))
-  return byName ? byName[1] : hrDeptOf(u)
+  if (byName) return byName[1]
+  if (u.defaultStage === '工程') {
+    const byPrefix = HR_DEPT_BY_PREFIX.find(([p]) => u.name.startsWith(p))
+    if (byPrefix) return byPrefix[1]
+  }
+  return hrDeptOf(u)
 }
 
 /*
