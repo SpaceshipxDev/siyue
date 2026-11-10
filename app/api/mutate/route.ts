@@ -329,6 +329,7 @@ import {
   setPayrollHousing,
   setPayrollLine,
   setPayrollRule,
+  setPayrollAttendanceLinked,
   setSalaryChangeReason,
 } from '@/lib/payroll-store'
 import { shanghaiDay, today } from '@/lib/today'
@@ -5512,6 +5513,19 @@ async function dispatch(
       } catch (e) {
         return err(e instanceof Error ? e.message : '改不上')
       }
+      revalidatePath('/finance')
+      return Response.json(ok())
+    }
+
+    // 这个月的工资关不关联考勤 (lib/payroll-store attendanceLinkedFor)。
+    case 'setPayrollAttendanceLinked': {
+      const month = body.month
+      const linked = body.linked
+      if (!isPayrollMonth(month) || typeof linked !== 'boolean')
+        return err('bad setPayrollAttendanceLinked args')
+      const u = await requireUser()
+      if (!canSeeExpenses(u)) return err('forbidden', 403)
+      await setPayrollAttendanceLinked(month, linked)
       revalidatePath('/finance')
       return Response.json(ok())
     }

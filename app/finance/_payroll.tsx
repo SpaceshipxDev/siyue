@@ -49,6 +49,8 @@ export type PayrollBoardProps = {
   slips: Payslip[]
   /** 名册里还没定月薪的人 — 填上月薪就上工资表。部门是猜出来的起手值。 */
   offRoster: { name: string; dept: string }[]
+  /** 这个月关联考勤 —— 关掉时不读打卡和人事记录, 按满勤、没有加班。 */
+  attendanceLinked: boolean
   paid: { at: string; by: string; total: number; count: number } | null
 }
 
@@ -62,6 +64,7 @@ export function PayrollBoard({
   rules,
   slips,
   offRoster,
+  attendanceLinked,
   paid,
 }: PayrollBoardProps) {
   const router = useRouter()
@@ -190,6 +193,42 @@ export function PayrollBoard({
             {paid
               ? `${paid.count} 人 · ${paid.by} 于 ${paid.at.slice(0, 10)} 发放`
               : `${slips.length} 人在册`}
+            {/* 关联考勤 —— 一个月一个开关。关掉时这个月不读打卡和人事记录:
+                没有事假、没有按小时的加班费, 只看工资结构本身, 拿来对数。 */}
+            {!paid && (
+              <>
+                {' · '}
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() =>
+                    start(async () => {
+                      try {
+                        await save({
+                          kind: 'setPayrollAttendanceLinked',
+                          month,
+                          linked: !attendanceLinked,
+                        })
+                      } catch (e) {
+                        showToast(e instanceof Error ? e.message : '改不上', 'warning')
+                      }
+                    })
+                  }
+                  title={
+                    attendanceLinked
+                      ? '点一下: 这个月先不读考勤 (打卡、加班、请假), 只看工资结构'
+                      : '点一下: 接回考勤 — 打卡、加班、请假照算'
+                  }
+                  className={`underline underline-offset-2 disabled:opacity-50 ${
+                    attendanceLinked
+                      ? 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+                      : 'text-[var(--color-warning)] hover:text-[var(--color-ink)]'
+                  }`}
+                >
+                  {attendanceLinked ? '已关联考勤' : '未关联考勤 · 按满勤、不算加班'}
+                </button>
+              </>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-3">

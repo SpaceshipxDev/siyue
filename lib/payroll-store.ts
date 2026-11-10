@@ -551,6 +551,32 @@ export type PayrollPaid = {
 export type PayrollSheet = {
   lines: Record<string, PayrollLine>
   paid?: PayrollPaid
+  /** 这个月关不关联考勤 —— 没设过看 attendanceLinkedFor 的默认。 */
+  attendanceLinked?: boolean
+}
+
+/*
+ * 关联考勤 —— 关掉时这个月的工资不读考勤: 打卡机月报、人事记的加班和缺勤都
+ * 不进来, 事假 0、按小时的加班费 0、出勤按满勤, 条子上就是综合工资拆出来的
+ * 那几项加手填的钱。于海伟 2026-11-10: 新工资结构先拿 10 月份对数, 10 月先不
+ * 关联 —— 所以 10 月没设过时默认关着, 工资页上一点就能接回去。
+ */
+const UNLINKED_BY_DEFAULT = ['2026-10']
+
+export function attendanceLinkedFor(month: string, sheet: PayrollSheet): boolean {
+  return sheet.attendanceLinked ?? !UNLINKED_BY_DEFAULT.includes(month)
+}
+
+export async function setPayrollAttendanceLinked(
+  month: string,
+  linked: boolean,
+): Promise<void> {
+  await withPayrollLock(async () => {
+    const sheet = normalizeSheet(await readJson(monthKey(month)))
+    if (sheet.paid) throw new Error('这个月已发放，先撤销再改')
+    sheet.attendanceLinked = linked
+    await writeJson(monthKey(month), sheet)
+  })
 }
 
 function normalizeSheet(raw: unknown): PayrollSheet {
@@ -574,7 +600,9 @@ function normalizeSheet(raw: unknown): PayrollSheet {
     if (typeof l.note === 'string' && l.note.trim()) line.note = l.note
     lines[name] = line
   }
-  if (typeof o.paid !== 'object' || o.paid === null) return { lines }
+  const attendanceLinked =
+    typeof o.attendanceLinked === 'boolean' ? o.attendanceLinked : undefined
+  if (typeof o.paid !== 'object' || o.paid === null) return { lines, attendanceLinked }
   // 工资条 frozen before 部门 was part of pay carry neither — they read as
   // 未分部门 at the shop's commonest day, which is what they were paid at.
   // 同样地, 发放于"周六半天"和"加班读自人事"之前的条子上没有这几格: 它们读
@@ -648,7 +676,7 @@ function normalizeSheet(raw: unknown): PayrollSheet {
       toolCny: typeof s.toolCny === 'number' ? s.toolCny : 0,
     })),
   }
-  return { lines, paid }
+  return { lines, paid, attendanceLinked }
 }
 
 export async function getPayrollSheet(month: string): Promise<PayrollSheet> {
@@ -735,6 +763,8 @@ export type PayrollView = {
   /** 名册里还没定月薪的人, 带上猜出来的部门。 */
   offRoster: { name: string; dept: string }[]
   paid: PayrollPaid | null
+  /** 这个月关联考勤 (见 attendanceLinkedFor)。 */
+  attendanceLinked: boolean
 }
 
 export async function loadPayroll(month: string): Promise<PayrollView> {
@@ -768,15 +798,17 @@ export async function loadPayroll(month: string): Promise<PayrollView> {
   }
 
   // A paid-out month renders what was handed over, not a fresh computation.
+  // 不关联考勤的月份: 人事记录和打卡月报都不进来 —— 按满勤、没有加班。
+  const linked = attendanceLinkedFor(month, sheet)
   const slips = sheet.paid
     ? sheet.paid.slips
     : buildPayslips(
         resolved,
-        summarizeAttendance(hrRecords),
+        linked ? summarizeAttendance(hrRecords) : {},
         sheet.lines,
-        rules,
+        { ...rules, ...(linked ? {} : { attendanceCounts: 0 }) },
         month,
-        summaries,
+        linked ? summaries : {},
         loanDueByName(loans, month),
         toolDueByName(tools, month),
       )
@@ -787,7 +819,7 @@ export async function loadPayroll(month: string): Promise<PayrollView> {
     .sort((a, b) => a.localeCompare(b, 'zh'))
     .map((name) => ({ name, dept: guessDept(name) }))
 
-  return { rules, slips, offRoster, paid: sheet.paid ?? null }
+  return { rules, slips, offRoster, paid: sheet.paid ?? null, attendanceLinked: linked }
 }
 
 // Which months have a sheet — drives the period picker, same idea as

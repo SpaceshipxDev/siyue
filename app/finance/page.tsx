@@ -542,6 +542,7 @@ async function PayrollTab({
       rules={view.rules}
       slips={view.slips}
       offRoster={view.offRoster}
+      attendanceLinked={view.attendanceLinked}
       paid={
         view.paid
           ? {
