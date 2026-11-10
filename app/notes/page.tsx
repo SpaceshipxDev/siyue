@@ -15,7 +15,7 @@ export default async function NotesPage() {
     <div className="flex-1 flex flex-col">
       <TopBar
         title="笔记"
-        subtitle="随手记"
+        subtitle="事项 · 进度 · 完成"
         currentTab="笔记"
         role={user.role}
         defaultStage={user.defaultStage}

@@ -7,6 +7,7 @@ import type { Role } from '@/lib/auth'
 import type { OrderMoneyStatus } from '@/lib/order-money'
 import { LogoutButton } from './_logout'
 import { ReporterChip } from './_reporter'
+import { NotesTodoChip } from './_notes_todo'
 
 export type TabKey =
   | '商务'
@@ -231,6 +232,8 @@ export function TopBar({
           {/* 报工人 — 一个账号两个人用的时候, 各自设一下名字, 报工统计才分得
               开 (app/_reporter)。商务不报工, 所以只给生产账号看。 */}
           {!isCommerce && <ReporterChip accountName={userName} />}
+          {/* 待办 — 笔记里自己还没完成的事项 (商务 + 工程, 同 canUseNotes)。 */}
+          {(isCommerce || defaultStage === '工程') && <NotesTodoChip />}
           <span className="label mono text-[var(--color-ink)]">{userName}</span>
           <LogoutButton name={userName} />
           <span className="label">今日 · {today()}</span>

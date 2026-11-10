@@ -670,6 +670,35 @@ export type Note = {
   updatedAt: string
 }
 
+// 每条笔记是一件事项: 事项 · 开展进度 · 需完成日期 · 完成日期。notes 表只有
+// body 一列, 所以后三样跟事项一起存进 body (带 v:1 的 JSON); 只写了事项的
+// 笔记 (包括所有老笔记) 照旧是纯文字。没完成的就是「待办」。
+export type NoteFields = {
+  text: string // 事项
+  progress: string // 开展进度
+  due: string // 需完成日期 YYYY-MM-DD, '' = 没定
+  doneAt: string // 完成日期 YYYY-MM-DD, '' = 还没完成
+}
+
+const NOTE_TAG = '{"v":1,'
+
+export function parseNoteBody(body: string): NoteFields {
+  const plain = { text: body, progress: '', due: '', doneAt: '' }
+  if (!body.startsWith(NOTE_TAG)) return plain
+  try {
+    const o = JSON.parse(body) as Record<string, unknown>
+    const s = (v: unknown) => (typeof v === 'string' ? v : '')
+    return { text: s(o.text), progress: s(o.progress), due: s(o.due), doneAt: s(o.doneAt) }
+  } catch {
+    return plain
+  }
+}
+
+export function serializeNoteBody(f: NoteFields): string {
+  if (!f.progress && !f.due && !f.doneAt) return f.text
+  return JSON.stringify({ v: 1, text: f.text, progress: f.progress, due: f.due, doneAt: f.doneAt })
+}
+
 // Best-effort line subtotal: prefer the explicitly-quoted lineTotalCny;
 // otherwise derive from qty * unitPriceCny when both are present. Returns
 // undefined when neither path yields a number, so callers can render "—"
