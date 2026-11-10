@@ -17,13 +17,35 @@ import { NO_DEPARTMENT } from './payroll'
  */
 
 export async function filerDeptOf(u: AuthUser): Promise<string> {
-  return hrDeptOf(u)
+  return accountHrDept(u)
+}
+
+/*
+ * 账号在人事上算哪个部门。一般就是账号的工段 (hrDeptOf), 但早先建号时很多
+ * 车间账号都被默认挂在「工程」(lib/auth 零件行权限那一段有说明), 账号的工段
+ * 不能当组织架构用。质量这几位就是: 质量倪伟群记刘敏敏的请假, 报「刘敏敏不是
+ * 工程的人」(于海伟 2026-11-10)。这里按人名认回她们真正的部门 —— 只在人事上
+ * 认, 不动账号的工段, 报工和登录落点都不受影响。以后再发现挂错的, 加一行。
+ */
+const HR_DEPT_BY_NAME: [string, string][] = [
+  ['倪伟群', '质量'],
+  ['周中华', '质量'],
+  ['刘敏敏', '质量'],
+  ['李佳怡', '质量'],
+]
+
+export function accountHrDept(
+  u: Pick<AuthUser, 'name' | 'role' | 'defaultStage'>,
+): string {
+  if (u.role === 'commerce') return hrDeptOf(u)
+  const byName = HR_DEPT_BY_NAME.find(([n]) => u.name.includes(n))
+  return byName ? byName[1] : hrDeptOf(u)
 }
 
 /*
  * 这个人能不能记在 dept 名下 —— 于海伟 2026-11-10: 工段长记考勤, 下拉里点到
  * 的人报「不是工程的人」记不上。原因是部门有三处说法, 以前只认账号那一处:
- *   账号的工段 (hrDeptOf) · 工资名单上定的部门 · 看全厂的人在考勤上把这个人
+ *   账号的工段 (accountHrDept) · 工资名单上定的部门 · 看全厂的人在考勤上把这个人
  *   改到的部门 (setHrPersonDept, 改在记录上)。
  * 现在任一处对上就算这个部门的人; 没账号的 (临时工、共用账号的人) 跟以前一样
  * 谁都能记, 落在记的人的部门。看下拉给谁、能不能记, 都走这一个口子。
@@ -38,7 +60,7 @@ export async function hrMembership(
     getPayrollBase().catch(() => ({}) as Awaited<ReturnType<typeof getPayrollBase>>),
     ...months.map((m) => getHrMonth(m).catch(() => [])),
   ])
-  const account = new Map(users.map((u) => [u.name, hrDeptOf(u)]))
+  const account = new Map(users.map((u) => [u.name, accountHrDept(u)]))
   const other = new Map<string, Set<string>>()
   const add = (name: string, dept: string) => {
     const s = other.get(name) ?? new Set<string>()

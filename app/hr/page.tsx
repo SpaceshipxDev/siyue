@@ -49,7 +49,7 @@ import { DormBoard } from './_dorm'
 import { HrBoard } from './_hr'
 import { AttendanceSheet } from './_attendance_sheet'
 import type { AttendanceReport } from '@/lib/hr-report'
-import { filerDeptOf, hrMembership, monthAndPrev } from '@/lib/hr-dept'
+import { accountHrDept, filerDeptOf, hrMembership, monthAndPrev } from '@/lib/hr-dept'
 
 export const dynamic = 'force-dynamic'
 
@@ -143,8 +143,12 @@ export default async function HrPage({
   const seeAll = canSeeAllHr(user)
   // 录入的人自己选的部门 (lib/hr-dept); 没选过就是账号的工段。
   const myDept = await filerDeptOf(user)
+  // 自己记的那几条总看得到 —— 部门认对了以后 (lib/hr-dept accountHrDept),
+  // 以前盖在别的部门名下的那几条不会从记的人眼前消失。
   const records = (
-    seeAll ? allRecords : allRecords.filter((r) => (r.dept ?? '商务') === myDept)
+    seeAll
+      ? allRecords
+      : allRecords.filter((r) => (r.dept ?? '商务') === myDept || r.by === user.name)
   ).filter((r) => canSeeHrRecord(user, r))
 
   // Who the picker offers: system accounts plus everybody 人事 has been asked
@@ -155,7 +159,7 @@ export default async function HrPage({
   // 一个人然后被告知「不是本部门的人」。
   const roster = [
     ...new Set([
-      ...users.filter((u) => seeAll || hrDeptOf(u) === myDept).map((u) => u.name),
+      ...users.filter((u) => seeAll || accountHrDept(u) === myDept).map((u) => u.name),
       ...extraNames,
     ]),
   ].sort((a, b) => a.localeCompare(b, 'zh'))

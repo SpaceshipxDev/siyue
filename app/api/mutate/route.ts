@@ -399,7 +399,7 @@ import { isDimRow, type InspectionReportPatch } from '@/lib/inspection-report'
 import { removeInspectionPhotoObject } from '@/lib/inspection-photo'
 import { deleteContractFile } from '@/lib/contract-file'
 import { deleteExpenseVoucher } from '@/lib/voucher-file'
-import { filerDeptOf, hrMembership, monthAndPrev } from '@/lib/hr-dept'
+import { accountHrDept, filerDeptOf, hrMembership, monthAndPrev } from '@/lib/hr-dept'
 import { markWritten } from '@/lib/shared-read'
 import { addPlanRow, deletePlanRow, isPlanStage, updatePlanRow, type PlanPatch } from '@/lib/plan'
 import {
@@ -2978,7 +2978,7 @@ async function dispatch(
       const target = roster.find((x) => x.name === input.name.trim())
       // 录入的人的部门 —— 他自己选的 (lib/hr-dept), 没选过就是账号的工段。
       const filerDept = await filerDeptOf(u)
-      let dept = target ? hrDeptOf(target) : filerDept
+      let dept = target ? accountHrDept(target) : filerDept
       // A filer without the whole-factory view may only file on his own 部门 —
       // otherwise he could write a line he then isn't allowed to read. 算不算
       // 他部门的人, 账号 / 工资名单 / 考勤上改过的部门任一处对上就行
@@ -3072,7 +3072,7 @@ async function dispatch(
       const deptOf = (name: string) => {
         if (!seeAll) return mine
         const target = roster.find((x) => x.name === name)
-        return target ? hrDeptOf(target) : mine
+        return target ? accountHrDept(target) : mine
       }
       if (!seeAll) {
         const months = [...new Set(inputs.flatMap((i) => monthAndPrev(i.date)))]
@@ -3267,7 +3267,7 @@ async function dispatch(
       if (patch.name !== undefined) {
         const roster = await getActiveUsers()
         const target = roster.find((x) => x.name === patch.name!.trim())
-        if (target) dept = hrDeptOf(target)
+        if (target) dept = accountHrDept(target)
         const filerDept = await filerDeptOf(u)
         if (dept && !canSeeAllHr(u)) {
           const isMine = await hrMembership(monthAndPrev(month))
