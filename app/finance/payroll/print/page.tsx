@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { requireOrderLedgerViewer, canSeeExpenses } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { loadPayroll } from '@/lib/payroll-store'
@@ -75,47 +76,29 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
         </span>
       </div>
 
-      {/* 出勤工资 = 综合工资 ÷ 应出勤工时 × 实际出勤工时; 下面「工资构成」
-          拆的就是它 (加班费也在里面), 那一列加起来正好等于出勤工资。顺序和
-          屏幕上、导出的工资表完全一样 —— 三处读到的是同一张表。 */}
+      {/* 顺序和屏幕上、导出的工资表一样: 工资构成 (加起来是综合工资) →
+          另加 → 应发; 扣款 → 实发。 */}
       <div className="grid grid-cols-2 gap-x-8 py-2">
         <div>
-          <p className="label mb-0.5">出勤工资</p>
-          <Row
-            label={`综合 ${formatCny(s.monthlyCny)} ÷ ${fmt(s.standardHours)}h × ${fmt(s.workedHours)}h`}
-            v={s.attendancePayCny}
-            strong
-          />
-
-          <p className="label mt-2 mb-0.5">工资构成</p>
+          <p className="label mb-0.5">工资构成</p>
           <Row label="基本工资" v={s.baseSalaryCny} />
+          <Row label="固定加班费" v={s.fixedOtCny} />
+          <Row label="社保补助" v={s.socialSubsidyCny} />
+          <Row label="保密费" v={s.secretFeeCny} />
+          <Row label="安全费" v={s.safetyFeeCny} />
+          <Row label="绩效" v={s.perfPayCny} />
+          {s.postSubsidyCny !== 0 && <Row label="岗位补助" v={s.postSubsidyCny} />}
+          {s.phoneAllowanceCny !== 0 && <Row label="话费补助" v={s.phoneAllowanceCny} />}
+          {s.transportAllowanceCny !== 0 && <Row label="交通补助" v={s.transportAllowanceCny} />}
+          {s.fullAttendanceCny !== 0 && <Row label="全勤" v={s.fullAttendanceCny} />}
+          {s.welfareCny !== 0 && <Row label="福利" v={s.welfareCny} />}
+          <Row label="综合工资" v={s.monthlyCny} strong />
+
+          <p className="label mt-2 mb-0.5">另加</p>
           <Row
             label={s.otHours > 0 ? `加班费 · ${fmt(s.otHours)} 小时` : '加班费'}
             v={s.otPay}
           />
-          {s.splitApplies && <Row label="岗位补助" v={s.postSubsidyCny} />}
-          <Row label="餐补" v={s.mealCny} />
-          <Row label="话费补助" v={s.phoneAllowanceCny} />
-          <Row label="交通补助" v={s.transportAllowanceCny} />
-          <Row label="绩效工资" v={s.perfPayCny} />
-          {s.splitApplies && (
-            <>
-              <Row label="安全补贴" v={s.safetyFeeCny} />
-              <Row label="保密补贴" v={s.secretFeeCny} />
-              <Row label="全勤" v={s.fullAttendanceCny} />
-            </>
-          )}
-          <Row label="社保补贴" v={s.socialSubsidyCny} />
-          <Row label="福利" v={s.welfareCny} />
-
-          <p className="label mt-2 mb-0.5">另加</p>
-          {PAYROLL_ADD_FIELDS.map(([k, label]) => (
-            <Row key={k} label={label} v={s[k]} />
-          ))}
-          {s.adjustCny !== 0 && (
-            <Row label={s.adjustCny > 0 ? '奖' : '罚'} v={s.adjustCny} />
-          )}
-          <Row label="应发工资" v={s.grossCny} strong />
           <Row
             label={
               s.housingBaseCny > 0 &&
@@ -125,12 +108,25 @@ function Slip({ s, month }: { s: Payslip; month: string }) {
             }
             v={s.housingAllowanceCny}
           />
+          {PAYROLL_ADD_FIELDS.map(([k, label]) => (
+            <Row key={k} label={label} v={s[k]} />
+          ))}
+          {s.holidayCny !== 0 && <Row label="节假日补贴" v={s.holidayCny} />}
+          {s.adjustCny !== 0 && (
+            <Row label={s.adjustCny > 0 ? '奖' : '罚'} v={s.adjustCny} />
+          )}
+          <Row label="应发工资" v={s.grossCny} strong />
         </div>
         <div>
           <p className="label mb-0.5">扣款</p>
           {PAYROLL_CUT_FIELDS.map(([k, label]) => (
-            <Row key={k} label={label} v={s[k]} />
+            <Fragment key={k}>
+              <Row label={label} v={s[k]} />
+              {k === 'otherDeductCny' && <Row label="事假" v={s.leaveDeductCny} />}
+            </Fragment>
           ))}
+          {s.perfDeductCny !== 0 && <Row label="绩效扣款" v={s.perfDeductCny} />}
+          {s.safetyDeductCny !== 0 && <Row label="安全扣款" v={s.safetyDeductCny} />}
           {s.toolCny > 0 && <Row label="工具扣款" v={s.toolCny} />}
           {s.loanCny > 0 && <Row label="借款扣回" v={s.loanCny} />}
           <Row label="扣款合计" v={s.deductCny} strong />

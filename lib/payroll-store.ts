@@ -636,6 +636,12 @@ function normalizeSheet(raw: unknown): PayrollSheet {
       workedHoursFromClock: s.workedHoursFromClock === true,
       baseSalaryCny:
         typeof s.baseSalaryCny === 'number' ? s.baseSalaryCny : 0,
+      // 2026-11 新工资结构之前发放的条子上没有这三格 —— 读成 0, 那个月本来
+      // 就是那么发的。
+      fixedOtCny: typeof s.fixedOtCny === 'number' ? s.fixedOtCny : 0,
+      leaveDeductCny:
+        typeof s.leaveDeductCny === 'number' ? s.leaveDeductCny : 0,
+      hasSocial: s.hasSocial === true,
       // 借款扣回之前发放的条子上没有这一格 —— 那个月本来就没扣。
       loanCny: typeof s.loanCny === 'number' ? s.loanCny : 0,
       // 工具扣款之前发放的条子上没有这一格。
