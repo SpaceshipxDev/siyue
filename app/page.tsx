@@ -84,7 +84,13 @@ export default async function MasterBoard(
       getStageFlowMinutes(),
       // The worker's own today/this-week numbers — fetched alongside the board so
       // the headline paints in the same shot. Only production users get a row.
-      showMyToday ? getWorkerSelfStats(user.name) : Promise.resolve(null),
+      // 工位账号 (报工范围不是全厂的) 几个人共用, 组里每个人报的一起算。
+      showMyToday
+        ? getWorkerSelfStats(
+            user.name,
+            stageScopeFor(user) === 'all' ? undefined : user.id,
+          )
+        : Promise.resolve(null),
       // 今日重点 — the boss's daily must-do list, mirrored onto every view.
       getDailyFocusItems(today()),
       getMasterAggregates(),

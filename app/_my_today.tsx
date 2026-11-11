@@ -31,6 +31,12 @@ export function MyToday({
             {name}
           </h2>
           <span className="label shrink-0 text-[var(--color-ink-3)]">今日产出</span>
+          {/* 组里用自己名字报工的人 —— 一起算在这张卡里, 写出来免得以为漏了。 */}
+          {stats.members.length > 0 && (
+            <span className="truncate text-[12px] text-[var(--color-ink-3)]">
+              含 {stats.members.join('、')}
+            </span>
+          )}
         </div>
         <span className="label shrink-0 tabular-nums text-[var(--color-ink-3)]">
           {dayLabel(todayStr)}

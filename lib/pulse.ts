@@ -892,23 +892,58 @@ export type WorkerSelfStats = {
   /** 完成工序 this week (Mon–Sun). */
   weekFinishes: number
   weekPieces: number
+  /** 这个账号上用别的报工人名字报过工的人 —— 一起算进来了 (见下)。 */
+  members: string[]
 }
 
-export async function getWorkerSelfStats(actorName: string): Promise<WorkerSelfStats> {
+// 这个账号上报过工的那几个名字 —— 共用的工位账号 (金属操机001高发祥…) 上,
+// 组里的人在「报工人」里设了自己的名字, 报工就记在那个名字下 (app/_reporter),
+// 账号名下反而没有。报工事件里另外记着是哪个账号按的 (by_user_id), 按它找回
+// 来。读不到就当没有, 不拦首页。
+async function reportersOnAccount(userId: string, from: string): Promise<string[]> {
+  const r = await supabase
+    .from('station_events')
+    .select('actor_name')
+    .eq('by_user_id', userId)
+    .gte('ts', from)
+    .limit(2000)
+  if (r.error) return []
+  const names = new Set<string>()
+  for (const row of (r.data ?? []) as AnyRow[]) {
+    const n = ((row.actor_name as string | null) ?? '').trim()
+    if (n) names.add(n)
+  }
+  return [...names]
+}
+
+// 今日产出那张卡。groupUserId 给了的话 (工位账号), 这个账号上所有报工人的
+// 产出一起算 —— 于海伟 2026-11-11: 杨炫增在金属操机001高发祥这个组, 他报的工
+// 在这个组的汇总里没有。
+export async function getWorkerSelfStats(
+  actorName: string,
+  groupUserId?: string,
+): Promise<WorkerSelfStats> {
   const t = today()
-  const [dayRows, weekRows] = await Promise.all([
+  const week = shanghaiWindow(t, 'week')
+  const [dayRows, weekRows, reporters] = await Promise.all([
     getWorkerOutput(shanghaiWindow(t, 'day')),
-    getWorkerOutput(shanghaiWindow(t, 'week')),
+    getWorkerOutput(week),
+    groupUserId ? reportersOnAccount(groupUserId, week.from) : Promise.resolve([]),
   ])
-  const d = dayRows.find((r) => r.actorName === actorName)
-  const w = weekRows.find((r) => r.actorName === actorName)
+  const members = reporters.filter((n) => n !== actorName)
+  const names = new Set([actorName, ...members])
+  const sum = (
+    rows: WorkerOutputRow[],
+    k: 'finishes' | 'pieces' | 'valueCny' | 'unpriced',
+  ) => rows.filter((r) => names.has(r.actorName)).reduce((a, r) => a + r[k], 0)
   return {
-    todayFinishes: d?.finishes ?? 0,
-    todayPieces: d?.pieces ?? 0,
-    todayValueCny: d?.valueCny ?? 0,
-    todayUnpriced: d?.unpriced ?? 0,
-    weekFinishes: w?.finishes ?? 0,
-    weekPieces: w?.pieces ?? 0,
+    todayFinishes: sum(dayRows, 'finishes'),
+    todayPieces: sum(dayRows, 'pieces'),
+    todayValueCny: Math.round(sum(dayRows, 'valueCny') * 100) / 100,
+    todayUnpriced: sum(dayRows, 'unpriced'),
+    weekFinishes: sum(weekRows, 'finishes'),
+    weekPieces: sum(weekRows, 'pieces'),
+    members,
   }
 }
 
