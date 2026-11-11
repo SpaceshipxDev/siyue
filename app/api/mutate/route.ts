@@ -180,6 +180,7 @@ import {
   canWriteReturnPlan,
   canUndoFinishedStage,
   canFixReport,
+  stageScopeFor,
   canSeeFactoryPulse,
   canEditPlan,
   canSeeMoney,
@@ -246,6 +247,7 @@ import {
   type WorkShare,
 } from '@/lib/work-split'
 import { setValueEdit } from '@/lib/report-value'
+import { setGroupMembers } from '@/lib/report-group'
 import {
   addProcessDefect,
   deleteProcessDefect,
@@ -5518,6 +5520,20 @@ async function dispatch(
     }
 
     // 这个月的工资关不关联考勤 (lib/payroll-store attendanceLinkedFor)。
+    // 组员 —— 工位账号写下自己组里有谁, 今日产出那张卡把他们的报工一起算
+    // (lib/report-group)。只改自己这个账号的。
+    case 'setReportGroup': {
+      const members = body.members
+      if (!Array.isArray(members) || !members.every(isString))
+        return err('bad setReportGroup args')
+      const u = await requireUser()
+      if (u.role === 'commerce' || stageScopeFor(u) === 'all')
+        return err('只有工位账号有组员', 403)
+      await setGroupMembers(u.id, members as string[])
+      revalidatePath('/')
+      return Response.json(ok())
+    }
+
     case 'setPayrollAttendanceLinked': {
       const month = body.month
       const linked = body.linked

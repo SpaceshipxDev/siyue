@@ -1,5 +1,6 @@
 import { formatCny } from '@/lib/data'
 import type { WorkerSelfStats } from '@/lib/pulse'
+import { GroupMembers } from './_group_members'
 
 // 今日产出 — the personal headline a floor worker meets the instant they log
 // in. The whole point of the floor's existence, said back to them in three
@@ -31,11 +32,9 @@ export function MyToday({
             {name}
           </h2>
           <span className="label shrink-0 text-[var(--color-ink-3)]">今日产出</span>
-          {/* 组里用自己名字报工的人 —— 一起算在这张卡里, 写出来免得以为漏了。 */}
-          {stats.members.length > 0 && (
-            <span className="truncate text-[12px] text-[var(--color-ink-3)]">
-              含 {stats.members.join('、')}
-            </span>
+          {/* 组员 —— 工位账号才有。算进来了谁写出来, 点一下改。 */}
+          {stats.listed && (
+            <GroupMembers members={stats.members} listed={stats.listed} />
           )}
         </div>
         <span className="label shrink-0 tabular-nums text-[var(--color-ink-3)]">

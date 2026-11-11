@@ -6,6 +6,7 @@ import { today, shanghaiWindow, shanghaiRangeWindow, shiftDate } from './today'
 import { getWorkSplits, workSplitKey, type WorkShare } from './work-split'
 import { applyFamilyValues, getFamilyJobIds, getQualityNames, PROGRAMMING_QTY_CAP } from './part-family'
 import { getValueEdits } from './report-value'
+import { getGroupMembers } from './report-group'
 
 // Read shapes for the /pulse (现场) surface. Hits the views from
 // migration 0019_pulse_views.sql — nothing here computes; the SQL does.
@@ -894,6 +895,8 @@ export type WorkerSelfStats = {
   weekPieces: number
   /** 这个账号上用别的报工人名字报过工的人 —— 一起算进来了 (见下)。 */
   members: string[]
+  /** 写下来的组员 (lib/report-group); null = 不是工位账号, 没有组。 */
+  listed: string[] | null
 }
 
 // 这个账号上报过工的那几个名字 —— 共用的工位账号 (金属操机001高发祥…) 上,
@@ -925,12 +928,14 @@ export async function getWorkerSelfStats(
 ): Promise<WorkerSelfStats> {
   const t = today()
   const week = shanghaiWindow(t, 'week')
-  const [dayRows, weekRows, reporters] = await Promise.all([
+  const [dayRows, weekRows, reporters, listed] = await Promise.all([
     getWorkerOutput(shanghaiWindow(t, 'day')),
     getWorkerOutput(week),
     groupUserId ? reportersOnAccount(groupUserId, week.from) : Promise.resolve([]),
+    // 写下来的组员 (lib/report-group) —— 在别的机器、别的账号上报的也算组里。
+    groupUserId ? getGroupMembers(groupUserId).catch(() => []) : Promise.resolve([]),
   ])
-  const members = reporters.filter((n) => n !== actorName)
+  const members = [...new Set([...listed, ...reporters])].filter((n) => n !== actorName)
   const names = new Set([actorName, ...members])
   const sum = (
     rows: WorkerOutputRow[],
@@ -944,6 +949,7 @@ export async function getWorkerSelfStats(
     weekFinishes: sum(weekRows, 'finishes'),
     weekPieces: sum(weekRows, 'pieces'),
     members,
+    listed: groupUserId ? listed : null,
   }
 }
 
