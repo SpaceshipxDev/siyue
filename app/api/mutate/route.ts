@@ -1024,6 +1024,36 @@ function revalidateExternal(jobId?: string) {
 
 // 外协单开了 (或者加进了零件) —— 这几个零件的「转外协」就算处理掉了。同一张
 // 单上还有别的零件等着外发, 待外协再点亮 (开外协单那一步会把它清掉)。
+// 外协单里有机加工 (操机 / 车铣) —— 这几个零件车间里还没开工的 编程 / 操机 /
+// 车铣 一并关掉, 跟「转外协」一个规矩 (于海伟 2026-11-11: 点过外协的单, 编程、
+// 操机自动关掉, 别再挂在车间队列里)。只做表面处理的外协单 (氧化、喷砂…) 不动
+// 机加工。已经开工、做了一半的不关 —— 报工记录不能跟着删; 外协单自己盖着的那
+// 几道也不动。关不掉不拦外协单。
+const IN_HOUSE_MACHINING: Stage[] = ['编程', '操机', '车铣']
+async function closeInHouseMachining(
+  jobId: string,
+  componentIds: string[],
+  blockStages: readonly Stage[],
+): Promise<void> {
+  if (!blockStages.some((s) => s === '操机' || s === '车铣')) return
+  try {
+    const job = await getJob(jobId)
+    if (!job) return
+    for (const id of componentIds) {
+      const c = job.components.find((x) => x.id === id)
+      if (!c) continue
+      const route = partRoute(c)
+      const off = IN_HOUSE_MACHINING.filter(
+        (s) => route.includes(s) && isStageUntouched(c, s) && !isStageOutsourced(c, s),
+      )
+      if (off.length === 0) continue
+      await setPartRoute(jobId, id, route.filter((s) => !off.includes(s)), { force: false })
+    }
+  } catch {
+    // 关工序是顺手的事, 外协单已经开好了。
+  }
+}
+
 async function settleTransfers(componentIds: string[]): Promise<void> {
   try {
     const left = await clearTransfers(componentIds)
@@ -2130,6 +2160,11 @@ async function dispatch(
       )
       if (result.ok) {
         await settleTransfers(componentIds as string[])
+        await closeInHouseMachining(
+          jobId,
+          componentIds as string[],
+          (input as NewBlockInput).stages ?? [],
+        )
         revalidateExternal(jobId)
       }
       return Response.json(ok({ result }))
@@ -2153,7 +2188,16 @@ async function dispatch(
         body.force === true,
       )
       if (result.ok) {
-        if (isString(jobId)) revalidateExternal(jobId)
+        if (isString(jobId)) {
+          // 外协单改成带机加工了 —— 单上这几个零件车间里的编程/操机一样关掉。
+          const job = await getJob(jobId).catch(() => null)
+          const members = (job?.components ?? [])
+            .filter((c) => (c.outsourceBlocks ?? []).some((b) => b.id === blockId))
+            .map((c) => c.id)
+          if (members.length > 0)
+            await closeInHouseMachining(jobId, members, stages as Stage[])
+          revalidateExternal(jobId)
+        }
         revalidatePath(`/print/outsource/${blockId}`)
       }
       return Response.json(ok({ result }))
@@ -2185,8 +2229,17 @@ async function dispatch(
         body.force === true,
       )
       if (result.ok) {
-        await settleTransfers((items as AddBlockMemberInput[]).map((x) => x.componentId))
-        if (isString(jobId)) revalidateExternal(jobId)
+        const ids = (items as AddBlockMemberInput[]).map((x) => x.componentId)
+        await settleTransfers(ids)
+        if (isString(jobId)) {
+          // 补进来的零件 —— 这张外协单盖的是哪几道, 从工单上读回来。
+          const job = await getJob(jobId).catch(() => null)
+          const block = job?.components
+            .flatMap((c) => c.outsourceBlocks ?? [])
+            .find((b) => b.id === blockId)
+          if (block) await closeInHouseMachining(jobId, ids, block.stages)
+          revalidateExternal(jobId)
+        }
         revalidatePath(`/print/outsource/${blockId}`)
       }
       return Response.json(ok({ result }))
