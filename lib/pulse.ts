@@ -899,43 +899,24 @@ export type WorkerSelfStats = {
   listed: string[] | null
 }
 
-// 这个账号上报过工的那几个名字 —— 共用的工位账号 (金属操机001高发祥…) 上,
-// 组里的人在「报工人」里设了自己的名字, 报工就记在那个名字下 (app/_reporter),
-// 账号名下反而没有。报工事件里另外记着是哪个账号按的 (by_user_id), 按它找回
-// 来。读不到就当没有, 不拦首页。
-async function reportersOnAccount(userId: string, from: string): Promise<string[]> {
-  const r = await supabase
-    .from('station_events')
-    .select('actor_name')
-    .eq('by_user_id', userId)
-    .gte('ts', from)
-    .limit(2000)
-  if (r.error) return []
-  const names = new Set<string>()
-  for (const row of (r.data ?? []) as AnyRow[]) {
-    const n = ((row.actor_name as string | null) ?? '').trim()
-    if (n) names.add(n)
-  }
-  return [...names]
-}
-
-// 今日产出那张卡。groupUserId 给了的话 (工位账号), 这个账号上所有报工人的
-// 产出一起算 —— 于海伟 2026-11-11: 杨炫增在金属操机001高发祥这个组, 他报的工
-// 在这个组的汇总里没有。
+// 今日产出那张卡。groupUserId 给了的话 (工位账号), 写下来的组员 (lib/
+// report-group) 的产出一起算 —— 于海伟 2026-11-11: 杨炫增在金属操机001高发祥
+// 这个组, 他报的工在这个组的汇总里没有。
+//
+// 不再去翻 station_events 找"这个账号上还有谁报过工": 那张视图很重, 而车间
+// 每报一次工首页就刷新一次, 一天成千上万遍, 把整个系统拖慢了 (2026-11-12)。
 export async function getWorkerSelfStats(
   actorName: string,
   groupUserId?: string,
 ): Promise<WorkerSelfStats> {
   const t = today()
   const week = shanghaiWindow(t, 'week')
-  const [dayRows, weekRows, reporters, listed] = await Promise.all([
+  const [dayRows, weekRows, listed] = await Promise.all([
     getWorkerOutput(shanghaiWindow(t, 'day')),
     getWorkerOutput(week),
-    groupUserId ? reportersOnAccount(groupUserId, week.from) : Promise.resolve([]),
-    // 写下来的组员 (lib/report-group) —— 在别的机器、别的账号上报的也算组里。
     groupUserId ? getGroupMembers(groupUserId).catch(() => []) : Promise.resolve([]),
   ])
-  const members = [...new Set([...listed, ...reporters])].filter((n) => n !== actorName)
+  const members = listed.filter((n) => n !== actorName)
   const names = new Set([actorName, ...members])
   const sum = (
     rows: WorkerOutputRow[],

@@ -37,8 +37,15 @@ async function readGroups(): Promise<Record<string, string[]>> {
   }
 }
 
+// 首页每次刷新都要读 —— 放在内存里, 改了就换掉, 不必每次去下载那个文件。
+let cache: { at: number; groups: Record<string, string[]> } | null = null
+const CACHE_MS = 5 * 60 * 1000
+
 export async function getGroupMembers(userId: string): Promise<string[]> {
-  return (await readGroups())[userId] ?? []
+  if (!cache || Date.now() - cache.at > CACHE_MS) {
+    cache = { at: Date.now(), groups: await readGroups() }
+  }
+  return cache.groups[userId] ?? []
 }
 
 export async function setGroupMembers(userId: string, members: string[]): Promise<void> {
@@ -54,5 +61,6 @@ export async function setGroupMembers(userId: string, members: string[]): Promis
         upsert: true,
       })
     if (error) throw error
+    cache = { at: Date.now(), groups: all }
   })
 }
