@@ -1,5 +1,6 @@
 'use client'
 
+import { useCanClickStage } from './_stage_scope'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import Link from 'next/link'
@@ -497,6 +498,10 @@ export function MasterSheet({
   const bizActive = bizFilter !== ''
 
   const isProduction = role === 'production'
+  // 商务那一栏 —— 商务都看得到; 车间里开给工程和编程的人 (于海伟 2026-11-15):
+  // 报工范围里有「编程」的账号 (工程全厂号、编程、车工)。
+  const canProgram = useCanClickStage('编程')
+  const showBiz = !isProduction || canProgram
   const showMoney = role === 'commerce'
   const jobNoOnly = isJobNoOnlySearch(role, defaultStage)
   // Job-type edit auth: commerce + 工程 head. Workers see the stripe + chip
@@ -857,12 +862,12 @@ export function MasterSheet({
   // 商务 funnel 的名单和数 —— 数在日期范围之内, 单子多的排前面, 没填的最后。
   const bizCounts = useMemo(() => {
     const m = new Map<string, number>()
-    if (isProduction || !treatAsOverview) return []
+    if (!showBiz || !treatAsOverview) return []
     for (const r of dateFiltered) m.set(bizOf(r), (m.get(bizOf(r)) ?? 0) + 1)
     return [...m.entries()].sort(
       (a, b) => Number(a[0] === '—') - Number(b[0] === '—') || b[1] - a[1],
     )
-  }, [dateFiltered, isProduction, treatAsOverview])
+  }, [dateFiltered, showBiz, treatAsOverview])
 
   // 金额 funnel 的数 —— 跟收款那一个一样, 数在日期范围之内。
   const amountCounts = useMemo(() => {
@@ -1021,7 +1026,7 @@ export function MasterSheet({
       ? Math.max(0, rowVirtualizer.getTotalSize() - lastVirtualEnd)
       : 0
   // +金额 (left) and +收款 (right) are both commerce-only money columns.
-  const colSpan = 6 + STAGES.length + (showMoney ? 2 : 0) + (isProduction ? 0 : 1)
+  const colSpan = 6 + STAGES.length + (showMoney ? 2 : 0) + (showBiz ? 1 : 0)
 
   return (
     <>
@@ -1160,7 +1165,7 @@ export function MasterSheet({
             <col style={{ width: 230 }} />
             <col style={{ width: 140 }} />
             <col style={{ width: 220 }} />
-            {!isProduction && (
+            {showBiz && (
               <col
                 style={{
                   width: 92,
@@ -1205,9 +1210,9 @@ export function MasterSheet({
               <th className="px-4 py-3 label whitespace-nowrap">工号</th>
               <th className="px-4 py-3 label whitespace-nowrap">交期</th>
               <th className="px-4 py-3 label whitespace-nowrap">
-                {isProduction ? `产品 / ${BRAND.commerceLabel}` : '客户 / 工程师'}
+                {!isProduction ? '客户 / 工程师' : showBiz ? '产品' : `产品 / ${BRAND.commerceLabel}`}
               </th>
-              {!isProduction && (
+              {showBiz && (
                 <th
                   style={{ overflow: 'visible' }}
                   className="relative px-4 py-3 whitespace-nowrap"
@@ -1408,6 +1413,7 @@ export function MasterSheet({
                   q={q}
                   isProduction={isProduction}
                   showMoney={showMoney}
+                  showBiz={showBiz}
                   highlightStage={highlightStage}
                   tier={item.tier}
                   canEditType={canEditType}
@@ -2197,6 +2203,7 @@ function JobRow({
   q,
   isProduction,
   showMoney,
+  showBiz,
   highlightStage,
   tier,
   canEditType,
@@ -2219,6 +2226,8 @@ function JobRow({
   q: string
   isProduction: boolean
   showMoney: boolean
+  /** 商务那一栏 (商务 + 工程、编程的人)。 */
+  showBiz: boolean
   /** The viewer's own station — used only to scope the elapsed-time chip to
    * one column. Every cell renders its action button regardless. */
   highlightStage?: Stage
@@ -2408,7 +2417,7 @@ function JobRow({
               order. Production sees it on every row (it's the only contact they
               get, and "who do I ask" is the whole point). Commerce has its own
               商务 column next to this one. */}
-          {isProduction ? (
+          {isProduction && !showBiz ? (
             <span className="label mt-0.5 normal-case tracking-normal text-[11px] text-[var(--color-ink-3)]">
               <Highlight text={row.yuenongBusiness || '—'} q={q} />
             </span>
@@ -2428,7 +2437,7 @@ function JobRow({
         </div>
       </td>
       {/* 商务 —— 这单是谁接的 (越侬商务), 表头能筛。 */}
-      {!isProduction && (
+      {showBiz && (
         <td className="px-4 py-3 text-[13px] text-[var(--color-ink-2)] whitespace-nowrap">
           <Highlight text={row.yuenongBusiness?.trim() || '—'} q={q} />
         </td>
