@@ -29,7 +29,7 @@ const MONTHS = [
 // 的往往就是当时写它的人。系统一直在存 (导出里早就有这一列), 只是屏幕上没
 // 露出来 —— 于是这张表看着像没有出处。
 const COLS =
-  'grid-cols-[64px_120px_52px_minmax(0,1.1fr)_minmax(0,1fr)_72px_72px_minmax(0,1.2fr)_72px_28px]'
+  'grid-cols-[64px_160px_52px_minmax(0,1.1fr)_minmax(0,1fr)_72px_72px_minmax(0,1.2fr)_72px_28px]'
 
 export function ProcessBoard({
   rows,

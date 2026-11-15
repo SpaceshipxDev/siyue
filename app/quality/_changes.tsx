@@ -28,7 +28,7 @@ const MONTHS = [
 ]
 
 const COLS =
-  'grid-cols-[64px_minmax(0,1fr)_96px_72px_minmax(0,2fr)_minmax(0,1fr)_72px_28px]'
+  'grid-cols-[64px_minmax(0,1fr)_150px_72px_minmax(0,2fr)_minmax(0,1fr)_72px_28px]'
 
 export function ChangesBoard({
   rows,

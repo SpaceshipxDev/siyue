@@ -38,7 +38,7 @@ const MONTHS = [
 ]
 
 const COLS =
-  'grid-cols-[56px_minmax(0,0.62fr)_96px_44px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.85fr)_60px_minmax(0,1fr)_76px_minmax(0,0.8fr)_26px]'
+  'grid-cols-[56px_minmax(0,0.62fr)_150px_44px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.85fr)_60px_minmax(0,1fr)_76px_minmax(0,0.8fr)_26px]'
 
 export function ComplaintsBoard({
   rows,
