@@ -735,8 +735,16 @@ export async function requireProductionOrderExporter(): Promise<AuthUser> {
 // office writes in it. 工程 gets it too (same commerce+工程 pair as 现场/
 // 交接/外协 — the 工程 head runs the floor and keeps the same kind of
 // running notes the boss does). Notes stay per-author regardless.
-export function canUseNotes(s: Scope): boolean {
-  return s.role === 'commerce' || s.defaultStage === '工程'
+// 另外按账号名开给的 (于海伟 2026-11-15: 采购人事)。顶栏 app/_ui 那边有一份
+// 同样的名单, 改这里记得一起改。
+export const NOTES_EXTRA_NAMES = ['采购人事']
+
+export function canUseNotes(s: Scope & { name?: string }): boolean {
+  return (
+    s.role === 'commerce' ||
+    s.defaultStage === '工程' ||
+    (s.name !== undefined && NOTES_EXTRA_NAMES.includes(s.name))
+  )
 }
 
 export async function requireNotesUser(): Promise<AuthUser> {

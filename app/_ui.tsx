@@ -46,6 +46,8 @@ type Tab = { key: TabKey; label: string; href: string }
 // 计划 —— 商务、工程之外, 编程的程江华也排计划 (lib/auth canEditPlan, 那边按
 // 账号认; 这里只管导航上露不露这一格, 只拿得到名字)。
 const PLAN_EXTRA_NAMES = ['程江华']
+// 笔记 —— 商务、工程之外按账号名开给的 (lib/auth NOTES_EXTRA_NAMES, 两边一起改)。
+const NOTES_EXTRA_NAMES = ['采购人事']
 
 function tabsForRole(
   role: Role,
@@ -140,6 +142,9 @@ function tabsForRole(
     }
     return [
       { key: '工单', label: '全部', href: '/' },
+      ...(NOTES_EXTRA_NAMES.includes(userName)
+        ? [{ key: '笔记' as TabKey, label: '笔记', href: '/notes' }]
+        : []),
       ...(PLAN_EXTRA_NAMES.includes(userName)
         ? [{ key: '计划' as TabKey, label: '计划', href: '/plan' }]
         : []),
@@ -233,7 +238,9 @@ export function TopBar({
               开 (app/_reporter)。商务不报工, 所以只给生产账号看。 */}
           {!isCommerce && <ReporterChip accountName={userName} />}
           {/* 待办 — 笔记里自己还没完成的事项 (商务 + 工程, 同 canUseNotes)。 */}
-          {(isCommerce || defaultStage === '工程') && <NotesTodoChip />}
+          {(isCommerce || defaultStage === '工程' || NOTES_EXTRA_NAMES.includes(userName)) && (
+            <NotesTodoChip />
+          )}
           <span className="label mono text-[var(--color-ink)]">{userName}</span>
           <LogoutButton name={userName} />
           <span className="label">今日 · {today()}</span>

@@ -249,6 +249,11 @@ const AMOUNT_FILTER_LABEL: Record<AmountFilter, string> = {
   thin: '毛利不到 30%',
 }
 
+// 商务那一栏的键 —— 没填的算「—」, 筛选里单独一行。
+function bizOf(r: MasterRow): string {
+  return r.yuenongBusiness?.trim() || '—'
+}
+
 function rowMatchesAmount(r: MasterRow, f: AmountFilter): boolean {
   if (f === 'all') return true
   const a = r.amountCny
@@ -483,6 +488,13 @@ export function MasterSheet({
     'all',
   )
   const amountActive = amountFilter !== 'all'
+  // 商务 funnel —— 按越侬商务 (这单是谁接的) 切 (于海伟 2026-11-15)。'' = 不筛,
+  // '—' = 没填商务的单。
+  const [bizFilter, setBizFilter] = usePersistentState<string>(
+    `${persistKey}:biz`,
+    '',
+  )
+  const bizActive = bizFilter !== ''
 
   const isProduction = role === 'production'
   const showMoney = role === 'commerce'
@@ -782,8 +794,11 @@ export function MasterSheet({
       const amountScoped = amountActive
         ? moneyScoped.filter((r) => rowMatchesAmount(r, amountFilter))
         : moneyScoped
+      const bizScoped = bizActive
+        ? amountScoped.filter((r) => bizOf(r) === bizFilter)
+        : amountScoped
       return {
-        topRows: floatRush(amountScoped),
+        topRows: floatRush(bizScoped),
         upstreamRows: [] as MasterRow[],
         doneRows: [] as MasterRow[],
       }
@@ -818,7 +833,7 @@ export function MasterSheet({
       upstreamRows: floatRush(upstream),
       doneRows: done,
     }
-  }, [dateFiltered, isStationView, stageFilter, q, effectiveType, activeFilterStages, statusByStage, onlyPendingOutsource, onlyDrawingChange, moneyActive, moneyFilter, amountActive, amountFilter, stuckActive, stuckStages])
+  }, [dateFiltered, isStationView, stageFilter, q, effectiveType, activeFilterStages, statusByStage, onlyPendingOutsource, onlyDrawingChange, moneyActive, moneyFilter, amountActive, amountFilter, bizActive, bizFilter, stuckActive, stuckStages])
 
   // 待外协 count over the current date scope — drives the facet chip label and
   // hides the chip entirely when nothing is waiting (clean board, no chrome).
@@ -838,6 +853,16 @@ export function MasterSheet({
     () => dateFiltered.reduce((n, r) => (r.drawingChangeOpen ? n + 1 : n), 0),
     [dateFiltered],
   )
+
+  // 商务 funnel 的名单和数 —— 数在日期范围之内, 单子多的排前面, 没填的最后。
+  const bizCounts = useMemo(() => {
+    const m = new Map<string, number>()
+    if (isProduction || !treatAsOverview) return []
+    for (const r of dateFiltered) m.set(bizOf(r), (m.get(bizOf(r)) ?? 0) + 1)
+    return [...m.entries()].sort(
+      (a, b) => Number(a[0] === '—') - Number(b[0] === '—') || b[1] - a[1],
+    )
+  }, [dateFiltered, isProduction, treatAsOverview])
 
   // 金额 funnel 的数 —— 跟收款那一个一样, 数在日期范围之内。
   const amountCounts = useMemo(() => {
@@ -896,6 +921,7 @@ export function MasterSheet({
     onlyDrawingChange ||
     moneyActive ||
     amountActive ||
+    bizActive ||
     stuckActive
 
   type VirtualDivider = {
@@ -995,7 +1021,7 @@ export function MasterSheet({
       ? Math.max(0, rowVirtualizer.getTotalSize() - lastVirtualEnd)
       : 0
   // +金额 (left) and +收款 (right) are both commerce-only money columns.
-  const colSpan = 6 + STAGES.length + (showMoney ? 2 : 0)
+  const colSpan = 6 + STAGES.length + (showMoney ? 2 : 0) + (isProduction ? 0 : 1)
 
   return (
     <>
@@ -1134,6 +1160,14 @@ export function MasterSheet({
             <col style={{ width: 230 }} />
             <col style={{ width: 140 }} />
             <col style={{ width: 220 }} />
+            {!isProduction && (
+              <col
+                style={{
+                  width: 92,
+                  background: bizActive ? 'var(--color-info-soft)' : undefined,
+                }}
+              />
+            )}
             {showMoney && <col style={{ width: 120 }} />}
             {/* 滞留 — 最前面还没做完的那一道, 紧挨着 工程 那一列开头。见
                 lib/master rowStuckStage。 */}
@@ -1173,6 +1207,31 @@ export function MasterSheet({
               <th className="px-4 py-3 label whitespace-nowrap">
                 {isProduction ? `产品 / ${BRAND.commerceLabel}` : '客户 / 工程师'}
               </th>
+              {!isProduction && (
+                <th
+                  style={{ overflow: 'visible' }}
+                  className="relative px-4 py-3 whitespace-nowrap"
+                >
+                  <span className="inline-flex items-center gap-1 label">
+                    <span className={bizActive ? 'text-[var(--color-ink)]' : undefined}>
+                      {bizActive ? bizFilter : '商务'}
+                    </span>
+                    {treatAsOverview && (
+                      <BizHeaderFilter
+                        value={bizFilter}
+                        counts={bizCounts}
+                        onChange={setBizFilter}
+                      />
+                    )}
+                  </span>
+                  {bizActive && (
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-x-2 bottom-[6px] h-[2px] rounded-[2px] bg-[var(--color-info)]"
+                    />
+                  )}
+                </th>
+              )}
               {showMoney && (
                 <th
                   style={{ overflow: 'visible' }}
@@ -1436,6 +1495,7 @@ export function MasterSheet({
                   clearStageStatuses()
                   setMoneyFilter('all')
                   setAmountFilter('all')
+                  setBizFilter('')
                   setStuckStages([])
                 }}
                 className="label mt-4 text-[var(--color-ink)] hover:underline underline-offset-4 decoration-[var(--color-ink-3)]"
@@ -1954,6 +2014,84 @@ function AmountHeaderFilter({
   )
 }
 
+// 商务 column funnel —— 一个人一行, 后面是单数; 跟金额那一个同一个样子。
+function BizHeaderFilter({
+  value,
+  counts,
+  onChange,
+}: {
+  value: string
+  counts: [string, number][]
+  onChange: (next: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLSpanElement>(null)
+  const active = value !== ''
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const total = counts.reduce((n, [, c]) => n + c, 0)
+  const pick = (v: string) => {
+    onChange(v)
+    setOpen(false)
+  }
+
+  return (
+    <span ref={ref} className="relative inline-flex">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="按商务筛选"
+        title="按商务筛选"
+        className={`inline-flex h-4 w-4 items-center justify-center rounded-[2px] transition-colors ${
+          active
+            ? 'text-[var(--color-info)]'
+            : open
+              ? 'text-[var(--color-ink)] bg-black/[0.06]'
+              : 'text-[var(--color-ink-4)] hover:text-[var(--color-ink-2)] hover:bg-black/[0.04]'
+        }`}
+      >
+        {active ? <FunnelIcon /> : <CaretIcon />}
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          aria-label="商务"
+          className="absolute left-0 top-[calc(100%+8px)] z-40 max-h-[360px] min-w-[150px] overflow-y-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] py-1 text-left shadow-[0_10px_34px_-12px_rgba(20,19,15,0.28)]"
+        >
+          <FilterMenuRow label="全部" count={total} active={!active} onClick={() => pick('')} />
+          <div className="my-1 h-px bg-[var(--color-border)]" />
+          {counts.map(([name, n]) => (
+            <FilterMenuRow
+              key={name}
+              label={name === '—' ? '没填商务' : name}
+              count={n}
+              active={value === name}
+              onClick={() => pick(name)}
+            />
+          ))}
+        </div>
+      )}
+    </span>
+  )
+}
+
 // 滞留 column funnel — HeaderFilter / MoneyHeaderFilter 的第三个同胞。工段列
 // 的漏斗问的是"这一道做完没有", 这个问的是"这张单卡在哪一道": 选 手工, 板子
 // 就只剩下最前面卡在手工的那些单 —— 一张可以直接拿去催的清单。
@@ -2268,16 +2406,10 @@ function JobRow({
           </span>
           {/* 越侬商务 — OUR salesperson, the person the floor calls about this
               order. Production sees it on every row (it's the only contact they
-              get, and "who do I ask" is the whole point). Commerce already has
-              客户 + 工程师 above, so for them it stays a search-hit explainer. */}
-          {isProduction ||
-          (q.trim() &&
-            row.yuenongBusiness &&
-            row.yuenongBusiness.toLowerCase().includes(q.trim().toLowerCase())) ? (
+              get, and "who do I ask" is the whole point). Commerce has its own
+              商务 column next to this one. */}
+          {isProduction ? (
             <span className="label mt-0.5 normal-case tracking-normal text-[11px] text-[var(--color-ink-3)]">
-              {!isProduction && (
-                <span className="text-[var(--color-ink-4)]">{BRAND.commerceLabel} · </span>
-              )}
               <Highlight text={row.yuenongBusiness || '—'} q={q} />
             </span>
           ) : null}
@@ -2295,6 +2427,12 @@ function JobRow({
               are not loaded on the master read. Job-detail still shows them. */}
         </div>
       </td>
+      {/* 商务 —— 这单是谁接的 (越侬商务), 表头能筛。 */}
+      {!isProduction && (
+        <td className="px-4 py-3 text-[13px] text-[var(--color-ink-2)] whitespace-nowrap">
+          <Highlight text={row.yuenongBusiness?.trim() || '—'} q={q} />
+        </td>
+      )}
       {showMoney && (
         <td className="px-4 py-3 text-right">
           <div className="flex flex-col items-end leading-tight">
