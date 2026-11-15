@@ -25,7 +25,7 @@ const MONTHS = [
 const SOURCES = ['自制加工', '外协加工', '客退'] as const
 
 const COLS =
-  'grid-cols-[56px_112px_48px_minmax(0,1.1fr)_76px_76px_68px_minmax(0,1.2fr)_64px_28px]'
+  'grid-cols-[56px_160px_48px_minmax(0,1.1fr)_76px_76px_68px_minmax(0,1.2fr)_64px_28px]'
 
 export function ScrapBoard({
   rows,
