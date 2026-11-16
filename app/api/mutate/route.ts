@@ -248,7 +248,7 @@ import {
 } from '@/lib/work-split'
 import { setValueEdit } from '@/lib/report-value'
 import { setGroupMembers } from '@/lib/report-group'
-import { rememberActivity } from '@/lib/outsource-activity'
+import { removeActivity, rememberActivity, renameActivity } from '@/lib/outsource-activity'
 import {
   addProcessDefect,
   deleteProcessDefect,
@@ -2141,6 +2141,23 @@ async function dispatch(
     }
 
     // === 外协 blocks ===
+    // 外协「做什么」里自己加的工序 —— 改名 / 删 (lib/outsource-activity)。
+    case 'renameOutsourceActivity':
+    case 'removeOutsourceActivity': {
+      const name = body.name
+      if (!isString(name) || !name.trim()) return err(`bad ${kind} args`)
+      await requireOutsourceManager()
+      if (kind === 'renameOutsourceActivity') {
+        const to = body.to
+        if (!isString(to) || !to.trim()) return err('工序名不能空')
+        await renameActivity(name, to)
+      } else {
+        await removeActivity(name)
+      }
+      revalidatePath('/jobs/[id]', 'page')
+      return Response.json(ok())
+    }
+
     case 'createOutsourceBlock': {
       const jobId = body.jobId
       const componentIds = body.componentIds

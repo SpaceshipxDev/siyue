@@ -33,19 +33,48 @@ export async function getCustomActivities(): Promise<string[]> {
   return readList()
 }
 
+async function writeList(list: string[]): Promise<void> {
+  const { error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(KEY, Buffer.from(JSON.stringify(list), 'utf8'), {
+      contentType: 'application/json',
+      upsert: true,
+    })
+  if (error) throw error
+}
+
+const isBuiltIn = (a: string) => (OUTSOURCE_ACTIVITIES as readonly string[]).includes(a)
+
 export async function rememberActivity(name: string): Promise<void> {
   const a = name.trim().slice(0, 16)
-  if (!a || (OUTSOURCE_ACTIVITIES as readonly string[]).includes(a)) return
+  if (!a || isBuiltIn(a)) return
   await withLock(async () => {
     const list = await readList()
     if (list.includes(a)) return
     list.push(a)
-    const { error } = await supabase.storage
-      .from(STORAGE_BUCKET)
-      .upload(KEY, Buffer.from(JSON.stringify(list), 'utf8'), {
-        contentType: 'application/json',
-        upsert: true,
-      })
-    if (error) throw error
+    await writeList(list)
+  })
+}
+
+// 改名 / 删 —— 只动自己加的那几个; 已经开出去的外协单上写的字不变 (那是凭据)。
+// 改成一个已有的名字 = 并成一个。
+export async function renameActivity(from: string, to: string): Promise<void> {
+  const next = to.trim().slice(0, 16)
+  if (!next) throw new Error('工序名不能空')
+  await withLock(async () => {
+    const list = await readList()
+    const i = list.indexOf(from)
+    if (i === -1) return
+    if (isBuiltIn(next) || list.includes(next)) list.splice(i, 1)
+    else list[i] = next
+    await writeList(list)
+  })
+}
+
+export async function removeActivity(name: string): Promise<void> {
+  await withLock(async () => {
+    const list = await readList()
+    if (!list.includes(name)) return
+    await writeList(list.filter((a) => a !== name))
   })
 }

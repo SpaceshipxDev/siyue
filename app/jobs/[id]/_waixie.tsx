@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useMemo, useRef, useState, useTransition } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ACTIVITY_DEFAULT_STAGES,
@@ -453,6 +453,19 @@ export function WaixieTable({
                       : undefined
                   }
                 />
+                {extraActivities.length > 0 && (
+                  <ActivityEditor
+                    names={extraActivities}
+                    onRenamed={(from, to) => {
+                      if (activity === from) setActivity(to)
+                      router.refresh()
+                    }}
+                    onRemoved={(name) => {
+                      if (activity === name) setActivity('')
+                      router.refresh()
+                    }}
+                  />
+                )}
               </label>
               <label className="flex items-center gap-1.5 text-[13px]">
                 <span className="text-[var(--color-ink-3)]">厂商</span>
@@ -1206,5 +1219,95 @@ function PickRow({
         )}
       </td>
     </tr>
+  )
+}
+
+// 自己加的工序 —— 「做什么」旁边一个小「改」, 点开一张小单子: 改名 (改完回车或
+// 点别处就存)、✕ 删掉。内置的那一串不在这里, 已经开出去的外协单上写的字也不变。
+function ActivityEditor({
+  names,
+  onRenamed,
+  onRemoved,
+}: {
+  names: string[]
+  onRenamed: (from: string, to: string) => void
+  onRemoved: (name: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [pending, start] = useTransition()
+  const ref = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  const run = (fn: () => Promise<void>) =>
+    start(async () => {
+      try {
+        await fn()
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : '没改上', 'warning')
+      }
+    })
+
+  return (
+    <span ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        title="改自己加的工序"
+        className="text-[12px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
+      >
+        改
+      </button>
+      {open && (
+        <div className="absolute left-0 top-[calc(100%+6px)] z-40 w-[220px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-[0_10px_34px_-12px_rgba(20,19,15,0.28)]">
+          <p className="label mb-1.5 px-1 text-[var(--color-ink-3)]">自己加的工序</p>
+          {names.map((n) => (
+            <div key={n} className="flex items-center gap-2 px-1 py-0.5">
+              <input
+                defaultValue={n}
+                disabled={pending}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.nativeEvent.isComposing)
+                    (e.target as HTMLInputElement).blur()
+                }}
+                onBlur={(e) => {
+                  const to = e.target.value.trim()
+                  if (!to || to === n) {
+                    e.target.value = n
+                    return
+                  }
+                  run(async () => {
+                    await mutate({ kind: 'renameOutsourceActivity', name: n, to })
+                    onRenamed(n, to)
+                  })
+                }}
+                className="min-w-0 flex-1 border-b border-transparent bg-transparent py-0.5 text-[13px] text-[var(--color-ink)] outline-none hover:border-[var(--color-border)] focus:border-[var(--color-ink)]"
+              />
+              <button
+                type="button"
+                disabled={pending}
+                title={`删掉「${n}」`}
+                onClick={() =>
+                  run(async () => {
+                    await mutate({ kind: 'removeOutsourceActivity', name: n })
+                    onRemoved(n)
+                  })
+                }
+                className="text-[12px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)] disabled:opacity-50"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </span>
   )
 }
