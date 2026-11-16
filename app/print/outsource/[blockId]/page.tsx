@@ -231,11 +231,14 @@ export default async function OutsourceDocPage(
             label="备注"
             colSpan={2}
             value={
+              // 整行都能点着改 —— 空着的时候只有一个「—」, 太小了, 看不出
+              // 能改 (于海伟 2026-11-17)。
               <OutsourceBlockText
                 blockId={info.block.id}
                 jobId={info.jobId}
                 field="notes"
                 value={info.block.notes}
+                className="block w-full min-h-[22px] cursor-text"
               />
             }
           />
