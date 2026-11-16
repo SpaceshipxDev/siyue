@@ -208,6 +208,8 @@ export function WaixieTable({
   const [newVendorName, setNewVendorName] = useState('')
   const [expectedReturn, setExpectedReturn] = useState('')
   const [amount, setAmount] = useState('')
+  // 订单备注 —— 优惠、交代给厂商的话; 印在外协单的「备注」那一栏。
+  const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [overlap, setOverlap] = useState<string | null>(null)
   // The WeChat handoff banner after a successful 送出.
@@ -302,6 +304,7 @@ export function WaixieTable({
     setPrices({})
     setActivity('')
     setAmount('')
+    setNotes('')
     setOverlap(null)
     setError(null)
   }
@@ -369,6 +372,7 @@ export function WaixieTable({
           amountCny: amountTrim === '' ? null : Number(amountTrim),
           sentDate: today(),
           expectedReturn,
+          notes: notes.trim() || undefined,
           unitPricesCny,
           qtysByComponent,
           force,
@@ -515,6 +519,16 @@ export function WaixieTable({
                 />
               </label>
               )}
+              <label className="flex min-w-[200px] flex-1 items-center gap-1.5 text-[13px]">
+                <span className="text-[var(--color-ink-3)]">备注</span>
+                <input
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="如：总价×× 优惠到××"
+                  disabled={pending}
+                  className="min-h-[34px] min-w-0 flex-1 rounded-[2px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[13px]"
+                />
+              </label>
               <button
                 type="button"
                 disabled={!canSend || pending}
@@ -795,6 +809,17 @@ function BlockGroup({
                 </span>
               </span>
               )}
+              {/* 备注 —— 印在外协单「备注」那一栏, 这里点着就能改。 */}
+              <span className="block max-w-[320px]">
+                <span className={hcellLabel}>备注</span>
+                <OutsourceBlockText
+                  blockId={block.id}
+                  jobId={jobId}
+                  field="notes"
+                  value={block.notes || undefined}
+                  className="block text-[13px] leading-[20px] text-[var(--color-ink)]"
+                />
+              </span>
               {block.docNo ? (
                 <span className="block" title="外协单号">
                   <span className={hcellLabel}>单号</span>
