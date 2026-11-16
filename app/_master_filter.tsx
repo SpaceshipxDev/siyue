@@ -1471,7 +1471,11 @@ export function MasterSheet({
                   : '无匹配工单'}
             </p>
             <p className="label mt-2 text-[var(--color-ink-3)]">
-              {q
+              {q && treatAsOverview && matchedByText.length > 0
+                ? // 这一栏里搜到了, 是被上面的筛选 (商务 / 金额 / 工段…) 挡住的
+                  // —— 说「未找到」就是瞎话。
+                  `「${SHIP_SCOPE_LABEL[shipFilter]}」里有 ${matchedByText.length} 个 “${q}”，被筛选挡住了 · 点下面清除筛选`
+                : q
                 ? `未找到 “${q}” · 「${SHIP_SCOPE_LABEL[shipFilter]}」内`
                 : statusActive
                   ? `${activeFilterStages
@@ -1677,7 +1681,8 @@ function ScopeJumpHints({
   prominent?: boolean
 }) {
   if (!hits) return null
-  const others = (['live', 'confirm', 'pickup', 'shipped', 'paused', 'process'] as ShipFilter[]).filter(
+  // 退货返工也要在 —— 漏了它, 正在返工的单子一搜就是「未找到」(于海伟 2026-11-16)。
+  const others = (['live', 'confirm', 'pickup', 'shipped', 'paused', 'rework', 'process'] as ShipFilter[]).filter(
     (s) => s !== active && hits[s] > 0,
   )
   if (others.length === 0) return null
