@@ -456,6 +456,9 @@ export function WaixieTable({
                       ? `${activity} · 新`
                       : undefined
                   }
+                  initialQuery={
+                    activity && !activityOptions.includes(activity) ? activity : undefined
+                  }
                 />
                 {extraActivities.length > 0 && (
                   <ActivityEditor
@@ -494,6 +497,7 @@ export function WaixieTable({
                       ? `${newVendorName} · 新`
                       : undefined
                   }
+                  initialQuery={creatingVendor && newVendorName ? newVendorName : undefined}
                 />
               </label>
               <label className="flex items-center gap-1.5 text-[13px]">

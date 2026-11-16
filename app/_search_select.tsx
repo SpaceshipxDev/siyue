@@ -34,6 +34,7 @@ export function SearchSelect({
   disabled,
   triggerClass = '',
   triggerLabel,
+  initialQuery,
 }: {
   options: { id: string; label: string }[]
   value: string
@@ -47,6 +48,8 @@ export function SearchSelect({
   triggerClass?: string
   /** Overrides the trigger text (e.g. a just-typed new vendor name). */
   triggerLabel?: string
+  /** 打开时搜索框里先放上这几个字 —— 刚打的新名字 (翻砂 · 新) 再点开能接着改。 */
+  initialQuery?: string
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -82,7 +85,7 @@ export function SearchSelect({
   }, [open])
 
   const openPicker = () => {
-    setQuery('')
+    setQuery(initialQuery ?? '')
     const idx = options.findIndex((o) => o.id === value)
     setActiveIndex(idx < 0 ? 0 : idx)
     setOpen(true)
