@@ -13,6 +13,7 @@ import {
   memberRemainingQty,
   memberReturnedQty,
   type OutsourceActivity,
+  type Stage,
   type OutsourceBlock,
   type Vendor,
 } from '@/lib/data'
@@ -86,6 +87,14 @@ function mdShort(ymd?: string): string {
   const p = ymd.split('-')
   if (p.length < 3) return ymd
   return `${p[1]}-${p[2]}`
+}
+
+// 自己加的工序顶替哪一道 —— 看名字猜: 表面处理那一类顶喷漆, 焊接装配顶手工,
+// 其余 (翻砂、铸造、机加…) 顶操机。跟内置那一串同一个分法 (ACTIVITY_DEFAULT_STAGES)。
+function guessStages(a: string): Stage[] {
+  if (/氧化|镀|喷|漆|阳极|钝化|染|丝印|拉丝|抛光|发黑/.test(a)) return ['喷漆']
+  if (/焊|包胶|装配|组装/.test(a)) return ['手工']
+  return ['操机']
 }
 
 function activityDisplay(a?: string): string {
@@ -172,11 +181,14 @@ export function WaixieTable({
   jobId,
   components,
   vendors,
+  extraActivities = [],
   showMoney = true,
 }: {
   jobId: string
   components: WaixieComponent[]
   vendors: Vendor[]
+  /** 自己加过的工序 (翻砂…), 排在内置那一串后面。 */
+  extraActivities?: string[]
   showMoney?: boolean
 }) {
   const router = useRouter()
@@ -187,7 +199,11 @@ export function WaixieTable({
   const [pending, start] = useTransition()
 
   // Create-bar fields.
-  const [activity, setActivity] = useState<OutsourceActivity | ''>('')
+  const [activity, setActivity] = useState('')
+  const activityOptions = [
+    ...(OUTSOURCE_ACTIVITIES as readonly string[]),
+    ...extraActivities.filter((a) => !(OUTSOURCE_ACTIVITIES as readonly string[]).includes(a)),
+  ]
   const [vendorId, setVendorId] = useState('')
   const [newVendorName, setNewVendorName] = useState('')
   const [expectedReturn, setExpectedReturn] = useState('')
@@ -349,7 +365,7 @@ export function WaixieTable({
         input: {
           vendorId: useVendorId,
           activity,
-          stages: ACTIVITY_DEFAULT_STAGES[activity as OutsourceActivity] ?? ['操机'],
+          stages: ACTIVITY_DEFAULT_STAGES[activity as OutsourceActivity] ?? guessStages(activity),
           amountCny: amountTrim === '' ? null : Number(amountTrim),
           sentDate: today(),
           expectedReturn,
@@ -416,17 +432,26 @@ export function WaixieTable({
               </span>
               <label className="flex items-center gap-1.5 text-[13px]">
                 <span className="text-[var(--color-ink-3)]">做什么</span>
+                {/* 下拉里没有的工序直接打字, 点「新增工序」就用它 —— 开单时
+                    记下来, 以后每张工单的下拉里都有 (lib/outsource-activity)。 */}
                 <SearchSelect
-                  options={OUTSOURCE_ACTIVITIES.map((a) => ({
+                  options={activityOptions.map((a) => ({
                     id: a,
                     label: activityDisplay(a),
                   }))}
                   value={activity}
-                  onChange={(id) => setActivity(id as OutsourceActivity)}
+                  onChange={(id) => setActivity(id)}
                   placeholder="选择…"
-                  searchPlaceholder="搜索工序…"
+                  searchPlaceholder="搜索或输入新工序…"
+                  createLabel="新增工序"
+                  onCreate={(name) => setActivity(name)}
                   disabled={pending}
                   triggerClass="w-[120px]"
+                  triggerLabel={
+                    activity && !activityOptions.includes(activity)
+                      ? `${activity} · 新`
+                      : undefined
+                  }
                 />
               </label>
               <label className="flex items-center gap-1.5 text-[13px]">

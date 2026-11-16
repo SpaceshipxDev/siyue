@@ -77,6 +77,7 @@ import {
   JobText,
 } from '@/app/_editable'
 import { WaixieTable } from './_waixie'
+import { getCustomActivities } from '@/lib/outsource-activity'
 import { OutsourceFlag } from '@/app/_outsource_flag'
 import { ExternalBadge } from '@/app/_externalbadge'
 import { ComponentImageUploader } from '@/app/_image_uploader'
@@ -168,7 +169,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // Portal tokens power the 微信 share button on each 委外 row. No-op once
   // every vendor has one (the common case) — see ensureVendorPortalTokens.
   // 沟通确认单 (按工号) —— 全厂都看得到, 工程、商务能改 (于海伟 2026-10-20)。
-  const [rawVendors, commOrder, reworkJobs, pickupIds, transfers, confirmIds] = await Promise.all([
+  const [rawVendors, commOrder, reworkJobs, pickupIds, transfers, confirmIds, customActivities] = await Promise.all([
     ensureVendorPortalTokens(fetchedVendors),
     getCommOrder(rawJob.jobNo).catch(() => undefined),
     // 制程返工单 (lib/rework-job) —— 这张是不是, 是的话每个零件的返工报工单价。
@@ -177,6 +178,8 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
     // 转外协 (lib/outsource-transfer) —— 哪几个零件转了、还没开外协单。
     getJobTransfers(rawJob.id, rawJob.components.map((c) => c.id)).catch(() => ({}) as Awaited<ReturnType<typeof getJobTransfers>>),
     getConfirmJobIds().catch(() => new Set<string>()),
+    // 外协「做什么」里自己加过的工序 (lib/outsource-activity)。
+    getCustomActivities().catch(() => [] as string[]),
   ])
   const rework = reworkJobs[rawJob.id]
   // Only `ready` jobs live on the production board. A draft/parsing/failed job
@@ -1291,6 +1294,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                 <WaixieTable
                   jobId={job.id}
                   vendors={vendors}
+                  extraActivities={customActivities}
                   showMoney={showMoney}
                   components={job.components.map((c) => ({
                     id: c.id,

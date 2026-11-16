@@ -248,6 +248,7 @@ import {
 } from '@/lib/work-split'
 import { setValueEdit } from '@/lib/report-value'
 import { setGroupMembers } from '@/lib/report-group'
+import { rememberActivity } from '@/lib/outsource-activity'
 import {
   addProcessDefect,
   deleteProcessDefect,
@@ -2159,6 +2160,9 @@ async function dispatch(
         input as NewBlockInput,
       )
       if (result.ok) {
+        // 自己打的新工序 (翻砂…) 记下来, 以后下拉里就有 (lib/outsource-activity)。
+        const act = (input as NewBlockInput).activity
+        if (act) await rememberActivity(act).catch(() => undefined)
         await settleTransfers(componentIds as string[])
         await closeInHouseMachining(
           jobId,
