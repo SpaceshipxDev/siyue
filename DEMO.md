@@ -1,6 +1,6 @@
 # Demo build — 脱敏 (de-identified) sales demo
 
-A safe-to-show build of the MES: **real customer names, realistic part names and
+A safe-to-show build of the MES: **fictional customer names, realistic part names and
 hard ¥ amounts, ~12 months of a busy mid-size shop's order book** — but the
 factory's own identity (越侬模型 / 杭州越侬… / YNMX / phone / address / staff
 names) never appears. It runs against an **isolated demo database**, never
@@ -15,14 +15,14 @@ production.
   Flips the page title, footer, printed-doc headers, the doc-number prefix, and
   the "我方商务" field label.
 - **`scripts/seed-demo.ts`** — generates ~240 orders for a fictional shop:
-  - real customers (Hikvision 海康威视, DJI 大疆, Dahua 大华, Mindray 迈瑞,
-    Scantech 思看, BYD, NIO, Unitree …), Hikvision-weighted
+  - fictional customers only (恒视安防, 云翼科技, 精测三维, 康诺医疗 …) —
+    never real brands
   - generic-but-real part names (球机外壳, 中框, 关节外壳, 散热支架 …), real
     materials/surface treatments — no model numbers that pin to a real job
   - hard amounts rolled up from per-part unit prices (median ≈ ¥22k, up to
     ~¥300k), ~¥8M/yr total
   - full lifecycle mix: 新单 / 在产 / 已出货 / 已开票待回款 / 逾期 / 已结清,
-    plus 外协, a few 暂停, products, and **one pinned showcase Hikvision order**
+    plus 外协, a few 暂停, products, and **one pinned showcase 恒视安防 order**
   - ~12 months of history (job numbers + timestamps backdated), weighted recent
 
 ## Decisions baked in

@@ -2,7 +2,8 @@
  * Demo seed generator — a "busy mid-size precision shop" (智造精密).
  *
  * Produces a de-identified-but-believable order book for sales demos:
- *   - real customer names (Hikvision/DJI/etc.) are fine to show
+ *   - fictional customer names only — never real brands (the demo sells the
+ *     product, not who our factories' customers are)
  *   - real-sounding but generic part names (no model numbers that pin to a
  *     specific real job)
  *   - hard, realistic ¥ amounts rolled up from per-part unit prices
@@ -14,7 +15,7 @@
  *     believable China-workday timestamps, dense over the last 7 days
  *   - a full historical lifecycle: shipped / invoiced / paid, plus outsourcing,
  *     a few paused jobs, products, a few 图纸变更 marks, and one showcase
- *     Hikvision order pinned to the top.
+ *     恒视安防 order pinned to the top.
  *
  * It seeds THROUGH the app's own mutation functions (createJob, finishJobStage,
  * prepareShipping, updateShipmentFinance, createOutsourceBlockAt, ...) so every
@@ -245,7 +246,7 @@ function recentDayAgo(span: number): number {
   return n
 }
 
-// ── 4. Business vocabulary (real customers OK; parts generic-but-real) ────────
+// ── 4. Business vocabulary (fictional customers; parts generic-but-real) ────────
 const CODE = process.env.NEXT_PUBLIC_BRAND_CODE || 'MX'
 
 type Cat =
@@ -259,30 +260,30 @@ type Cat =
 
 // [customer, category, weight]  — heavier weight = appears more often
 const CUSTOMERS: readonly (readonly [string, Cat, number])[] = [
-  ['海康威视', 'security', 10],
-  ['大华股份', 'security', 7],
-  ['宇视科技', 'security', 3],
-  ['大疆创新', 'consumer', 8],
-  ['影石创新', 'consumer', 5],
-  ['科沃斯', 'consumer', 4],
-  ['石头科技', 'consumer', 3],
-  ['追觅科技', 'consumer', 3],
-  ['安克创新', 'consumer', 3],
-  ['九号公司', 'consumer', 2],
-  ['思看科技', 'scan', 6],
-  ['先临三维', 'scan', 3],
-  ['迈瑞医疗', 'medical', 5],
-  ['联影医疗', 'medical', 3],
-  ['比亚迪', 'auto', 5],
-  ['宁德时代', 'auto', 4],
-  ['蔚来', 'auto', 3],
-  ['理想汽车', 'auto', 3],
-  ['宇树科技', 'robotics', 4],
-  ['云深处科技', 'robotics', 3],
-  ['普渡机器人', 'robotics', 2],
-  ['立讯精密', 'industrial', 3],
-  ['歌尔股份', 'industrial', 3],
-  ['大族激光', 'industrial', 2],
+  ['恒视安防', 'security', 10],
+  ['远图智能', 'security', 7],
+  ['安途视讯', 'security', 3],
+  ['云翼科技', 'consumer', 8],
+  ['全景影像', 'consumer', 5],
+  ['洁宝机器人', 'consumer', 4],
+  ['磐川智能', 'consumer', 3],
+  ['迅风电器', 'consumer', 3],
+  ['极充电子', 'consumer', 3],
+  ['行九出行', 'consumer', 2],
+  ['精测三维', 'scan', 6],
+  ['光扫科技', 'scan', 3],
+  ['康诺医疗', 'medical', 5],
+  ['明影医疗', 'medical', 3],
+  ['驰能汽车', 'auto', 5],
+  ['锐能电池', 'auto', 4],
+  ['远行汽车', 'auto', 3],
+  ['新途汽车', 'auto', 3],
+  ['灵足机器人', 'robotics', 4],
+  ['深行机器人', 'robotics', 3],
+  ['速达机器人', 'robotics', 2],
+  ['博联精密', 'industrial', 3],
+  ['声科电子', 'industrial', 3],
+  ['光锐激光', 'industrial', 2],
 ]
 
 const PARTS: Record<Cat, readonly string[]> = {
@@ -725,7 +726,7 @@ function genOrders(count: number, inProd: number, paused: number): OrderSpec[] {
   while (spread.length < inProd - 1) spread.push(STAGES.indexOf('操机'))
   const spreadShuffled = shuffle(spread)
 
-  // Showcase Hikvision order — clean, mid-production (操机), pinned, tidy numbers.
+  // Showcase 恒视安防 order — clean, mid-production (操机), pinned, tidy numbers.
   {
     const intakeDaysAgo = 9
     const intake = addDays(NOW, -intakeDaysAgo)
@@ -737,7 +738,7 @@ function genOrders(count: number, inProd: number, paused: number): OrderSpec[] {
       { name: '红外灯板支架', qty: 20, material: '6061铝合金', surfaceTreatment: '本色', process: 'CNC机加', unitPriceCny: 120, lineTotalCny: 2400 },
     ]
     const amount = comps.reduce((s, c) => s + c.lineTotalCny, 0) // 26,100
-    const base = baseFields(intake, '海康威视', 'security', comps, amount, {
+    const base = baseFields(intake, '恒视安防', 'security', comps, amount, {
       product: '球机结构件手板一套',
       engineer: '林工',
       contractNo: 'HT26-0418',
