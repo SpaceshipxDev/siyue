@@ -452,9 +452,7 @@ export function WaixieTable({
                   disabled={pending}
                   triggerClass="w-[120px]"
                   triggerLabel={
-                    activity && !activityOptions.includes(activity)
-                      ? `${activity} · 新`
-                      : undefined
+                    activity && !activityOptions.includes(activity) ? activity : undefined
                   }
                   initialQuery={
                     activity && !activityOptions.includes(activity) ? activity : undefined
@@ -492,11 +490,7 @@ export function WaixieTable({
                   }}
                   disabled={pending}
                   triggerClass="w-[160px]"
-                  triggerLabel={
-                    creatingVendor && newVendorName
-                      ? `${newVendorName} · 新`
-                      : undefined
-                  }
+                  triggerLabel={creatingVendor && newVendorName ? newVendorName : undefined}
                   initialQuery={creatingVendor && newVendorName ? newVendorName : undefined}
                 />
               </label>
