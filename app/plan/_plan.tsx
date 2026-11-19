@@ -8,9 +8,10 @@ import { showToast } from '@/app/_toast'
 import { EditableText, EditableTextArea } from '@/app/_editable'
 import type { PlanRow, PlanStage, PlanWorker } from '@/lib/plan'
 
-// 计划 — 一个工段一张表, 每一格手填。
+// 计划 — 五道工序合在一张表里 (于海伟 2026-11-19), 每一格手填。第一列日期,
+// 第二列工序, 按计划日期排; 顶上按工序、日期、人员、完成情况筛。
 //
-// 编程: 日期 · 工单号 · 序列号 · 操作人员 · 完成时间 · 备注说明 · 未完成原因
+// 编程: 日期 · 工序 · 工单号 · 序列号 · 操作人员 · 完成时间 · 备注说明 · 未完成原因
 // 操机 / 车铣 / 手工 / 打磨: 序列号换成机台号, 人员后面能标 正面 / 反面 / 别的。
 //
 // 完成情况: 手填了完成时间就算完成; 没填的看报工 —— 工单在这一道上报完了, 自
@@ -42,7 +43,7 @@ function dayLabel(iso: string): string {
 }
 
 export function PlanBoard({
-  stage,
+  initialStage,
   stages,
   rows,
   auto,
@@ -52,7 +53,8 @@ export function PlanBoard({
   jobNos,
   todayStr,
 }: {
-  stage: PlanStage
+  /** 先筛到哪一道 ('' = 全部工序) —— 从 ?s= 带进来的。 */
+  initialStage: PlanStage | ''
   stages: PlanStage[]
   rows: PlanRow[]
   auto: Record<string, PlanAuto>
@@ -66,6 +68,9 @@ export function PlanBoard({
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
+  // 筛哪一道 ('' = 全部); 记一行时选的工序跟着它走。
+  const [stageFilter, setStageFilter] = useState<PlanStage | ''>(initialStage)
+  const [stage, setStage] = useState<PlanStage>(initialStage || '编程')
   const isProg = stage === '编程'
 
   // 筛选
@@ -113,9 +118,12 @@ export function PlanBoard({
     () =>
       rows.filter(
         // 人员能手打 —— 打半个名字也筛得出来。
-        (r) => (!day || r.date === day) && (!who || r.workers.some((w) => w.name.includes(who))),
+        (r) =>
+          (!stageFilter || r.stage === stageFilter) &&
+          (!day || r.date === day) &&
+          (!who || r.workers.some((w) => w.name.includes(who))),
       ),
-    [rows, day, who],
+    [rows, stageFilter, day, who],
   )
   const doneCount = base.filter(isDone).length
   const openCount = base.length - doneCount
@@ -163,7 +171,7 @@ export function PlanBoard({
     mutate({
       kind: 'addPlanRow',
       input: {
-        stage,
+        stage: r.stage,
         date: r.date,
         jobNo: r.jobNo,
         engKey: r.engKey,
@@ -183,7 +191,7 @@ export function PlanBoard({
     const r = rows.find((x) => x.id === id)
     start(async () => {
       try {
-        if (r?.virtual) await mutate({ kind: 'addPlanRow', input: { stage, date: r.date, jobNo: r.jobNo, engKey: r.engKey, dismiss: true } })
+        if (r?.virtual) await mutate({ kind: 'addPlanRow', input: { stage: r.stage, date: r.date, jobNo: r.jobNo, engKey: r.engKey, dismiss: true } })
         else await mutate({ kind: 'deletePlanRow', rowId: id })
         setArmDelete(null)
         router.refresh()
@@ -195,25 +203,34 @@ export function PlanBoard({
 
   const inp =
     'h-9 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]'
-  const COLS = 'grid-cols-[104px_160px_76px_minmax(0,1.3fr)_76px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_28px]'
+  const COLS = 'grid-cols-[104px_52px_160px_76px_minmax(0,1.3fr)_76px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_28px]'
   const extraLabel = isProg ? '序列号' : '机台号'
+  const chipCls = (on: boolean) =>
+    `pb-1 text-[14px] ${
+      on
+        ? 'border-b-2 border-[var(--color-ink)] font-medium text-[var(--color-ink)]'
+        : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+    }`
 
   return (
     <div>
-      {/* 五张表 */}
+      {/* 按工序筛 —— 一张表, 点一道只看那一道; 记一行默认也记到这一道。 */}
       <div className="mb-6 flex flex-wrap items-baseline gap-x-6 gap-y-2">
+        <button type="button" onClick={() => setStageFilter('')} className={chipCls(stageFilter === '')}>
+          全部工序
+        </button>
         {stages.map((s) => (
-          <Link
+          <button
             key={s}
-            href={s === '编程' ? '/plan' : `/plan?s=${encodeURIComponent(s)}`}
-            className={`pb-1 text-[14px] ${
-              s === stage
-                ? 'border-b-2 border-[var(--color-ink)] font-medium text-[var(--color-ink)]'
-                : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
-            }`}
+            type="button"
+            onClick={() => {
+              setStageFilter(s)
+              setStage(s)
+            }}
+            className={chipCls(s === stageFilter)}
           >
             {s}
-          </Link>
+          </button>
         ))}
         <Link href="/daily" className="ml-auto text-[12px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]">
           今日重点 →
@@ -229,6 +246,18 @@ export function PlanBoard({
             onChange={(e) => setDate(e.target.value || todayStr)}
             className={`mono ${inp}`}
           />
+          <select
+            value={stage}
+            onChange={(e) => setStage(e.target.value as PlanStage)}
+            title="记到哪一道工序"
+            className={`${inp} pr-1`}
+          >
+            {stages.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
           <input
             value={jobNo}
             onChange={(e) => setJobNo(e.target.value)}
@@ -375,8 +404,11 @@ export function PlanBoard({
       <div className="overflow-hidden rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
         <div className={`hidden ${COLS} items-center gap-3 border-b border-[var(--color-border)] bg-[#f5f3ed] px-5 py-2 md:grid`}>
           <span className="label">日期</span>
+          <span className="label">工序</span>
           <span className="label">工单号</span>
-          <span className="label">{extraLabel}</span>
+          <span className="label">
+            {stageFilter === '编程' ? '序列号' : stageFilter ? '机台号' : '序列号 / 机台'}
+          </span>
           <span className="label">操作人员</span>
           <span className="label">需求完成</span>
           <span className="label">完成时间</span>
@@ -387,7 +419,7 @@ export function PlanBoard({
         {shown.length === 0 ? (
           <p className="px-5 py-12 text-center text-[13px] text-[var(--color-ink-3)]">
             {rows.length === 0
-              ? `${stage}还没有计划`
+              ? '还没有计划'
               : status === 'open' && doneCount > 0
                 ? '都做完了，在「已完成」里'
                 : '没有符合的计划'}
@@ -396,6 +428,7 @@ export function PlanBoard({
           shown.map((r) => {
             const a = auto[r.id]
             const done = isDone(r)
+            const rowProg = r.stage === '编程'
             return (
               <div
                 key={r.id}
@@ -413,6 +446,7 @@ export function PlanBoard({
                   }}
                   className="mono -ml-1 w-full bg-transparent text-[12.5px] tabular-nums text-[var(--color-ink-2)] outline-none"
                 />
+                <span className="py-0.5 text-[12.5px] text-[var(--color-ink)]">{r.stage}</span>
                 <div className="flex min-w-0 flex-col gap-0.5">
                   {/* 认得出的工单号点进工单; 认不出的 (打错了) 还是能改的一格。 */}
                   {jobIds[r.jobNo.trim().toLowerCase()] ? (
@@ -442,11 +476,12 @@ export function PlanBoard({
                 </div>
                 <EditableText
                   mono
-                  value={isProg ? r.seq : r.machine}
+                  value={rowProg ? r.seq : r.machine}
+                  placeholder={stageFilter ? '—' : rowProg ? '序列号' : '机台号'}
                   className="text-[12.5px] text-[var(--color-ink-2)]"
-                  onSave={(v) => patch(r.id, isProg ? { seq: v } : { machine: v })}
+                  onSave={(v) => patch(r.id, rowProg ? { seq: v } : { machine: v })}
                 />
-                <Workers value={r.workers} names={names} sides={!isProg} onChange={(w) => patch(r.id, { workers: w })} />
+                <Workers value={r.workers} names={names} sides={!rowProg} onChange={(w) => patch(r.id, { workers: w })} />
                 <input
                   key={r.due ?? ''}
                   type="time"
@@ -514,8 +549,7 @@ export function PlanBoard({
       </div>
 
       <p className="mt-4 text-[12px] text-[var(--color-ink-3)]">
-        工程在工单上给这一道排了计划交期的，自动带进来，标着「工程排」。每一格点一下就能改。完成时间手填了就算完成；没填的看报工——这张单在这一道上报完了也算完成。做完的自动收进「已完成」，点上面「已完成」能看到。
-        {isProg ? '填了序列号的只看那一个零件。' : '人员点一下可以标正面、反面或者写别的。'}
+        工程在工单上给哪一道排了计划交期的，自动带进来，标着「工程排」。每一格点一下就能改。完成时间手填了就算完成；没填的看报工——这张单在这一道上报完了也算完成。做完的自动收进「已完成」，点上面「已完成」能看到。编程填了序列号的只看那一个零件；操机、车铣、手工、打磨的人员点一下可以标正面、反面或者写别的。
       </p>
     </div>
   )
