@@ -74,7 +74,9 @@ export function PlanBoard({
   const isProg = stage === '编程'
 
   // 筛选
-  const [day, setDay] = useState<string>(todayStr) // '' = 全部日期
+  // 默认全部日期 —— 一道工序的计划全在一张表上, 不用一天一天翻, 免得漏 (于海伟
+  // 2026-11-19)。要看某一天再点日期。
+  const [day, setDay] = useState<string>('') // '' = 全部日期
   const [person, setPerson] = useState('')
   const who = person.trim()
   const peopleListId = `plan-people-${useId()}`
