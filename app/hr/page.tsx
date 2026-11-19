@@ -23,6 +23,7 @@ import {
   canSeePayRequest,
   isPayReviewer,
   hrDeptOf,
+  stageScopeFor,
 } from '@/lib/auth'
 import { getPayRequests } from '@/lib/pay-request'
 import { PayRequestBoard } from '@/app/_pay_requests'
@@ -47,6 +48,8 @@ import { today } from '@/lib/today'
 import { getDormEntries } from '@/lib/dorm'
 import { DormBoard } from './_dorm'
 import { HrBoard } from './_hr'
+import { PeopleBoard } from './_people'
+import { applyPickerEdits, getPickerEdits } from '@/lib/people-picker'
 import { AttendanceSheet } from './_attendance_sheet'
 import type { AttendanceReport } from '@/lib/hr-report'
 import { accountHrDept, filerDeptOf, hrMembership, monthAndPrev } from '@/lib/hr-dept'
@@ -86,8 +89,12 @@ export default async function HrPage({
   const seeTool = canManageTools(user)
   // 档案 —— 身份证、合同这些; 人事、于海伟、老板看得到 (于海伟 2026-10-29)。
   const seeArchive = canSeeHrArchive(user)
+  // 名单 —— 报工「谁做的」那张选人名单, 商务和工程全厂号能改 (lib/people-picker)。
+  const seePeople = user.role === 'commerce' || stageScopeFor(user) === 'all'
   const view =
-    sp.v === 'archive' && seeArchive
+    sp.v === 'people' && seePeople
+      ? 'people'
+      : sp.v === 'archive' && seeArchive
       ? 'archive'
       : sp.v === 'dorm' && seeDorm
       ? 'dorm'
@@ -126,6 +133,18 @@ export default async function HrPage({
       view === 'tool' ? getToolIssues() : Promise.resolve([]),
       view === 'tool' ? loadToolCatalog() : Promise.resolve([]),
     ])
+  // 名单页 —— 账号名 + 人事记过的名字, 照改动过一遍; 去掉的单列。
+  const pickerEdits =
+    view === 'people'
+      ? await getPickerEdits().catch(() => ({ hidden: [] as string[], added: [] as string[] }))
+      : { hidden: [] as string[], added: [] as string[] }
+  const pickerNames =
+    view === 'people'
+      ? applyPickerEdits([...users.map((u) => u.name), ...extraNames], pickerEdits)
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b, 'zh'))
+      : []
+  const pickerHidden = pickerEdits.hidden
   const [archive, archiveTools] =
     view === 'archive'
       ? await Promise.all([getArchive().catch(() => []), getToolIssues().catch(() => [])])
@@ -211,8 +230,13 @@ export default async function HrPage({
             {seeArchive && (
               <ViewTab href="/hr?v=archive" label="档案" active={view === 'archive'} />
             )}
+            {seePeople && (
+              <ViewTab href="/hr?v=people" label="名单" active={view === 'people'} />
+            )}
         </div>
-        {view === 'sheet' ? (
+        {view === 'people' ? (
+          <PeopleBoard names={pickerNames} hidden={pickerHidden} />
+        ) : view === 'sheet' ? (
           <SheetView
             month={period}
             report={sheetReport!}

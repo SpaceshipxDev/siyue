@@ -57,6 +57,27 @@ export async function hidePickerName(name: string): Promise<void> {
   })
 }
 
+// 去掉的再放回来。
+export async function restorePickerName(name: string): Promise<void> {
+  await withLock(async () => {
+    const e = await getPickerEdits()
+    await save({ hidden: e.hidden.filter((n) => n !== name), added: e.added })
+  })
+}
+
+// 名单上加一个人 (没账号、人事也没记过的)。
+export async function addPickerName(name: string): Promise<void> {
+  const n = name.trim().slice(0, 24)
+  if (!n) throw new Error('名字不能空')
+  await withLock(async () => {
+    const e = await getPickerEdits()
+    await save({
+      hidden: e.hidden.filter((x) => x !== n),
+      added: [...new Set([...e.added, n])],
+    })
+  })
+}
+
 export async function renamePickerName(from: string, to: string): Promise<void> {
   const next = to.trim().slice(0, 24)
   if (!next) throw new Error('名字不能空')

@@ -249,7 +249,7 @@ import {
 import { setValueEdit } from '@/lib/report-value'
 import { setGroupMembers } from '@/lib/report-group'
 import { removeActivity, rememberActivity, renameActivity } from '@/lib/outsource-activity'
-import { hidePickerName, renamePickerName } from '@/lib/people-picker'
+import { addPickerName, hidePickerName, renamePickerName, restorePickerName } from '@/lib/people-picker'
 import {
   addProcessDefect,
   deleteProcessDefect,
@@ -2144,7 +2144,9 @@ async function dispatch(
     // === 外协 blocks ===
     // 「谁做的」名单 —— 改名 / 去掉 (lib/people-picker)。只动这张选人名单。
     case 'renamePickerName':
-    case 'hidePickerName': {
+    case 'hidePickerName':
+    case 'restorePickerName':
+    case 'addPickerName': {
       const name = body.name
       if (!isString(name) || !name.trim()) return err(`bad ${kind} args`)
       const u = await requireUser()
@@ -2154,9 +2156,14 @@ async function dispatch(
         const to = body.to
         if (!isString(to) || !to.trim()) return err('名字不能空')
         await renamePickerName(name, to)
-      } else {
+      } else if (kind === 'hidePickerName') {
         await hidePickerName(name)
+      } else if (kind === 'restorePickerName') {
+        await restorePickerName(name)
+      } else {
+        await addPickerName(name)
       }
+      revalidatePath('/hr')
       return Response.json(ok())
     }
 
