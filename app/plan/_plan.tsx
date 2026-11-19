@@ -400,6 +400,16 @@ export function PlanBoard({
             </button>
           ))}
         </div>
+        {/* 导出 —— 按部门 (工序): 筛了哪一道就导哪一道; 全部工序就一道一张
+            工作表。导的就是屏幕上这一批 (日期、人员、完成情况的筛选照算)。 */}
+        <button
+          type="button"
+          onClick={() => exportPlan(shown, stageFilter, stages, auto, day)}
+          disabled={shown.length === 0}
+          className="ml-auto h-8 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[12.5px] text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-ink)] disabled:opacity-40"
+        >
+          导出
+        </button>
       </div>
 
       {/* 表 */}
@@ -555,6 +565,49 @@ export function PlanBoard({
       </p>
     </div>
   )
+}
+
+// 计划导出 —— 一道工序一张工作表 (筛了一道就只有那一张)。完成情况写成字:
+// 手填的完成时间, 或者报工的结果。
+async function exportPlan(
+  rows: PlanRow[],
+  only: PlanStage | '',
+  stages: PlanStage[],
+  auto: Record<string, PlanAuto>,
+  day: string,
+) {
+  const XLSX = await import('xlsx')
+  const wb = XLSX.utils.book_new()
+  const status = (r: PlanRow) => {
+    if (r.doneAt) return `已完成 ${r.doneAt}`
+    const a = auto[r.id]
+    if (!a) return ''
+    if (a.state === 'done') return `报工完成${a.at ? ` ${a.at}` : ''}${a.by ? ` · ${a.by}` : ''}`
+    if (a.state === 'partial') return `报工 ${a.done}/${a.total}`
+    return '报工未开始'
+  }
+  for (const st of only ? [only] : stages) {
+    const list = rows.filter((r) => r.stage === st)
+    if (list.length === 0) continue
+    const head = ['日期', '工序', '工单号', st === '编程' ? '序列号' : '机台号', '操作人员', '需求完成', '完成情况', '备注说明', '未完成原因']
+    const body = list.map((r) => [
+      r.date,
+      r.stage,
+      r.jobNo,
+      (st === '编程' ? r.seq : r.machine) ?? '',
+      r.workers.map((w) => (w.side ? `${w.name}(${w.side})` : w.name)).join('、'),
+      r.due ?? '',
+      status(r),
+      r.note ?? '',
+      r.reason ?? '',
+    ])
+    const ws = XLSX.utils.aoa_to_sheet([head, ...body])
+    ws['!cols'] = head.map((h) =>
+      h === '工单号' ? { wch: 18 } : h === '操作人员' || h === '完成情况' ? { wch: 20 } : h === '备注说明' || h === '未完成原因' ? { wch: 26 } : { wch: 11 },
+    )
+    XLSX.utils.book_append_sheet(wb, ws, st)
+  }
+  XLSX.writeFile(wb, `计划_${only || '全部工序'}_${day || '全部日期'}.xlsx`)
 }
 
 function AutoLine({ a }: { a: PlanAuto }) {
