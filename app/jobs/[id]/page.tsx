@@ -404,7 +404,7 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
         canSeeFinance={canSeeOrderLedger(user)}
       />
 
-      <main className="mx-auto w-full max-w-[1500px] px-4 md:px-10 py-6 md:py-10 flex-1">
+      <main className="w-full px-4 md:px-10 py-6 md:py-10 flex-1">
         <ComponentAnchorScroller />
         {/* 图纸变更报警 — headlines the page while any part has an open change.
             The floor opens this page at every station; the alarm has to be the

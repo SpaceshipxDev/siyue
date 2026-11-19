@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { withBase } from '@/lib/base-path'
 import { getReporterName } from './_reporter'
+import { mutate } from '@/lib/mutate'
+import { showToast } from './_toast'
 
 // 谁做的 —— 操机、喷漆报工按 ✓ 的那一下, 先问一句。
 //
@@ -23,6 +25,7 @@ import { getReporterName } from './_reporter'
 type Picked = { names: string[]; shares?: { name: string; qty: number }[] }
 
 let namesCache: string[] | null = null
+let canEditCache = false
 
 function recentKey(stage: string) {
   return `siyue:who-did:${stage}`
@@ -74,16 +77,48 @@ export function WhoDidSheet({
   // 默认先挑上顶上设的那个报工人 —— 多数时候就是这个人。
   const [picked, setPicked] = useState<string[]>(() => (me ? [me] : []))
   const [qtys, setQtys] = useState<Record<string, string>>({})
+  // 改名单 —— 商务、工程全厂号才有 (app/api/people canEdit)。打开后点名字改名,
+  // ✕ 从名单上去掉; 只动这张选人名单, 账号和以前的报工都不变。
+  const [canEdit, setCanEdit] = useState(canEditCache)
+  const [editing, setEditing] = useState(false)
+
+  const setNames = (next: string[]) => {
+    namesCache = next
+    setAll(next)
+  }
+  async function renameName(name: string) {
+    const to = window.prompt(`把「${name}」改成`, name)?.trim()
+    if (!to || to === name) return
+    try {
+      await mutate({ kind: 'renamePickerName', name, to })
+      setNames([...new Set(all.map((n) => (n === name ? to : n)))].sort((a, b) => a.localeCompare(b, 'zh')))
+      setPicked((cur) => cur.map((n) => (n === name ? to : n)))
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '没改上', 'warning')
+    }
+  }
+  async function hideName(name: string) {
+    if (!window.confirm(`把「${name}」从名单上去掉？`)) return
+    try {
+      await mutate({ kind: 'hidePickerName', name })
+      setNames(all.filter((n) => n !== name))
+      setPicked((cur) => cur.filter((n) => n !== name))
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '没去掉', 'warning')
+    }
+  }
 
   useEffect(() => {
     if (namesCache) return
     let alive = true
     fetch(withBase('/api/people'), { cache: 'no-store' })
       .then((res) => res.json())
-      .then((d: { ok?: boolean; names?: string[] }) => {
+      .then((d: { ok?: boolean; names?: string[]; canEdit?: boolean }) => {
         if (!alive || !d.ok || !d.names) return
         namesCache = d.names
+        canEditCache = d.canEdit === true
         setAll(d.names)
+        setCanEdit(canEditCache)
       })
       .catch(() => {})
     return () => {
@@ -144,6 +179,30 @@ export function WhoDidSheet({
 
   const chip = (name: string) => {
     const on = picked.includes(name)
+    if (editing && all.includes(name))
+      return (
+        <span
+          key={name}
+          className="inline-flex items-center rounded-[2px] border border-dashed border-[var(--color-ink-3)] text-[13.5px] text-[var(--color-ink-2)]"
+        >
+          <button
+            type="button"
+            onClick={() => renameName(name)}
+            title="点一下改名"
+            className="px-3 py-1.5 hover:text-[var(--color-ink)]"
+          >
+            {name}
+          </button>
+          <button
+            type="button"
+            onClick={() => hideName(name)}
+            title="从名单上去掉"
+            className="py-1.5 pr-2 text-[12px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+          >
+            ✕
+          </button>
+        </span>
+      )
     return (
       <button
         key={name}
@@ -263,14 +322,30 @@ export function WhoDidSheet({
         )}
 
         <div className="mt-5 flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={onSkip}
-            className="text-[12px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
-            title="不选人，只记在账号上"
-          >
-            跳过，不记个人
-          </button>
+          <span className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={onSkip}
+              className="text-[12px] text-[var(--color-ink-4)] hover:text-[var(--color-ink)]"
+              title="不选人，只记在账号上"
+            >
+              跳过，不记个人
+            </button>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => setEditing((v) => !v)}
+                className={`text-[12px] ${
+                  editing
+                    ? 'font-medium text-[var(--color-ink)]'
+                    : 'text-[var(--color-ink-4)] hover:text-[var(--color-ink)]'
+                }`}
+                title="改名单里的名字、去掉不该出现的"
+              >
+                {editing ? '改好了' : '改名单'}
+              </button>
+            )}
+          </span>
           <span className="flex items-center gap-2">
             <button
               type="button"

@@ -249,6 +249,7 @@ import {
 import { setValueEdit } from '@/lib/report-value'
 import { setGroupMembers } from '@/lib/report-group'
 import { removeActivity, rememberActivity, renameActivity } from '@/lib/outsource-activity'
+import { hidePickerName, renamePickerName } from '@/lib/people-picker'
 import {
   addProcessDefect,
   deleteProcessDefect,
@@ -2141,6 +2142,24 @@ async function dispatch(
     }
 
     // === 外协 blocks ===
+    // 「谁做的」名单 —— 改名 / 去掉 (lib/people-picker)。只动这张选人名单。
+    case 'renamePickerName':
+    case 'hidePickerName': {
+      const name = body.name
+      if (!isString(name) || !name.trim()) return err(`bad ${kind} args`)
+      const u = await requireUser()
+      if (u.role !== 'commerce' && stageScopeFor(u) !== 'all')
+        return err('名单由商务、工程来改', 403)
+      if (kind === 'renamePickerName') {
+        const to = body.to
+        if (!isString(to) || !to.trim()) return err('名字不能空')
+        await renamePickerName(name, to)
+      } else {
+        await hidePickerName(name)
+      }
+      return Response.json(ok())
+    }
+
     // 外协「做什么」里自己加的工序 —— 改名 / 删 (lib/outsource-activity)。
     case 'renameOutsourceActivity':
     case 'removeOutsourceActivity': {
