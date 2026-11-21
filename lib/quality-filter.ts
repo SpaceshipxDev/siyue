@@ -6,6 +6,7 @@
 
 import type { ProcessDefect } from './process-defects'
 import type { ScrapRecord } from './scrap'
+import type { RushRecord } from './rush-fee'
 import type { IncomingDefect } from './incoming-defects'
 import type { Complaint } from './complaints'
 import type { ChangeRecord } from './changes'
@@ -68,6 +69,17 @@ export const SCRAP_COLS: ColSpec<ScrapRecord>[] = [
   { key: 'dept', label: '责任部门', get: (r) => cellText(r.dept) },
   { key: 'owner', label: '责任人', get: (r) => cellText(r.owner) },
   { key: 'action', label: '纠正预防措施', get: (r) => settled(r.action) },
+  { key: 'by', label: '填写人', get: (r) => cellText(r.by) },
+]
+
+// 加急费用 (lib/rush-fee)。造成加急的原因是一句话, 跟措施一样只分已填 / 待填。
+export const RUSH_COLS: ColSpec<RushRecord>[] = [
+  { key: 'date', label: '日期', get: (r) => day(r.date) },
+  { key: 'jobNo', label: '订单号', get: (r) => cellText(r.jobNo) },
+  { key: 'reason', label: '加急原因', get: (r) => cellText(r.reason) },
+  { key: 'dept', label: '责任部门', get: (r) => cellText(r.dept) },
+  { key: 'owner', label: '责任人', get: (r) => cellText(r.owner) },
+  { key: 'cause', label: '造成加急的原因', get: (r) => settled(r.cause) },
   { key: 'by', label: '填写人', get: (r) => cellText(r.by) },
 ]
 

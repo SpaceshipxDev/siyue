@@ -27,6 +27,8 @@ import { ImprovementsBoard } from './_improvements'
 import { IncomingBoard } from './_incoming'
 import { ChangesBoard } from './_changes'
 import { BalloonsBoard } from './_balloons'
+import { RushBoard } from './_rush'
+import { getRushRecords } from '@/lib/rush-fee'
 import { getBalloonSheets } from '@/lib/balloon-store'
 
 export const dynamic = 'force-dynamic'
@@ -71,6 +73,8 @@ export default async function QualityPage({
   const view =
     sp?.v === 'balloon'
       ? 'balloon'
+      : sp?.v === 'rush'
+      ? 'rush'
       : sp?.v === 'complaint'
       ? 'complaint'
       : sp?.v === 'process'
@@ -101,6 +105,7 @@ export default async function QualityPage({
     scraps,
     files,
     balloonSheets,
+    rushes,
   ] = await Promise.all([
       view === 'defects' ? getDefectRows() : Promise.resolve([]),
       view === 'defects'
@@ -116,6 +121,7 @@ export default async function QualityPage({
       view === 'scrap' ? getScrapRecords() : Promise.resolve([]),
       view === 'files' ? getQualityFiles() : Promise.resolve([]),
       view === 'balloon' ? getBalloonSheets().catch(() => []) : Promise.resolve([]),
+      view === 'rush' ? getRushRecords() : Promise.resolve([]),
     ])
 
   // 质量异常只留厂里自己做坏的: 外协做坏的已经转到来料异常, 不在这里重复记。
@@ -149,6 +155,7 @@ export default async function QualityPage({
       ...improvements.map((r) => r.dept),
       ...changes.map((r) => r.dept),
       ...scraps.map((r) => r.dept),
+      ...rushes.map((r) => r.dept),
     ]),
   ]
     .filter(Boolean)
@@ -161,6 +168,8 @@ export default async function QualityPage({
         subtitle={
           view === 'balloon'
             ? '气泡图 · 质检报表'
+            : view === 'rush'
+            ? '加急费用'
             : view === 'complaint'
             ? '客诉异常'
             : view === 'process'
@@ -222,6 +231,11 @@ export default async function QualityPage({
             active={view === 'improve'}
           />
           <ViewTab
+            href="/quality?v=rush"
+            label="加急费用"
+            active={view === 'rush'}
+          />
+          <ViewTab
             href="/quality?v=files"
             label="文件管理"
             active={view === 'files'}
@@ -240,6 +254,14 @@ export default async function QualityPage({
         </div>
         {view === 'balloon' ? (
           <BalloonsBoard rows={balloonSheets} />
+        ) : view === 'rush' ? (
+          <RushBoard
+            rows={rushes}
+            todayStr={todayStr}
+            depts={depts}
+            canEdit={canEdit}
+            canEditOwner={canEditOwner}
+          />
         ) : view === 'complaint' ? (
           <ComplaintsBoard
             rows={complaints}

@@ -5,6 +5,7 @@ import {
   INCOMING_COLS,
   PROCESS_COLS,
   SCRAP_COLS,
+  RUSH_COLS,
   colFiltersFrom,
   matchCols,
 } from '@/lib/quality-filter'
@@ -16,6 +17,7 @@ import { getDefectRows } from '@/lib/db'
 import { getComplaints } from '@/lib/complaints'
 import { getProcessDefects } from '@/lib/process-defects'
 import { getScrapRecords } from '@/lib/scrap'
+import { getRushRecords } from '@/lib/rush-fee'
 import { getDefectActions } from '@/lib/defect-actions'
 import { getImprovements } from '@/lib/improvements'
 import { getIncomingDefects, getInspectionLinks } from '@/lib/incoming-defects'
@@ -117,6 +119,19 @@ const INCOMING_HEADERS = [
 ]
 const INCOMING_WIDTHS = [12, 18, 22, 24, 10, 30, 26, 12, 12, 12]
 
+const RUSH_HEADERS = [
+  '日期',
+  '订单号',
+  '数量',
+  '增加成本',
+  '加急原因',
+  '责任部门',
+  '责任人',
+  '造成加急的原因',
+  '备注',
+  '填写人员',
+]
+const RUSH_WIDTHS = [12, 18, 8, 12, 28, 12, 12, 34, 30, 12]
 const CHANGE_HEADERS = [
   '变更日期',
   '客户',
@@ -144,6 +159,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   const complaints = view === 'complaint'
   const process = view === 'process'
   const scrap = view === 'scrap'
+  const rush = view === 'rush'
   const improve = view === 'improve'
   const incoming = view === 'incoming'
   const change = view === 'change'
@@ -262,6 +278,33 @@ export async function GET(request: NextRequest): Promise<Response> {
     sheetName = '改善建议'
     base = `改善建议_${month}`
     file = `improvements_${month}.xlsx`
+  } else if (rush) {
+    const rows = (await getRushRecords())
+      .filter((r) => r.date.slice(0, 7) === month)
+      .filter((r) => matchCols(r, RUSH_COLS, colFilters))
+      .filter((r) =>
+        !q
+          ? true
+          : [r.jobNo, r.reason, r.dept, r.owner, r.cause, r.note, r.by]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase()
+              .includes(q),
+      )
+    aoa.push(RUSH_HEADERS.slice())
+    for (const r of rows) {
+      aoa.push([r.date, r.jobNo, r.qty, r.amount, r.reason, r.dept, r.owner, r.cause, r.note, r.by ?? ''])
+    }
+    // 合计 — 这个月加急一共花了多少。
+    const total: (string | number)[] = RUSH_HEADERS.map(() => '')
+    total[0] = '合计'
+    total[RUSH_HEADERS.indexOf('数量')] = rows.reduce((s, r) => s + r.qty, 0)
+    total[RUSH_HEADERS.indexOf('增加成本')] = Math.round(rows.reduce((s, r) => s + r.amount, 0) * 100) / 100
+    aoa.push(total)
+    widths = RUSH_WIDTHS
+    sheetName = '加急费用'
+    base = `加急费用_${month}`
+    file = `rush_${month}.xlsx`
   } else if (scrap) {
     const rows = (await getScrapRecords())
       .filter((r) => r.date.slice(0, 7) === month)

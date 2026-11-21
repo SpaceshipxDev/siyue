@@ -251,6 +251,7 @@ import { setGroupMembers } from '@/lib/report-group'
 import { removeActivity, rememberActivity, renameActivity } from '@/lib/outsource-activity'
 import { addPickerName, hidePickerName, renamePickerName, restorePickerName } from '@/lib/people-picker'
 import { deleteBalloonSheet, updateBalloonSheet } from '@/lib/balloon-store'
+import { addRushRecord, deleteRushRecord, updateRushRecord } from '@/lib/rush-fee'
 import { sheetVerdict, type BalloonSheetPatch } from '@/lib/balloon'
 import {
   addProcessDefect,
@@ -4883,6 +4884,66 @@ async function dispatch(
       const u = await requireUser()
       if (!canEditQuality(u)) return err('删记录要找工程或于海伟', 403)
       await deleteScrapRecord(scrapId)
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    // 加急费用 (lib/rush-fee) — 跟报废登记同一档: 记一条、补空格谁都行, 改
+    // 填过的和删是 canEditQuality 那一档。填写人员是落笔那一刻的账号。
+    case 'addRush': {
+      const input = body.input
+      if (typeof input !== 'object' || input === null) return err('bad addRush args')
+      const i = input as Record<string, unknown>
+      if (!isString(i.jobNo) || !i.jobNo.trim()) return err('先填订单号')
+      if (!isString(i.date) || !/^\d{4}-\d{2}-\d{2}$/.test(i.date)) return err('bad addRush args')
+      for (const k of ['reason', 'dept', 'owner', 'cause', 'note']) {
+        if (i[k] !== undefined && !isString(i[k])) return err('bad addRush args')
+      }
+      const u = await requireUser()
+      await addRushRecord(
+        {
+          date: i.date,
+          jobNo: i.jobNo,
+          qty: typeof i.qty === 'number' ? i.qty : 0,
+          amount: typeof i.amount === 'number' ? i.amount : 0,
+          reason: isString(i.reason) ? i.reason : '',
+          dept: isString(i.dept) ? i.dept : '',
+          owner: isString(i.owner) ? i.owner : '',
+          cause: isString(i.cause) ? i.cause : '',
+          note: isString(i.note) ? i.note : '',
+        },
+        u.name,
+        new Date().toISOString(),
+      )
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'updateRush': {
+      const rushId = body.rushId
+      const patch = body.patch
+      if (!isString(rushId) || typeof patch !== 'object' || patch === null)
+        return err('bad updateRush args')
+      const p = patch as Record<string, unknown>
+      for (const k of ['date', 'jobNo', 'reason', 'dept', 'owner', 'cause', 'note']) {
+        if (p[k] !== undefined && !isString(p[k])) return err('bad updateRush args')
+      }
+      if (p.qty !== undefined && typeof p.qty !== 'number') return err('数量不对')
+      if (p.amount !== undefined && typeof p.amount !== 'number') return err('金额不对')
+      const u = await requireUser()
+      await updateRushRecord(rushId, p, {
+        fillBlanksOnly: !canEditQuality(u) && !ownerOnlyEdit(u, p),
+      })
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
+    case 'deleteRush': {
+      const rushId = body.rushId
+      if (!isString(rushId)) return err('bad deleteRush args')
+      const u = await requireUser()
+      if (!canEditQuality(u)) return err('删记录要找工程或于海伟', 403)
+      await deleteRushRecord(rushId)
       revalidatePath('/quality')
       return Response.json(ok())
     }
