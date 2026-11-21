@@ -50,6 +50,7 @@ export function PlanBoard({
   auto,
   engPlan,
   jobIds,
+  bizOf,
   names,
   jobNos,
   todayStr,
@@ -63,6 +64,8 @@ export function PlanBoard({
   engPlan: Record<string, string>
   /** 工单号 (去空格、小写) → 工单 id —— 认得出的工单号点得进去。 */
   jobIds: Record<string, string>
+  /** 工单号 (去空格、小写) → 这单的商务。 */
+  bizOf: Record<string, string>
   names: string[]
   jobNos: string[]
   todayStr: string
@@ -229,7 +232,7 @@ export function PlanBoard({
 
   const inp =
     'h-9 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]'
-  const COLS = 'grid-cols-[104px_52px_160px_76px_minmax(0,1.3fr)_76px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_28px]'
+  const COLS = 'grid-cols-[104px_52px_160px_64px_76px_minmax(0,1.3fr)_76px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_28px]'
   const extraLabel = isProg ? '序列号' : '机台号'
   const chipCls = (on: boolean) =>
     `pb-1 text-[14px] ${
@@ -435,7 +438,7 @@ export function PlanBoard({
             工作表。导的就是屏幕上这一批 (日期、人员、完成情况的筛选照算)。 */}
         <button
           type="button"
-          onClick={() => exportPlan(shown, stageFilter, stages, auto, day)}
+          onClick={() => exportPlan(shown, stageFilter, stages, auto, day, bizOf)}
           disabled={shown.length === 0}
           className="ml-auto h-8 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[12.5px] text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-ink)] disabled:opacity-40"
         >
@@ -449,6 +452,7 @@ export function PlanBoard({
           <span className="label">日期</span>
           <span className="label">工序</span>
           <span className="label">工单号</span>
+          <span className="label">商务</span>
           <span className="label">
             {stageFilter === '编程' ? '序列号' : stageFilter ? '机台号' : '序列号 / 机台'}
           </span>
@@ -518,6 +522,9 @@ export function PlanBoard({
                     </span>
                   )}
                 </div>
+                <span className="truncate py-0.5 text-[12.5px] text-[var(--color-ink-2)]">
+                  {bizOf[r.jobNo.trim().toLowerCase()] || '—'}
+                </span>
                 <EditableText
                   mono
                   value={rowProg ? r.seq : r.machine}
@@ -607,6 +614,7 @@ async function exportPlan(
   stages: PlanStage[],
   auto: Record<string, PlanAuto>,
   day: string,
+  bizOf: Record<string, string>,
 ) {
   const XLSX = await import('xlsx')
   const wb = XLSX.utils.book_new()
@@ -621,11 +629,12 @@ async function exportPlan(
   for (const st of only ? [only] : stages) {
     const list = rows.filter((r) => r.stage === st)
     if (list.length === 0) continue
-    const head = ['日期', '工序', '工单号', st === '编程' ? '序列号' : '机台号', '操作人员', '需求完成', '完成情况', '备注说明', '未完成原因']
+    const head = ['日期', '工序', '工单号', '商务', st === '编程' ? '序列号' : '机台号', '操作人员', '需求完成', '完成情况', '备注说明', '未完成原因']
     const body = list.map((r) => [
       r.date,
       r.stage,
       r.jobNo,
+      bizOf[r.jobNo.trim().toLowerCase()] ?? '',
       (st === '编程' ? r.seq : r.machine) ?? '',
       r.workers.map((w) => (w.side ? `${w.name}(${w.side})` : w.name)).join('、'),
       r.due ?? '',
