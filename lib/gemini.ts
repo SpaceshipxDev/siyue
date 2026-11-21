@@ -705,3 +705,100 @@ export async function extractPaymentProof(input: {
     memo: typeof o.memo === 'string' && o.memo.trim() ? o.memo.trim().slice(0, 60) : null,
   }
 }
+
+// === 气泡图: 2D 图纸上的检验项 (质量 · 气泡图, lib/balloon) ===
+
+export type DrawingDim = {
+  spec: string
+  kind: '尺寸' | '形位' | '粗糙度' | '角度' | '其他'
+  nominal: string
+  tolUp: string
+  tolDown: string
+  /** 这一项标注在图上的位置, 0~1000 归一化: [ymin, xmin, ymax, xmax]。 */
+  box: [number, number, number, number]
+}
+
+const DRAWING_DIMS_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    items: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          spec: { type: Type.STRING },
+          kind: { type: Type.STRING, enum: ['尺寸', '形位', '粗糙度', '角度', '其他'] },
+          nominal: { type: Type.STRING },
+          tolUp: { type: Type.STRING },
+          tolDown: { type: Type.STRING },
+          box_2d: { type: Type.ARRAY, items: { type: Type.NUMBER } },
+        },
+        propertyOrdering: ['spec', 'kind', 'nominal', 'tolUp', 'tolDown', 'box_2d'],
+        required: ['spec', 'kind', 'nominal', 'tolUp', 'tolDown', 'box_2d'],
+      },
+    },
+  },
+  required: ['items'],
+}
+
+export async function extractDrawingDims(input: {
+  base64: string
+  mimeType: string
+}): Promise<DrawingDim[]> {
+  const ai = client()
+  const system = `你是机加工厂的质检工程师。用户给你一张 2D 工程图纸 (可能是截图或扫描件)。
+把图上所有需要检验的标注一项一项列出来, 做检验气泡图用:
+- 线性尺寸、直径 (Ø)、半径 (R)、带公差的尺寸、配合尺寸 (H7、F8、g6…)、倒角 (2×45°、C1)、角度、
+  形位公差框 (平行度、垂直度、同轴度、跳动、位置度…)、表面粗糙度 (Ra、Rz)。
+- 不要列: 标题栏、技术要求文字、剖面/视图名称 (A、B、A-A)、基准字母本身、图框坐标、序号。
+- 同一个标注只列一次。
+
+每一项给:
+- spec: 图上写的原文, 尽量照抄, 如 "Ø40 H7"、"35.2 +0.2/0"、"74.2±0.05"、"Rz 2.5"、"↗ 0.05 A"、"2×45°"、"20°"。
+- kind: 尺寸 / 形位 / 粗糙度 / 角度 / 其他。倒角归尺寸。
+- nominal: 名义值, 纯数字 (不带 Ø、R、mm)。形位公差和粗糙度写公差值本身, 如 0.05、2.5。倒角写长度。
+- tolUp / tolDown: 上下偏差, 带正负号的数字, 如 "+0.2"、"0"、"-0.05"。
+  配合代号 (H7、F8、g6…) 按 ISO 286 查出偏差填上。没有标公差的写 "" (空)。形位、粗糙度两项都写 ""。
+- box_2d: 这一项标注文字在图上的位置, [ymin, xmin, ymax, xmax], 按图片宽高归一化到 0~1000。
+只给结构化 JSON。`
+  const response = await ai.models.generateContent({
+    model: MODEL,
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType: input.mimeType, data: input.base64 } },
+          { text: '列出这张图纸上所有要检验的标注和它们的位置。' },
+        ],
+      },
+    ],
+    config: {
+      systemInstruction: system,
+      responseMimeType: 'application/json',
+      responseSchema: DRAWING_DIMS_SCHEMA,
+      temperature: 0.1,
+    },
+  })
+  const text = response.text
+  if (!text) throw new Error('识图没有返回结果')
+  const o = JSON.parse(text) as { items?: unknown[] }
+  const kinds = ['尺寸', '形位', '粗糙度', '角度', '其他'] as const
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 60) : '')
+  const out: DrawingDim[] = []
+  for (const raw of o.items ?? []) {
+    if (typeof raw !== 'object' || raw === null) continue
+    const r = raw as Record<string, unknown>
+    const b = Array.isArray(r.box_2d) ? r.box_2d.map(Number) : []
+    if (b.length !== 4 || b.some((v) => !Number.isFinite(v))) continue
+    const clamp = (v: number) => Math.min(1000, Math.max(0, v))
+    out.push({
+      spec: str(r.spec),
+      kind: kinds.includes(r.kind as (typeof kinds)[number]) ? (r.kind as DrawingDim['kind']) : '尺寸',
+      nominal: str(r.nominal),
+      tolUp: str(r.tolUp),
+      tolDown: str(r.tolDown),
+      box: [clamp(b[0]), clamp(b[1]), clamp(b[2]), clamp(b[3])],
+    })
+  }
+  return out.slice(0, 200)
+}

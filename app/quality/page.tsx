@@ -26,6 +26,8 @@ import { FilesBoard } from './_files'
 import { ImprovementsBoard } from './_improvements'
 import { IncomingBoard } from './_incoming'
 import { ChangesBoard } from './_changes'
+import { BalloonsBoard } from './_balloons'
+import { getBalloonSheets } from '@/lib/balloon-store'
 
 export const dynamic = 'force-dynamic'
 
@@ -67,7 +69,9 @@ export default async function QualityPage({
   const canEditOwner = canEditQualityOwner(user)
   const sp = await searchParams
   const view =
-    sp?.v === 'complaint'
+    sp?.v === 'balloon'
+      ? 'balloon'
+      : sp?.v === 'complaint'
       ? 'complaint'
       : sp?.v === 'process'
         ? 'process'
@@ -96,6 +100,7 @@ export default async function QualityPage({
     links,
     scraps,
     files,
+    balloonSheets,
   ] = await Promise.all([
       view === 'defects' ? getDefectRows() : Promise.resolve([]),
       view === 'defects'
@@ -110,6 +115,7 @@ export default async function QualityPage({
       view === 'defects' ? getInspectionLinks() : Promise.resolve(new Set<string>()),
       view === 'scrap' ? getScrapRecords() : Promise.resolve([]),
       view === 'files' ? getQualityFiles() : Promise.resolve([]),
+      view === 'balloon' ? getBalloonSheets().catch(() => []) : Promise.resolve([]),
     ])
 
   // 质量异常只留厂里自己做坏的: 外协做坏的已经转到来料异常, 不在这里重复记。
@@ -153,7 +159,9 @@ export default async function QualityPage({
       <TopBar
         title="质量"
         subtitle={
-          view === 'complaint'
+          view === 'balloon'
+            ? '气泡图 · 质检报表'
+            : view === 'complaint'
             ? '客诉异常'
             : view === 'process'
               ? '制程不良记录'
@@ -218,6 +226,11 @@ export default async function QualityPage({
             label="文件管理"
             active={view === 'files'}
           />
+          <ViewTab
+            href="/quality?v=balloon"
+            label="气泡图"
+            active={view === 'balloon'}
+          />
           <Link
             href="/?stage=质量"
             className="ml-auto text-[12px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
@@ -225,7 +238,9 @@ export default async function QualityPage({
             质量工段看板 →
           </Link>
         </div>
-        {view === 'complaint' ? (
+        {view === 'balloon' ? (
+          <BalloonsBoard rows={balloonSheets} />
+        ) : view === 'complaint' ? (
           <ComplaintsBoard
             rows={complaints}
             todayStr={todayStr}

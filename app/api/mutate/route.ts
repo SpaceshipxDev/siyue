@@ -250,6 +250,8 @@ import { setValueEdit } from '@/lib/report-value'
 import { setGroupMembers } from '@/lib/report-group'
 import { removeActivity, rememberActivity, renameActivity } from '@/lib/outsource-activity'
 import { addPickerName, hidePickerName, renamePickerName, restorePickerName } from '@/lib/people-picker'
+import { deleteBalloonSheet, updateBalloonSheet } from '@/lib/balloon-store'
+import { sheetVerdict, type BalloonSheetPatch } from '@/lib/balloon'
 import {
   addProcessDefect,
   deleteProcessDefect,
@@ -2142,6 +2144,28 @@ async function dispatch(
     }
 
     // === 外协 blocks ===
+    // 质量 · 气泡图 (lib/balloon) —— 改: 有账号就能改 (跟质量其它表记一条同
+    // 一档); 删整张: 质量改删那一档 (canEditQuality)。
+    case 'updateBalloonSheet': {
+      const id = body.id
+      const patch = body.patch
+      if (!isString(id) || typeof patch !== 'object' || patch === null)
+        return err('bad updateBalloonSheet args')
+      await requireUser()
+      const sheet = await updateBalloonSheet(id, patch as BalloonSheetPatch, sheetVerdict)
+      revalidatePath('/quality')
+      return Response.json(ok({ sheet }))
+    }
+    case 'deleteBalloonSheet': {
+      const id = body.id
+      if (!isString(id)) return err('bad deleteBalloonSheet args')
+      const u = await requireUser()
+      if (!canEditQuality(u)) return err('删气泡图找工程或商务于海伟', 403)
+      await deleteBalloonSheet(id)
+      revalidatePath('/quality')
+      return Response.json(ok())
+    }
+
     // 「谁做的」名单 —— 改名 / 去掉 (lib/people-picker)。只动这张选人名单。
     case 'renamePickerName':
     case 'hidePickerName':
