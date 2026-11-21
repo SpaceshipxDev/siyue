@@ -29,6 +29,22 @@ export type PlanAuto = {
 
 type StatusFilter = 'all' | 'open' | 'done'
 
+// 上面那一排筛选 —— 一项一张表。打磨、喷漆、丝印是后道一条线上的活, 合成一项
+// 看 (于海伟 2026-11-21); 表处、外协各自一项。
+type PlanGroup = { key: string; label: string; stages: PlanStage[] }
+const PLAN_GROUPS: PlanGroup[] = [
+  { key: '编程', label: '编程', stages: ['编程'] },
+  { key: '操机', label: '操机', stages: ['操机'] },
+  { key: '车铣', label: '车铣', stages: ['车铣'] },
+  { key: '手工', label: '手工', stages: ['手工'] },
+  { key: '打磨', label: '打磨 · 喷漆 · 丝印', stages: ['打磨', '喷漆', '丝印'] },
+  { key: '表处', label: '表处', stages: ['表处'] },
+  { key: '外协', label: '外协', stages: ['外协'] },
+]
+// 存着的筛选可能是一道工序名 (喷漆), 认回它所在的那一项。
+const groupOf = (k: string): PlanGroup | undefined =>
+  k ? PLAN_GROUPS.find((g) => g.key === k || g.stages.includes(k as PlanStage)) : undefined
+
 const WEEKDAY = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const
 
 function addDays(iso: string, delta: number): string {
@@ -75,10 +91,12 @@ export function PlanBoard({
   // 筛哪一道 ('' = 全部); 记一行时选的工序跟着它走。
   // 筛选记在这个浏览器标签页里 (sessionStorage) —— 点工单号进去看一眼再返回,
   // 还是刚才那一道、那一天、那个人, 也滚回刚才那一行 (于海伟 2026-11-21)。
-  const [stageFilter, setStageFilter] = usePersistentState<PlanStage | ''>('plan:stage', initialStage)
+  const [stageKey, setStageFilter] = usePersistentState<string>('plan:stage', initialStage)
+  const group = groupOf(stageKey)
+  const stageFilter = group?.key ?? ''
   // 记一行记到哪一道: 没手选过就跟着筛的那一道走。
   const [pickedStage, setPickedStage] = useState<PlanStage | null>(null)
-  const stage: PlanStage = pickedStage ?? (stageFilter || '编程')
+  const stage: PlanStage = pickedStage ?? group?.stages[0] ?? '编程'
   const isProg = stage === '编程'
 
   // 筛选
@@ -148,11 +166,11 @@ export function PlanBoard({
       rows.filter(
         // 人员能手打 —— 打半个名字也筛得出来。
         (r) =>
-          (!stageFilter || r.stage === stageFilter) &&
+          (!group || group.stages.includes(r.stage)) &&
           (!day || r.date === day) &&
           (!who || r.workers.some((w) => w.name.includes(who))),
       ),
-    [rows, stageFilter, day, who],
+    [rows, group, day, who],
   )
   const doneCount = base.filter(isDone).length
   const openCount = base.length - doneCount
@@ -233,7 +251,7 @@ export function PlanBoard({
   const inp =
     'h-9 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]'
   const COLS = 'grid-cols-[104px_52px_160px_64px_76px_minmax(0,1.3fr)_76px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_28px]'
-  const extraLabel = isProg ? '序列号' : '机台号'
+  const extraLabel = isProg ? '序列号' : stage === '外协' ? '外协厂' : '机台号'
   const chipCls = (on: boolean) =>
     `pb-1 text-[14px] ${
       on
@@ -255,17 +273,17 @@ export function PlanBoard({
         >
           全部工序
         </button>
-        {stages.map((s) => (
+        {PLAN_GROUPS.map((g) => (
           <button
-            key={s}
+            key={g.key}
             type="button"
             onClick={() => {
-              setStageFilter(s)
+              setStageFilter(g.key)
               setPickedStage(null)
             }}
-            className={chipCls(s === stageFilter)}
+            className={chipCls(g.key === stageFilter)}
           >
-            {s}
+            {g.label}
           </button>
         ))}
         <Link href="/daily" className="ml-auto text-[12px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]">
@@ -438,7 +456,7 @@ export function PlanBoard({
             工作表。导的就是屏幕上这一批 (日期、人员、完成情况的筛选照算)。 */}
         <button
           type="button"
-          onClick={() => exportPlan(shown, stageFilter, stages, auto, day, bizOf)}
+          onClick={() => exportPlan(shown, group, auto, day, bizOf)}
           disabled={shown.length === 0}
           className="ml-auto h-8 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[12.5px] text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-ink)] disabled:opacity-40"
         >
@@ -454,7 +472,7 @@ export function PlanBoard({
           <span className="label">工单号</span>
           <span className="label">商务</span>
           <span className="label">
-            {stageFilter === '编程' ? '序列号' : stageFilter ? '机台号' : '序列号 / 机台'}
+            {stageFilter === '编程' ? '序列号' : stageFilter === '外协' ? '外协厂' : stageFilter ? '机台号' : '序列号 / 机台'}
           </span>
           <span className="label">操作人员</span>
           <span className="label">需求完成</span>
@@ -528,7 +546,7 @@ export function PlanBoard({
                 <EditableText
                   mono
                   value={rowProg ? r.seq : r.machine}
-                  placeholder={stageFilter ? '—' : rowProg ? '序列号' : '机台号'}
+                  placeholder={stageFilter ? '—' : rowProg ? '序列号' : r.stage === '外协' ? '外协厂' : '机台号'}
                   className="text-[12.5px] text-[var(--color-ink-2)]"
                   onSave={(v) => patch(r.id, rowProg ? { seq: v } : { machine: v })}
                 />
@@ -559,7 +577,7 @@ export function PlanBoard({
                       if (v.trim() && status === 'open') showToast('做完了，收进「已完成」里')
                     }}
                   />
-                  {!r.doneAt && a && <AutoLine a={a} />}
+                  {!r.doneAt && a && <AutoLine a={a} word={r.stage === '外协' ? '回厂' : '报工'} />}
                 </div>
                 <EditableTextArea
                   value={r.note}
@@ -606,12 +624,11 @@ export function PlanBoard({
   )
 }
 
-// 计划导出 —— 一道工序一张工作表 (筛了一道就只有那一张)。完成情况写成字:
-// 手填的完成时间, 或者报工的结果。
+// 计划导出 —— 一项一张工作表 (打磨·喷漆·丝印 是一张; 筛了一项就只有那一张)。
+// 完成情况写成字: 手填的完成时间, 或者报工的结果。
 async function exportPlan(
   rows: PlanRow[],
-  only: PlanStage | '',
-  stages: PlanStage[],
+  only: PlanGroup | undefined,
   auto: Record<string, PlanAuto>,
   day: string,
   bizOf: Record<string, string>,
@@ -626,10 +643,11 @@ async function exportPlan(
     if (a.state === 'partial') return `报工 ${a.done}/${a.total}`
     return '报工未开始'
   }
-  for (const st of only ? [only] : stages) {
-    const list = rows.filter((r) => r.stage === st)
+  for (const g of only ? [only] : PLAN_GROUPS) {
+    const list = rows.filter((r) => g.stages.includes(r.stage))
     if (list.length === 0) continue
-    const head = ['日期', '工序', '工单号', '商务', st === '编程' ? '序列号' : '机台号', '操作人员', '需求完成', '完成情况', '备注说明', '未完成原因']
+    const st = g.stages[0]
+    const head = ['日期', '工序', '工单号', '商务', st === '编程' ? '序列号' : st === '外协' ? '外协厂' : '机台号', '操作人员', '需求完成', '完成情况', '备注说明', '未完成原因']
     const body = list.map((r) => [
       r.date,
       r.stage,
@@ -646,16 +664,17 @@ async function exportPlan(
     ws['!cols'] = head.map((h) =>
       h === '工单号' ? { wch: 18 } : h === '操作人员' || h === '完成情况' ? { wch: 20 } : h === '备注说明' || h === '未完成原因' ? { wch: 26 } : { wch: 11 },
     )
-    XLSX.utils.book_append_sheet(wb, ws, st)
+    XLSX.utils.book_append_sheet(wb, ws, g.stages.join(''))
   }
-  XLSX.writeFile(wb, `计划_${only || '全部工序'}_${day || '全部日期'}.xlsx`)
+  XLSX.writeFile(wb, `计划_${only ? only.stages.join('') : '全部工序'}_${day || '全部日期'}.xlsx`)
 }
 
-function AutoLine({ a }: { a: PlanAuto }) {
+// 外协那一行说的是外协单回厂了几张, 不是报工。
+function AutoLine({ a, word = '报工' }: { a: PlanAuto; word?: string }) {
   if (a.state === 'done') {
     return (
       <span className="text-[11.5px] text-[var(--color-success)]">
-        ✓ 报工完成{a.at ? ` ${a.at}` : ''}
+        ✓ {word}完成{a.at ? ` ${a.at}` : ''}
         {a.by ? ` · ${a.by}` : ''}
       </span>
     )
@@ -663,11 +682,11 @@ function AutoLine({ a }: { a: PlanAuto }) {
   if (a.state === 'partial') {
     return (
       <span className="text-[11.5px] tabular-nums text-[var(--color-warning)]">
-        报工 {a.done}/{a.total}
+        {word} {a.done}/{a.total}
       </span>
     )
   }
-  return <span className="text-[11.5px] text-[var(--color-ink-4)]">报工未开始</span>
+  return <span className="text-[11.5px] text-[var(--color-ink-4)]">{word === '回厂' ? '还没回厂' : '报工未开始'}</span>
 }
 
 // 一次打好几个人: 逗号、顿号、空格、分号都算分隔。

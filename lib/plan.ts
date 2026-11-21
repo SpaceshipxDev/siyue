@@ -23,7 +23,8 @@ function withLock<T>(fn: () => Promise<T>): Promise<T> {
 
 const KEY = 'plan/rows.json'
 
-export const PLAN_STAGES = ['编程', '操机', '车铣', '手工', '打磨'] as const
+// 喷漆 · 丝印 · 表处 · 外协 (于海伟 2026-11-21) —— 打磨、喷漆、丝印在计划页上合成一项看。
+export const PLAN_STAGES = ['编程', '操机', '车铣', '手工', '打磨', '喷漆', '丝印', '表处', '外协'] as const
 export type PlanStage = (typeof PLAN_STAGES)[number]
 
 /** 操作人员 —— 一个名字, 后面可以标 正面 / 反面 / 别的 (操机那几张表用)。 */

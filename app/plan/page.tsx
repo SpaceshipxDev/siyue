@@ -7,41 +7,40 @@ import {
   landingPathFor,
   requireUser,
 } from '@/lib/auth'
-import { getActiveUsers, getJob, getMasterRows, getStageCellsByJob } from '@/lib/db'
+import { getActiveUsers, getJob, getMasterRows, getOutsourceBlockRows, getStageCellsByJob } from '@/lib/db'
 import { getHrRoster } from '@/lib/hr'
 import { getPlanRows, isPlanStage, PLAN_STAGES, type PlanRow, type PlanStage } from '@/lib/plan'
-import { jobReturnedQtyByPart, OPT_IN_STAGES, type Stage } from '@/lib/data'
+import { blockClosedAt, jobReturnedQtyByPart, OPT_IN_STAGES, type Stage } from '@/lib/data'
 import type { MasterRow } from '@/lib/master'
 import { today } from '@/lib/today'
 import { PlanBoard, type PlanAuto } from './_plan'
 
 export const dynamic = 'force-dynamic'
 
-// 计划 — 原来的「重点」, 拆到工段上: 编程 / 操机 / 车铣 / 手工 / 打磨, 合在一张
+// 计划 — 原来的「重点」, 拆到工段上: 编程 / 操机 / 车铣 / 手工 / 打磨 · 喷漆 ·
+// 丝印 / 表处 / 外协, 合在一张
 // 表里 (第一列日期, 第二列工序, 按计划日期排, 能按工序筛), 每一格手填。完成情况对着报工自动算 (下面 PlanPage 里), 手填的完成时间优先。
 //
 // 谁来排: 商务、工程, 加上编程的程江华 (lib/auth canEditPlan)。
 
 // 计划的表 → 报工里的工序。车铣以前没有单独一道, 走的是操机 —— 老单子上没
 // 有车铣那一格的, 还是看操机 (FALLBACK_OF)。
-const STAGE_OF: Record<PlanStage, Stage> = {
+// 外协不是一道工序 (没有工位、没有格子), 完成情况看这张单的外协单回齐没有。
+const STAGE_OF: Partial<Record<PlanStage, Stage>> = {
   编程: '编程',
   操机: '操机',
   车铣: '车铣',
   手工: '手工',
   打磨: '打磨',
+  喷漆: '喷漆',
+  丝印: '丝印',
+  表处: '表处',
 }
 
 const FALLBACK_OF: Partial<Record<PlanStage, Stage>> = { 车铣: '操机' }
 
 // 工程在工单上给哪一道排了计划交期, 计划里那一张表就自动带出这一行。
-const ENG_STAGE: Partial<Record<PlanStage, Stage>> = {
-  编程: '编程',
-  操机: '操机',
-  车铣: '车铣',
-  手工: '手工',
-  打磨: '打磨',
-}
+const ENG_STAGE: Partial<Record<PlanStage, Stage>> = { ...STAGE_OF }
 
 const norm = (s: string) => s.trim().toLowerCase()
 const seqNorm = (s: string) => (/^\d+$/.test(s.trim()) ? String(Number(s.trim())) : s.trim())
@@ -95,13 +94,29 @@ export default async function PlanPage({
   const optIn = PLAN_STAGES.map((s) => ENG_STAGE[s]).filter(
     (st): st is Stage => !!st && OPT_IN_STAGES.includes(st),
   )
-  const [all, boardRows, users, extraNames, ...ownCellsList] = await Promise.all([
+  const [all, boardRows, users, extraNames, blockRows, ...ownCellsList] = await Promise.all([
     getPlanRows(),
     getMasterRows(),
     getActiveUsers(),
     getHrRoster(),
+    getOutsourceBlockRows().catch(() => []),
     ...optIn.map((st) => getStageCellsByJob(st)),
-  ])
+  ]) as [
+    Awaited<ReturnType<typeof getPlanRows>>,
+    Awaited<ReturnType<typeof getMasterRows>>,
+    Awaited<ReturnType<typeof getActiveUsers>>,
+    string[],
+    Awaited<ReturnType<typeof getOutsourceBlockRows>>,
+    ...Awaited<ReturnType<typeof getStageCellsByJob>>[],
+  ]
+  // 每张单的外协单 (发货那一道的不算, 跟看板上「在外协」一个口径): 回齐没有、交期哪天。
+  const outsourceOf = new Map<string, { closedAt?: string; expectedReturn?: string }[]>()
+  for (const r of blockRows) {
+    if (r.block.stages.length > 0 && r.block.stages.every((st) => st === '出货')) continue
+    const list = outsourceOf.get(r.jobId) ?? []
+    list.push({ closedAt: blockClosedAt(r.block), expectedReturn: r.block.expectedReturn })
+    outsourceOf.set(r.jobId, list)
+  }
   const masterRows = boardRows.map((m) => {
     let cells = m.cells
     optIn.forEach((st, i) => {
@@ -128,8 +143,38 @@ export default async function PlanPage({
     rows.push(...stored.filter((r) => !r.dismissed))
     // 工程排的 —— 在产的单, 这一道排了计划交期的, 每张单一行。已经存过 (有人改
     // 过一格) 的用存下来的那一行, 日期没被手改过就跟着工程排的日子走。
-    if (!engSt) continue
     const byKey = new Map(stored.filter((r) => r.engKey).map((r) => [r.engKey!, r]))
+    if (stage === '外协') {
+      // 外协: 开了外协单的单, 一张单一行。日子是工程排的「外协回厂」, 没排就
+      // 看外协单的交期 (几张就看最晚那个)。
+      for (const m of masterRows) {
+        if (m.status === 'draft' || m.status === 'failed' || m.status === 'parsing') continue
+        if (shippedOut(m)) continue
+        const blocks = outsourceOf.get(m.id) ?? []
+        const promised = blocks
+          .map((b) => b.expectedReturn?.slice(0, 10) ?? '')
+          .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+          .sort()
+          .pop()
+        const v = m.stagePlan?.['外协'] || promised
+        const d = v?.slice(0, 10)
+        if (!v || !d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) continue
+        const key = `${m.id}:外协`
+        engOrder.set(key, engOrder.size)
+        const ex = byKey.get(key)
+        if (ex) {
+          if (ex.dismissed) continue
+          if (ex.engDate) ex.date = d
+          engPlan[ex.id] = v
+          continue
+        }
+        const id = `eng:${key}`
+        rows.push({ id, stage, date: d, jobNo: m.jobNo, workers: [], by: '工程', createdAt: '', engKey: key, engDate: true, virtual: true })
+        engPlan[id] = v
+      }
+      continue
+    }
+    if (!engSt) continue
     for (const m of masterRows) {
       if (m.status === 'draft' || m.status === 'failed' || m.status === 'parsing') continue
       if (!m.cells[engSt]) continue
@@ -191,7 +236,21 @@ export default async function PlanPage({
   for (const r of rows) {
     const m = byJobNo.get(norm(r.jobNo))
     if (!m) continue
-    const st = m.cells[STAGE_OF[r.stage]] ? STAGE_OF[r.stage] : (FALLBACK_OF[r.stage] ?? STAGE_OF[r.stage])
+    if (r.stage === '外协') {
+      // 外协单全部回厂 = 做完; 回了几张 = 部分。
+      const blocks = outsourceOf.get(m.id) ?? []
+      if (blocks.length === 0) continue
+      const back = blocks.filter((b) => b.closedAt)
+      const last = back.map((b) => b.closedAt!).sort().pop()
+      auto[r.id] =
+        back.length === blocks.length
+          ? { state: 'done', done: back.length, total: blocks.length, at: last?.slice(5, 10) }
+          : { state: back.length > 0 ? 'partial' : 'none', done: back.length, total: blocks.length }
+      continue
+    }
+    const own = STAGE_OF[r.stage]
+    if (!own) continue
+    const st = m.cells[own] ? own : (FALLBACK_OF[r.stage] ?? own)
     const job = r.stage === '编程' && r.seq ? jobs.get(m.id) : undefined
     if (job) {
       const idx = job.components.findIndex(
