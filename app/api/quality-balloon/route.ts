@@ -22,7 +22,8 @@ export const maxDuration = 120
 const MAX_BYTES = 20 * 1024 * 1024
 const IMAGE = /\.(png|jpe?g|webp|bmp|gif)$/i
 
-// 识出来的标注 → 气泡: 气泡放在那段文字的右上角, 从上到下、从左到右编号。
+// 识出来的标注 → 气泡: 紧贴在那段文字的右边、上下居中 (以前放在右上角外面,
+// 识图的框本来就有一点偏, 再往外放就偏得更远了), 从上到下、从左到右编号。
 function toBalloons(dims: DrawingDim[], samples: number): Balloon[] {
   const sorted = [...dims].sort((a, b) => {
     const ra = Math.floor(a.box[0] / 60)
@@ -30,8 +31,8 @@ function toBalloons(dims: DrawingDim[], samples: number): Balloon[] {
     return ra !== rb ? ra - rb : a.box[1] - b.box[1]
   })
   return sorted.map((d, i) => {
-    const [ymin, , , xmax] = d.box
-    const b = emptyBalloon(i + 1, Math.min(0.98, xmax / 1000 + 0.012), Math.max(0.02, ymin / 1000 - 0.012), samples)
+    const [ymin, , ymax, xmax] = d.box
+    const b = emptyBalloon(i + 1, Math.min(0.99, xmax / 1000 + 0.008), (ymin + ymax) / 2000, samples)
     return { ...b, spec: d.spec, kind: d.kind, nominal: d.nominal, tolUp: d.tolUp, tolDown: d.tolDown }
   })
 }

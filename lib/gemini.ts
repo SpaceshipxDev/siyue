@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from '@google/genai'
+import { GoogleGenAI, MediaResolution, Type } from '@google/genai'
 import { today } from './today'
 import { BRAND } from './brand'
 import type { NewJobInput } from './db'
@@ -741,6 +741,8 @@ const DRAWING_DIMS_SCHEMA = {
   required: ['items'],
 }
 
+const DRAWING_MODELS = ['gemini-3-flash', 'gemini-3-flash-preview', MODEL]
+
 export async function extractDrawingDims(input: {
   base64: string
   mimeType: string
@@ -760,26 +762,41 @@ export async function extractDrawingDims(input: {
 - tolUp / tolDown: 上下偏差, 带正负号的数字, 如 "+0.2"、"0"、"-0.05"。
   配合代号 (H7、F8、g6…) 按 ISO 286 查出偏差填上。没有标公差的写 "" (空)。形位、粗糙度两项都写 ""。
 - box_2d: 这一项标注文字在图上的位置, [ymin, xmin, ymax, xmax], 按图片宽高归一化到 0~1000。
+  框要紧紧贴住标注的那几个字 (数字、Ø、公差、配合代号、形位公差框本身), 不要包括尺寸线、箭头、引出线和空白。
+  位置要准 —— 检验员要按这个位置在图上贴编号。
 只给结构化 JSON。`
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: [
-      {
-        role: 'user',
-        parts: [
-          { inlineData: { mimeType: input.mimeType, data: input.base64 } },
-          { text: '列出这张图纸上所有要检验的标注和它们的位置。' },
+  // 位置要准, 先用看图更细的那个模型, 高分辨率看 (图纸上的小字、公差多);
+  // 这个项目里调不通就退回平时那个 (于海伟 2026-11-21: 气泡定位有偏差)。
+  let text: string | undefined
+  let lastErr: unknown
+  for (const model of DRAWING_MODELS) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { inlineData: { mimeType: input.mimeType, data: input.base64 } },
+              { text: '列出这张图纸上所有要检验的标注和它们的位置。' },
+            ],
+          },
         ],
-      },
-    ],
-    config: {
-      systemInstruction: system,
-      responseMimeType: 'application/json',
-      responseSchema: DRAWING_DIMS_SCHEMA,
-      temperature: 0.1,
-    },
-  })
-  const text = response.text
+        config: {
+          systemInstruction: system,
+          responseMimeType: 'application/json',
+          responseSchema: DRAWING_DIMS_SCHEMA,
+          temperature: 0.1,
+          mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
+        },
+      })
+      text = response.text
+      if (text) break
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  if (!text && lastErr) throw lastErr
   if (!text) throw new Error('识图没有返回结果')
   const o = JSON.parse(text) as { items?: unknown[] }
   const kinds = ['尺寸', '形位', '粗糙度', '角度', '其他'] as const
