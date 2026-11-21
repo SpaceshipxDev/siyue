@@ -22,6 +22,8 @@
 // 外协 (于海伟 2026-10-27): 工程排的「外协回厂」那一天, 这张单外发出去的
 // 都回来了没有。最后一件回来的日子不晚于那一天 = 按时; 那天过了还有没回来
 // 的 (或者根本还没发出去) = 逾期未完。
+// 工程没排外协回厂的单 (多数单都没排), 按外协单上的交期算 —— 几张外协单就看
+// 最晚的那个交期 (于海伟 2026-11-21: 外协的达成率也要进统计)。
 //
 // 纯函数, 服务端页面直接用。
 
@@ -40,8 +42,8 @@ export type PlanMiss = {
   days: number // 晚了几天
 }
 
-/** 一张单的外协: 每张外协单回齐了没有、哪天回齐的 (YYYY-MM-DD)。 */
-export type JobOutsource = { closedAt?: string }[]
+/** 一张单的外协: 每张外协单回齐了没有、哪天回齐的 (YYYY-MM-DD), 交期是哪天。 */
+export type JobOutsource = { closedAt?: string; expectedReturn?: string }[]
 
 export type StagePlanRate = {
   stage: PlanKey
@@ -132,8 +134,14 @@ export function computePlanRates(
       }
     }
 
-    // 外协 —— 排了回厂日子的单, 外发出去的都回来没有。
-    const oplan = row.stagePlan?.['外协']
+    // 外协 —— 排了回厂日子的单, 外发出去的都回来没有; 没排的看外协单的交期。
+    const oblocks = outsource?.get(row.id) ?? []
+    const promised = oblocks
+      .map((b) => b.expectedReturn?.slice(0, 10) ?? '')
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+      .sort()
+      .pop()
+    const oplan = row.stagePlan?.['外协'] || promised
     if (outsource && oplan && oplan.slice(0, 7) === month) {
       const acc = byStage.get('外协')!
       const blocks = outsource.get(row.id) ?? []

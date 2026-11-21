@@ -173,7 +173,7 @@ async function loadPlanRates(month: string) {
   for (const r of blockRows) {
     if (r.block.stages.length > 0 && r.block.stages.every((s) => s === '出货')) continue
     const list = outsource.get(r.jobId) ?? []
-    list.push({ closedAt: blockClosedAt(r.block) })
+    list.push({ closedAt: blockClosedAt(r.block), expectedReturn: r.block.expectedReturn })
     outsource.set(r.jobId, list)
   }
   return computePlanRates(filled, month, Date.now(), outsource)
