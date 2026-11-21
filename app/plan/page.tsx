@@ -10,7 +10,7 @@ import {
 import { getActiveUsers, getJob, getMasterRows, getStageCellsByJob } from '@/lib/db'
 import { getHrRoster } from '@/lib/hr'
 import { getPlanRows, isPlanStage, PLAN_STAGES, type PlanRow, type PlanStage } from '@/lib/plan'
-import { OPT_IN_STAGES, type Stage } from '@/lib/data'
+import { jobReturnedQtyByPart, OPT_IN_STAGES, type Stage } from '@/lib/data'
 import type { MasterRow } from '@/lib/master'
 import { today } from '@/lib/today'
 import { PlanBoard, type PlanAuto } from './_plan'
@@ -178,7 +178,13 @@ export default async function PlanPage({
   // 报工 → 完成情况。编程填了序列号的看那一个零件, 其余看整张单在那一道上。
   const auto: Record<string, PlanAuto> = {}
   const partLevel = rows.filter((r) => r.stage === '编程' && r.seq && byJobNo.has(norm(r.jobNo)))
-  const jobIds = [...new Set(partLevel.map((r) => byJobNo.get(norm(r.jobNo))!.id))].slice(0, 80)
+  // 退货返工中的单 —— 只看退回来的那几个零件 (跟工单页一个口径): 别的零件早就
+  // 出货了, 当初这一道没点完成的话, 整单就永远「报工 1/3」, 计划里一直挂着
+  // (于海伟 2026-11-21)。
+  const returning = rows.filter((r) => byJobNo.get(norm(r.jobNo))?.activeReturn)
+  const jobIds = [
+    ...new Set([...partLevel, ...returning].map((r) => byJobNo.get(norm(r.jobNo))!.id)),
+  ].slice(0, 80)
   const jobs = new Map(
     (await Promise.all(jobIds.map((id) => getJob(id)))).flatMap((j) => (j ? [[j.id, j] as const] : [])),
   )
@@ -201,6 +207,27 @@ export default async function PlanPage({
                 state: s.status === 'in_progress' ? 'partial' : 'none',
                 done: s.doneQty ?? 0,
                 total: qty,
+              }
+        continue
+      }
+    }
+    const rj = m.activeReturn ? jobs.get(m.id) : undefined
+    if (rj) {
+      const back = jobReturnedQtyByPart(rj)
+      const parts = rj.components.filter((c) => back.size === 0 || back.has(c.id))
+      const on = parts.filter((c) => c.stages[st])
+      if (on.length > 0) {
+        const done = on.filter((c) => c.stages[st]!.status === 'done')
+        const last = done
+          .map((c) => c.stages[st]!)
+          .sort((a, b) => ((a.finishedAt ?? a.completedAt ?? '') < (b.finishedAt ?? b.completedAt ?? '') ? 1 : -1))[0]
+        auto[r.id] =
+          done.length === on.length
+            ? { state: 'done', done: on.length, total: on.length, at: fmtAt(last?.finishedAt ?? last?.completedAt), by: last?.by }
+            : {
+                state: done.length > 0 || on.some((c) => c.stages[st]!.status === 'in_progress') ? 'partial' : 'none',
+                done: done.length,
+                total: on.length,
               }
         continue
       }
