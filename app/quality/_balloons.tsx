@@ -11,12 +11,30 @@ import type { BalloonSheetSummary } from '@/lib/balloon-store'
 // 粘贴截图), 系统自动识别图上的尺寸、形位、粗糙度, 一项标一个编号气泡, 进去
 // 填实测值, 出质检报表。下面是做过的那些。
 
-export function BalloonsBoard({ rows }: { rows: BalloonSheetSummary[] }) {
+/** 从工单零件那一行建的 —— 挂到这个零件上, 表头带上工单号、客户、材料。 */
+export type BalloonLink = {
+  jobId: string
+  componentId: string
+  jobNo: string
+  customer: string
+  material: string
+}
+
+// 传图纸那一块 —— 质量模块里、工单零件那一行进来的, 都是这一个。零件已经有图
+// 片格式的图纸, 列在上面点一下就用它。
+export function BalloonUpload({
+  link,
+  defaultTitle = '',
+  drawings = [],
+}: {
+  link?: BalloonLink
+  defaultTitle?: string
+  drawings?: { url: string; filename: string }[]
+}) {
   const router = useRouter()
-  const [title, setTitle] = useState('')
+  const [title, setTitle] = useState(defaultTitle)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [q, setQ] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const dropRef = useRef<HTMLDivElement>(null)
 
@@ -28,6 +46,7 @@ export function BalloonsBoard({ rows }: { rows: BalloonSheetSummary[] }) {
       const fd = new FormData()
       fd.append('file', file, file.name || 'drawing.png')
       fd.append('title', title)
+      if (link) for (const [k, v] of Object.entries(link)) fd.append(k, v)
       const r = await fetch(withBase('/api/quality-balloon'), { method: 'POST', body: fd })
       const j = (await r.json()) as { ok: boolean; id?: string; detected?: boolean; error?: string }
       if (!j.ok || !j.id) throw new Error(j.error ?? '上传失败')
@@ -39,13 +58,18 @@ export function BalloonsBoard({ rows }: { rows: BalloonSheetSummary[] }) {
   }
   usePasteImage(dropRef, (f) => void upload(f), !busy)
 
-  const needle = q.trim()
-  const shown = needle
-    ? rows.filter((r) => [r.title, r.drawingNo, r.jobNo, r.customer].some((v) => v.includes(needle)))
-    : rows
+  // 零件上已经挂着的图纸 —— 取回来当文件传一遍。
+  const pickDrawing = async (d: { url: string; filename: string }) => {
+    try {
+      const res = await fetch(withBase(d.url))
+      const blob = await res.blob()
+      await upload(new File([blob], d.filename, { type: blob.type || 'image/png' }))
+    } catch {
+      setError('这张图纸读不出来，换一张或者截图粘贴')
+    }
+  }
 
   return (
-    <div>
       <div
         ref={dropRef}
         tabIndex={0}
@@ -90,9 +114,38 @@ export function BalloonsBoard({ rows }: { rows: BalloonSheetSummary[] }) {
         <p className="mt-2 text-[12px] text-[var(--color-ink-4)]">
           图纸要是图片（截图、扫描件、PNG/JPG）。PDF 图纸先截一张图再传。识别要十几秒。
         </p>
+        {drawings.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-[12.5px] text-[var(--color-ink-3)]">用零件上的图纸：</span>
+            {drawings.map((d) => (
+              <button
+                key={d.url}
+                type="button"
+                disabled={busy}
+                onClick={() => void pickDrawing(d)}
+                className="rounded-[2px] border border-[var(--color-border-strong)] px-2.5 py-1 text-[12.5px] text-[var(--color-ink)] hover:border-[var(--color-ink)] disabled:opacity-50"
+              >
+                {d.filename}
+              </button>
+            ))}
+          </div>
+        )}
         {error && <p className="mt-2 text-[12.5px] text-[var(--color-overdue)]">{error}</p>}
       </div>
 
+  )
+}
+
+export function BalloonsBoard({ rows }: { rows: BalloonSheetSummary[] }) {
+  const [q, setQ] = useState('')
+  const needle = q.trim()
+  const shown = needle
+    ? rows.filter((r) => [r.title, r.drawingNo, r.jobNo, r.customer].some((v) => v.includes(needle)))
+    : rows
+
+  return (
+    <div>
+      <BalloonUpload />
       <div className="mb-3 flex items-center gap-3">
         <input
           value={q}

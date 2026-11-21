@@ -418,9 +418,20 @@ function InspectionModal({
         className="w-[420px] max-w-[92vw] bg-[var(--color-surface)] border border-[var(--color-ink)] rounded-[2px] p-6 shadow-xl"
       >
         <p className="label text-[var(--color-ink-3)] mb-1">检验 · 判定</p>
-        <h3 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)] mb-5 truncate">
-          {componentName}
-        </h3>
+        <div className="mb-5 flex items-baseline justify-between gap-3">
+          <h3 className="min-w-0 truncate text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
+            {componentName}
+          </h3>
+          {/* 气泡图 —— 对着图纸逐项检尺寸和外观, 出质检报表 (app/quality/balloon)。 */}
+          <a
+            href={withBase(`/quality/balloon/part?job=${encodeURIComponent(jobId)}&part=${encodeURIComponent(componentId)}`)}
+            target="_blank"
+            rel="noopener"
+            className="shrink-0 text-[12px] text-[var(--color-ink-3)] underline underline-offset-2 hover:text-[var(--color-ink)]"
+          >
+            气泡图 ↗
+          </a>
+        </div>
 
         {done ? (
           <>

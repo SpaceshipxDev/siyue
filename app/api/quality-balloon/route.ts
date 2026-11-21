@@ -1,9 +1,17 @@
 import { NextRequest } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import { currentUser } from '@/lib/auth'
-import { emptyBalloon, sheetVerdict, type Balloon, type BalloonSheet } from '@/lib/balloon'
+import {
+  DEFAULT_APPEARANCE,
+  emptyBalloon,
+  sheetVerdict,
+  type AppearanceItem,
+  type Balloon,
+  type BalloonSheet,
+} from '@/lib/balloon'
 import {
   createBalloonSheet,
+  findPartBalloonSheet,
   getBalloonImage,
   getBalloonSheet,
   updateBalloonSheet,
@@ -40,8 +48,16 @@ function toBalloons(dims: DrawingDim[], samples: number): Balloon[] {
 async function detect(sheet: BalloonSheet): Promise<BalloonSheet> {
   const img = await getBalloonImage(sheet)
   if (!img) throw new Error('图纸图片读不到')
-  const dims = await extractDrawingDims(img)
-  return updateBalloonSheet(sheet.id, { balloons: toBalloons(dims, sheet.samples) }, sheetVerdict)
+  const { dims, appearance } = await extractDrawingDims(img)
+  // 外观检验: 图上读出来的那几条, 再兜一条「外观缺陷」(图上很少写, 但每件都要看)。
+  const items: AppearanceItem[] = appearance.map((a) => ({ item: a.item, req: a.req, result: '', note: '' }))
+  if (!items.some((a) => a.item.includes('缺陷') || /划伤|磕碰/.test(a.req)))
+    items.push(...DEFAULT_APPEARANCE.map((a) => ({ ...a })))
+  return updateBalloonSheet(
+    sheet.id,
+    { balloons: toBalloons(dims, sheet.samples), appearance: items },
+    sheetVerdict,
+  )
 }
 
 export async function POST(request: NextRequest) {
@@ -74,6 +90,15 @@ export async function POST(request: NextRequest) {
     )
   if (file.size > MAX_BYTES) return Response.json({ ok: false, error: '图片过大（上限 20MB）' }, { status: 413 })
   const title = form.get('title')
+  const str = (k: string) => {
+    const v = form.get(k)
+    return typeof v === 'string' ? v.trim().slice(0, 200) : ''
+  }
+  // 从工单零件那一行建的: 挂上零件; 这个零件已经有一张就直接用那一张。
+  const jobId = str('jobId')
+  const componentId = str('componentId')
+  const existing = await findPartBalloonSheet(jobId, componentId)
+  if (existing) return Response.json({ ok: true, id: existing, detected: true })
 
   let sheet: BalloonSheet
   try {
@@ -82,6 +107,11 @@ export async function POST(request: NextRequest) {
       fileName: file.name || 'drawing.png',
       contentType: file.type,
       title: typeof title === 'string' ? title : '',
+      jobId,
+      componentId,
+      jobNo: str('jobNo'),
+      customer: str('customer'),
+      material: str('material'),
       by: user.name,
       nowIso: new Date().toISOString(),
     })

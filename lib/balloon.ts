@@ -26,8 +26,37 @@ export type Balloon = {
   gauge: string // 量具
 }
 
+/**
+ * 外观检验 —— 图上技术要求里跟外观有关的那几条 (阳极氧化颜色、打标内容、倒角
+ * 去毛刺、不允许划伤…), 一条一项, 逐项判 (于海伟 2026-11-21)。
+ */
+export type AppearanceItem = {
+  item: string // 检验项目: 表面处理 / 打标 / 倒角毛刺 / 外观缺陷…
+  req: string // 要求 (图上原话)
+  result: '' | 'OK' | 'NG'
+  note: string
+}
+
+export const DEFAULT_APPEARANCE: AppearanceItem[] = [
+  { item: '外观缺陷', req: '无划伤、压伤、磕碰、毛刺', result: '', note: '' },
+]
+
+export function isAppearanceItem(x: unknown): x is AppearanceItem {
+  if (typeof x !== 'object' || x === null) return false
+  const o = x as Record<string, unknown>
+  return (
+    typeof o.item === 'string' &&
+    typeof o.req === 'string' &&
+    typeof o.note === 'string' &&
+    (o.result === '' || o.result === 'OK' || o.result === 'NG')
+  )
+}
+
 export type BalloonSheet = {
   id: string
+  /** 挂在哪个零件上 —— 从工单零件那一行建的才有; 质量模块里直接传的没有。 */
+  jobId: string
+  componentId: string
   title: string // 图名 / 零件名
   drawingNo: string // 图号
   jobNo: string // 工单号
@@ -37,6 +66,7 @@ export type BalloonSheet = {
   /** 抽检几件 —— 实测值几列。 */
   samples: number
   balloons: Balloon[]
+  appearance: AppearanceItem[]
   inspector: string // 检验员
   inspectedAt: string // 检验日期 YYYY-MM-DD
   note: string
@@ -55,6 +85,7 @@ export type BalloonSheetPatch = Partial<
     | 'material'
     | 'samples'
     | 'balloons'
+    | 'appearance'
     | 'inspector'
     | 'inspectedAt'
     | 'note'
@@ -132,9 +163,12 @@ export function rowVerdict(b: Balloon, samples: number): 'OK' | 'NG' | '' {
   return ''
 }
 
-/** 整张报表的结论: 有一行 NG 就不合格; 每一行都 OK 才合格。 */
+/** 整张报表的结论: 尺寸或外观有一行 NG 就不合格; 每一行都 OK 才合格。 */
 export function sheetVerdict(s: BalloonSheet): '合格' | '不合格' | '' {
-  const vs = s.balloons.map((b) => rowVerdict(b, s.samples))
+  const vs = [
+    ...s.balloons.map((b) => rowVerdict(b, s.samples)),
+    ...(s.appearance ?? []).map((a) => a.result),
+  ]
   if (vs.includes('NG')) return '不合格'
   if (vs.length > 0 && vs.every((v) => v === 'OK')) return '合格'
   return ''

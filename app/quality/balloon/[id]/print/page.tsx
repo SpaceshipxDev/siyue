@@ -80,6 +80,7 @@ export default async function BalloonReportPage({
           </div>
         </section>
 
+        <p className="mb-1.5 text-[13px] font-semibold">尺寸检验</p>
         <table className="doc-grid">
           <thead>
             <tr>
@@ -125,6 +126,36 @@ export default async function BalloonReportPage({
             })}
           </tbody>
         </table>
+
+        {s.appearance.length > 0 && (
+          <>
+            <p className="mt-5 mb-1.5 text-[13px] font-semibold">外观检验</p>
+            <table className="doc-grid">
+              <thead>
+                <tr>
+                  <th style={{ width: 30 }}>序号</th>
+                  <th style={{ width: 90 }}>检验项目</th>
+                  <th>要求</th>
+                  <th style={{ width: 54 }}>结果</th>
+                  <th style={{ width: 120 }}>说明</th>
+                </tr>
+              </thead>
+              <tbody>
+                {s.appearance.map((a, i) => (
+                  <tr key={i} style={{ breakInside: 'avoid' }}>
+                    <td>{i + 1}</td>
+                    <td>{a.item}</td>
+                    <td style={{ textAlign: 'left' }}>{a.req}</td>
+                    <td style={a.result === 'NG' ? { color: '#c0261a', fontWeight: 700 } : undefined}>
+                      {a.result === 'OK' ? '合格' : a.result === 'NG' ? '不合格' : ''}
+                    </td>
+                    <td>{a.note}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
 
         <section className="mt-4 grid grid-cols-[1fr_auto] gap-6 text-[12px]" style={{ breakInside: 'avoid' }}>
           <p>

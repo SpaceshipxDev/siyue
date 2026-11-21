@@ -737,16 +737,31 @@ const DRAWING_DIMS_SCHEMA = {
         required: ['spec', 'kind', 'nominal', 'tolUp', 'tolDown', 'box_2d'],
       },
     },
+    appearance: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          item: { type: Type.STRING },
+          req: { type: Type.STRING },
+        },
+        propertyOrdering: ['item', 'req'],
+        required: ['item', 'req'],
+      },
+    },
   },
-  required: ['items'],
+  propertyOrdering: ['items', 'appearance'],
+  required: ['items', 'appearance'],
 }
+
+export type DrawingAppearance = { item: string; req: string }
 
 const DRAWING_MODELS = ['gemini-3-flash', 'gemini-3-flash-preview', MODEL]
 
 export async function extractDrawingDims(input: {
   base64: string
   mimeType: string
-}): Promise<DrawingDim[]> {
+}): Promise<{ dims: DrawingDim[]; appearance: DrawingAppearance[] }> {
   const ai = client()
   const system = `你是机加工厂的质检工程师。用户给你一张 2D 工程图纸 (可能是截图或扫描件)。
 把图上所有需要检验的标注一项一项列出来, 做检验气泡图用:
@@ -764,6 +779,11 @@ export async function extractDrawingDims(input: {
 - box_2d: 这一项标注文字在图上的位置, [ymin, xmin, ymax, xmax], 按图片宽高归一化到 0~1000。
   框要紧紧贴住标注的那几个字 (数字、Ø、公差、配合代号、形位公差框本身), 不要包括尺寸线、箭头、引出线和空白。
   位置要准 —— 检验员要按这个位置在图上贴编号。
+
+另外列出外观检验项 appearance —— 从技术要求、注释、标题栏里找跟外观有关的要求, 一条一项:
+- item: 检验项目, 简短, 如 表面处理、颜色、打标/刻字、倒角/锐边、毛刺、外观缺陷、清洁/包装。
+- req: 要求, 照图上原话写, 如 "黑色阳极氧化"、"此处居中激光打标 \"IBEX 320L / 335L\", 清晰"、"轮廓一圈 C0.6"、"锐边倒钝, 去毛刺"。
+- 只列图上真写了的; 尺寸精度、"按三维加工"这类不是外观的不要列。图上一条都没有就给空数组。
 只给结构化 JSON。`
   // 位置要准, 先用看图更细的那个模型, 高分辨率看 (图纸上的小字、公差多);
   // 这个项目里调不通就退回平时那个 (于海伟 2026-11-21: 气泡定位有偏差)。
@@ -798,7 +818,7 @@ export async function extractDrawingDims(input: {
   }
   if (!text && lastErr) throw lastErr
   if (!text) throw new Error('识图没有返回结果')
-  const o = JSON.parse(text) as { items?: unknown[] }
+  const o = JSON.parse(text) as { items?: unknown[]; appearance?: unknown[] }
   const kinds = ['尺寸', '形位', '粗糙度', '角度', '其他'] as const
   const str = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 60) : '')
   const out: DrawingDim[] = []
@@ -817,5 +837,13 @@ export async function extractDrawingDims(input: {
       box: [clamp(b[0]), clamp(b[1]), clamp(b[2]), clamp(b[3])],
     })
   }
-  return out.slice(0, 200)
+  const appearance: DrawingAppearance[] = []
+  for (const raw of o.appearance ?? []) {
+    if (typeof raw !== 'object' || raw === null) continue
+    const r = raw as Record<string, unknown>
+    const item = typeof r.item === 'string' ? r.item.trim().slice(0, 40) : ''
+    const req = typeof r.req === 'string' ? r.req.trim().slice(0, 200) : ''
+    if (item || req) appearance.push({ item: item || '外观', req })
+  }
+  return { dims: out.slice(0, 200), appearance: appearance.slice(0, 30) }
 }

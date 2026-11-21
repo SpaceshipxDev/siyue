@@ -1023,6 +1023,16 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
                         >
                           检验报告 ↗
                         </a>
+                        {/* 气泡图 —— 检验、质量对着图纸逐项检尺寸和外观, 出质检
+                            报表 (app/quality/balloon)。一个零件一张。 */}
+                        <a
+                          href={withBase(`/quality/balloon/part?job=${encodeURIComponent(job.id)}&part=${encodeURIComponent(c.id)}`)}
+                          target="_blank"
+                          rel="noopener"
+                          className="text-[10px] tracking-wider text-[var(--color-ink-4)] hover:text-[var(--color-ink)] transition-colors whitespace-nowrap"
+                        >
+                          气泡图 ↗
+                        </a>
                         <PartDrawingChange
                           jobId={job.id}
                           partId={c.id}

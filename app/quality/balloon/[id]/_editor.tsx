@@ -14,6 +14,7 @@ import {
   limits,
   rowVerdict,
   sheetVerdict,
+  type AppearanceItem,
   type Balloon,
   type BalloonKind,
   type BalloonSheet,
@@ -195,9 +196,15 @@ export function BalloonEditor({
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-        <Link href="/quality?v=balloon" className="text-[12.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]">
-          ← 气泡图
-        </Link>
+        {sheet.jobId ? (
+          <Link href={`/jobs/${sheet.jobId}`} className="text-[12.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]">
+            ← 回工单
+          </Link>
+        ) : (
+          <Link href="/quality?v=balloon" className="text-[12.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]">
+            ← 气泡图
+          </Link>
+        )}
         <span className="text-[12px] text-[var(--color-ink-4)]">
           {saving === 'saving' ? '存着…' : saving === 'dirty' ? '待存' : '已存'}
         </span>
@@ -454,6 +461,81 @@ export function BalloonEditor({
         </table>
       </div>
 
+      {/* 外观检验 —— 图上技术要求里跟外观有关的那几条, 识图时一起读出来; 逐项
+          点合格 / 不合格。漏的点「＋加一项」。 */}
+      <h3 className="mb-2 mt-8 text-[14px] font-semibold text-[var(--color-ink)]">外观检验</h3>
+      <div className="overflow-x-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <table className="w-full min-w-[700px] border-collapse text-left">
+          <thead>
+            <tr className="bg-[#f5f3ed] text-[11.5px] text-[var(--color-ink-3)]">
+              <th className="w-[44px] px-2 py-2 text-center font-medium">#</th>
+              <th className="w-[140px] px-2 py-2 font-medium">检验项目</th>
+              <th className="px-2 py-2 font-medium">要求</th>
+              <th className="w-[128px] px-2 py-2 text-center font-medium">结果</th>
+              <th className="w-[180px] px-2 py-2 font-medium">说明</th>
+              <th className="w-[28px]" />
+            </tr>
+          </thead>
+          <tbody>
+            {sheet.appearance.map((a, i) => {
+              const set = (p: Partial<AppearanceItem>) =>
+                edit({ appearance: sheet.appearance.map((x, k) => (k === i ? { ...x, ...p } : x)) })
+              return (
+                <tr key={i} className="border-t border-[var(--color-border)]">
+                  <td className="px-2 text-center text-[12px] text-[var(--color-ink-3)]">{i + 1}</td>
+                  <td className="px-1">
+                    <input value={a.item} onChange={(e) => set({ item: e.target.value })} className={cell} />
+                  </td>
+                  <td className="px-1">
+                    <input value={a.req} onChange={(e) => set({ req: e.target.value })} className={cell} />
+                  </td>
+                  <td className="px-1 text-center">
+                    <span className="inline-flex overflow-hidden rounded-[2px] border border-[var(--color-border)]">
+                      {(['OK', 'NG'] as const).map((r) => (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => set({ result: a.result === r ? '' : r })}
+                          className={`px-2.5 py-1 text-[12px] ${
+                            a.result === r
+                              ? r === 'OK'
+                                ? 'bg-[var(--color-success)] text-white'
+                                : 'bg-[var(--color-overdue)] text-white'
+                              : 'text-[var(--color-ink-3)] hover:text-[var(--color-ink)]'
+                          }`}
+                        >
+                          {r === 'OK' ? '合格' : '不合格'}
+                        </button>
+                      ))}
+                    </span>
+                  </td>
+                  <td className="px-1">
+                    <input value={a.note} onChange={(e) => set({ note: e.target.value })} placeholder="不合格写一句" className={cell} />
+                  </td>
+                  <td className="px-1 text-center">
+                    <button
+                      type="button"
+                      onClick={() => edit({ appearance: sheet.appearance.filter((_, k) => k !== i) })}
+                      title="删掉这一项"
+                      className="text-[12px] text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+                    >
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        <button
+          type="button"
+          onClick={() => edit({ appearance: [...sheet.appearance, { item: '', req: '', result: '', note: '' }] })}
+          className="w-full border-t border-[var(--color-border)] px-3 py-2 text-left text-[12.5px] text-[var(--color-ink-3)] hover:bg-[#faf8f2] hover:text-[var(--color-ink)]"
+        >
+          ＋加一项
+        </button>
+      </div>
+
       <div className="mt-4 flex flex-wrap items-start gap-6">
         <label className="flex min-w-[300px] flex-1 flex-col gap-1 text-[12.5px] text-[var(--color-ink-3)]">
           备注
@@ -480,7 +562,7 @@ export function BalloonEditor({
         </p>
       </div>
       <p className="mt-3 text-[12px] text-[var(--color-ink-4)]">
-        判定：尺寸、角度落在下限～上限之间为 OK；形位公差、粗糙度不超过公差值为 OK；实测格里也可以直接写 OK / NG。一件不合格整行 NG，一行 NG 整张不合格。自动识别的结果请对着图核一遍。
+        判定：尺寸、角度落在下限～上限之间为 OK；形位公差、粗糙度不超过公差值为 OK；实测格里也可以直接写 OK / NG。一件不合格整行 NG；尺寸或外观有一行 NG，整张不合格。自动识别的结果请对着图核一遍。
       </p>
     </div>
   )
@@ -525,7 +607,10 @@ async function exportExcel(s: BalloonSheet) {
     ['结论', sheetVerdict(s), '备注', s.note],
     [],
   ]
-  const ws = XLSX.utils.aoa_to_sheet([...info, head, ...body])
+  const look = s.appearance.length
+    ? [[], ['外观检验'], ['序号', '检验项目', '要求', '结果', '说明'], ...s.appearance.map((a, i) => [i + 1, a.item, a.req, a.result === 'OK' ? '合格' : a.result === 'NG' ? '不合格' : '', a.note])]
+    : []
+  const ws = XLSX.utils.aoa_to_sheet([...info, head, ...body, ...look])
   ws['!cols'] = head.map((h) => (h === '图上标注' ? { wch: 22 } : { wch: 10 }))
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '质检报表')

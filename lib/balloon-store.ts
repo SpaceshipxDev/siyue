@@ -3,7 +3,9 @@ import { supabase, STORAGE_BUCKET } from './supabase'
 import { proxiedKeyUrl, storageKeyFromUrl } from './storage-url'
 import {
   BALLOON_KINDS,
+  DEFAULT_APPEARANCE,
   MAX_SAMPLES,
+  isAppearanceItem,
   isBalloon,
   type Balloon,
   type BalloonSheet,
@@ -22,7 +24,7 @@ const INDEX = `${DIR}/index.json`
 
 export type BalloonSheetSummary = Pick<
   BalloonSheet,
-  'id' | 'title' | 'drawingNo' | 'jobNo' | 'customer' | 'imageUrl' | 'inspectedAt' | 'createdBy' | 'createdAt' | 'updatedAt'
+  'id' | 'jobId' | 'componentId' | 'title' | 'drawingNo' | 'jobNo' | 'customer' | 'imageUrl' | 'inspectedAt' | 'createdBy' | 'createdAt' | 'updatedAt'
 > & { count: number; verdict: string }
 
 let chain: Promise<unknown> = Promise.resolve()
@@ -62,6 +64,8 @@ function normalize(raw: unknown): BalloonSheet | null {
   const samples = typeof o.samples === 'number' && o.samples >= 1 ? Math.min(MAX_SAMPLES, Math.floor(o.samples)) : 3
   return {
     id: o.id,
+    jobId: s(o.jobId),
+    componentId: s(o.componentId),
     title: s(o.title),
     drawingNo: s(o.drawingNo),
     jobNo: s(o.jobNo),
@@ -70,6 +74,7 @@ function normalize(raw: unknown): BalloonSheet | null {
     imageUrl: o.imageUrl,
     samples,
     balloons: Array.isArray(o.balloons) ? o.balloons.filter(isBalloon) : [],
+    appearance: Array.isArray(o.appearance) ? o.appearance.filter(isAppearanceItem) : [],
     inspector: s(o.inspector),
     inspectedAt: s(o.inspectedAt, 10),
     note: s(o.note, 1000),
@@ -82,6 +87,8 @@ function normalize(raw: unknown): BalloonSheet | null {
 function summarize(x: BalloonSheet, verdict: string): BalloonSheetSummary {
   return {
     id: x.id,
+    jobId: x.jobId,
+    componentId: x.componentId,
     title: x.title,
     drawingNo: x.drawingNo,
     jobNo: x.jobNo,
@@ -119,11 +126,23 @@ export async function getBalloonImage(sheet: BalloonSheet): Promise<{ base64: st
   return { base64: buf.toString('base64'), mimeType: data.type || 'image/png' }
 }
 
+/** 这个零件已经做过的那张 (一个零件一张)。 */
+export async function findPartBalloonSheet(jobId: string, componentId: string): Promise<string | null> {
+  if (!jobId || !componentId) return null
+  const hit = (await readIndex()).find((r) => r.jobId === jobId && r.componentId === componentId)
+  return hit?.id ?? null
+}
+
 export async function createBalloonSheet(input: {
   body: Blob
   fileName: string
   contentType: string
   title: string
+  jobId?: string
+  componentId?: string
+  jobNo?: string
+  customer?: string
+  material?: string
   by: string
   nowIso: string
 }): Promise<BalloonSheet> {
@@ -138,14 +157,17 @@ export async function createBalloonSheet(input: {
   if (up.error) throw up.error
   const sheet: BalloonSheet = {
     id,
+    jobId: input.jobId ?? '',
+    componentId: input.componentId ?? '',
     title: input.title.trim() || input.fileName.replace(/\.[^.]+$/, ''),
     drawingNo: '',
-    jobNo: '',
-    customer: '',
-    material: '',
+    jobNo: input.jobNo ?? '',
+    customer: input.customer ?? '',
+    material: input.material ?? '',
     imageUrl: proxiedKeyUrl(key),
     samples: 3,
     balloons: [],
+    appearance: DEFAULT_APPEARANCE.map((a) => ({ ...a })),
     inspector: '',
     inspectedAt: input.nowIso.slice(0, 10),
     note: '',
@@ -177,6 +199,12 @@ export async function updateBalloonSheet(
     }
     if (typeof patch.samples === 'number' && patch.samples >= 1)
       next.samples = Math.min(MAX_SAMPLES, Math.floor(patch.samples))
+    if (Array.isArray(patch.appearance)) {
+      next.appearance = patch.appearance
+        .filter(isAppearanceItem)
+        .slice(0, 60)
+        .map((a) => ({ ...a, item: a.item.slice(0, 40), req: a.req.slice(0, 200), note: a.note.slice(0, 200) }))
+    }
     if (Array.isArray(patch.balloons)) {
       next.balloons = patch.balloons
         .filter(isBalloon)
