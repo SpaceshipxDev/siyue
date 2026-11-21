@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState, useTransition } from 'reac
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
+import { usePersistentState } from '@/app/_persist'
 import { showToast } from '@/app/_toast'
 import { EditableText, EditableTextArea } from '@/app/_editable'
 import type { PlanRow, PlanStage, PlanWorker } from '@/lib/plan'
@@ -69,19 +70,42 @@ export function PlanBoard({
   const router = useRouter()
   const [pending, start] = useTransition()
   // 筛哪一道 ('' = 全部); 记一行时选的工序跟着它走。
-  const [stageFilter, setStageFilter] = useState<PlanStage | ''>(initialStage)
-  const [stage, setStage] = useState<PlanStage>(initialStage || '编程')
+  // 筛选记在这个浏览器标签页里 (sessionStorage) —— 点工单号进去看一眼再返回,
+  // 还是刚才那一道、那一天、那个人, 也滚回刚才那一行 (于海伟 2026-11-21)。
+  const [stageFilter, setStageFilter] = usePersistentState<PlanStage | ''>('plan:stage', initialStage)
+  // 记一行记到哪一道: 没手选过就跟着筛的那一道走。
+  const [pickedStage, setPickedStage] = useState<PlanStage | null>(null)
+  const stage: PlanStage = pickedStage ?? (stageFilter || '编程')
   const isProg = stage === '编程'
 
   // 筛选
   // 默认全部日期 —— 一道工序的计划全在一张表上, 不用一天一天翻, 免得漏 (于海伟
   // 2026-11-19)。要看某一天再点日期。
-  const [day, setDay] = useState<string>('') // '' = 全部日期
-  const [person, setPerson] = useState('')
+  const [day, setDay] = usePersistentState<string>('plan:day', '') // '' = 全部日期
+  const [person, setPerson] = usePersistentState('plan:person', '')
   const who = person.trim()
   const peopleListId = `plan-people-${useId()}`
   // 默认只看没做完的 —— 做完的 (手填了完成时间, 或者报工报完了) 自己收进「已完成」。
-  const [status, setStatus] = useState<StatusFilter>('open')
+  const [status, setStatus] = usePersistentState<StatusFilter>('plan:status', 'open')
+
+  // 滚动位置 —— 点工单号那一下记下来, 回来时滚回去 (记一次用一次)。
+  useEffect(() => {
+    let y: number | null = null
+    try {
+      const raw = sessionStorage.getItem('plan:scroll')
+      sessionStorage.removeItem('plan:scroll')
+      y = raw ? Number(raw) : null
+    } catch {}
+    if (!y || !Number.isFinite(y)) return
+    // 等筛选从存的那份里恢复、表画出来再滚。
+    const t = window.setTimeout(() => window.scrollTo(0, y!), 80)
+    return () => window.clearTimeout(t)
+  }, [])
+  const rememberScroll = () => {
+    try {
+      sessionStorage.setItem('plan:scroll', String(window.scrollY))
+    } catch {}
+  }
   const [armDelete, setArmDelete] = useState<string | null>(null)
 
   // 记一行
@@ -218,7 +242,14 @@ export function PlanBoard({
     <div>
       {/* 按工序筛 —— 一张表, 点一道只看那一道; 记一行默认也记到这一道。 */}
       <div className="mb-6 flex flex-wrap items-baseline gap-x-6 gap-y-2">
-        <button type="button" onClick={() => setStageFilter('')} className={chipCls(stageFilter === '')}>
+        <button
+          type="button"
+          onClick={() => {
+            setStageFilter('')
+            setPickedStage(null)
+          }}
+          className={chipCls(stageFilter === '')}
+        >
           全部工序
         </button>
         {stages.map((s) => (
@@ -227,7 +258,7 @@ export function PlanBoard({
             type="button"
             onClick={() => {
               setStageFilter(s)
-              setStage(s)
+              setPickedStage(null)
             }}
             className={chipCls(s === stageFilter)}
           >
@@ -250,7 +281,7 @@ export function PlanBoard({
           />
           <select
             value={stage}
-            onChange={(e) => setStage(e.target.value as PlanStage)}
+            onChange={(e) => setPickedStage(e.target.value as PlanStage)}
             title="记到哪一道工序"
             className={`${inp} pr-1`}
           >
@@ -464,6 +495,7 @@ export function PlanBoard({
                   {jobIds[r.jobNo.trim().toLowerCase()] ? (
                     <Link
                       href={`/jobs/${jobIds[r.jobNo.trim().toLowerCase()]}`}
+                      onClick={rememberScroll}
                       className="mono break-all py-0.5 text-[12.5px] font-medium text-[var(--color-ink)] underline-offset-4 hover:underline"
                     >
                       {r.jobNo}
