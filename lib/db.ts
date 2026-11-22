@@ -7638,7 +7638,18 @@ async function withUnrolledCells(
 ): Promise<MasterRow[]> {
   if (rows.length === 0) return rows
   try {
-    const maps = await Promise.all(UNROLLED_STAGES.map((st) => getStageCellsByJob(st, jobIds)))
+    // 整份看板那一次要把全厂车铣零件数一遍 —— 打开一次首页就读两三回 (在产、
+    // 已出货、搜索), 三十个人一起开就是几十回, 首页因此卡 (于海伟 2026-11-22)。
+    // 跟逾期/今日那份一样: 同时来的一起等, 十秒内共用, 一有写就重算。
+    const maps = await Promise.all(
+      UNROLLED_STAGES.map((st) =>
+        jobIds
+          ? getStageCellsByJob(st, jobIds)
+          : sharedRead(`unrolled-cells:${st}`, 10_000, () => getStageCellsByJob(st), {
+              followWrites: true,
+            }),
+      ),
+    )
     return rows.map((m) => {
       let cells = m.cells
       UNROLLED_STAGES.forEach((st, i) => {

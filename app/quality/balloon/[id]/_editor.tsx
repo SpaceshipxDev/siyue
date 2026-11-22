@@ -180,7 +180,14 @@ export function BalloonEditor({
     start(async () => {
       try {
         await mutate({ kind: 'deleteBalloonSheet', id: sheet.id })
-        router.push('/quality?v=balloon')
+        // 删完回到这个零件的气泡图那一页, 当场能重新传一张。
+        router.replace(
+          sheet.jobId && sheet.componentId
+            ? `/quality/balloon/part?job=${encodeURIComponent(sheet.jobId)}&part=${encodeURIComponent(sheet.componentId)}`
+            : sheet.jobId
+              ? `/jobs/${sheet.jobId}`
+              : '/',
+        )
       } catch (e) {
         showToast(e instanceof Error ? e.message : '删不掉', 'warning')
       }
@@ -196,13 +203,9 @@ export function BalloonEditor({
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-        {sheet.jobId ? (
+        {sheet.jobId && (
           <Link href={`/jobs/${sheet.jobId}`} className="text-[12.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]">
             ← 回工单
-          </Link>
-        ) : (
-          <Link href="/quality?v=balloon" className="text-[12.5px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]">
-            ← 气泡图
           </Link>
         )}
         <span className="text-[12px] text-[var(--color-ink-4)]">

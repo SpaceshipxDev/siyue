@@ -26,10 +26,8 @@ import { FilesBoard } from './_files'
 import { ImprovementsBoard } from './_improvements'
 import { IncomingBoard } from './_incoming'
 import { ChangesBoard } from './_changes'
-import { BalloonsBoard } from './_balloons'
 import { RushBoard } from './_rush'
 import { getRushRecords } from '@/lib/rush-fee'
-import { getBalloonSheets } from '@/lib/balloon-store'
 
 export const dynamic = 'force-dynamic'
 
@@ -71,9 +69,7 @@ export default async function QualityPage({
   const canEditOwner = canEditQualityOwner(user)
   const sp = await searchParams
   const view =
-    sp?.v === 'balloon'
-      ? 'balloon'
-      : sp?.v === 'rush'
+    sp?.v === 'rush'
       ? 'rush'
       : sp?.v === 'complaint'
       ? 'complaint'
@@ -104,7 +100,6 @@ export default async function QualityPage({
     links,
     scraps,
     files,
-    balloonSheets,
     rushes,
   ] = await Promise.all([
       view === 'defects' ? getDefectRows() : Promise.resolve([]),
@@ -120,7 +115,6 @@ export default async function QualityPage({
       view === 'defects' ? getInspectionLinks() : Promise.resolve(new Set<string>()),
       view === 'scrap' ? getScrapRecords() : Promise.resolve([]),
       view === 'files' ? getQualityFiles() : Promise.resolve([]),
-      view === 'balloon' ? getBalloonSheets().catch(() => []) : Promise.resolve([]),
       view === 'rush' ? getRushRecords() : Promise.resolve([]),
     ])
 
@@ -166,9 +160,7 @@ export default async function QualityPage({
       <TopBar
         title="质量"
         subtitle={
-          view === 'balloon'
-            ? '气泡图 · 质检报表'
-            : view === 'rush'
+          view === 'rush'
             ? '加急费用'
             : view === 'complaint'
             ? '客诉异常'
@@ -240,11 +232,6 @@ export default async function QualityPage({
             label="文件管理"
             active={view === 'files'}
           />
-          <ViewTab
-            href="/quality?v=balloon"
-            label="气泡图"
-            active={view === 'balloon'}
-          />
           <Link
             href="/?stage=质量"
             className="ml-auto text-[12px] text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
@@ -252,9 +239,7 @@ export default async function QualityPage({
             质量工段看板 →
           </Link>
         </div>
-        {view === 'balloon' ? (
-          <BalloonsBoard rows={balloonSheets} />
-        ) : view === 'rush' ? (
+        {view === 'rush' ? (
           <RushBoard
             rows={rushes}
             todayStr={todayStr}

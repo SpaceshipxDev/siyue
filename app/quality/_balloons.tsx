@@ -1,15 +1,14 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { withBase } from '@/lib/base-path'
 import { usePasteImage } from '@/app/_paste_image'
-import type { BalloonSheetSummary } from '@/lib/balloon-store'
 
-// 质量 · 气泡图 —— 传一张 2D 图纸 (截图、扫描件、导出的图片; 也能直接 Ctrl+V
-// 粘贴截图), 系统自动识别图上的尺寸、形位、粗糙度, 一项标一个编号气泡, 进去
-// 填实测值, 出质检报表。下面是做过的那些。
+// 气泡图 —— 传一张 2D 图纸 (截图、扫描件、导出的图片; 也能直接 Ctrl+V 粘贴
+// 截图), 系统自动识别图上的尺寸、形位、粗糙度, 一项标一个编号气泡, 进去填实测
+// 值, 出质检报表。只从零件进 (检验弹窗、工单零件那一行的「气泡图」), 一个零件
+// 一张 —— 质量模块里原来那个总列表取消了 (于海伟 2026-11-22)。
 
 /** 从工单零件那一行建的 —— 挂到这个零件上, 表头带上工单号、客户、材料。 */
 export type BalloonLink = {
@@ -20,8 +19,7 @@ export type BalloonLink = {
   material: string
 }
 
-// 传图纸那一块 —— 质量模块里、工单零件那一行进来的, 都是这一个。零件已经有图
-// 片格式的图纸, 列在上面点一下就用它。
+// 传图纸那一块。零件已经有图片格式的图纸, 列在上面点一下就用它。
 export function BalloonUpload({
   link,
   defaultTitle = '',
@@ -50,7 +48,8 @@ export function BalloonUpload({
       const r = await fetch(withBase('/api/quality-balloon'), { method: 'POST', body: fd })
       const j = (await r.json()) as { ok: boolean; id?: string; detected?: boolean; error?: string }
       if (!j.ok || !j.id) throw new Error(j.error ?? '上传失败')
-      router.push(`/quality/balloon/${j.id}`)
+      // replace: 退回去不再落到这一页 —— 它见到已有的那张会直接跳回来。
+      router.replace(`/quality/balloon/${j.id}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : '上传失败')
       setBusy(false)
@@ -133,74 +132,5 @@ export function BalloonUpload({
         {error && <p className="mt-2 text-[12.5px] text-[var(--color-overdue)]">{error}</p>}
       </div>
 
-  )
-}
-
-export function BalloonsBoard({ rows }: { rows: BalloonSheetSummary[] }) {
-  const [q, setQ] = useState('')
-  const needle = q.trim()
-  const shown = needle
-    ? rows.filter((r) => [r.title, r.drawingNo, r.jobNo, r.customer].some((v) => v.includes(needle)))
-    : rows
-
-  return (
-    <div>
-      <BalloonUpload />
-      <div className="mb-3 flex items-center gap-3">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="搜索 · 图名 / 图号 / 工单号 / 客户"
-          className="h-9 w-[240px] rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[13px] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
-        />
-        <span className="text-[12.5px] text-[var(--color-ink-3)]">{shown.length} 张</span>
-      </div>
-
-      {shown.length === 0 ? (
-        <p className="rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-5 py-12 text-center text-[13px] text-[var(--color-ink-3)]">
-          {rows.length === 0 ? '还没有气泡图 —— 传一张图纸试试' : '没有匹配的'}
-        </p>
-      ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {shown.map((r) => (
-            <Link
-              key={r.id}
-              href={`/quality/balloon/${r.id}`}
-              className="flex gap-3 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 hover:border-[var(--color-border-strong)]"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={withBase(r.imageUrl)}
-                alt=""
-                className="h-[72px] w-[96px] shrink-0 rounded-[2px] border border-[var(--color-border)] bg-white object-contain"
-              />
-              <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="truncate text-[14px] font-medium text-[var(--color-ink)]">{r.title || '未命名图纸'}</span>
-                <span className="mono truncate text-[11.5px] text-[var(--color-ink-3)]">
-                  {[r.drawingNo, r.jobNo].filter(Boolean).join(' · ') || '—'}
-                </span>
-                <span className="text-[12px] text-[var(--color-ink-3)]">
-                  {r.count} 项 ·{' '}
-                  <span
-                    className={
-                      r.verdict === '不合格'
-                        ? 'font-medium text-[var(--color-overdue)]'
-                        : r.verdict === '合格'
-                          ? 'font-medium text-[var(--color-success)]'
-                          : ''
-                    }
-                  >
-                    {r.verdict || '未检'}
-                  </span>
-                </span>
-                <span className="text-[11.5px] text-[var(--color-ink-4)]">
-                  {r.createdAt.slice(5, 10)} · {r.createdBy}
-                </span>
-              </span>
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
   )
 }
