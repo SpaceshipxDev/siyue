@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
 import { withBase } from '@/lib/base-path'
 import { showToast } from '@/app/_toast'
+import { BRAND } from '@/lib/brand'
 import {
   BALLOON_KINDS,
   MAX_SAMPLES,
@@ -222,7 +223,7 @@ export function BalloonEditor({
           </button>
           <button
             type="button"
-            onClick={() => exportExcel(latest.current)}
+            onClick={() => void exportExcel(latest.current).catch(() => showToast('导出失败，再点一次', 'warning'))}
             className="h-8 rounded-[2px] border border-[var(--color-border-strong)] px-3 text-[12.5px] text-[var(--color-ink)] hover:border-[var(--color-ink)]"
           >
             导出 Excel
@@ -572,12 +573,60 @@ export function BalloonEditor({
 }
 
 // 导出 Excel —— 跟报表同一张表, 一行一个气泡。
+// 导出 Excel —— 跟「质检报表」那张纸一个样子 (于海伟 2026-11-23): 抬头、表头
+// 信息、带红色编号气泡的图纸、逐项检验表、外观、结论、签字。气泡是先在浏览器
+// 里画到图纸上再放进表格的, 打开 Excel 看到的就是打印出来的那张图。
+async function balloonedDrawing(s: BalloonSheet): Promise<{ base64: string; w: number; h: number } | null> {
+  try {
+    const blob = await (await fetch(withBase(s.imageUrl))).blob()
+    const img = await createImageBitmap(blob)
+    const k = Math.min(1, 2000 / img.width)
+    const w = Math.round(img.width * k)
+    const h = Math.round(img.height * k)
+    const cv = document.createElement('canvas')
+    cv.width = w
+    cv.height = h
+    const g = cv.getContext('2d')
+    if (!g) return null
+    g.fillStyle = '#fff'
+    g.fillRect(0, 0, w, h)
+    g.drawImage(img, 0, 0, w, h)
+    // 跟报表上同一个比例: 气泡直径约为图宽的 2.3%。
+    const d = Math.max(17, w * 0.023)
+    g.font = `700 ${Math.round(d * 0.56)}px sans-serif`
+    g.textAlign = 'center'
+    g.textBaseline = 'middle'
+    g.lineWidth = Math.max(1.5, d * 0.09)
+    for (const b of s.balloons) {
+      const label = String(b.n)
+      const bw = Math.max(d, g.measureText(label).width + d * 0.4)
+      const x = b.x * w
+      const y = b.y * h
+      g.beginPath()
+      g.roundRect(x - bw / 2, y - d / 2, bw, d, d / 2)
+      g.fillStyle = '#fff'
+      g.fill()
+      g.strokeStyle = '#e0301e'
+      g.stroke()
+      g.fillStyle = '#e0301e'
+      g.fillText(label, x, y + 0.5)
+    }
+    return { base64: cv.toDataURL('image/png').split(',')[1], w, h }
+  } catch {
+    return null
+  }
+}
+
 async function exportExcel(s: BalloonSheet) {
-  const XLSX = await import('xlsx')
+  const [{ default: ExcelJS }, pic] = await Promise.all([import('exceljs'), balloonedDrawing(s)])
+  const FONT = '宋体'
+  const RED = 'FFC0261A'
+  const thin = { style: 'thin' as const, color: { argb: 'FF8A877F' } }
+  const border = { top: thin, left: thin, bottom: thin, right: thin }
+
   const head = [
     '序号',
     '图上标注',
-    '类型',
     '名义值',
     '上公差',
     '下公差',
@@ -587,35 +636,162 @@ async function exportExcel(s: BalloonSheet) {
     '判定',
     '量具',
   ]
-  const body = s.balloons.map((b) => {
-    const lim = limits(b)
-    return [
-      b.n,
-      b.spec,
-      b.kind,
-      b.nominal,
-      b.tolUp,
-      b.tolDown,
-      lim.lo,
-      lim.hi,
-      ...Array.from({ length: s.samples }, (_, i) => b.measured[i] ?? ''),
-      rowVerdict(b, s.samples),
-      b.gauge,
-    ]
+  const widths = head.map((h) => (h === '序号' ? 6 : h === '图上标注' ? 22 : h === '判定' ? 7 : 10))
+  const last = head.length
+
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('质检报表', {
+    views: [{ showGridLines: false }],
+    pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
   })
-  const info = [
-    ['质检报表'],
-    ['图名', s.title, '图号', s.drawingNo, '工单号', s.jobNo],
-    ['客户', s.customer, '材料', s.material, '检验员', s.inspector, '检验日期', s.inspectedAt],
-    ['结论', sheetVerdict(s), '备注', s.note],
-    [],
+  ws.columns = widths.map((width) => ({ width }))
+  let r = 0
+  const line = (text: string, size: number, bold = false, height = 20) => {
+    r++
+    ws.mergeCells(r, 1, r, last)
+    const c = ws.getCell(r, 1)
+    c.value = text
+    c.font = { name: FONT, size, bold }
+    c.alignment = { horizontal: 'center', vertical: 'middle' }
+    ws.getRow(r).height = height
+  }
+  line(BRAND.legalName, 11)
+  line('质检报表', 18, true, 30)
+
+  // 表头信息 —— 一行四项, 跟报表上一样两行。
+  const info: [string, string][] = [
+    ['图名', s.title],
+    ['图号', s.drawingNo],
+    ['工单号', s.jobNo],
+    ['客户', s.customer],
+    ['材料', s.material],
+    ['抽检数量', `${s.samples} 件`],
+    ['检验员', s.inspector],
+    ['检验日期', s.inspectedAt],
   ]
-  const look = s.appearance.length
-    ? [[], ['外观检验'], ['序号', '检验项目', '要求', '结果', '说明'], ...s.appearance.map((a, i) => [i + 1, a.item, a.req, a.result === 'OK' ? '合格' : a.result === 'NG' ? '不合格' : '', a.note])]
-    : []
-  const ws = XLSX.utils.aoa_to_sheet([...info, head, ...body, ...look])
-  ws['!cols'] = head.map((h) => (h === '图上标注' ? { wch: 22 } : { wch: 10 }))
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, '质检报表')
-  XLSX.writeFile(wb, `质检报表_${s.title || s.id}.xlsx`)
+  const cuts = [0, 1, 2, 3, 4].map((q) => Math.round((q * last) / 4))
+  for (let row = 0; row < 2; row++) {
+    r++
+    for (let q = 0; q < 4; q++) {
+      const [k, v] = info[row * 4 + q]
+      const from = cuts[q] + 1
+      const to = Math.max(from, cuts[q + 1])
+      if (to > from) ws.mergeCells(r, from, r, to)
+      const c = ws.getCell(r, from)
+      c.value = `${k}  ${v || '—'}`
+      c.font = { name: FONT, size: 10 }
+      c.alignment = { vertical: 'middle', wrapText: true }
+    }
+    ws.getRow(r).height = 20
+  }
+
+  // 图纸 —— 铺满整个表宽, 下面空出够高的几行给它。
+  if (pic) {
+    const tablePx = widths.reduce((a, w) => a + w * 7 + 5, 0)
+    const iw = tablePx
+    const ih = Math.round((pic.h / pic.w) * iw)
+    const ROW_PT = 20
+    const rows = Math.ceil((ih * 0.75) / ROW_PT) + 1
+    const top = r + 1
+    for (let k = 0; k < rows; k++) ws.getRow(top + k).height = ROW_PT
+    const id = wb.addImage({ base64: pic.base64, extension: 'png' })
+    ws.addImage(id, { tl: { col: 0, row: top - 1 + 0.3 }, ext: { width: iw, height: ih }, editAs: 'oneCell' })
+    r += rows
+  }
+
+  r++
+  ws.getCell(r, 1).value = '尺寸检验'
+  ws.getCell(r, 1).font = { name: FONT, size: 11, bold: true }
+  ws.getRow(r).height = 22
+
+  const grid = (values: (string | number)[], opts: { bold?: boolean; red?: number[]; left?: number[] } = {}) => {
+    r++
+    values.forEach((v, j) => {
+      const c = ws.getCell(r, j + 1)
+      c.value = v
+      c.border = border
+      c.font = { name: FONT, size: 10, bold: opts.bold || opts.red?.includes(j), color: opts.red?.includes(j) ? { argb: RED } : undefined }
+      c.alignment = { horizontal: opts.left?.includes(j) ? 'left' : 'center', vertical: 'middle', wrapText: true }
+    })
+    ws.getRow(r).height = 22
+  }
+  grid(head, { bold: true })
+  for (const b of s.balloons) {
+    const lim = limits(b)
+    const ms = Array.from({ length: s.samples }, (_, i) => b.measured[i] ?? '')
+    const v = rowVerdict(b, s.samples)
+    const red = ms.flatMap((m, i) => (judge(b, m) === 'NG' ? [7 + i] : []))
+    if (v === 'NG') red.push(7 + s.samples)
+    grid([b.n, b.spec, b.nominal, b.tolUp, b.tolDown, lim.lo, lim.hi, ...ms, v, b.gauge], { red })
+  }
+
+  if (s.appearance.length > 0) {
+    r++
+    r++
+    ws.getCell(r, 1).value = '外观检验'
+    ws.getCell(r, 1).font = { name: FONT, size: 11, bold: true }
+    ws.getRow(r).height = 22
+    // 外观表五列, 摊到整张表宽上。
+    const span = [[1, 1], [2, 2], [3, last - 3], [last - 2, last - 2], [last - 1, last]]
+    const row5 = (values: string[], bold: boolean, redAt = -1) => {
+      r++
+      span.forEach(([a, z], j) => {
+        if (z > a) ws.mergeCells(r, a, r, z)
+        for (let col = a; col <= z; col++) ws.getCell(r, col).border = border
+        const c = ws.getCell(r, a)
+        c.value = values[j]
+        c.font = { name: FONT, size: 10, bold: bold || j === redAt, color: j === redAt ? { argb: RED } : undefined }
+        c.alignment = { horizontal: j === 2 && !bold ? 'left' : 'center', vertical: 'middle', wrapText: true }
+      })
+      ws.getRow(r).height = 22
+    }
+    row5(['序号', '检验项目', '要求', '结果', '说明'], true)
+    s.appearance.forEach((a, i) =>
+      row5(
+        [String(i + 1), a.item, a.req, a.result === 'OK' ? '合格' : a.result === 'NG' ? '不合格' : '', a.note],
+        false,
+        a.result === 'NG' ? 3 : -1,
+      ),
+    )
+  }
+
+  // 备注 · 结论
+  r += 2
+  const verdict = sheetVerdict(s)
+  ws.mergeCells(r, 1, r, last - 2)
+  ws.getCell(r, 1).value = `备注  ${s.note || '—'}`
+  ws.getCell(r, 1).font = { name: FONT, size: 10 }
+  ws.getCell(r, 1).alignment = { vertical: 'middle', wrapText: true }
+  ws.mergeCells(r, last - 1, r, last)
+  const vc = ws.getCell(r, last - 1)
+  vc.value = `结论  ${verdict || '—'}`
+  vc.font = { name: FONT, size: 12, bold: true, color: verdict === '不合格' ? { argb: RED } : undefined }
+  vc.alignment = { horizontal: 'right', vertical: 'middle' }
+  ws.getRow(r).height = 24
+
+  // 签字
+  r += 2
+  ;['检验员', '审核', '批准'].forEach((k, q) => {
+    const from = Math.round((q * last) / 3) + 1
+    const to = Math.round(((q + 1) * last) / 3)
+    if (to > from) ws.mergeCells(r, from, r, to)
+    const c = ws.getCell(r, from)
+    c.value = `${k}`
+    c.font = { name: FONT, size: 10 }
+    c.alignment = { vertical: 'bottom' }
+    for (let col = from; col <= to; col++) ws.getCell(r, col).border = { bottom: { style: 'thin', color: { argb: 'FF000000' } } }
+  })
+  ws.getRow(r).height = 30
+
+  const buf = await wb.xlsx.writeBuffer()
+  const url = URL.createObjectURL(
+    new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+  )
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `质检报表_${s.title || s.id}.xlsx`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
