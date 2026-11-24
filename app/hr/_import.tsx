@@ -58,7 +58,8 @@ export function HrImport({
   toSheet = false,
 }: {
   month: string
-  /** 在「考勤表」页签上导的 —— 记完回到考勤表 (那个月)。 */
+  /** 只读打卡、只排考勤表 (不碰人事记录和工资) —— 记完去考勤表 (那个月)。
+   *  「考勤」「考勤表」两个页签上的导入现在都是这一种。 */
   toSheet?: boolean
 }) {
   const router = useRouter()
@@ -243,9 +244,13 @@ export function HrImport({
       setPunches(null)
       // 记进的是别的月份 —— 跳过去, 刚记的东西就在眼前。
       const only = sheetMonths.length === 1 ? sheetMonths[0] : null
-      if (only && only !== month) {
+      if (toSheet) {
+        // 打卡只排考勤表 —— 从「考勤」页签导的也直接去考勤表看结果。
+        showToast(`已记入${only ? monthLabel(only) : ''} ${done} 条`, 'success')
+        router.push(`/hr?v=sheet&p=${only ?? month}`)
+      } else if (only && only !== month) {
         showToast(`已记入${monthLabel(only)} ${done} 条`, 'success')
-        router.push(toSheet ? `/hr?v=sheet&p=${only}` : `/hr?p=${only}`)
+        router.push(`/hr?p=${only}`)
       } else {
         showToast(`已记入 ${done} 条`, 'success')
         router.refresh()

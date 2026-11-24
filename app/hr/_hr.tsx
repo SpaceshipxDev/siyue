@@ -365,13 +365,13 @@ export function HrBoard({
             记下
           </button>
         </div>
-        {/* 一张打卡机导出的月考勤表 —— 上传, 过一眼, 整月一次记进来。 */}
+        {/* 一张打卡机导出的月考勤表 —— 上传, 过一眼, 排成「考勤表」那一页。只
+            生成考勤表, 不记成人事记录、不进加班和工资 (于海伟 2026-11-24)。 */}
         {canEdit && (
           <div className="mt-2.5 flex flex-wrap items-center gap-2.5 border-t border-[var(--color-border)] pt-2.5">
-            <HrImport month={isYear ? today.slice(0, 7) : period} />
+            <HrImport month={isYear ? today.slice(0, 7) : period} toSheet />
             <span className="text-[11.5px] text-[var(--color-ink-4)]">
-              一次可以选好几张, 读出来并成一份先给你过一眼, 划掉不对的再记
-              入 ·{' '}
+              导入后生成员工考勤表, 在「考勤表」里看 · 只记考勤, 不进加班和工资 ·{' '}
               {isYear ? monthLabel(today.slice(0, 7)) : monthLabel(period)}
             </span>
           </div>
