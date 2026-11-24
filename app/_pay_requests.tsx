@@ -15,6 +15,7 @@ import {
   PAY_FILE_LABEL,
   PAY_STAGE_LABEL,
   WAGE_CATEGORY,
+  OTHER_CATEGORY,
   payItemAmount,
   payStage,
   type PayDept,
@@ -508,7 +509,7 @@ function NewRequest({
           value={note}
           onChange={(e) => setNote(e.target.value)}
           rows={2}
-          placeholder="说明 · 可空"
+          placeholder={category === OTHER_CATEGORY ? '备注 · 这笔是什么费用' : '说明 · 可空'}
           className="w-full resize-none rounded-[2px] border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 py-1.5 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)] focus:border-[var(--color-border-strong)]"
         />
       </div>
