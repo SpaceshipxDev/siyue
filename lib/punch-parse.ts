@@ -60,6 +60,13 @@ function dayOf(c: Cell, month: string): number | null {
     const ym = `${m[1]}-${m[2].padStart(2, '0')}`
     return ym === month ? Number(m[3]) : null
   }
+  // 钉钉「每日统计」写两位年份: "26-11-01 星期六" —— 不认它, 整张表一行都
+  // 读不出来, 落到识别模型那里只吐得出一个人 (于海伟 2026-11-25)。
+  m = s.match(/^(\d{2})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)/)
+  if (m) {
+    const ym = `20${m[1]}-${m[2].padStart(2, '0')}`
+    return ym === month ? Number(m[3]) : null
+  }
   m = s.match(/^(\d{1,2})[-/.月](\d{1,2})/)
   if (m) return Number(m[1]) === Number(month.slice(5)) ? Number(m[2]) : null
   return null
@@ -165,6 +172,8 @@ export function parsePunchSheets(
     let currentName = ''
     let currentDept = ''
     let skipCols = new Set<number>()
+    // 一行一天的表, 名字常是合并格子 —— 只写在这个人的第一行, 下面几行是空的。
+    let lastRowName = ''
 
     for (const row of rows) {
       const cells = row.map(str)
@@ -196,13 +205,22 @@ export function parsePunchSheets(
       // 带「姓名」的一行: 是表头 (姓名 | 部门 | 日期 | 上班 | 下班), 还是 ③ 那种
       // 标签行 (姓名: 张三 / 工号 | 1 | 姓名 | 张三 | 部门 | 车间)。看「姓名」后
       // 面那一格: 也是个表头词就是表头, 是个名字就是标签行。
-      const labelName = cells.map((c) => c.match(/^姓名[:：]\s*(\S+)/)?.[1]).find(Boolean)
+      // 考勤机的「考勤记录表」: "姓名：" 一格, 名字在后面隔几格 (中间是合并
+      // 掉的空格子)。部门同理。
+      const afterLabel = (re: RegExp) => {
+        const i = cells.findIndex((c) => re.test(c))
+        return i >= 0 ? cells.slice(i + 1).find((c) => c !== '') : undefined
+      }
+      const labelName =
+        cells.map((c) => c.match(/^姓名[:：]\s*(\S+)/)?.[1]).find(Boolean) ??
+        afterLabel(/^姓名\s*[:：]$/)
       const next = ni >= 0 ? cells[ni + 1] : ''
       if (labelName || (ni >= 0 && next && !isHeadWord(next))) {
         currentName = labelName ?? next
         const di = cells.findIndex(isDeptHead)
         currentDept =
           cells.map((c) => c.match(/^部门[:：]\s*(\S+)/)?.[1]).find(Boolean) ??
+          afterLabel(/^部门\s*[:：]$/) ??
           (di >= 0 ? (cells[di + 1] ?? '') : '')
         nameCol = -1
         deptCol = -1
@@ -213,10 +231,15 @@ export function parsePunchSheets(
         deptCol = cells.findIndex(isDeptHead)
         dateCol = cells.findIndex(isDateHead)
         skipCols = new Set(cells.flatMap((c, i) => (isNotPunchHead(c) ? [i] : [])))
+        lastRowName = ''
         continue
       }
 
-      const rowName = nameCol >= 0 ? cells[nameCol] : ''
+      let rowName = nameCol >= 0 ? cells[nameCol] : ''
+      if (nameCol >= 0 && dateCol >= 0 && !dayCols) {
+        if (rowName) lastRowName = rowName
+        else rowName = lastRowName
+      }
       const cleaned = cleanName(rowName || currentName)
       if (!cleaned) continue
       const name = cleaned.name
