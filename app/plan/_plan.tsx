@@ -519,7 +519,8 @@ export function PlanBoard({
                   {/* 认得出的工单号点进工单; 认不出的 (打错了) 还是能改的一格。 */}
                   {jobIds[r.jobNo.trim().toLowerCase()] ? (
                     <Link
-                      href={`/jobs/${jobIds[r.jobNo.trim().toLowerCase()]}`}
+                      // ?from=plan —— 工单页的「返回」认它, 一定回计划 (见 app/_back)。
+                      href={`/jobs/${jobIds[r.jobNo.trim().toLowerCase()]}?from=plan`}
                       onClick={rememberScroll}
                       className="mono break-all py-0.5 text-[12.5px] font-medium text-[var(--color-ink)] underline-offset-4 hover:underline"
                     >
