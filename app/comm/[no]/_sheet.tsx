@@ -276,7 +276,7 @@ export function CommOrderSheet({
 }
 
 // 一格图 —— 点缩略图看大图; 「+ 图」选文件, 或者点一下这一格直接粘贴截图。
-// field 'trip' = 出差沟通确认那张表的图 (./_trips)。
+// field 'trip' / 'tripForm' = 出差沟通确认那张表的现场图 / 出差单 (./_trips)。
 export function ImageCell({
   canWrite,
   jobNo,
@@ -289,7 +289,7 @@ export function ImageCell({
   canWrite: boolean
   jobNo: string
   rowId: string
-  field: CommOrderImageField | 'trip'
+  field: CommOrderImageField | 'trip' | 'tripForm'
   list: CommImage[]
   onSheet: (s?: CommOrder) => void
   onDelete: (imageId: string) => Promise<void>

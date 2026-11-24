@@ -419,6 +419,7 @@ import {
   deleteCommTripRow,
   isCommOrderImageField,
   isCommOrderTextField,
+  isCommTripImageField,
   isCommTripTextField,
   setCommOrderDueDate,
   updateCommOrderRow,
@@ -6015,11 +6016,13 @@ async function dispatch(
 
     case 'commTripDeleteImage': {
       const { jobNo, rowId, imageId } = body
-      if (!isString(jobNo) || !isString(rowId) || !isString(imageId))
+      // 老页面没带 field 的, 删的是现场图。
+      const field = body.field ?? 'images'
+      if (!isString(jobNo) || !isString(rowId) || !isString(imageId) || !isCommTripImageField(field))
         return err('bad commTripDeleteImage args')
       const u = await requireUser()
       if (!canWriteCommSheet(u)) return err('沟通确认单由工程或商务改', 403)
-      const sheet = await deleteCommTripImage(jobNo, rowId, imageId, u.name)
+      const sheet = await deleteCommTripImage(jobNo, rowId, field, imageId, u.name)
       revalidatePath('/comm')
       return Response.json(ok({ sheet }))
     }

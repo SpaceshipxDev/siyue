@@ -28,12 +28,12 @@ export async function POST(request: NextRequest) {
   if (!(file instanceof File)) {
     return Response.json({ ok: false, error: '没有收到图片' }, { status: 400 })
   }
-  // field 'trip' = 出差沟通确认那一行的图。
+  // field 'trip' = 出差沟通确认那一行的现场图, 'tripForm' = 那一行的出差单。
   if (
     typeof jobNo !== 'string' ||
     !jobNo ||
     typeof rowId !== 'string' ||
-    !(field === 'trip' || isCommOrderImageField(field))
+    !(field === 'trip' || field === 'tripForm' || isCommOrderImageField(field))
   ) {
     return Response.json({ ok: false, error: 'bad args' }, { status: 400 })
   }
@@ -46,8 +46,8 @@ export async function POST(request: NextRequest) {
   try {
     const image = await uploadCommImage(jobNo, file, file.name, file.type)
     const sheet =
-      field === 'trip'
-        ? await addCommTripImage(jobNo, rowId, image, user.name)
+      field === 'trip' || field === 'tripForm'
+        ? await addCommTripImage(jobNo, rowId, field === 'trip' ? 'images' : 'forms', image, user.name)
         : await addCommOrderImage(jobNo, rowId, field, image, user.name)
     revalidatePath('/comm')
     return Response.json({ ok: true, sheet })

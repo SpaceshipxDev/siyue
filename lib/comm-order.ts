@@ -44,9 +44,15 @@ export type CommTripRow = {
   content?: string // 沟通内容
   result?: string // 客户确认结果
   contact?: string // 客户对接人
-  images: CommImage[]
+  images: CommImage[] // 现场拍的图
+  forms: CommImage[] // 出差单的照片 (于海伟 2026-11-24)
   by: string
   at: string
+}
+
+export type CommTripImageField = 'images' | 'forms'
+export function isCommTripImageField(v: unknown): v is CommTripImageField {
+  return v === 'images' || v === 'forms'
 }
 
 export const COMM_TRIP_TEXT_FIELDS = ['date', 'people', 'place', 'content', 'result', 'contact'] as const
@@ -143,7 +149,13 @@ function tripRow(v: unknown): CommTripRow | undefined {
   if (typeof v !== 'object' || v === null) return undefined
   const r = v as Record<string, unknown>
   if (typeof r.id !== 'string') return undefined
-  const out: CommTripRow = { id: r.id, images: images(r.images), by: str(r.by, 40), at: str(r.at, 40) }
+  const out: CommTripRow = {
+    id: r.id,
+    images: images(r.images),
+    forms: images(r.forms),
+    by: str(r.by, 40),
+    at: str(r.at, 40),
+  }
   for (const f of COMM_TRIP_TEXT_FIELDS) {
     const t = str(r[f])
     if (t) out[f] = t
@@ -388,7 +400,7 @@ export async function addCommTripRow(
   by: string,
 ): Promise<CommOrder | undefined> {
   return edit(jobNo, by, (s) => {
-    const r: CommTripRow = { id: uid(), images: [], by, at: new Date().toISOString() }
+    const r: CommTripRow = { id: uid(), images: [], forms: [], by, at: new Date().toISOString() }
     for (const f of COMM_TRIP_TEXT_FIELDS) {
       const t = str(init[f])
       if (t) r[f] = t
@@ -428,13 +440,14 @@ export async function deleteCommTripRow(
 export async function addCommTripImage(
   jobNo: string,
   rowId: string,
+  field: CommTripImageField,
   image: CommImage,
   by: string,
 ): Promise<CommOrder | undefined> {
   return edit(jobNo, by, (s) => {
     const r = s.trips.find((x) => x.id === rowId)
     if (!r) throw new Error('这一行已经不在了')
-    r.images = [...r.images, image]
+    r[field] = [...r[field], image]
     r.by = by
     r.at = new Date().toISOString()
   })
@@ -443,6 +456,7 @@ export async function addCommTripImage(
 export async function deleteCommTripImage(
   jobNo: string,
   rowId: string,
+  field: CommTripImageField,
   imageId: string,
   by: string,
 ): Promise<CommOrder | undefined> {
@@ -450,8 +464,8 @@ export async function deleteCommTripImage(
   const s = await edit(jobNo, by, (s) => {
     const r = s.trips.find((x) => x.id === rowId)
     if (!r) return
-    gone = r.images.find((x) => x.id === imageId)
-    r.images = r.images.filter((x) => x.id !== imageId)
+    gone = r[field].find((x) => x.id === imageId)
+    r[field] = r[field].filter((x) => x.id !== imageId)
     r.by = by
     r.at = new Date().toISOString()
   })

@@ -4,7 +4,7 @@ import { useState, type ReactNode } from 'react'
 import { mutate } from '@/lib/mutate'
 import { showToast } from '@/app/_toast'
 import { EditableTextArea } from '@/app/_editable'
-import type { CommOrder, CommTripRow, CommTripTextField } from '@/lib/comm-order'
+import type { CommOrder, CommTripImageField, CommTripRow, CommTripTextField } from '@/lib/comm-order'
 import { CommOrderSheet, ImageCell } from './_sheet'
 
 // 工单页「沟通」那一栏 —— 两张表切着看 (于海伟 2026-11-24):
@@ -83,9 +83,11 @@ export function JobCommTab({
   )
 }
 
-const COLS: { field: CommTripTextField | 'images'; head: string; w: number }[] = [
+const COLS: { field: CommTripTextField | CommTripImageField; head: string; w: number }[] = [
   { field: 'date', head: '出差日期', w: 110 },
   { field: 'people', head: '出差人员', w: 120 },
+  // 出差单 —— 纸面那张出差单拍照传上来 (于海伟 2026-11-24)。
+  { field: 'forms', head: '出差单', w: 170 },
   { field: 'place', head: '客户 / 地点', w: 150 },
   { field: 'content', head: '沟通内容', w: 260 },
   { field: 'images', head: '图片', w: 200 },
@@ -143,16 +145,18 @@ function CommTripSheet({
                 </td>
                 {COLS.map((c) => {
                   const f = c.field
-                  return f === 'images' ? (
+                  return f === 'images' || f === 'forms' ? (
                     <td key={f} className={td}>
                       <ImageCell
                         canWrite={canWrite}
                         jobNo={jobNo}
                         rowId={r.id}
-                        field="trip"
-                        list={r.images}
+                        field={f === 'images' ? 'trip' : 'tripForm'}
+                        list={r[f]}
                         onSheet={apply}
-                        onDelete={(imageId) => call({ kind: 'commTripDeleteImage', rowId: r.id, imageId })}
+                        onDelete={(imageId) =>
+                          call({ kind: 'commTripDeleteImage', rowId: r.id, field: f, imageId })
+                        }
                       />
                     </td>
                   ) : (
