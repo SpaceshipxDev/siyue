@@ -34,11 +34,33 @@ export type CommOrderRow = {
   at: string // 记录时间
 }
 
+// 出差沟通确认 (于海伟 2026-11-24) —— 去客户那边当面谈的, 一次出差一行, 能
+// 挂现场拍的图。跟工单分析那张挂在同一个工号下, 存在同一份里。
+export type CommTripRow = {
+  id: string
+  date?: string // 出差日期
+  people?: string // 出差人员
+  place?: string // 客户 / 地点
+  content?: string // 沟通内容
+  result?: string // 客户确认结果
+  contact?: string // 客户对接人
+  images: CommImage[]
+  by: string
+  at: string
+}
+
+export const COMM_TRIP_TEXT_FIELDS = ['date', 'people', 'place', 'content', 'result', 'contact'] as const
+export type CommTripTextField = (typeof COMM_TRIP_TEXT_FIELDS)[number]
+export function isCommTripTextField(v: unknown): v is CommTripTextField {
+  return typeof v === 'string' && (COMM_TRIP_TEXT_FIELDS as readonly string[]).includes(v)
+}
+
 export type CommOrder = {
   jobNo: string
   /** 交期 YYYY-MM-DD —— 手填的; 没填就看系统里这个工号的工单交期 (jobDueDates)。 */
   dueDate?: string
   rows: CommOrderRow[]
+  trips: CommTripRow[]
   createdBy?: string
   createdAt: string
   updatedBy?: string
@@ -117,6 +139,18 @@ function row(v: unknown): CommOrderRow | undefined {
   return out
 }
 
+function tripRow(v: unknown): CommTripRow | undefined {
+  if (typeof v !== 'object' || v === null) return undefined
+  const r = v as Record<string, unknown>
+  if (typeof r.id !== 'string') return undefined
+  const out: CommTripRow = { id: r.id, images: images(r.images), by: str(r.by, 40), at: str(r.at, 40) }
+  for (const f of COMM_TRIP_TEXT_FIELDS) {
+    const t = str(r[f])
+    if (t) out[f] = t
+  }
+  return out
+}
+
 function sheet(jobNo: string, v: unknown): CommOrder | undefined {
   if (typeof v !== 'object' || v === null) return undefined
   const r = v as Record<string, unknown>
@@ -128,6 +162,9 @@ function sheet(jobNo: string, v: unknown): CommOrder | undefined {
     jobNo,
     dueDate: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : undefined,
     rows,
+    trips: Array.isArray(r.trips)
+      ? (r.trips as unknown[]).map(tripRow).filter((x): x is CommTripRow => !!x)
+      : [],
     createdBy: str(r.createdBy, 40) || undefined,
     createdAt: str(r.createdAt, 40),
     updatedBy: str(r.updatedBy, 40) || undefined,
@@ -196,11 +233,11 @@ async function edit(
     const all = await read()
     const k = findKey(all, no) ?? no
     const now = new Date().toISOString()
-    const s: CommOrder = all[k] ?? { jobNo: k, rows: [], createdBy: by, createdAt: now, updatedAt: now }
+    const s: CommOrder = all[k] ?? { jobNo: k, rows: [], trips: [], createdBy: by, createdAt: now, updatedAt: now }
     fn(s)
     s.updatedBy = by
     s.updatedAt = now
-    if (s.rows.length > 0 || s.dueDate) all[k] = s
+    if (s.rows.length > 0 || s.trips.length > 0 || s.dueDate) all[k] = s
     else delete all[k]
     await write(all)
     return all[k]
@@ -327,14 +364,97 @@ export async function deleteCommOrderImage(
     r.by = by
     r.at = new Date().toISOString()
   })
-  // 单是准, 文件是次 —— 删不掉的孤儿文件没人看得见, 无害。
-  const key = gone ? storageKeyFromUrl(gone.url) : undefined
-  if (key) {
-    try {
-      await supabase.storage.from(STORAGE_BUCKET).remove([key])
-    } catch {
-      // 见上
-    }
+  await forgetImageFile(gone)
+  return s
+}
+
+// 单是准, 文件是次 —— 删不掉的孤儿文件没人看得见, 无害。
+async function forgetImageFile(img: CommImage | undefined): Promise<void> {
+  const key = img ? storageKeyFromUrl(img.url) : undefined
+  if (!key) return
+  try {
+    await supabase.storage.from(STORAGE_BUCKET).remove([key])
+  } catch {
+    // 见上
   }
+}
+
+// ── 出差沟通确认 ─────────────────────────────────────────────────────────
+
+/** 加一行 —— 日期、出差人、客户按工单先填上 (工单页传进来), 不对再改。 */
+export async function addCommTripRow(
+  jobNo: string,
+  init: Partial<Record<CommTripTextField, string>>,
+  by: string,
+): Promise<CommOrder | undefined> {
+  return edit(jobNo, by, (s) => {
+    const r: CommTripRow = { id: uid(), images: [], by, at: new Date().toISOString() }
+    for (const f of COMM_TRIP_TEXT_FIELDS) {
+      const t = str(init[f])
+      if (t) r[f] = t
+    }
+    s.trips.push(r)
+  })
+}
+
+export async function updateCommTripRow(
+  jobNo: string,
+  rowId: string,
+  field: CommTripTextField,
+  text: string,
+  by: string,
+): Promise<CommOrder | undefined> {
+  return edit(jobNo, by, (s) => {
+    const r = s.trips.find((x) => x.id === rowId)
+    if (!r) throw new Error('这一行已经不在了')
+    const t = str(text)
+    if (t) r[field] = t
+    else delete r[field]
+    r.by = by
+    r.at = new Date().toISOString()
+  })
+}
+
+export async function deleteCommTripRow(
+  jobNo: string,
+  rowId: string,
+  by: string,
+): Promise<CommOrder | undefined> {
+  return edit(jobNo, by, (s) => {
+    s.trips = s.trips.filter((x) => x.id !== rowId)
+  })
+}
+
+export async function addCommTripImage(
+  jobNo: string,
+  rowId: string,
+  image: CommImage,
+  by: string,
+): Promise<CommOrder | undefined> {
+  return edit(jobNo, by, (s) => {
+    const r = s.trips.find((x) => x.id === rowId)
+    if (!r) throw new Error('这一行已经不在了')
+    r.images = [...r.images, image]
+    r.by = by
+    r.at = new Date().toISOString()
+  })
+}
+
+export async function deleteCommTripImage(
+  jobNo: string,
+  rowId: string,
+  imageId: string,
+  by: string,
+): Promise<CommOrder | undefined> {
+  let gone: CommImage | undefined
+  const s = await edit(jobNo, by, (s) => {
+    const r = s.trips.find((x) => x.id === rowId)
+    if (!r) return
+    gone = r.images.find((x) => x.id === imageId)
+    r.images = r.images.filter((x) => x.id !== imageId)
+    r.by = by
+    r.at = new Date().toISOString()
+  })
+  await forgetImageFile(gone)
   return s
 }

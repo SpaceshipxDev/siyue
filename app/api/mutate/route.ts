@@ -412,12 +412,18 @@ import { markWritten } from '@/lib/shared-read'
 import { addPlanRow, deletePlanRow, isPlanStage, updatePlanRow, type PlanPatch } from '@/lib/plan'
 import {
   addCommOrderRows,
+  addCommTripRow,
   deleteCommOrderImage,
   deleteCommOrderRow,
+  deleteCommTripImage,
+  deleteCommTripRow,
   isCommOrderImageField,
   isCommOrderTextField,
+  isCommTripTextField,
   setCommOrderDueDate,
   updateCommOrderRow,
+  updateCommTripRow,
+  COMM_TRIP_TEXT_FIELDS,
 } from '@/lib/comm-order'
 
 // Single JSON dispatcher for mutating writes. Every existing inline-edit
@@ -5968,6 +5974,52 @@ async function dispatch(
       const u = await requireUser()
       if (!canWriteCommSheet(u)) return err('沟通确认单由工程或商务改', 403)
       const sheet = await deleteCommOrderImage(jobNo, rowId, field, imageId, u.name)
+      revalidatePath('/comm')
+      return Response.json(ok({ sheet }))
+    }
+
+    // 出差沟通确认 —— 同一张沟通单下面的另一张表, 同一档人能改。
+    case 'commTripAdd': {
+      const { jobNo, init } = body
+      if (!isString(jobNo) || !jobNo.trim()) return err('先填工单号')
+      const u = await requireUser()
+      if (!canWriteCommSheet(u)) return err('沟通确认单由工程或商务填', 403)
+      const raw = (typeof init === 'object' && init !== null ? init : {}) as Record<string, unknown>
+      const clean: Partial<Record<(typeof COMM_TRIP_TEXT_FIELDS)[number], string>> = {}
+      for (const f of COMM_TRIP_TEXT_FIELDS) if (isString(raw[f])) clean[f] = raw[f] as string
+      const sheet = await addCommTripRow(jobNo, clean, u.name)
+      revalidatePath('/comm')
+      return Response.json(ok({ sheet }))
+    }
+
+    case 'commTripUpdate': {
+      const { jobNo, rowId, field, text } = body
+      if (!isString(jobNo) || !isString(rowId) || !isCommTripTextField(field) || !isString(text))
+        return err('bad commTripUpdate args')
+      const u = await requireUser()
+      if (!canWriteCommSheet(u)) return err('沟通确认单由工程或商务填', 403)
+      const sheet = await updateCommTripRow(jobNo, rowId, field, text, u.name)
+      revalidatePath('/comm')
+      return Response.json(ok({ sheet }))
+    }
+
+    case 'commTripDelete': {
+      const { jobNo, rowId } = body
+      if (!isString(jobNo) || !isString(rowId)) return err('bad commTripDelete args')
+      const u = await requireUser()
+      if (!canWriteCommSheet(u)) return err('沟通确认单由工程或商务改', 403)
+      const sheet = await deleteCommTripRow(jobNo, rowId, u.name)
+      revalidatePath('/comm')
+      return Response.json(ok({ sheet }))
+    }
+
+    case 'commTripDeleteImage': {
+      const { jobNo, rowId, imageId } = body
+      if (!isString(jobNo) || !isString(rowId) || !isString(imageId))
+        return err('bad commTripDeleteImage args')
+      const u = await requireUser()
+      if (!canWriteCommSheet(u)) return err('沟通确认单由工程或商务改', 403)
+      const sheet = await deleteCommTripImage(jobNo, rowId, imageId, u.name)
       revalidatePath('/comm')
       return Response.json(ok({ sheet }))
     }

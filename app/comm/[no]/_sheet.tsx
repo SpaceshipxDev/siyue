@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
@@ -57,9 +57,12 @@ export function CommOrderSheet({
   initialDue,
   jobDue,
   embedded,
+  title,
   canWrite = true,
 }: {
   embedded?: boolean
+  /** 嵌在工单页时标题那一格 —— 那边换成「工单分析 / 出差」两项切换。 */
+  title?: ReactNode
   canWrite?: boolean
   jobNo: string
   initial: CommOrderRow[]
@@ -112,9 +115,11 @@ export function CommOrderSheet({
     <div>
       {embedded ? (
         <div className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-3">
-          <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
-            工单分析沟通确认单
-          </h2>
+          {title ?? (
+            <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-ink)]">
+              工单分析沟通确认单
+            </h2>
+          )}
           {tools}
         </div>
       ) : (
@@ -271,7 +276,8 @@ export function CommOrderSheet({
 }
 
 // 一格图 —— 点缩略图看大图; 「+ 图」选文件, 或者点一下这一格直接粘贴截图。
-function ImageCell({
+// field 'trip' = 出差沟通确认那张表的图 (./_trips)。
+export function ImageCell({
   canWrite,
   jobNo,
   rowId,
@@ -283,7 +289,7 @@ function ImageCell({
   canWrite: boolean
   jobNo: string
   rowId: string
-  field: CommOrderImageField
+  field: CommOrderImageField | 'trip'
   list: CommImage[]
   onSheet: (s?: CommOrder) => void
   onDelete: (imageId: string) => Promise<void>

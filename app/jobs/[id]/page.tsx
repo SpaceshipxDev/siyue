@@ -26,7 +26,7 @@ import {
 } from '@/lib/data'
 import { ensureVendorPortalTokens, getJob, getVendors } from '@/lib/db'
 import { logJobView } from '@/lib/access-log'
-import { shanghaiDay } from '@/lib/today'
+import { shanghaiDay, today } from '@/lib/today'
 import { getContractFiles } from '@/lib/contract-file'
 import { getDrawingFiles } from '@/lib/drawing-file'
 import { getNcPrograms } from '@/lib/nc-program-store'
@@ -92,7 +92,7 @@ import { StagePlanDate } from '@/app/_stage_plan'
 import { PART_STAGE_CODE } from '@/lib/part-status'
 import { ComponentAnchorScroller } from '@/app/_component_anchor'
 import { JobTabs } from './_job_tabs'
-import { CommOrderSheet } from '@/app/comm/[no]/_sheet'
+import { JobCommTab } from '@/app/comm/[no]/_trips'
 import { getCommOrder } from '@/lib/comm-order'
 import { getReworkJobs } from '@/lib/rework-job'
 import { getPickupJobIds } from '@/lib/pickup'
@@ -365,7 +365,8 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
   // 现在挂在「零件」后面的是工单分析沟通确认单 (lib/comm-order) —— 原来顶上单
   // 独一个「沟通单」页, 2026-10-20 于海伟要挪进每张工单: 表格手填、导入 Excel
   // 两种都在这一栏里。
-  const commRounds = commOrder?.rows.length ?? 0
+  // 两张表 (工单分析 + 出差) 一共记了几次。
+  const commRounds = (commOrder?.rows.length ?? 0) + (commOrder?.trips.length ?? 0)
   const jobTabs = [
     ...(isProgrammer ? [programmingTab] : []),
     { key: 'parts', label: '零件' },
@@ -1242,14 +1243,14 @@ export default async function JobDetail(props: PageProps<'/jobs/[id]'>) {
           {/* /零件 tab */}
 
           <div data-jobtab="comm" hidden>
-            <CommOrderSheet
-              key={commOrder?.updatedAt ?? job.jobNo}
-              embedded
+            <JobCommTab
               canWrite={canWriteCommSheet(user)}
-              jobNo={commOrder?.jobNo ?? job.jobNo}
-              initial={commOrder?.rows ?? []}
-              initialDue={commOrder?.dueDate ?? ''}
+              jobNo={job.jobNo}
+              order={commOrder}
               jobDue={job.dueDate ?? ''}
+              today={today()}
+              me={user.name}
+              customer={showCustomer ? job.customer ?? '' : ''}
             />
           </div>
 

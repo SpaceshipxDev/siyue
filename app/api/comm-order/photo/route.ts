@@ -3,6 +3,7 @@ import { revalidatePath } from 'next/cache'
 import { canWriteCommSheet, currentUser } from '@/lib/auth'
 import {
   addCommOrderImage,
+  addCommTripImage,
   isCommOrderImageField,
   uploadCommImage,
 } from '@/lib/comm-order'
@@ -27,7 +28,13 @@ export async function POST(request: NextRequest) {
   if (!(file instanceof File)) {
     return Response.json({ ok: false, error: '没有收到图片' }, { status: 400 })
   }
-  if (typeof jobNo !== 'string' || !jobNo || typeof rowId !== 'string' || !isCommOrderImageField(field)) {
+  // field 'trip' = 出差沟通确认那一行的图。
+  if (
+    typeof jobNo !== 'string' ||
+    !jobNo ||
+    typeof rowId !== 'string' ||
+    !(field === 'trip' || isCommOrderImageField(field))
+  ) {
     return Response.json({ ok: false, error: 'bad args' }, { status: 400 })
   }
   if (!ALLOWED.test(file.name) && !file.type.startsWith('image/')) {
@@ -38,7 +45,10 @@ export async function POST(request: NextRequest) {
   }
   try {
     const image = await uploadCommImage(jobNo, file, file.name, file.type)
-    const sheet = await addCommOrderImage(jobNo, rowId, field, image, user.name)
+    const sheet =
+      field === 'trip'
+        ? await addCommTripImage(jobNo, rowId, image, user.name)
+        : await addCommOrderImage(jobNo, rowId, field, image, user.name)
     revalidatePath('/comm')
     return Response.json({ ok: true, sheet })
   } catch (err) {
