@@ -155,6 +155,8 @@ export function parsePunchSheets(
   month: string,
 ): ParsedPunch[] {
   // 姓名|几号 → 那天出现的所有时间
+  const [yy, mm] = month.split('-').map(Number)
+  const monthDays = new Date(Date.UTC(yy, mm, 0)).getUTCDate() || 31
   const times = new Map<string, string[]>()
   const deptOf = new Map<string, string>()
   const add = (name: string, day: number, ts: string[]) => {
@@ -179,21 +181,24 @@ export function parsePunchSheets(
       const cells = row.map(str)
       const ni = cells.findIndex(isNameHead)
 
-      // 1 到 31 号那一排 (② ③ 的表头; ② 的姓名也在这一行)。几号按位置数:
-      // 从写着 1 的那一格往后, 一格一天 —— 周末、节日那几格写的是"六""日"
-      // "中秋节", 照样是那一天。
-      let numeric = 0
-      cells.forEach((c) => {
+      // 1 到 31 号那一排 (② ③ 的表头; ② 的姓名也在这一行)。几号按位置数: 从
+      // 1 号那一格往后, 一格一天 —— 周末、节日那几格写的是"六""日""中秋节",
+      // 照样是那一天。1 号在哪一列不看写着 "1" 的那一格 (十月一号到八号写的
+      // 全是"国庆节", 头一个 "1" 是表尾的下月 1 号, 整张表就对歪了, 只读出两
+      // 个人 —— 于海伟 2026-11-25), 而是让每个认得出的数字倒推: 写着 9 的那
+      // 一格往前数 8 格就是 1 号, 多数说了算。
+      const starts = new Map<number, number>()
+      cells.forEach((c, i) => {
         const m = c.match(/^(\d{1,2})(日|号)?$/)
-        if (m && Number(m[1]) >= 1 && Number(m[1]) <= 31) numeric += 1
+        if (!m) return
+        const v = Number(m[1])
+        if (v >= 1 && v <= 31 && i - (v - 1) >= 0) starts.set(i - (v - 1), (starts.get(i - (v - 1)) ?? 0) + 1)
       })
-      const first = cells.findIndex((c) => /^0?1(日|号)?$/.test(c))
-      if (numeric >= 10 && first >= 0) {
+      const [first, votes] = [...starts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [-1, 0]
+      if (votes >= 10) {
         const dayHits = new Map<number, number>()
-        for (let i = first; i < cells.length && i - first < 31; i++) {
-          if (cells[i] === '' && i - first >= 28) break
-          dayHits.set(i, i - first + 1)
-        }
+        // 一个月有几天就几格 —— 表尾带着的下月 1 号不算进来。
+        for (let i = first; i < cells.length && i - first < monthDays; i++) dayHits.set(i, i - first + 1)
         dayCols = dayHits
         if (ni >= 0) {
           nameCol = ni
