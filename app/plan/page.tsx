@@ -304,11 +304,14 @@ export default async function PlanPage({
   // 工单号 → 工单, 表里那一格点得进去。
   const jobIdOf: Record<string, string> = {}
   const bizOf: Record<string, string> = {}
+  // 工单上的备注 —— 跟着工单走, 工单那边一改这里就是新的 (于海伟 2026-11-25)。
+  const jobNoteOf: Record<string, string> = {}
   for (const r of live) {
     const m = byJobNo.get(norm(r.jobNo))
     if (m) jobIdOf[norm(r.jobNo)] = m.id
     // 这单的商务 (越侬商务) —— 计划里一行一个, 有事知道找谁。
     if (m?.yuenongBusiness) bizOf[norm(r.jobNo)] = m.yuenongBusiness
+    if (m?.notes?.trim()) jobNoteOf[norm(r.jobNo)] = m.notes.trim()
   }
 
   const names = [...new Set([...users.map((u) => u.name), ...extraNames])]
@@ -340,6 +343,7 @@ export default async function PlanPage({
           engPlan={engPlan}
           jobIds={jobIdOf}
           bizOf={bizOf}
+          jobNoteOf={jobNoteOf}
           names={names}
           jobNos={jobNos}
           todayStr={todayStr}

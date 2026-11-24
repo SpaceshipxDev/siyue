@@ -67,6 +67,7 @@ export function PlanBoard({
   engPlan,
   jobIds,
   bizOf,
+  jobNoteOf,
   names,
   jobNos,
   todayStr,
@@ -82,6 +83,8 @@ export function PlanBoard({
   jobIds: Record<string, string>
   /** 工单号 (去空格、小写) → 这单的商务。 */
   bizOf: Record<string, string>
+  /** 工单上的备注 (工单号小写 → 备注), 只读, 跟着工单同步。 */
+  jobNoteOf: Record<string, string>
   names: string[]
   jobNos: string[]
   todayStr: string
@@ -456,7 +459,7 @@ export function PlanBoard({
             工作表。导的就是屏幕上这一批 (日期、人员、完成情况的筛选照算)。 */}
         <button
           type="button"
-          onClick={() => exportPlan(shown, group, auto, day, bizOf)}
+          onClick={() => exportPlan(shown, group, auto, day, bizOf, jobNoteOf)}
           disabled={shown.length === 0}
           className="ml-auto h-8 rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[12.5px] text-[var(--color-ink-2)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-ink)] disabled:opacity-40"
         >
@@ -579,12 +582,23 @@ export function PlanBoard({
                   />
                   {!r.doneAt && a && <AutoLine a={a} word={r.stage === '外协' ? '回厂' : '报工'} />}
                 </div>
-                <EditableTextArea
-                  value={r.note}
-                  placeholder="—"
-                  className="text-[12.5px] text-[var(--color-ink-2)]"
-                  onSave={(v) => patch(r.id, { note: v })}
-                />
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  {/* 工单备注 —— 工单上写的那句, 只读, 工单那边改了这里跟着变。 */}
+                  {jobNoteOf[r.jobNo.trim().toLowerCase()] && (
+                    <p
+                      className="whitespace-pre-wrap break-words py-0.5 text-[11.5px] leading-snug text-[var(--color-ink-3)]"
+                      title="工单备注 · 在工单上改"
+                    >
+                      {jobNoteOf[r.jobNo.trim().toLowerCase()]}
+                    </p>
+                  )}
+                  <EditableTextArea
+                    value={r.note}
+                    placeholder="—"
+                    className="text-[12.5px] text-[var(--color-ink-2)]"
+                    onSave={(v) => patch(r.id, { note: v })}
+                  />
+                </div>
                 <EditableTextArea
                   value={r.reason}
                   placeholder={done ? '—' : '没做完写原因…'}
@@ -632,6 +646,7 @@ async function exportPlan(
   auto: Record<string, PlanAuto>,
   day: string,
   bizOf: Record<string, string>,
+  jobNoteOf: Record<string, string>,
 ) {
   const XLSX = await import('xlsx')
   const wb = XLSX.utils.book_new()
@@ -657,7 +672,7 @@ async function exportPlan(
       r.workers.map((w) => (w.side ? `${w.name}(${w.side})` : w.name)).join('、'),
       r.due ?? '',
       status(r),
-      r.note ?? '',
+      [jobNoteOf[r.jobNo.trim().toLowerCase()], r.note].filter(Boolean).join('\n'),
       r.reason ?? '',
     ])
     const ws = XLSX.utils.aoa_to_sheet([head, ...body])
