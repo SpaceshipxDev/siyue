@@ -1,9 +1,9 @@
 import 'server-only'
 import type { Stage } from './data'
-import { STAGES } from './data'
+import { STAGES, stageOfRecordedStep } from './data'
 import { supabase } from './supabase'
 import { today, shanghaiWindow, shanghaiRangeWindow, shiftDate } from './today'
-import { getWorkSplits, workSplitKey, type WorkShare } from './work-split'
+import { getPersonSplits, getWorkSplits, workSplitKey, type WorkShare } from './work-split'
 import { applyFamilyValues, getFamilyJobIds, getQualityNames, PROGRAMMING_QTY_CAP } from './part-family'
 import { getValueEdits } from './report-value'
 import { getGroupMembers } from './report-group'
@@ -911,27 +911,91 @@ export async function getWorkerSelfStats(
 ): Promise<WorkerSelfStats> {
   const t = today()
   const week = shanghaiWindow(t, 'week')
+  const dayWindow = shanghaiWindow(t, 'day')
   const [dayRows, weekRows, listed] = await Promise.all([
-    getWorkerOutput(shanghaiWindow(t, 'day')),
+    getWorkerOutput(dayWindow),
     getWorkerOutput(week),
     groupUserId ? getGroupMembers(groupUserId).catch(() => []) : Promise.resolve([]),
   ])
   const members = listed.filter((n) => n !== actorName)
   const names = new Set([actorName, ...members])
+  // 是不是这个组的人 —— 组员名单上的, 或者就是账号名里的那个人 ("金属操机001
+  // 高发祥" 里的高发祥, 没写进组员也算自己组的)。
+  const inGroup = (n: string) => names.has(n) || (n.length >= 2 && actorName.includes(n))
   const sum = (
     rows: WorkerOutputRow[],
     k: 'finishes' | 'pieces' | 'valueCny' | 'unpriced',
   ) => rows.filter((r) => names.has(r.actorName)).reduce((a, r) => a + r[k], 0)
+  // 几个人一起做的 (操机、车铣、喷漆按 ✓ 时选了几个人): 账号统计整条记在按 ✓
+  // 的人头上, 这里按各人的件数挪 —— 别组的人做的那份扣出去, 本组的人在别组账
+  // 号上做的那份算进来 (于海伟 2026-11-26)。读不到就照原样。
+  const moved = await personGroupDelta(dayWindow, inGroup).catch(() => ({ pieces: 0, valueCny: 0 }))
   return {
     todayFinishes: sum(dayRows, 'finishes'),
-    todayPieces: sum(dayRows, 'pieces'),
-    todayValueCny: Math.round(sum(dayRows, 'valueCny') * 100) / 100,
+    todayPieces: Math.max(0, Math.round((sum(dayRows, 'pieces') + moved.pieces) * 100) / 100),
+    todayValueCny: Math.max(0, Math.round((sum(dayRows, 'valueCny') + moved.valueCny) * 100) / 100),
     todayUnpriced: sum(dayRows, 'unpriced'),
     weekFinishes: sum(weekRows, 'finishes'),
     weekPieces: sum(weekRows, 'pieces'),
     members,
     listed: groupUserId ? listed : null,
   }
+}
+
+/*
+ * 个人报工 (操机、车铣、喷漆选的人) 对一个组的今日产出该加减多少。
+ *
+ * 账号统计 (worker_output) 把一道工序整条记在按 ✓ 的人头上; 个人报工记着这
+ * 一道其实是谁、各做了几件。按 ✓ 的在组里、做的人不在 —— 那几件和钱扣出去;
+ * 按 ✓ 的不在组里、做的人在 —— 加进来。钱按这一条完成的金额按件数算; 喷漆的
+ * 底漆面漆 (操机的正反面) 各是那一道的一半。
+ */
+async function personGroupDelta(
+  window: { from: string; to: string },
+  inGroup: (name: string) => boolean,
+): Promise<{ pieces: number; valueCny: number }> {
+  const out = { pieces: 0, valueCny: 0 }
+  const entries = await getPersonSplits()
+  if (entries.length === 0) return out
+  // 零件::工序 → 各人几件 (小步折成那一道的一半)。
+  const byKey = new Map<string, { name: string; qty: number }[]>()
+  for (const e of entries) {
+    const step = stageOfRecordedStep(e.stage)
+    const k = workSplitKey(e.partId, step ?? e.stage)
+    const list = byKey.get(k) ?? []
+    for (const sh of e.shares) list.push({ name: sh.name, qty: step ? sh.qty / 2 : sh.qty })
+    byKey.set(k, list)
+  }
+  const partIds = [...new Set(entries.map((e) => e.partId))]
+  const rows = await fetchInChunks(partIds, async (chunk) => {
+    const r = await supabase
+      .from('worker_stage_events')
+      .select('job_id, part_id, stage, actor_name, part_qty, value_cny')
+      .eq('kind', 'finished')
+      .gte('ts', window.from)
+      .lt('ts', window.to)
+      .in('part_id', chunk)
+    if (r.error) {
+      if (isSchemaLagError(r.error)) return []
+      throw r.error
+    }
+    return (r.data ?? []) as AnyRow[]
+  })
+  await applyFamilyValues(rows)
+  for (const e of rows) {
+    const shares = byKey.get(workSplitKey(e.part_id as string, e.stage as string))
+    if (!shares) continue
+    const partQty = Number(e.part_qty ?? 0)
+    const per = partQty > 0 ? Number(e.value_cny ?? 0) / partQty : 0
+    const presserIn = inGroup(((e.actor_name as string | null) ?? '').trim())
+    for (const sh of shares) {
+      if (presserIn === inGroup(sh.name)) continue
+      const sign = presserIn ? -1 : 1
+      out.pieces += sign * sh.qty
+      out.valueCny += sign * sh.qty * per
+    }
+  }
+  return out
 }
 
 // Formatter for event timestamps. Mirrors the floor-friendly compact form:
