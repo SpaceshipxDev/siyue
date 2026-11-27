@@ -382,6 +382,7 @@ import {
   submitPayRequest,
 } from '@/lib/pay-request'
 import { cleanStatement, payItemAmount, payStage, PAY_DEPTS, type PayDept } from '@/lib/pay-request-shared'
+import { setVendorStatement } from '@/lib/vendor-statement'
 import {
   addPayablePayment,
   getPayables,
@@ -3621,6 +3622,22 @@ async function dispatch(
     }
 
     // 对账单明细 —— 导进来、换一张、去掉 (statement: null)。
+    // 外协的手工对账单 (lib/vendor-statement) —— 供应商自己做的那张, 导进来摆
+    // 在外协对账页上对着看。跟确认同一档人能导、能换、能去掉。
+    case 'setVendorStatement': {
+      const { vendor, period } = body
+      if (!isString(vendor) || !vendor.trim() || !isString(period) || !isMonth(period))
+        return err('bad setVendorStatement args')
+      const raw = body.statement as Record<string, unknown> | null | undefined
+      const statement = raw ? cleanStatement(raw.rows, raw.filename) : undefined
+      if (raw && !statement) return err('表格里是空的')
+      const u = await requireUser()
+      if (!canConfirmDuizhang(u)) return err('手工对账单由商务或财务来导', 403)
+      await setVendorStatement(vendor, period, statement, u.name)
+      revalidatePath('/duizhang')
+      return Response.json(ok())
+    }
+
     case 'setPayStatement': {
       const id = body.payRequestId
       if (!isString(id)) return err('bad setPayStatement args')

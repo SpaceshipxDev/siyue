@@ -21,7 +21,8 @@ import {
   type DuizhangLine,
 } from '@/lib/duizhang'
 import { settleOutstanding, settlePaid, type Payable } from '@/lib/settle-shared'
-import { PAY_STAGE_LABEL, payStage, type PayRequest } from '@/lib/pay-request-shared'
+import { PAY_STAGE_LABEL, payStage, type PayRequest, type PayStatement } from '@/lib/pay-request-shared'
+import { StatementPick, StatementTable } from '@/app/_pay_requests'
 import { ExportButton } from './_bar'
 
 // 外协对账单 —— 跟客户对账单一个样子 (一个零件一行: 图、料号、零件名、数量、
@@ -49,6 +50,7 @@ export function VendorSheet({
   records,
   recordLines,
   requests,
+  statement,
   canApprove,
   canOpenLedger,
 }: {
@@ -62,12 +64,76 @@ export function VendorSheet({
   recordLines: Record<string, DuizhangLine[]>
   /** 确认了、还在付款路上的付款申请。 */
   requests: PayRequest[]
+  /** 供应商自己的那张手工对账单 (lib/vendor-statement), 导进来摆着对着看。 */
+  statement?: PayStatement & { by: string; at: string }
   canApprove: boolean
   canOpenLedger: boolean
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  // 手工对账单 —— 导进来、换一张、去掉; 「查看」点开那张表。
+  const [showManual, setShowManual] = useState(false)
+  const [manualBusy, setManualBusy] = useState(false)
+  async function saveManual(next: PayStatement | undefined) {
+    setManualBusy(true)
+    setError(null)
+    try {
+      await mutate({ kind: 'setVendorStatement', vendor: sheet.party, period: month, statement: next ?? null })
+      setShowManual(!!next)
+      router.refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '存不上')
+    } finally {
+      setManualBusy(false)
+    }
+  }
+  const manualButton = canApprove ? (
+    <StatementPick
+      value={statement}
+      noChip
+      label="导入手工对账单"
+      busy={manualBusy}
+      onChange={(next) => next && void saveManual(next)}
+      onError={setError}
+    />
+  ) : null
+  // 导过的那张: 文件名 · 几行 · 查看 / 去掉; 点开就是原样那张表。
+  const manualStrip = statement ? (
+    <div className="no-print mt-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px]">
+        <span className="font-medium text-[var(--color-ink)]">手工对账单</span>
+        <span className="text-[var(--color-ink-2)]">
+          {statement.filename} · {Math.max(0, statement.rows.length - 1)} 行
+        </span>
+        <span className="text-[var(--color-ink-4)]">
+          {statement.by} 导入于 {statement.at.slice(0, 10)}
+        </span>
+        <button
+          type="button"
+          onClick={() => setShowManual((v) => !v)}
+          className="text-[var(--color-ink-2)] underline-offset-4 hover:text-[var(--color-ink)] hover:underline"
+        >
+          {showManual ? '收起' : '查看'}
+        </button>
+        {canApprove && (
+          <button
+            type="button"
+            disabled={manualBusy}
+            onClick={() => window.confirm('去掉这张手工对账单？') && void saveManual(undefined)}
+            className="text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
+          >
+            去掉
+          </button>
+        )}
+      </div>
+      {showManual && (
+        <div className="mt-2">
+          <StatementTable s={statement} />
+        </div>
+      )}
+    </div>
+  ) : null
   // 摊开明细的那一笔 —— 刚确认的那笔自动摊开。
   const [openRec, setOpenRec] = useState<string | null>(null)
 
@@ -305,6 +371,7 @@ export function VendorSheet({
               </span>
             )}
             <span className="ml-auto flex items-center gap-2">
+              {manualButton}
               <ExportButton sheet={chosenSheet} />
               <a
                 href={pdfHref}
@@ -335,6 +402,15 @@ export function VendorSheet({
           <p className="mt-2 text-[11.5px] text-[var(--color-ink-4)]">
             确认后去填付款，审核、老板批了才进财务应付。确认过的单下一回对账不再出现；没勾的留着，下回接着对。
           </p>
+          {manualStrip}
+        </div>
+      )}
+      {/* 这个月没有要对的单了 —— 手工对账单照样能导、能看。 */}
+      {groups.length === 0 && (manualButton || manualStrip) && (
+        <div className="no-print mt-5 rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-4 py-3 md:px-5">
+          {manualButton && <div className="flex justify-end">{manualButton}</div>}
+          {manualStrip}
+          {error && <p className="mt-2 text-[12px] text-[var(--color-overdue)]">{error}</p>}
         </div>
       )}
 

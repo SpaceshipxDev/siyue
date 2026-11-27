@@ -663,13 +663,14 @@ function NewRequest({
 }
 
 // 导入对账单明细的那个按钮 —— 选了 Excel / CSV 就读成一张表; 有了就显示几行,
-// 点 × 去掉。
-function StatementPick({
+// 点 × 去掉。外协对账页的手工对账单也用它 (app/duizhang/_vendor_sheet)。
+export function StatementPick({
   value,
   onChange,
   onError,
   busy: outerBusy,
   noChip,
+  label = '＋ 对账单明细',
 }: {
   value?: PayStatement
   onChange: (s: PayStatement | undefined) => void
@@ -677,6 +678,8 @@ function StatementPick({
   busy?: boolean
   /** 外面自己写着是哪张 —— 这里只要那个按钮。 */
   noChip?: boolean
+  /** 按钮上的字 (没导过时) —— 默认「＋ 对账单明细」。 */
+  label?: string
 }) {
   const ref = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
@@ -726,14 +729,14 @@ function StatementPick({
         title="选供应商的对账单 Excel，整张表原样导进来"
         className="h-9 shrink-0 rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-3 text-[12.5px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] disabled:opacity-50"
       >
-        {busy || outerBusy ? '读取中…' : value ? '换一张' : '＋ 对账单明细'}
+        {busy || outerBusy ? '读取中…' : value ? '换一张' : label}
       </button>
     </span>
   )
 }
 
 // 对账单明细那张表 —— 第一行是表头; 长的在框里滚。
-function StatementTable({ s }: { s: PayStatement }) {
+export function StatementTable({ s }: { s: PayStatement }) {
   const [head, ...body] = s.rows
   return (
     <div className="max-h-[320px] overflow-auto rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)]">

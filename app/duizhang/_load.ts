@@ -13,6 +13,7 @@ import { getReceivables } from '@/lib/receivable'
 import { getNoReconcile, LINE_MARK } from '@/lib/no-reconcile'
 import { getPayables, vendorSettledFrom } from '@/lib/payable'
 import { getPayRequests, reconBlockIds } from '@/lib/pay-request'
+import { getVendorStatement, type VendorStatement } from '@/lib/vendor-statement'
 import { payStage, type PayRequest } from '@/lib/pay-request-shared'
 import { customerSettledFrom, type Payable, type Receivable } from '@/lib/settle-shared'
 import {
@@ -91,6 +92,7 @@ export type DuizhangLoad = {
   vendorRecordLines: Record<string, DuizhangLine[]>
   /** 这一家这个月对账确认了、还在付款路上 (待填付款 / 审核 / 老板批) 的申请。 */
   vendorRequests: PayRequest[]
+  vendorStatement?: VendorStatement
   /** 审批 / 确认 / 记收付款 —— 管钱那一档。 */
   canApprove: boolean
   /** 能进财务的应收/应付 (每个商务)。 */
@@ -126,6 +128,8 @@ export async function loadDuizhang(params: {
   let vendorRecords: Payable[] = []
   const vendorRecordLines: Record<string, DuizhangLine[]> = {}
   let vendorRequests: PayRequest[] = []
+  // 供应商自己的那张手工对账单 (导进来摆着看, lib/vendor-statement)。
+  let vendorStatement: VendorStatement | undefined
   let customerRecords: Receivable[] = []
   let undocumented: UndocumentedShipment[] = []
   let skipped: string[] = []
@@ -250,6 +254,7 @@ export async function loadDuizhang(params: {
           p.vendor === party &&
           p.period === month,
       )
+      vendorStatement = await getVendorStatement(party, month).catch(() => undefined)
       vendorRequests = requests.filter((r) => {
         const st = payStage(r)
         return r.recon?.vendor === party && r.recon.period === month && st !== 'done' && st !== 'rejected'
@@ -281,6 +286,7 @@ export async function loadDuizhang(params: {
     vendorRecords,
     vendorRecordLines,
     vendorRequests,
+    vendorStatement,
     customerRecords,
     jobQuery,
     jobMatches,
