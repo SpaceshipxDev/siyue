@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useMemo, useState, useTransition } from 'react'
+import { Fragment, useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { mutate } from '@/lib/mutate'
@@ -22,7 +22,9 @@ import {
 } from '@/lib/duizhang'
 import { settleOutstanding, settlePaid, type Payable } from '@/lib/settle-shared'
 import { PAY_STAGE_LABEL, payStage, type PayRequest, type PayStatement } from '@/lib/pay-request-shared'
-import { StatementPick, StatementTable } from '@/app/_pay_requests'
+import { readStatementFile, StatementTable } from '@/app/_pay_requests'
+import { PhotoViewer } from '@/app/_photo_viewer'
+import type { VendorStatement } from '@/lib/vendor-statement'
 import { ExportButton } from './_bar'
 
 // 外协对账单 —— 跟客户对账单一个样子 (一个零件一行: 图、料号、零件名、数量、
@@ -65,46 +67,98 @@ export function VendorSheet({
   /** 确认了、还在付款路上的付款申请。 */
   requests: PayRequest[]
   /** 供应商自己的那张手工对账单 (lib/vendor-statement), 导进来摆着对着看。 */
-  statement?: PayStatement & { by: string; at: string }
+  statement?: VendorStatement
   canApprove: boolean
   canOpenLedger: boolean
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const [error, setError] = useState<string | null>(null)
-  // 手工对账单 —— 导进来、换一张、去掉; 「查看」点开那张表。
+  // 手工对账单 —— 导进来、换一张、去掉; 「查看」点开。Excel 读成表; 照片 /
+  // PDF (纸面那张拍的, 可以几页一起选) 原样存着, 点缩略图看大图。
   const [showManual, setShowManual] = useState(false)
   const [manualBusy, setManualBusy] = useState(false)
-  async function saveManual(next: PayStatement | undefined) {
+  const [viewing, setViewing] = useState<number | null>(null)
+  const manualRef = useRef<HTMLInputElement>(null)
+  async function importManual(fs: File[]) {
     setManualBusy(true)
     setError(null)
     try {
-      await mutate({ kind: 'setVendorStatement', vendor: sheet.party, period: month, statement: next ?? null })
-      setShowManual(!!next)
+      const sheetFile = fs.find((f) => /\.(xlsx|xls|csv)$/i.test(f.name))
+      if (sheetFile) {
+        let table: PayStatement | undefined
+        try {
+          table = await readStatementFile(sheetFile)
+        } catch {
+          throw new Error('这个表格读不出来 —— 换成 Excel（.xlsx）再试')
+        }
+        if (!table) throw new Error('这张表是空的')
+        await mutate({ kind: 'setVendorStatement', vendor: sheet.party, period: month, statement: table })
+      } else {
+        const fd = new FormData()
+        fd.append('vendor', sheet.party)
+        fd.append('period', month)
+        for (const f of fs) fd.append('file', f, f.name)
+        const res = await fetch(withBase('/api/vendor-statement-file'), { method: 'POST', body: fd })
+        const d = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string }
+        if (!d.ok) throw new Error(d.error ?? '传不上')
+      }
+      setShowManual(true)
       router.refresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : '存不上')
+      setError(e instanceof Error ? e.message : '导不进来')
+    } finally {
+      setManualBusy(false)
+    }
+  }
+  async function clearManual() {
+    setManualBusy(true)
+    setError(null)
+    try {
+      await mutate({ kind: 'setVendorStatement', vendor: sheet.party, period: month, statement: null })
+      setShowManual(false)
+      router.refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '去不掉')
     } finally {
       setManualBusy(false)
     }
   }
   const manualButton = canApprove ? (
-    <StatementPick
-      value={statement}
-      noChip
-      label="导入手工对账单"
-      busy={manualBusy}
-      onChange={(next) => next && void saveManual(next)}
-      onError={setError}
-    />
+    <>
+      <input
+        ref={manualRef}
+        type="file"
+        multiple
+        accept=".xlsx,.xls,.csv,.pdf,image/*"
+        className="hidden"
+        onChange={(e) => {
+          const fs = Array.from(e.target.files ?? [])
+          e.target.value = ''
+          if (fs.length > 0) void importManual(fs)
+        }}
+      />
+      <button
+        type="button"
+        disabled={manualBusy}
+        onClick={() => manualRef.current?.click()}
+        title="供应商的对账单：Excel 原样读成表；照片或 PDF（可以几页一起选）原样存着点开看"
+        className="rounded-[2px] border border-dashed border-[var(--color-border-strong)] px-3 py-1.5 text-[12px] tracking-wider text-[var(--color-ink-2)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)] disabled:opacity-50"
+      >
+        {manualBusy ? '导入中…' : statement ? '换一张手工对账单' : '导入手工对账单'}
+      </button>
+    </>
   ) : null
-  // 导过的那张: 文件名 · 几行 · 查看 / 去掉; 点开就是原样那张表。
+  const manualImages = (statement?.files ?? []).filter((f) => !/\.pdf$/i.test(f.filename))
+  // 导过的那份: 是什么 · 谁导的 · 查看 / 去掉; 点开就是原样那张表, 或者那几张图。
   const manualStrip = statement ? (
     <div className="no-print mt-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px]">
         <span className="font-medium text-[var(--color-ink)]">手工对账单</span>
         <span className="text-[var(--color-ink-2)]">
-          {statement.filename} · {Math.max(0, statement.rows.length - 1)} 行
+          {statement.table
+            ? `${statement.table.filename} · ${Math.max(0, statement.table.rows.length - 1)} 行`
+            : `${statement.files.length} 个文件`}
         </span>
         <span className="text-[var(--color-ink-4)]">
           {statement.by} 导入于 {statement.at.slice(0, 10)}
@@ -120,17 +174,52 @@ export function VendorSheet({
           <button
             type="button"
             disabled={manualBusy}
-            onClick={() => window.confirm('去掉这张手工对账单？') && void saveManual(undefined)}
+            onClick={() => window.confirm('去掉这张手工对账单？') && void clearManual()}
             className="text-[var(--color-ink-4)] hover:text-[var(--color-overdue)]"
           >
             去掉
           </button>
         )}
       </div>
-      {showManual && (
+      {showManual && statement.table && (
         <div className="mt-2">
-          <StatementTable s={statement} />
+          <StatementTable s={statement.table} />
         </div>
+      )}
+      {showManual && statement.files.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {statement.files.map((f) =>
+            /\.pdf$/i.test(f.filename) ? (
+              <a
+                key={f.id}
+                href={proxiedStorageUrl(f.url)}
+                target="_blank"
+                rel="noopener"
+                title={f.filename}
+                className="flex h-[120px] w-[96px] items-center justify-center rounded-[2px] border border-[var(--color-border)] bg-[var(--color-surface)] text-[12px] text-[var(--color-ink-2)] hover:border-[var(--color-ink)]"
+              >
+                PDF
+              </a>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={f.id}
+                src={proxiedStorageUrl(f.url)}
+                alt={f.filename}
+                title={`${f.filename} — 点开放大`}
+                onClick={() => setViewing(manualImages.findIndex((x) => x.id === f.id))}
+                className="h-[120px] max-w-[200px] cursor-zoom-in rounded-[2px] border border-[var(--color-border)] bg-white object-contain"
+              />
+            ),
+          )}
+        </div>
+      )}
+      {viewing !== null && viewing >= 0 && (
+        <PhotoViewer
+          items={manualImages.map((f) => ({ url: f.url, filename: f.filename }))}
+          start={viewing}
+          onClose={() => setViewing(null)}
+        />
       )}
     </div>
   ) : null

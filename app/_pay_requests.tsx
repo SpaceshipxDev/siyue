@@ -306,8 +306,10 @@ function gridToItems(grid: unknown[][]): ImportedItem[] {
   return out
 }
 
-/** 对账单明细 —— 整张表原样读进来 (第一张工作表, 格子按表里显示的样子)。 */
-async function readStatementFile(file: File): Promise<PayStatement | undefined> {
+/** 对账单明细 —— 整张表原样读进来 (第一张工作表, 格子按表里显示的样子)。
+ *  只认 Excel / CSV: 照片硬当表格读, 读出来是一屏乱码 (于海伟 2026-11-28)。 */
+export async function readStatementFile(file: File): Promise<PayStatement | undefined> {
+  if (!/\.(xlsx|xls|csv)$/i.test(file.name)) throw new Error('not a sheet')
   const XLSX = await import('xlsx')
   const buf = await file.arrayBuffer()
   // CSV 是纯文字 —— 先认编码 (UTF-8 不对就是 GBK, 国内导出来的多半是它), 格
